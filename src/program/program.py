@@ -20,7 +20,8 @@ from program.services.content import (
     TraktContent,
 )
 from program.services.downloaders import Downloader
-from program.services.indexers import IndexerService, TMDBIndexer, TVDBIndexer
+from program.services.indexers import IndexerService
+from program.services.notifications import NotificationService
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
@@ -59,7 +60,7 @@ class Program(threading.Thread):
         self.em = EventManager()
         if self.enable_trace:
             tracemalloc.start()
-            self.malloc_time = time.monotonic()-50
+            self.malloc_time = time.monotonic() - 50
             self.last_snapshot = None
 
     def initialize_apis(self):
@@ -75,44 +76,55 @@ class Program(threading.Thread):
             TraktContent: TraktContent(),
         }
 
-        tmdb_indexer = TMDBIndexer()
-        tvdb_indexer = TVDBIndexer()
-        di[TMDBIndexer] = tmdb_indexer
-        di[TVDBIndexer] = tvdb_indexer
-        composite_indexer = IndexerService()
-
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
         _downloader = Downloader()
         self.services = {
-            IndexerService: composite_indexer,
+            IndexerService: IndexerService(),
             Scraping: Scraping(),
             Updater: Updater(),
             Downloader: _downloader,
             FilesystemService: FilesystemService(_downloader),
             PostProcessing: PostProcessing(),
+            NotificationService: NotificationService(),
         }
 
         self.all_services = {
             **self.requesting_services,
             **self.services,
-            TMDBIndexer: tmdb_indexer,
-            TVDBIndexer: tvdb_indexer,
         }
 
-        if len([service for service in self.requesting_services.values() if service.initialized]) == 0:
-            logger.warning("No content services initialized, items need to be added manually.")
+        if (
+            len(
+                [
+                    service
+                    for service in self.requesting_services.values()
+                    if service.initialized
+                ]
+            )
+            == 0
+        ):
+            logger.warning(
+                "No content services initialized, items need to be added manually."
+            )
         if not self.services[Scraping].initialized:
-            logger.error("No Scraping service initialized, you must enable at least one.")
+            logger.error(
+                "No Scraping service initialized, you must enable at least one."
+            )
         if not self.services[Downloader].initialized:
-            logger.error("No Downloader service initialized, you must enable at least one.")
+            logger.error(
+                "No Downloader service initialized, you must enable at least one."
+            )
         if not self.services[FilesystemService].initialized:
-            logger.error("Filesystem service failed to initialize, check your settings.")
+            logger.error(
+                "Filesystem service failed to initialize, check your settings."
+            )
         if not self.services[Updater].initialized:
-            logger.error("No Updater service initialized, you must enable at least one.")
+            logger.error(
+                "No Updater service initialized, you must enable at least one."
+            )
 
         if self.enable_trace:
             self.last_snapshot = tracemalloc.take_snapshot()
-
 
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
@@ -131,7 +143,7 @@ class Program(threading.Thread):
     def start(self):
         """
         Start the Riven program: ensure configuration and database readiness, initialize APIs and services, schedule background jobs, and start the main thread and scheduler.
-        
+
         This method prepares runtime state and external integrations by registering settings observers, creating the data directory and default settings if missing, initializing APIs and services after database migrations, computing and logging item counts (including filesystem-backed items), configuring executors and the background scheduler, scheduling periodic service and maintenance tasks, starting the thread and scheduler, and marking the program as initialized.
         """
         latest_version = get_version()
@@ -172,6 +184,7 @@ class Program(threading.Thread):
             # Count items with filesystem entries
             # Use exists() to check if any filesystem_entries exist for the item
             from sqlalchemy import exists
+
             movies_with_fs = session.execute(
                 select(func.count(Movie.id)).where(
                     exists().where(FilesystemEntry.media_item_id == Movie.id)
@@ -186,14 +199,23 @@ class Program(threading.Thread):
             total_movies = session.execute(select(func.count(Movie.id))).scalar_one()
             total_shows = session.execute(select(func.count(Show.id))).scalar_one()
             total_seasons = session.execute(select(func.count(Season.id))).scalar_one()
-            total_episodes = session.execute(select(func.count(Episode.id))).scalar_one()
+            total_episodes = session.execute(
+                select(func.count(Episode.id))
+            ).scalar_one()
             total_items = session.execute(select(func.count(MediaItem.id))).scalar_one()
 
-            logger.log("ITEM", f"Movies: {total_movies} (With filesystem: {movies_with_fs})")
+            logger.log(
+                "ITEM", f"Movies: {total_movies} (With filesystem: {movies_with_fs})"
+            )
             logger.log("ITEM", f"Shows: {total_shows}")
             logger.log("ITEM", f"Seasons: {total_seasons}")
-            logger.log("ITEM", f"Episodes: {total_episodes} (With filesystem: {episodes_with_fs})")
-            logger.log("ITEM", f"Total Items: {total_items} (With filesystem: {total_with_fs})")
+            logger.log(
+                "ITEM",
+                f"Episodes: {total_episodes} (With filesystem: {episodes_with_fs})",
+            )
+            logger.log(
+                "ITEM", f"Total Items: {total_items} (With filesystem: {total_with_fs})"
+            )
 
         self.executors = []
         self.scheduler = BackgroundScheduler()
@@ -213,43 +235,46 @@ class Program(threading.Thread):
                 self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
             if item_ids:
-                logger.log("PROGRAM", f"Successfully retried {len(item_ids)} incomplete items")
+                logger.log(
+                    "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
+                )
             else:
                 logger.log("NOT_FOUND", "No items required retrying")
 
-    def _update_ongoing(self) -> None:
-        """Update state for ongoing and unreleased items."""
-        with db.Session() as session:
-            updated_items = db_functions.update_ongoing(session)
-            for item_id in updated_items:
-                self.em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
+    def _reindex_ongoing(self) -> None:
+        """Reindex all ongoing items to fetch fresh metadata."""
+        indexer_service = self.services.get(IndexerService)
+        if not indexer_service:
+            logger.error("IndexerService not available")
+            return
 
-            if updated_items:
-                logger.log("PROGRAM", f"Successfully updated {len(updated_items)} items with a new state")
-            else:
-                logger.log("NOT_FOUND", "No ongoing items required state updates")
-
-    def _update_new_releases(self) -> None:
-        """Update state for new releases."""
-        with db.Session() as session:
-            changed_items = db_functions.update_new_releases(session, update_type="episodes", hours=24)
-            for item_id in changed_items:
-                self.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
-            
-            if changed_items:
-                logger.log("PROGRAM", f"Successfully fetched {len(changed_items)} new releases")
-            else:
-                logger.log("NOT_FOUND", "No new releases found")
+        # Call the indexer's built-in reindex method; this will not enqueue events
+        count = indexer_service.reindex_ongoing()
+        if count:
+            logger.log("PROGRAM", f"Reindexed {count} ongoing items")
+        else:
+            logger.debug("No ongoing items reindexed")
 
     def _schedule_functions(self) -> None:
         """Schedule each service based on its update interval."""
         scheduled_functions = {
-            self._update_ongoing: {"interval": 60 * 60 * 4},
-            self._retry_library: {"interval": 60 * 60 * 24},
-            self._update_new_releases: {"interval": 60 * 60},
-            log_cleaner: {"interval": 60 * 60},
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
+
+        # Add reindex_ongoing if enabled (interval > 0)
+        reindex_interval = settings_manager.settings.indexer.reindex_ongoing_interval
+        if reindex_interval > 0:
+            scheduled_functions[self._reindex_ongoing] = {"interval": reindex_interval}
+
+        # Add retry_library if enabled (interval > 0)
+        retry_interval = settings_manager.settings.retry_interval
+        if retry_interval > 0:
+            scheduled_functions[self._retry_library] = {"interval": retry_interval}
+
+        # Add log_cleaner if enabled (interval > 0)
+        clean_interval = settings_manager.settings.logging.clean_interval
+        if clean_interval > 0:
+            scheduled_functions[log_cleaner] = {"interval": clean_interval}
 
         for func, config in scheduled_functions.items():
             self.scheduler.add_job(
@@ -261,9 +286,11 @@ class Program(threading.Thread):
                 max_instances=config.get("max_instances", 1),
                 replace_existing=True,
                 next_run_time=datetime.now(),
-                misfire_grace_time=30
+                misfire_grace_time=30,
             )
-            logger.debug(f"Scheduled {func.__name__} to run every {config['interval']} seconds.")
+            logger.debug(
+                f"Scheduled {func.__name__} to run every {config['interval']} seconds."
+            )
 
     def _schedule_services(self) -> None:
         """Schedule each service based on its update interval."""
@@ -273,7 +300,9 @@ class Program(threading.Thread):
                 continue
 
             # If the service supports webhooks and webhook mode is enabled, run it once now and do not schedule periodically
-            use_webhook = getattr(getattr(service_instance, "settings", object()), "use_webhook", False)
+            use_webhook = getattr(
+                getattr(service_instance, "settings", object()), "use_webhook", False
+            )
             if use_webhook:
                 self.scheduler.add_job(
                     self.em.submit_job,
@@ -284,10 +313,16 @@ class Program(threading.Thread):
                     replace_existing=True,
                     misfire_grace_time=30,
                 )
-                logger.debug(f"Scheduled {service_cls.__name__} to run once (webhook mode enabled).")
+                logger.debug(
+                    f"Scheduled {service_cls.__name__} to run once (webhook mode enabled)."
+                )
                 continue
 
-            if not (update_interval := getattr(service_instance.settings, "update_interval", False)):
+            if not (
+                update_interval := getattr(
+                    service_instance.settings, "update_interval", False
+                )
+            ):
                 continue
 
             self.scheduler.add_job(
@@ -301,10 +336,13 @@ class Program(threading.Thread):
                 next_run_time=datetime.now(),
                 coalesce=False,
             )
-            logger.debug(f"Scheduled {service_cls.__name__} to run every {update_interval} seconds.")
+            logger.debug(
+                f"Scheduled {service_cls.__name__} to run every {update_interval} seconds."
+            )
 
     def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
         import psutil
+
         process = psutil.Process(os.getpid())
         top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
 
@@ -313,8 +351,10 @@ class Program(threading.Thread):
             frame = stat.traceback[0]
             # replace "/path/to/module/file.py" with "module/file.py"
             filename = os.sep.join(frame.filename.split(os.sep)[-2:])
-            logger.debug("#%s: %s:%s: %.1f KiB"
-                % (index, filename, frame.lineno, stat.size / 1024))
+            logger.debug(
+                "#%s: %s:%s: %.1f KiB"
+                % (index, filename, frame.lineno, stat.size / 1024)
+            )
             line = linecache.getline(frame.filename, frame.lineno).strip()
             if line:
                 logger.debug("    %s" % line)
@@ -325,7 +365,9 @@ class Program(threading.Thread):
             logger.debug("%s other: %.1f MiB" % (len(other), size / (1024 * 1024)))
         total = sum(stat.size for stat in top_stats)
         logger.debug("Total allocated size: %.1f MiB" % (total / (1024 * 1024)))
-        logger.debug(f"Process memory: {process.memory_info().rss / (1024 * 1024):.2f} MiB")
+        logger.debug(
+            f"Process memory: {process.memory_info().rss / (1024 * 1024):.2f} MiB"
+        )
 
     def dump_tracemalloc(self):
         if time.monotonic() - self.malloc_time > 60:
@@ -357,7 +399,9 @@ class Program(threading.Thread):
 
             for item_to_submit in items_to_submit:
                 if not next_service:
-                    self.em.add_event_to_queue(Event("StateTransition", item_id=item_to_submit.id))
+                    self.em.add_event_to_queue(
+                        Event("StateTransition", item_id=item_to_submit.id)
+                    )
                 else:
                     # We are in the database, pass on id.
                     if item_to_submit.id:
@@ -383,11 +427,5 @@ class Program(threading.Thread):
         self.services[FilesystemService].close()
         logger.log("PROGRAM", "Riven has been stopped.")
 
-    def _enhance_item(self, item: MediaItem) -> MediaItem | None:
-        try:
-            enhanced_item = next(self.services[IndexerService].run(item, log_msg=False))
-            return enhanced_item
-        except StopIteration:
-            return None
 
 riven = Program()

@@ -8,36 +8,54 @@ from pydantic import BaseModel, Field
 
 class VideoTrack(BaseModel):
     """Model representing video track metadata"""
+
     codec: Optional[str] = Field(default="", description="Codec of the video track")
     width: int = Field(default=0, description="Width of the video track")
     height: int = Field(default=0, description="Height of the video track")
-    frame_rate: float = Field(default=0.0, round=2, description="Frame rate of the video track")
+    frame_rate: float = Field(
+        default=0.0, round=2, description="Frame rate of the video track"
+    )
 
 
 class AudioTrack(BaseModel):
     """Model representing audio track metadata"""
+
     codec: Optional[str] = Field(default="", description="Codec of the audio track")
-    channels: int = Field(default=0, description="Number of channels in the audio track")
+    channels: int = Field(
+        default=0, description="Number of channels in the audio track"
+    )
     sample_rate: int = Field(default=0, description="Sample rate of the audio track")
-    language: Optional[str] = Field(default="", description="Language of the audio track")
+    language: Optional[str] = Field(
+        default="", description="Language of the audio track"
+    )
 
 
 class SubtitleTrack(BaseModel):
     """Model representing subtitle track metadata"""
+
     codec: Optional[str] = Field(default="", description="Codec of the subtitle track")
-    language: Optional[str] = Field(default="", description="Language of the subtitle track")
+    language: Optional[str] = Field(
+        default="", description="Language of the subtitle track"
+    )
 
 
 class MediaMetadata(BaseModel):
     """Model representing complete media file metadata"""
+
     filename: str = Field(default="", description="Name of the media file")
     file_size: int = Field(default=0, description="Size of the media file in bytes")
     video: VideoTrack = Field(default=VideoTrack(), description="Video track metadata")
-    duration: float = Field(default=0.0, round=2, description="Duration of the video in seconds")
+    duration: float = Field(
+        default=0.0, round=2, description="Duration of the video in seconds"
+    )
     format: List[str] = Field(default=[], description="Format of the video")
-    bitrate: int = Field(default=0, description="Bitrate of the video in bits per second")
+    bitrate: int = Field(
+        default=0, description="Bitrate of the video in bits per second"
+    )
     audio: List[AudioTrack] = Field(default=[], description="Audio tracks in the video")
-    subtitles: List[SubtitleTrack] = Field(default=[], description="Subtitles in the video")
+    subtitles: List[SubtitleTrack] = Field(
+        default=[], description="Subtitles in the video"
+    )
 
     @property
     def size_in_mb(self) -> float:
@@ -72,8 +90,10 @@ def parse_media_file(file_path: str | Path) -> Optional[MediaMetadata]:
     try:
         cmd = [
             "ffprobe",
-            "-v", "quiet",
-            "-print_format", "json",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
             str(path),
@@ -87,7 +107,11 @@ def parse_media_file(file_path: str | Path) -> Optional[MediaMetadata]:
             "filename": path.name,
             "file_size": int(format_info.get("size", 0)),
             "duration": round(float(format_info.get("duration", 0)), 2),
-            "format": format_info.get("format_name", "unknown").split(",") if format_info.get("format_name") else [],
+            "format": (
+                format_info.get("format_name", "unknown").split(",")
+                if format_info.get("format_name")
+                else []
+            ),
             "bitrate": int(format_info.get("bit_rate", 0)),
         }
 
@@ -100,29 +124,37 @@ def parse_media_file(file_path: str | Path) -> Optional[MediaMetadata]:
 
             if codec_type == "video":
                 frame_rate = stream.get("r_frame_rate", "0/1")
-                fps = float(Fraction(frame_rate)) if "/" in frame_rate else float(frame_rate)
+                fps = (
+                    float(Fraction(frame_rate))
+                    if "/" in frame_rate
+                    else float(frame_rate)
+                )
 
                 video_data = VideoTrack(
-                    codec = stream.get("codec_name", "unknown"),
-                    width = stream.get("width", 0),
-                    height = stream.get("height", 0),
-                    frame_rate = round(fps, 2),
+                    codec=stream.get("codec_name", "unknown"),
+                    width=stream.get("width", 0),
+                    height=stream.get("height", 0),
+                    frame_rate=round(fps, 2),
                 )
 
             elif codec_type == "audio":
-                audio_tracks.append(AudioTrack(
-                    codec = stream.get("codec_name", None),
-                    channels = int(stream.get("channels", 0)),
-                    sample_rate = int(stream.get("sample_rate", 0)),
-                    language = stream.get("tags", {}).get("language", None),
-                ))
+                audio_tracks.append(
+                    AudioTrack(
+                        codec=stream.get("codec_name", None),
+                        channels=int(stream.get("channels", 0)),
+                        sample_rate=int(stream.get("sample_rate", 0)),
+                        language=stream.get("tags", {}).get("language", None),
+                    )
+                )
 
             elif codec_type == "subtitle":
-                subtitle_tracks.append(SubtitleTrack(
-                    codec = stream.get("codec_name", "unknown"),
-                    title = stream.get("tags", {}).get("title", None),
-                    language = stream.get("tags", {}).get("language", None),
-                ))
+                subtitle_tracks.append(
+                    SubtitleTrack(
+                        codec=stream.get("codec_name", "unknown"),
+                        title=stream.get("tags", {}).get("title", None),
+                        language=stream.get("tags", {}).get("language", None),
+                    )
+                )
 
         if video_data:
             metadata_dict["video"] = video_data

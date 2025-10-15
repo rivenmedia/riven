@@ -89,6 +89,7 @@ class TokenBucket:
 
 class CircuitBreakerOpen(RuntimeError):
     """Raised when a circuit breaker is OPEN and requests should fail fast."""
+
     def __init__(self, name: str):
         super().__init__(f"Circuit breaker OPEN for {name}")
         self.name = name
@@ -106,7 +107,9 @@ class CircuitBreaker:
         state (str): Current state: 'CLOSED', 'OPEN', 'HALF_OPEN'.
     """
 
-    def __init__(self, failure_threshold: int = 5, recovery_time: int = 30, name: str = "unknown"):
+    def __init__(
+        self, failure_threshold: int = 5, recovery_time: int = 30, name: str = "unknown"
+    ):
         """Initialize the circuit breaker."""
         self.failure_threshold = failure_threshold
         self.recovery_time = recovery_time
@@ -186,7 +189,12 @@ class SmartResponse(requests.Response):
                 self._cached_data = json.loads(
                     self.content, object_hook=lambda d: SimpleNamespace(**d)
                 )
-            elif "application/xml" in content_type or "text/xml" in content_type or "application/rss+xml" in content_type or "application/atom+xml" in content_type:
+            elif (
+                "application/xml" in content_type
+                or "text/xml" in content_type
+                or "application/rss+xml" in content_type
+                or "application/atom+xml" in content_type
+            ):
                 self._cached_data = self._xml_to_simplenamespace(self.content)
             else:
                 self._cached_data = {}
@@ -209,7 +217,9 @@ class SmartResponse(requests.Response):
         root = etree.fromstring(xml_string)
 
         def element_to_simplenamespace(element):
-            children_as_ns = {child.tag: element_to_simplenamespace(child) for child in element}
+            children_as_ns = {
+                child.tag: element_to_simplenamespace(child) for child in element
+            }
             attributes = {key: value for key, value in element.attrib.items()}
             attributes.update(children_as_ns)
             return SimpleNamespace(**attributes, text=element.text)
@@ -220,9 +230,13 @@ class SmartResponse(requests.Response):
 class LogRetry(Retry):
     """Retry that logs Retry-After-derived sleep before the next retry."""
 
-    def increment(self, method=None, url=None, response=None, error=None, *_args, **kwargs):
+    def increment(
+        self, method=None, url=None, response=None, error=None, *_args, **kwargs
+    ):
         """Let urllib3 compute the next retry state first"""
-        new_retry = super().increment(method=method, url=url, response=response, error=error, *_args, **kwargs)
+        new_retry = super().increment(
+            method=method, url=url, response=response, error=error, *_args, **kwargs
+        )
 
         try:
             if response is not None and self.respect_retry_after_header:
@@ -242,8 +256,12 @@ class LogRetry(Retry):
                     if delay is None:
                         delay = new_retry.get_backoff_time() or 0
 
-                    status = getattr(response, "status", None) or getattr(response, "status_code", "unknown")
-                    logger.warning(f"Retry-After detected for {method.upper()} {url}: status={status}, retrying in {int(round(delay))}s")
+                    status = getattr(response, "status", None) or getattr(
+                        response, "status_code", "unknown"
+                    )
+                    logger.warning(
+                        f"Retry-After detected for {method.upper()} {url}: status={status}, retrying in {int(round(delay))}s"
+                    )
         except Exception:
             # Never break the retry pipeline due to logging
             pass

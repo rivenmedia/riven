@@ -5,6 +5,7 @@ Revises: c99709e3648f
 Create Date: 2025-02-10 07:39:51.600870
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -25,13 +26,13 @@ def upgrade():
     conn = op.get_bind()
     inspector = Inspector.from_engine(conn)
     columns = [col["name"] for col in inspector.get_columns("MediaItem")]
-    
+
     if "failed_attempts" not in columns:
-        op.add_column("MediaItem", 
-            sa.Column("failed_attempts", 
-                     sa.Integer(), 
-                     nullable=True, 
-                     server_default="0")
+        op.add_column(
+            "MediaItem",
+            sa.Column(
+                "failed_attempts", sa.Integer(), nullable=True, server_default="0"
+            ),
         )
 
 
@@ -39,10 +40,10 @@ def downgrade():
     conn = op.get_bind()
     inspector = Inspector.from_engine(conn)
     columns = [col["name"] for col in inspector.get_columns("MediaItem")]
-    
+
     if "failed_attempts" in columns:
         op.drop_column("MediaItem", "failed_attempts")
-        
+
     # Note: PostgreSQL doesn't support removing enum values
     # If we need to remove the states, we'd need to:
     # 1. Create a new enum without those values

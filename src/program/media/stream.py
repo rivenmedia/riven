@@ -15,25 +15,35 @@ class StreamRelation(db.Model):
     __tablename__ = "StreamRelation"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    parent_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"))
-    child_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE"))
+    parent_id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE")
+    )
+    child_id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE")
+    )
 
     __table_args__ = (
         Index("ix_streamrelation_parent_id", "parent_id"),
         Index("ix_streamrelation_child_id", "child_id"),
     )
 
+
 class StreamBlacklistRelation(db.Model):
     __tablename__ = "StreamBlacklistRelation"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    media_item_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"))
-    stream_id: Mapped[int] = mapped_column(sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE"))
+    media_item_id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE")
+    )
+    stream_id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE")
+    )
 
     __table_args__ = (
         Index("ix_streamblacklistrelation_media_item_id", "media_item_id"),
         Index("ix_streamblacklistrelation_stream_id", "stream_id"),
     )
+
 
 class Stream(db.Model):
     __tablename__ = "Stream"
@@ -46,8 +56,14 @@ class Stream(db.Model):
     lev_ratio: Mapped[float] = mapped_column(sqlalchemy.Float, nullable=False)
     resolution: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
 
-    parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamRelation", back_populates="streams", lazy="selectin")
-    blacklisted_parents: Mapped[list["MediaItem"]] = relationship(secondary="StreamBlacklistRelation", back_populates="blacklisted_streams", lazy="selectin")
+    parents: Mapped[list["MediaItem"]] = relationship(
+        secondary="StreamRelation", back_populates="streams", lazy="selectin"
+    )
+    blacklisted_parents: Mapped[list["MediaItem"]] = relationship(
+        secondary="StreamBlacklistRelation",
+        back_populates="blacklisted_streams",
+        lazy="selectin",
+    )
 
     __table_args__ = (
         Index("ix_stream_infohash", "infohash"),
@@ -64,7 +80,9 @@ class Stream(db.Model):
         self.parsed_data = torrent.data
         self.rank = torrent.rank
         self.lev_ratio = torrent.lev_ratio
-        self.resolution = torrent.data.resolution.lower() if torrent.data.resolution else "unknown"
+        self.resolution = (
+            torrent.data.resolution.lower() if torrent.data.resolution else "unknown"
+        )
 
     def __hash__(self):
         return self.infohash

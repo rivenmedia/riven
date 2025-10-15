@@ -1,6 +1,7 @@
 """
 Common utilities used by FilesystemService (VFS-only).
 """
+
 from typing import List
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -22,11 +23,7 @@ def get_items_to_update(item: MediaItem) -> List[MediaItem]:
                 if ep.state == States.Downloaded
             ]
         if isinstance(item, Season):
-            return [
-                ep
-                for ep in item.episodes
-                if ep.state == States.Downloaded
-            ]
+            return [ep for ep in item.episodes if ep.state == States.Downloaded]
     except Exception:
         ...
     return []

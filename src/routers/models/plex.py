@@ -8,15 +8,18 @@ class Account(BaseModel):
     thumb: str
     title: str
 
+
 class Server(BaseModel):
     title: str
     uuid: str
+
 
 class Player(BaseModel):
     local: bool
     publicAddress: str
     title: str
     uuid: str
+
 
 class Metadata(BaseModel):
     librarySectionType: str
@@ -31,10 +34,13 @@ class Metadata(BaseModel):
     contentRating: str
     summary: str
     rating: Optional[float] = Field(None, description="Rating of the media")
-    audienceRating: Optional[float] = Field(None, description="Audience rating of the media")
+    audienceRating: Optional[float] = Field(
+        None, description="Audience rating of the media"
+    )
     year: int
     tagline: Optional[str] = Field(None, description="Tagline of the media")
     thumb: str
+
 
 class PlexPayload(BaseModel):
     event: str

@@ -1,4 +1,5 @@
-""" Torrentio scraper module """
+"""Torrentio scraper module"""
+
 from typing import Dict
 
 from loguru import logger
@@ -22,18 +23,23 @@ class Torrentio(ScraperService):
 
         if self.settings.ratelimit:
             rate_limits = {
-                "torrentio.strem.fun": {"rate": 150/60, "capacity": 150}  # 150 calls per minute
+                "torrentio.strem.fun": {
+                    "rate": 150 / 60,
+                    "capacity": 150,
+                }  # 150 calls per minute
             }
         else:
             rate_limits = {}
 
         self.session = SmartSession(
-            rate_limits=rate_limits,
-            retries=3,
-            backoff_factor=0.3
+            rate_limits=rate_limits, retries=3, backoff_factor=0.3
         )
         self.headers = {"User-Agent": "Mozilla/5.0"}
-        self.proxies = {"http": self.settings.proxy_url, "https": self.settings.proxy_url} if self.settings.proxy_url else None
+        self.proxies = (
+            {"http": self.settings.proxy_url, "https": self.settings.proxy_url}
+            if self.settings.proxy_url
+            else None
+        )
         self._initialize()
 
     def validate(self) -> bool:
@@ -48,11 +54,15 @@ class Torrentio(ScraperService):
             return False
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
-            response = self.session.get(url, timeout=10, headers=self.headers, proxies=self.proxies)
+            response = self.session.get(
+                url, timeout=10, headers=self.headers, proxies=self.proxies
+            )
             if response.ok:
                 return True
         except Exception as e:
-            logger.error(f"Torrentio failed to initialize: {e}", )
+            logger.error(
+                f"Torrentio failed to initialize: {e}",
+            )
             return False
         return True
 
@@ -62,7 +72,9 @@ class Torrentio(ScraperService):
             return self.scrape(item)
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):
-                logger.debug(f"Torrentio rate limit exceeded for item: {item.log_string}")
+                logger.debug(
+                    f"Torrentio rate limit exceeded for item: {item.log_string}"
+                )
             else:
                 logger.exception(f"Torrentio exception thrown: {str(e)}")
         return {}
@@ -73,12 +85,23 @@ class Torrentio(ScraperService):
         if not imdb_id:
             return {}
 
-        url = f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
+        url = (
+            f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
+        )
         if identifier:
             url += identifier
 
-        response = self.session.get(f"{url}.json", timeout=self.timeout, headers=self.headers, proxies=self.proxies)
-        if not response.ok or not hasattr(response.data, "streams") or not response.data.streams:
+        response = self.session.get(
+            f"{url}.json",
+            timeout=self.timeout,
+            headers=self.headers,
+            proxies=self.proxies,
+        )
+        if (
+            not response.ok
+            or not hasattr(response.data, "streams")
+            or not response.data.streams
+        ):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
@@ -92,7 +115,9 @@ class Torrentio(ScraperService):
             torrents[stream.infoHash] = raw_title
 
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log(
+                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
+            )
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 

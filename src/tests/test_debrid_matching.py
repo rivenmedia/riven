@@ -5,6 +5,7 @@ from program.services.downloaders.realdebrid import RealDebridDownloader
 
 realdebrid_downloader = RealDebridDownloader()
 
+
 def test_matches_item_movie():
     torrent_info = SimpleNamespace(
         files=[
@@ -14,13 +15,18 @@ def test_matches_item_movie():
     item = Movie({"imdb_id": "tt1375666", "requested_by": "user", "title": "Inception"})
     assert realdebrid_downloader._matches_item(torrent_info, item) is True
 
+
 def test_matches_item_episode():
     torrent_info = SimpleNamespace(
         files=[
-            SimpleNamespace(path="The Vampire Diaries s01e01.mkv", selected=1, bytes=800_000_000),
+            SimpleNamespace(
+                path="The Vampire Diaries s01e01.mkv", selected=1, bytes=800_000_000
+            ),
         ]
     )
-    parent_show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "The Vampire Diaries"})
+    parent_show = Show(
+        {"imdb_id": "tt1405406", "requested_by": "user", "title": "The Vampire Diaries"}
+    )
     parent_season = Season({"number": 1})
     episode = Episode({"number": 1})
     parent_season.add_episode(episode)
@@ -30,14 +36,21 @@ def test_matches_item_episode():
 
     assert realdebrid_downloader._matches_item(torrent_info, episode) is True
 
+
 def test_matches_item_season():
     torrent_info = SimpleNamespace(
         files=[
-            SimpleNamespace(path="The Vampire Diaries s01e01.mkv", selected=1, bytes=800_000_000),
-            SimpleNamespace(path="The Vampire Diaries s01e02.mkv", selected=1, bytes=800_000_000),
+            SimpleNamespace(
+                path="The Vampire Diaries s01e01.mkv", selected=1, bytes=800_000_000
+            ),
+            SimpleNamespace(
+                path="The Vampire Diaries s01e02.mkv", selected=1, bytes=800_000_000
+            ),
         ]
     )
-    show = Show({"imdb_id": "tt1405406", "requested_by": "user", "title": "The Vampire Diaries"})
+    show = Show(
+        {"imdb_id": "tt1405406", "requested_by": "user", "title": "The Vampire Diaries"}
+    )
     season = Season({"number": 1})
     episode1 = Episode({"number": 1})
     episode2 = Episode({"number": 2})
@@ -46,6 +59,7 @@ def test_matches_item_season():
     show.add_season(season)
 
     assert realdebrid_downloader._matches_item(torrent_info, season) is True
+
 
 def test_matches_item_partial_season():
     torrent_info = SimpleNamespace(
@@ -63,10 +77,12 @@ def test_matches_item_partial_season():
 
     assert realdebrid_downloader._matches_item(torrent_info, season) is False
 
+
 def test_matches_item_no_files():
     torrent_info = SimpleNamespace()
     item = Movie({"imdb_id": "tt1375666", "requested_by": "user", "title": "Inception"})
     assert realdebrid_downloader._matches_item(torrent_info, item) is False
+
 
 def test_matches_item_no_selected_files():
     torrent_info = SimpleNamespace(

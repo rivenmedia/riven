@@ -19,7 +19,7 @@ class ConnectionManager:
         if topic not in self.active_connections:
             self.active_connections[topic] = []
         self.active_connections[topic].append(websocket)
-        
+
         if topic not in self.message_queues:
             self.message_queues[topic] = asyncio.Queue()
             # Start broadcast task for this topic
@@ -30,7 +30,7 @@ class ConnectionManager:
         if topic in self.active_connections:
             if websocket in self.active_connections[topic]:
                 self.active_connections[topic].remove(websocket)
-            
+
             # Clean up if no more connections for this topic
             if not self.active_connections[topic]:
                 del self.active_connections[topic]
@@ -44,15 +44,15 @@ class ConnectionManager:
     def publish(self, topic: str, message: Any):
         """Publish a message to a specific topic"""
         if topic not in self.message_queues:
-            return # There are no connections for this topic
-            #self.message_queues[topic] = asyncio.Queue()
-        
+            return  # There are no connections for this topic
+            # self.message_queues[topic] = asyncio.Queue()
+
         # Format the message with timestamp
         formatted_message = {
             "timestamp": datetime.utcnow().isoformat(),
-            "data": message
+            "data": message,
         }
-        
+
         try:
             self.message_queues[topic].put_nowait(formatted_message)
         except asyncio.QueueFull:
@@ -64,7 +64,7 @@ class ConnectionManager:
             while True:
                 if topic in self.message_queues:
                     message = await self.message_queues[topic].get()
-                    
+
                     if topic in self.active_connections:
                         dead_connections = []
                         for connection in self.active_connections[topic]:
@@ -75,7 +75,7 @@ class ConnectionManager:
                             except Exception as e:
                                 print(f"Error sending message: {e}")
                                 dead_connections.append(connection)
-                        
+
                         # Clean up dead connections
                         for dead in dead_connections:
                             await self.disconnect(dead, topic)
@@ -84,6 +84,7 @@ class ConnectionManager:
             pass
         except Exception as e:
             print(f"Broadcast task error for topic {topic}: {e}")
+
 
 # Create a global instance
 manager = ConnectionManager()

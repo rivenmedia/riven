@@ -1,17 +1,10 @@
-import json
-from datetime import datetime
-
 from loguru import logger
 
-from program.db.db import db
-from program.db.db_functions import clear_streams
-from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.media.state import States
 from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings.manager import settings_manager
-from program.utils.notifications import notify_on_complete
 
 
 class PostProcessing:
@@ -25,7 +18,7 @@ class PostProcessing:
         # SubtitleService runs second and can use the metadata
         self.services = {
             MediaAnalysisService: MediaAnalysisService(),
-            SubtitleService: SubtitleService()
+            SubtitleService: SubtitleService(),
         }
         self.initialized = True
 
@@ -44,7 +37,12 @@ class PostProcessing:
         if item.type in ["movie", "episode"]:
             return [item]
         elif item.type == "show":
-            return [e for s in item.seasons for e in s.episodes if e.last_state == States.Completed]
+            return [
+                e
+                for s in item.seasons
+                for e in s.episodes
+                if e.last_state == States.Completed
+            ]
         elif item.type == "season":
             return [e for e in item.episodes if e.last_state == States.Completed]
         return []
@@ -84,38 +82,3 @@ class PostProcessing:
 
         logger.info(f"Post-processing complete for {item.log_string}")
         yield item
-
-def notify(item: MediaItem):
-    show = None
-    if item.type in ["show", "movie"]:
-        _notify(item)
-    elif item.type == "episode":
-        show = item.parent.parent
-    elif item.type == "season":
-        show = item.parent
-    if show:
-        with db.Session() as session:
-            show = session.merge(show)
-            show.store_state()
-            if show.last_state == States.Completed:
-                _notify(show)
-            session.commit()
-
-def _notify(item: MediaItem):
-    duration = round((datetime.now() - item.requested_at).total_seconds())
-    logger.success(f"{item.log_string} has been completed in {duration} seconds.")
-
-    # Publish SSE notification event
-    notification_data = {
-        "title": item.title or "Unknown",
-        "type": item.type,
-        "year": item.aired_at.year if item.aired_at else None,
-        "duration": duration,
-        "timestamp": datetime.now().isoformat(),
-        "log_string": item.log_string,
-        "imdb_id": item.imdb_id
-    }
-    sse_manager.publish_event("notifications", json.dumps(notification_data))
-
-    if settings_manager.settings.notifications.enabled:
-        notify_on_complete(item)

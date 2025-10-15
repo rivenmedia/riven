@@ -19,8 +19,9 @@ class ScraperService(ABC):
     Optional attributes:
     - requires_imdb_id: whether the scraper needs an IMDb id to function
     """
+
     requires_imdb_id: bool = False
-    
+
     def __init__(self, service_name):
         self.key = service_name
         self.initialized = False
@@ -46,16 +47,24 @@ class ScraperService(ABC):
     def get_stremio_identifier(item: MediaItem) -> Tuple[str | None, str, str]:
         """
         Get the Stremio identifier for a given item.
-        
+
         Returns:
             Tuple[str | None, str, str]: (identifier, scrape_type, imdb_id)
         """
         if isinstance(item, Show):
             identifier, scrape_type, imdb_id = ":1:1", "series", item.imdb_id
         elif isinstance(item, Season):
-            identifier, scrape_type, imdb_id = f":{item.number}:1", "series", item.parent.imdb_id
+            identifier, scrape_type, imdb_id = (
+                f":{item.number}:1",
+                "series",
+                item.parent.imdb_id,
+            )
         elif isinstance(item, Episode):
-            identifier, scrape_type, imdb_id = f":{item.parent.number}:{item.number}", "series", item.parent.parent.imdb_id
+            identifier, scrape_type, imdb_id = (
+                f":{item.parent.number}:{item.number}",
+                "series",
+                item.parent.parent.imdb_id,
+            )
         elif isinstance(item, Movie):
             identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
         else:

@@ -6,5 +6,6 @@ class MessageResponse(BaseModel):
     tmdb_ids: list[str] = []
     tvdb_ids: list[str] = []
 
+
 class RootResponse(MessageResponse):
     version: str

@@ -41,7 +41,6 @@ We are constantly adding features and improvements as we go along and squashing 
 ## Table of Contents
 
 - [Table of Contents](#table-of-contents)
-- [ElfHosted](#elfhosted)
 - [Self Hosted](#self-hosted)
   - [Installation](#installation)
   - [Plex](#plex)
@@ -61,24 +60,6 @@ We are constantly adding features and improvements as we go along and squashing 
 - [License](#license)
 
 ---
-
-## ElfHosted
-
-[ElfHosted](https://elfhosted.com) is a geeky [open-source](https://elfhosted.com/open/) PaaS which provides all the "plumbing" (_hosting, security, updates, etc_) for your self-hosted apps.
-
-> [!IMPORTANT]
-> **ElfHosted ❤️ Riven 100%**
-> [Riven](https://elfhosted.com/app/riven/) is an "Elf-icial" app in the [ElfHosted app catalogue](https://elfhosted.com/apps/) - A whopping :heart_eyes_cat::heart_eyes_cat: 100% :heart_eyes_cat::heart_eyes_cat: of your subscription goes directly to Riven developers, who can usually be found in the [#elf-riven](https://discord.com/channels/396055506072109067/1253110932062601276) channel in the [ElfHosted Discord Server](https://discord.elfhosted.com).
-
-Curious how it works? Here's an [explainer video](https://www.youtube.com/watch?v=ZHZAEhLuJqk)!
-
-> [!TIP]
-> **ElfHosted "Infinite Streaming" bundles**
-> Riven is pre-packaged with Plex, Zurg, and symlinks, and ready-to-go, in these convenient bundles:
->
-> -   [Starter Kit](https://store.elfhosted.com/product/plex-riven-infinite-streaming-starter-kit) (_quick and easy setup_)
-> -   [Hobbit Bundle](https://store.elfhosted.com/product/hobbit-riven-real-debrid-infinite-streaming-bundle) (_12.5% dedicated node, with extras_)
-> -   [Ranger Bundle](https://store.elfhosted.com/product/plex-riven-infinite-streaming-plus-bundle) (_25% dedicated node, with extras_)
 
 ## Self Hosted
 
@@ -220,6 +201,66 @@ sudo fusermount -uz /path/to/riven/mount || sudo umount -l /path/to/riven/mount
 - Eviction behavior:
   - LRU (default): Strictly enforces the configured size caps by evicting least‑recently‑used blocks when space is needed.
   - TTL: First removes entries that have been idle longer than `ttl_seconds` (sliding expiration). If the cache still exceeds the configured size cap after TTL pruning, it additionally trims oldest entries (LRU) until usage is within the limit.
+
+### Library Profiles
+
+Library profiles allow you to organize media into different virtual libraries based on metadata filters. Media matching a profile appears at both the base path (e.g., `/movies/Title/`) and the profile path (e.g., `/kids/movies/Title/`).
+
+**Configuration**: Edit `library_profiles` in `settings.json` under the `filesystem` section. Multiple example profiles are provided (disabled by default) - enable them or create your own.
+
+**Available Filters**:
+
+| Filter | Type | Description | Example |
+|--------|------|-------------|---------|
+| `content_types` | List[str] | Media types to include (`movie`, `show`) | `["movie", "show"]` |
+| `genres` | List[str] | Include if ANY genre matches (OR logic) | `["animation", "family"]` |
+| `exclude_genres` | List[str] | Exclude if ANY genre matches | `["horror"]` |
+| `min_year` | int | Minimum release year | `2020` |
+| `max_year` | int | Maximum release year | `1999` |
+| `min_rating` | float | Minimum rating (0-10 scale) | `7.5` |
+| `max_rating` | float | Maximum rating (0-10 scale) | `9.0` |
+| `is_anime` | bool | Filter by anime flag (true/false) | `true` |
+| `networks` | List[str] | TV networks (OR logic) | `["HBO", "HBO Max"]` |
+| `countries` | List[str] | Countries of origin (ISO codes, OR logic) | `["GB", "UK"]` |
+| `languages` | List[str] | Original languages (ISO 639-1 codes, OR logic) | `["en", "ja"]` |
+| `content_ratings` | List[str] | Allowed content ratings | `["G", "PG", "TV-Y"]` |
+
+**Content Ratings Reference**:
+- **US Movies**: `G`, `PG`, `PG-13`, `R`, `NC-17`, `NR` (Not Rated), `Unrated`
+- **US TV**: `TV-Y`, `TV-Y7`, `TV-G`, `TV-PG`, `TV-14`, `TV-MA`
+
+**Example Profile**:
+```json
+{
+  "filesystem": {
+    "library_profiles": {
+      "kids": {
+        "name": "Kids & Family Content",
+        "library_path": "/kids",
+        "enabled": true,
+        "filter_rules": {
+          "content_types": ["movie", "show"],
+          "genres": ["animation", "family"],
+          "content_ratings": ["G", "PG", "TV-Y", "TV-G"],
+          "max_rating": 7.5
+        }
+      }
+    }
+  }
+}
+```
+
+**How It Works**:
+1. Media is downloaded and metadata is evaluated against all enabled profiles
+2. Matching media appears at base path + all matching profile paths
+3. Media servers (Plex/Jellyfin/Emby) see the content in all applicable libraries
+4. Filters use AND logic between different filter types, OR logic within list filters
+
+**Notes**:
+- Remove any filter you don't want to use
+- All filters must match for a profile to apply (AND logic)
+- List filters (genres, networks, etc.) match if ANY value matches (OR logic)
+- Shows/Seasons inherit metadata from parent for filtering purposes
 
 ## Development
 

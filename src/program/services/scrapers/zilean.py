@@ -1,4 +1,4 @@
-""" Zilean scraper module """
+"""Zilean scraper module"""
 
 from typing import Dict
 
@@ -18,10 +18,17 @@ class Zilean(ScraperService):
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
         if self.settings.ratelimit:
-            rate_limits = {get_hostname_from_url(self.settings.url): {"rate": 500/60, "capacity": 500}}
+            rate_limits = {
+                get_hostname_from_url(self.settings.url): {
+                    "rate": 500 / 60,
+                    "capacity": 500,
+                }
+            }
         else:
             rate_limits = None
-        self.session = SmartSession(rate_limits=rate_limits, retries=3, backoff_factor=0.3)
+        self.session = SmartSession(
+            rate_limits=rate_limits, retries=3, backoff_factor=0.3
+        )
         self._initialize()
 
     def validate(self) -> bool:
@@ -82,7 +89,9 @@ class Zilean(ScraperService):
             torrents[result.info_hash] = result.raw_title
 
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log(
+                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
+            )
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 

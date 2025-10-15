@@ -53,33 +53,67 @@ class TraktContent:
 
     def run(self):
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
-        watchlist_ids = self._get_watchlist(self.settings.watchlist) if self.settings.watchlist else []
-        collection_ids = self._get_collection(self.settings.collection) if self.settings.collection else []
-        user_list_ids = self._get_list(self.settings.user_lists) if self.settings.user_lists else []
+        watchlist_ids = (
+            self._get_watchlist(self.settings.watchlist)
+            if self.settings.watchlist
+            else []
+        )
+        collection_ids = (
+            self._get_collection(self.settings.collection)
+            if self.settings.collection
+            else []
+        )
+        user_list_ids = (
+            self._get_list(self.settings.user_lists) if self.settings.user_lists else []
+        )
 
         # Check if it's the first run or if a day has passed since the last update
         current_time = datetime.now()
-        if self.last_update is None or (current_time - self.last_update) > timedelta(days=1):
-            trending_ids = self._get_trending_items() if self.settings.fetch_trending else []
-            popular_ids = self._get_popular_items() if self.settings.fetch_popular else []
-            most_watched_ids = self._get_most_watched_items() if self.settings.fetch_most_watched else []
+        if self.last_update is None or (current_time - self.last_update) > timedelta(
+            days=1
+        ):
+            trending_ids = (
+                self._get_trending_items() if self.settings.fetch_trending else []
+            )
+            popular_ids = (
+                self._get_popular_items() if self.settings.fetch_popular else []
+            )
+            most_watched_ids = (
+                self._get_most_watched_items()
+                if self.settings.fetch_most_watched
+                else []
+            )
             self.last_update = current_time
             logger.log("TRAKT", "Updated trending, popular, and most watched items.")
         else:
             trending_ids = []
             popular_ids = []
             most_watched_ids = []
-            logger.log("TRAKT", "Skipped updating trending, popular, and most watched items (last update was less than a day ago).")
+            logger.log(
+                "TRAKT",
+                "Skipped updating trending, popular, and most watched items (last update was less than a day ago).",
+            )
 
         # Combine all IDs and types into a set to avoid duplicates
-        all_ids = set(watchlist_ids + collection_ids + user_list_ids + trending_ids + popular_ids + most_watched_ids)
+        all_ids = set(
+            watchlist_ids
+            + collection_ids
+            + user_list_ids
+            + trending_ids
+            + popular_ids
+            + most_watched_ids
+        )
 
         items_to_yield = []
         for _id, _type in all_ids:
             if _type == "movie" and not item_exists_by_any_id(tmdb_id=_id):
-                items_to_yield.append(MediaItem({"tmdb_id": _id, "requested_by": self.key}))
+                items_to_yield.append(
+                    MediaItem({"tmdb_id": _id, "requested_by": self.key})
+                )
             elif _type == "show" and not item_exists_by_any_id(tvdb_id=_id):
-                items_to_yield.append(MediaItem({"tvdb_id": _id, "requested_by": self.key}))
+                items_to_yield.append(
+                    MediaItem({"tvdb_id": _id, "requested_by": self.key})
+                )
 
         if not items_to_yield:
             return
@@ -108,7 +142,6 @@ class TraktContent:
             _ids.extend(self._extract_ids(items))
         return _ids
 
-
     def _get_list(self, list_items: list) -> list[tuple[str, str]]:
         """Get IDs and types from Trakt user list"""
         if not list_items or not any(list_items):
@@ -134,21 +167,42 @@ class TraktContent:
 
     def _get_trending_items(self) -> list[tuple[str, str]]:
         """Get IDs and types from Trakt trending items"""
-        trending_movies = self.api.get_trending_items("movies", self.settings.trending_count)
-        trending_shows = self.api.get_trending_items("shows", self.settings.trending_count)
-        return self._extract_ids(trending_movies[:self.settings.trending_count] + trending_shows[:self.settings.trending_count])
+        trending_movies = self.api.get_trending_items(
+            "movies", self.settings.trending_count
+        )
+        trending_shows = self.api.get_trending_items(
+            "shows", self.settings.trending_count
+        )
+        return self._extract_ids(
+            trending_movies[: self.settings.trending_count]
+            + trending_shows[: self.settings.trending_count]
+        )
 
     def _get_popular_items(self) -> list[tuple[str, str]]:
         """Get IDs and types from Trakt popular items"""
-        popular_movies = self.api.get_popular_items("movies", self.settings.popular_count)
-        popular_shows = self.api.get_popular_items( "shows", self.settings.popular_count)
-        return self._extract_ids(popular_movies[:self.settings.popular_count] + popular_shows[:self.settings.popular_count])
+        popular_movies = self.api.get_popular_items(
+            "movies", self.settings.popular_count
+        )
+        popular_shows = self.api.get_popular_items("shows", self.settings.popular_count)
+        return self._extract_ids(
+            popular_movies[: self.settings.popular_count]
+            + popular_shows[: self.settings.popular_count]
+        )
 
     def _get_most_watched_items(self) -> list[tuple[str, str]]:
         """Get IDs and types from Trakt popular items"""
-        most_watched_movies = self.api.get_most_watched_items( "movies", self.settings.most_watched_period, self.settings.most_watched_count)
-        most_watched_shows = self.api.get_most_watched_items( "shows", self.settings.most_watched_period, self.settings.most_watched_count)
-        return self._extract_ids(most_watched_movies[:self.settings.most_watched_count] + most_watched_shows[:self.settings.most_watched_count])
+        most_watched_movies = self.api.get_most_watched_items(
+            "movies",
+            self.settings.most_watched_period,
+            self.settings.most_watched_count,
+        )
+        most_watched_shows = self.api.get_most_watched_items(
+            "shows", self.settings.most_watched_period, self.settings.most_watched_count
+        )
+        return self._extract_ids(
+            most_watched_movies[: self.settings.most_watched_count]
+            + most_watched_shows[: self.settings.most_watched_count]
+        )
 
     def _extract_ids(self, items: list) -> list[tuple[str, str]]:
         """Extract IDs and types from a list of items"""

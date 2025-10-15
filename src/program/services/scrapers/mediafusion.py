@@ -1,4 +1,4 @@
-""" Mediafusion scraper module """
+"""Mediafusion scraper module"""
 
 from typing import Dict
 
@@ -28,7 +28,10 @@ class Mediafusion(ScraperService):
 
         if self.settings.ratelimit:
             rate_limits = {
-                get_hostname_from_url(self.settings.url): {"rate": 1000/60, "capacity": 1000}  # 1000 calls per minute
+                get_hostname_from_url(self.settings.url): {
+                    "rate": 1000 / 60,
+                    "capacity": 1000,
+                }  # 1000 calls per minute
             }
         else:
             rate_limits = {}
@@ -37,7 +40,7 @@ class Mediafusion(ScraperService):
             base_url=self.settings.url.rstrip("/"),
             rate_limits=rate_limits,
             retries=3,
-            backoff_factor=0.3
+            backoff_factor=0.3,
         )
         self._initialize()
 
@@ -49,7 +52,9 @@ class Mediafusion(ScraperService):
             logger.error("Mediafusion URL is not configured and will not be used.")
             return False
         if "elfhosted" in self.settings.url.lower():
-            logger.warning("Elfhosted Mediafusion instance is no longer supported. Please use a different instance.")
+            logger.warning(
+                "Elfhosted Mediafusion instance is no longer supported. Please use a different instance."
+            )
             return False
         if not isinstance(self.timeout, int) or self.timeout <= 0:
             logger.error("Mediafusion timeout is not set or invalid.")
@@ -70,7 +75,9 @@ class Mediafusion(ScraperService):
         headers = {"Content-Type": "application/json"}
 
         try:
-            response = self.session.post("/encrypt-user-data", json=payload, headers=headers)
+            response = self.session.post(
+                "/encrypt-user-data", json=payload, headers=headers
+            )
             if not response.data or response.data.status != "success":
                 logger.error(f"Failed to encrypt user data: {response.data.message}")
                 return False
@@ -96,16 +103,20 @@ class Mediafusion(ScraperService):
             return self.scrape(item)
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):
-                logger.debug(f"Mediafusion ratelimit exceeded for item: {item.log_string}")
+                logger.debug(
+                    f"Mediafusion ratelimit exceeded for item: {item.log_string}"
+                )
             elif "timeout" in str(e).lower():
                 logger.warning(f"Mediafusion timeout for item: {item.log_string}")
             else:
                 logger.exception(f"Mediafusion exception thrown: {e}")
         return {}
 
-    def scrape(self, item: MediaItem) -> tuple[Dict[str, str], int]:
+    def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Wrapper for `Mediafusion` scrape method"""
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
+        if not imdb_id:
+            return {}
 
         url = f"/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
         if identifier:
@@ -119,12 +130,23 @@ class Mediafusion(ScraperService):
         torrents: Dict[str, str] = {}
         for stream in response.data.streams:
             if hasattr(stream, "title") and "rate-limit exceeded" in stream.title:
-                raise Exception(f"Mediafusion rate-limit exceeded for item: {item.log_string}")
+                raise Exception(
+                    f"Mediafusion rate-limit exceeded for item: {item.log_string}"
+                )
 
             if not all(hasattr(stream, "infoHash") for stream in response.data.streams):
-                logger.debug("Streams were found but were filtered due to your MediaFusion settings.")
-                filtered_message = stream.description.replace("🚫 Streams Found\n⚙️ Filtered by your configuration preferences\n", "")
-                filtered_message = filtered_message.replace("\n", ". ").replace(" ⚙️", "").replace("🚫", "")
+                logger.debug(
+                    "Streams were found but were filtered due to your MediaFusion settings."
+                )
+                filtered_message = stream.description.replace(
+                    "🚫 Streams Found\n⚙️ Filtered by your configuration preferences\n",
+                    "",
+                )
+                filtered_message = (
+                    filtered_message.replace("\n", ". ")
+                    .replace(" ⚙️", "")
+                    .replace("🚫", "")
+                )
                 logger.debug(filtered_message)
                 return torrents
 
@@ -140,7 +162,9 @@ class Mediafusion(ScraperService):
                 torrents[info_hash] = raw_title
 
         if torrents:
-            logger.log("SCRAPER", f"Found {len(torrents)} streams for {item.log_string}")
+            logger.log(
+                "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
+            )
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 
