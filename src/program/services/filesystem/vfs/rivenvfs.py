@@ -325,7 +325,6 @@ class FileHandle(TypedDict):
     path: str
     file_size: int | None
     entry_type: str | None
-    buffers: list
     sequential_reads: int
     last_read_end: int
     subtitle_content: bytes | None
@@ -1636,7 +1635,6 @@ class RivenVFS(pyfuse3.Operations):
                 "path": path,
                 "file_size": file_size,
                 "entry_type": entry_type,
-                "buffers": [],
                 "sequential_reads": 0,
                 "last_read_end": 0,
                 "subtitle_content": None,
@@ -2175,6 +2173,21 @@ class RivenVFS(pyfuse3.Operations):
             }
         )
 
+    async def _retry_with_backoff(
+        self, attempt: int, max_attempts: int, backoffs: list[float]
+    ) -> bool:
+        """
+        Common retry logic
+
+        Returns:
+            True if should retry, False if max attempts reached
+        """
+        if attempt < max_attempts - 1:
+            await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+            return True
+
+        return False
+
     async def _attempt_range_preflight_checks(
         self, path: str, target_url: str, headers: httpx.Headers
     ) -> str:
@@ -2215,29 +2228,30 @@ class RivenVFS(pyfuse3.Operations):
                         log.warning(
                             f"Server doesn't support range requests yet: path={path} (retrying)"
                         )
-                        await trio.sleep(0.5)
-                        continue
+
+                        if await self._retry_with_backoff(
+                            preflight_attempt, max_preflight_attempts, backoffs
+                        ):
+                            continue
                     # Unable to get range support after retries
                     raise pyfuse3.FUSEError(errno.EIO)
             except httpx.RemoteProtocolError as e:
                 log.debug(
                     f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path} error={type(e).__name__}"
                 )
-                if not is_max_attempt:
-                    await trio.sleep(
-                        backoffs[min(preflight_attempt, len(backoffs) - 1)]
-                    )
+
+                if await self._retry_with_backoff(
+                    preflight_attempt, max_preflight_attempts, backoffs
+                ):
                     continue
+
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except httpx.HTTPStatusError as e:
                 preflight_status_code = e.response.status_code
 
                 log.debug(f"Preflight HTTP error {preflight_status_code}: path={path}")
 
-                if (
-                    preflight_status_code == HTTPStatus.NOT_FOUND
-                    or preflight_status_code == HTTPStatus.GONE
-                ):
+                if preflight_status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
                     # File can't be found at this URL; try refreshing the URL once
                     if preflight_attempt == 0:
                         fresh_url = await trio.to_thread.run_sync(
@@ -2249,8 +2263,11 @@ class RivenVFS(pyfuse3.Operations):
                                 f"URL refresh after HTTP {preflight_status_code}: path={path}"
                             )
                             target_url = fresh_url
-                            await trio.sleep(0.5)  # Brief pause before retry
-                            continue
+
+                            if await self._retry_with_backoff(
+                                preflight_attempt, max_preflight_attempts, backoffs
+                            ):
+                                continue
                     # No fresh URL or still erroring after refresh
                     raise pyfuse3.FUSEError(errno.ENOENT) from e
                 else:
@@ -2274,10 +2291,9 @@ class RivenVFS(pyfuse3.Operations):
                         target_url = fresh_url
                         log.warning(f"URL refresh after timeout: path={path}")
 
-                if not is_max_attempt:
-                    await trio.sleep(
-                        backoffs[min(preflight_attempt, len(backoffs) - 1)]
-                    )
+                if await self._retry_with_backoff(
+                    preflight_attempt, max_preflight_attempts, backoffs
+                ):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
@@ -2286,10 +2302,9 @@ class RivenVFS(pyfuse3.Operations):
                     f"Unexpected error during preflight checks for {path}: {e}"
                 )
 
-                if not is_max_attempt:
-                    await trio.sleep(
-                        backoffs[min(preflight_attempt, len(backoffs) - 1)]
-                    )
+                if await self._retry_with_backoff(
+                    preflight_attempt, max_preflight_attempts, backoffs
+                ):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
@@ -2362,14 +2377,12 @@ class RivenVFS(pyfuse3.Operations):
                 if status_code == HTTPStatus.FORBIDDEN:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
                     log.debug(f"HTTP 403 Forbidden: path={path} attempt={attempt + 1}")
-                    if attempt < max_attempts - 1:
-                        await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+
+                    if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                         continue
+
                     raise pyfuse3.FUSEError(errno.EACCES) from e
-                elif (
-                    status_code == HTTPStatus.NOT_FOUND
-                    or status_code == HTTPStatus.GONE
-                ):
+                elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
                     # Preflight catches initial not found errors and attempts to refresh the URL
                     # if it still happens after a real request, don't refresh again and bail out
                     raise pyfuse3.FUSEError(errno.ENOENT) from e
@@ -2381,12 +2394,10 @@ class RivenVFS(pyfuse3.Operations):
                     log.warning(
                         f"HTTP 429 Rate Limited: path={path} attempt={attempt + 1}"
                     )
-                    if not is_max_attempt:
-                        backoff_time = min(
-                            backoffs[min(attempt, len(backoffs) - 1)] * 2, 5.0
-                        )
-                        await trio.sleep(backoff_time)
+
+                    if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                         continue
+
                     raise pyfuse3.FUSEError(errno.EAGAIN) from e
                 else:
                     # Other unexpected status codes
@@ -2407,8 +2418,7 @@ class RivenVFS(pyfuse3.Operations):
                         target_url = fresh_url
                         log.warning(f"URL refresh after timeout: path={path}")
 
-                if not is_max_attempt:
-                    await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
@@ -2417,12 +2427,15 @@ class RivenVFS(pyfuse3.Operations):
                 log.debug(
                     f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
                 )
-                if not is_max_attempt:
-                    await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+
+                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                     continue
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
-            except pyfuse3.FUSEError:
+            except pyfuse3.FUSEError as e:
+                log.error(
+                    f"FUSE error (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
+                )
                 if not is_max_attempt:
                     continue
                 raise
@@ -2430,9 +2443,10 @@ class RivenVFS(pyfuse3.Operations):
                 log.error(
                     f"Unexpected error fetching data block for {path} ({type(e).__name__}): {e}"
                 )
-                if not is_max_attempt:
-                    await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+
+                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                     continue
+
                 raise pyfuse3.FUSEError(errno.EIO) from e
 
         raise pyfuse3.FUSEError(errno.EIO)
