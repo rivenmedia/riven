@@ -497,11 +497,8 @@ class RivenVFS(pyfuse3.Operations):
             try:
                 # pyfuse3.main is a coroutine that needs to run in its own trio event loop
                 trio.run(_async_main)
-            except Exception as e:
-                log.error(f"FUSE main loop error: {e}")
-                import traceback
-
-                log.error(f"Traceback:\n{traceback.format_exc()}")
+            except Exception:
+                log.exception("FUSE main loop error")
 
         self._thread = threading.Thread(target=_fuse_runner, daemon=True)
         self._thread.start()
@@ -914,14 +911,14 @@ class RivenVFS(pyfuse3.Operations):
 
             if self._thread and self._thread.is_alive():
                 self._thread.join(timeout=5)
-        except Exception as e:
-            log.warning(f"Error terminating FUSE: {e}")
+        except Exception:
+            log.exception("Error terminating FUSE")
 
         try:
             # Close FUSE session after main loop has exited
             pyfuse3.close(unmount=True)
-        except Exception as e:
-            log.warning(f"Error closing FUSE session: {e}")
+        except Exception:
+            log.exception("Error closing FUSE session")
 
         # Force unmount if necessary
         try:
@@ -938,8 +935,8 @@ class RivenVFS(pyfuse3.Operations):
         """Async helper to call pyfuse3.terminate() within the Trio loop."""
         try:
             pyfuse3.terminate()
-        except Exception as e:
-            log.warning(f"pyfuse3.terminate() failed: {e}")
+        except Exception:
+            log.exception("pyfuse3.terminate() failed")
 
     # Public API methods
     def add_file(
@@ -1505,8 +1502,8 @@ class RivenVFS(pyfuse3.Operations):
             return attrs
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("getattr error for inode=%s: %s", inode, ex)
+        except Exception:
+            log.exception(f"getattr error for inode={inode}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def lookup(
@@ -1543,8 +1540,8 @@ class RivenVFS(pyfuse3.Operations):
             return await self.getattr(child_inode)
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("lookup error: parent=%s name=%s: %s", parent_inode, name, ex)
+        except Exception:
+            log.exception(f"lookup error: parent={parent_inode} name={name}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def opendir(self, inode: pyfuse3.InodeT, ctx):
@@ -1563,8 +1560,8 @@ class RivenVFS(pyfuse3.Operations):
             return inode  # Return the inode as file handle for directories
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("opendir error for inode=%s: %s", inode, ex)
+        except Exception:
+            log.exception(f"opendir error for inode={inode}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def readdir(
@@ -1601,8 +1598,8 @@ class RivenVFS(pyfuse3.Operations):
                     break
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("readdir error for inode=%s: %s", inode, ex)
+        except Exception:
+            log.exception(f"readdir error for inode={inode}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def open(self, inode: pyfuse3.InodeT, flags: int, ctx):
@@ -1892,8 +1889,8 @@ class RivenVFS(pyfuse3.Operations):
             return returned_data
         except pyfuse3.FUSEError:
             raise
-        except Exception as e:
-            log.exception(f"read(simple) error fh={fh}: {e}")
+        except Exception:
+            log.exception(f"read(simple) error fh={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def _prefetch_next_chunks(
@@ -2065,8 +2062,8 @@ class RivenVFS(pyfuse3.Operations):
                         self._path_chunks_in_progress.pop(path, None)
                         self._prefetch_locks.pop(path, None)
             log.trace(f"release: fh={fh} path={path}")
-        except Exception as ex:
-            log.exception("release error fh=%s: %s", fh, ex)
+        except Exception:
+            log.exception(f"release error fh={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def flush(self, fh: int) -> None:
@@ -2090,8 +2087,8 @@ class RivenVFS(pyfuse3.Operations):
             return None
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("access error inode=%s mode=%s: %s", inode, mode, ex)
+        except Exception:
+            log.exception(f"access error inode={inode} mode={mode}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def unlink(self, parent_inode: int, name: bytes, ctx):
@@ -2104,8 +2101,8 @@ class RivenVFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EROFS)
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("unlink error: parent=%s name=%s: %s", parent_inode, name, ex)
+        except Exception:
+            log.exception(f"unlink error: parent={parent_inode} name={name}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def rmdir(self, parent_inode: int, name: bytes, ctx):
@@ -2118,8 +2115,8 @@ class RivenVFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EROFS)
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
-            log.exception("rmdir error: parent=%s name=%s: %s", parent_inode, name, ex)
+        except Exception:
+            log.exception(f"rmdir error: parent={parent_inode} name={name}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def rename(
@@ -2141,14 +2138,9 @@ class RivenVFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EROFS)
         except pyfuse3.FUSEError:
             raise
-        except Exception as ex:
+        except Exception:
             log.exception(
-                "rename error: old_parent=%s new_parent=%s name_old=%s name_new=%s: %s",
-                parent_inode_old,
-                parent_inode_new,
-                name_old,
-                name_new,
-                ex,
+                f"rename error: old_parent={parent_inode_old} new_parent={parent_inode_new} name_old={name_old} name_new={name_new}"
             )
             raise pyfuse3.FUSEError(errno.EIO)
 
@@ -2299,10 +2291,8 @@ class RivenVFS(pyfuse3.Operations):
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except pyfuse3.FUSEError as e:
                 raise
-            except Exception as e:
-                log.exception(
-                    f"Unexpected error during preflight checks for {path}: {e}"
-                )
+            except Exception:
+                log.exception(f"Unexpected error during preflight checks for {path}")
 
                 if await self._retry_with_backoff(
                     preflight_attempt, max_preflight_attempts, backoffs
@@ -2436,11 +2426,8 @@ class RivenVFS(pyfuse3.Operations):
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except pyfuse3.FUSEError as e:
                 raise
-            except Exception as e:
-                log.error(
-                    f"Unexpected error fetching data block for {path} ({type(e).__name__}): {e}"
-                )
-
-                raise pyfuse3.FUSEError(errno.EIO) from e
+            except Exception:
+                log.exception(f"Unexpected error fetching data block for {path}")
+                raise
 
         raise pyfuse3.FUSEError(errno.EIO)
