@@ -8,7 +8,7 @@ from threading import Event
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
 from kink import di
-from loguru import logger
+from program.utils.logging import logger
 from sqlalchemy import delete, func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload

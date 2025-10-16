@@ -69,7 +69,8 @@ def upgrade() -> None:
     1. Create a named database snapshot (pre_834cba7d26b4) before making changes
     2. Drop all existing tables and data
     3. Create the new schema with FilesystemEntry architecture
-    4. Recreate the alembic_version table
+
+    Note: This migration does NOT recreate alembic_version - Alembic handles that automatically.
     """
     # Get the connection from the current context
     connection = op.get_bind()
@@ -105,12 +106,19 @@ def upgrade() -> None:
     if not reset_database(connection):
         raise Exception("Failed to reset database")
 
-    # Recreate the alembic_version table that Alembic needs
-    # This must be done before create_all() so Alembic can track the migration
+    # Now create all tables from scratch using the current models
+    # The metadata will be imported from the models
+    from program.db.db import db
+
+    # Create all application tables
+    db.Model.metadata.create_all(bind=connection)
+
+    # Manually create alembic_version table since we dropped it
+    # Alembic needs this table to exist before it can update the version
     connection.execute(
         text(
             """
-        CREATE TABLE alembic_version (
+        CREATE TABLE IF NOT EXISTS alembic_version (
             version_num VARCHAR(32) NOT NULL,
             CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
         )
@@ -119,19 +127,15 @@ def upgrade() -> None:
     )
 
     # Insert the old version so Alembic can update it to the new version
-    # This is necessary because Alembic expects to find the old version in the table
+    # This is what Alembic expects: it will UPDATE this to '7e5b5cf430ff' after upgrade() completes
     connection.execute(
         text("INSERT INTO alembic_version (version_num) VALUES ('834cba7d26b4')")
     )
 
-    # Now create all tables from scratch using the current models
-    # The metadata will be imported from the models
-    from program.db.db import db
-
-    # Create all tables
-    db.Model.metadata.create_all(bind=connection)
-
     logger.log("DATABASE", "✅ Database schema recreated successfully")
+    logger.log(
+        "DATABASE", "   All data has been cleared - you can now add new media items"
+    )
 
 
 def downgrade() -> None:
