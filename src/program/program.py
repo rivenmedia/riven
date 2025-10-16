@@ -37,8 +37,7 @@ from .state_transition import process_event
 from .services.filesystem import FilesystemService
 from .types import Event
 
-# Defer importing tracemalloc until runtime to avoid issues during tests that patch settings_manager
-if bool(getattr(settings_manager.settings, "tracemalloc", False)):
+if settings_manager.settings.tracemalloc:
     import tracemalloc
 
 from sqlalchemy import func, select, text
@@ -128,12 +127,7 @@ class Program(threading.Thread):
             )
 
         if self.enable_trace:
-            try:
-                import tracemalloc as _tracemalloc
-            except Exception:
-                self.enable_trace = False
-            else:
-                self.last_snapshot = _tracemalloc.take_snapshot()
+            self.last_snapshot = tracemalloc.take_snapshot()
 
     def validate(self) -> bool:
         """Validate that all required services are initialized."""
