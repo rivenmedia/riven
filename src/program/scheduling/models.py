@@ -39,12 +39,8 @@ class ScheduledTask(db.Model):
         ),
         default=ScheduledStatus.Pending,
     )
-    created_at: Mapped[datetime] = mapped_column(
-        sqlalchemy.DateTime, default=datetime.now
-    )
-    executed_at: Mapped[Optional[datetime]] = mapped_column(
-        sqlalchemy.DateTime, nullable=True
-    )
+    created_at: Mapped[datetime] = mapped_column(sqlalchemy.DateTime, default=datetime.now)
+    executed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
     reason: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     offset_seconds: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
 
