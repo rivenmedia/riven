@@ -3,7 +3,14 @@
 from pathlib import Path
 from typing import Any, Callable, List, Literal, Annotated
 
-from pydantic import BaseModel, Field, field_validator, BeforeValidator, TypeAdapter
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+    BeforeValidator,
+    TypeAdapter,
+)
 from pydantic.networks import PostgresDsn
 from RTN.models import SettingsModel
 
@@ -32,7 +39,7 @@ class Observable(MigratableBaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    _notify_observers: Callable = None
+    _notify_observers: Callable | None = None
 
     @classmethod
     def set_notify_observers(cls, notify_observers_callable):
@@ -47,10 +54,10 @@ class Observable(MigratableBaseModel):
     @staticmethod
     def _notify_observers_context():
         class NotifyContextManager:
-            def __enter__(self_):
+            def __enter__(self):
                 pass
 
-            def __exit__(self_, exc_type, exc_value, traceback):
+            def __exit__(self, exc_type, exc_value, traceback):
                 pass
 
         return NotifyContextManager()
@@ -115,11 +122,15 @@ class LibraryProfileFilterRules(BaseModel):
     )
     genres: List[str] | None = Field(
         default=None,
-        description="Include if ANY genre matches (OR logic). None/omit = no genre filter",
+        description="Genres to include/exclude. Prefix with '!' to exclude. "
+        "Examples: ['action', 'adventure'] = include these genres, "
+        "['action', '!horror'] = include action but exclude horror. "
+        "None/omit = no genre filter",
     )
     exclude_genres: List[str] | None = Field(
         default=None,
-        description="Exclude if ANY genre matches. None/omit = no exclusion",
+        description="DEPRECATED: Use genres with '!' prefix instead. "
+        "This field is kept for backward compatibility and will be auto-migrated.",
     )
     min_year: int | None = Field(
         default=None,
@@ -136,15 +147,18 @@ class LibraryProfileFilterRules(BaseModel):
     )
     networks: List[str] | None = Field(
         default=None,
-        description="TV networks to include (OR logic). None/omit = no network filter",
+        description="TV networks to include/exclude. Prefix with '!' to exclude. "
+        "Examples: ['HBO', 'Netflix'], ['HBO', '!Fox']. None/omit = no network filter",
     )
     countries: List[str] | None = Field(
         default=None,
-        description="Countries of origin to include (OR logic). None/omit = no country filter",
+        description="Countries to include/exclude. Prefix with '!' to exclude. "
+        "Examples: ['US', 'GB'], ['US', '!CN']. None/omit = no country filter",
     )
     languages: List[str] | None = Field(
         default=None,
-        description="Original languages to include (OR logic). None/omit = no language filter",
+        description="Languages to include/exclude. Prefix with '!' to exclude. "
+        "Examples: ['en', 'es'], ['en', '!zh']. None/omit = no language filter",
     )
     min_rating: float | None = Field(
         default=None,
@@ -160,8 +174,25 @@ class LibraryProfileFilterRules(BaseModel):
     )
     content_ratings: List[str] | None = Field(
         default=None,
-        description="Allowed content ratings (G, PG, PG-13, R, TV-MA, etc.). None/omit = no filter",
+        description="Content ratings to include/exclude. Prefix with '!' to exclude. "
+        "Examples: ['PG', 'PG-13'], ['PG', '!R']. "
+        "Common ratings: G, PG, PG-13, R, NC-17, TV-Y, TV-PG, TV-14, TV-MA. "
+        "None/omit = no rating filter",
     )
+
+    @model_validator(mode="after")
+    def migrate_exclude_genres(self):
+        """Auto-migrate exclude_genres to genres with '!' prefix."""
+        if self.exclude_genres:
+            # Merge exclude_genres into genres with '!' prefix
+            self.genres = self.genres or []
+            for genre in self.exclude_genres:
+                exclusion = f"!{genre}" if not genre.startswith("!") else genre
+                if exclusion not in self.genres:
+                    self.genres.append(exclusion)
+            # Clear deprecated field
+            self.exclude_genres = None
+        return self
 
 
 class LibraryProfile(BaseModel):
@@ -203,9 +234,30 @@ class FilesystemModel(Observable):
         default=Path("/path/to/riven/mount"),
         description="Path where Riven will mount the virtual filesystem",
     )
+
     library_profiles: dict[str, LibraryProfile] = Field(
         default_factory=lambda: {
-            # Example profiles (disabled by default) - enable or customize as needed
+            # Default profiles (enabled by default) - these provide the base /movies and /shows paths
+            # All media appears in these base libraries
+            "movies": LibraryProfile(
+                name="Movies",
+                library_path="/movies",
+                enabled=True,
+                filter_rules=LibraryProfileFilterRules(content_types=["movie"]),
+            ),
+            "shows": LibraryProfile(
+                name="TV Shows",
+                library_path="/shows",
+                enabled=True,
+                filter_rules=LibraryProfileFilterRules(content_types=["show"]),
+            ),
+            "anime": LibraryProfile(
+                name="Anime",
+                library_path="/anime",
+                enabled=True,
+                filter_rules=LibraryProfileFilterRules(is_anime=True),
+            ),
+            # Example profile (disabled by default) - enable or customize as needed
             # These demonstrate all available filter options
             "example_kids": LibraryProfile(
                 name="Kids & Family Content",
@@ -213,76 +265,21 @@ class FilesystemModel(Observable):
                 enabled=False,
                 filter_rules=LibraryProfileFilterRules(
                     content_types=["movie", "show"],
-                    genres=["animation", "family"],
+                    genres=["animation", "family", "!horror"],
                     # US Movie Ratings: G, PG, PG-13, R, NC-17, NR (Not Rated), Unrated
                     # US TV Ratings: TV-Y, TV-Y7, TV-G, TV-PG, TV-14, TV-MA
                     content_ratings=["G", "PG", "TV-Y", "TV-Y7", "TV-G", "TV-PG"],
                     max_rating=7.5,
                 ),
             ),
-            "example_anime": LibraryProfile(
-                name="Anime Content",
-                library_path="/anime",
-                enabled=False,
-                filter_rules=LibraryProfileFilterRules(is_anime=True),
-            ),
-            "example_recent": LibraryProfile(
-                name="Recent Releases (Last 3 Years)",
-                library_path="/recent",
-                enabled=False,
-                filter_rules=LibraryProfileFilterRules(
-                    min_year=2022  # Adjust based on current year
-                ),
-            ),
-            "example_highly_rated": LibraryProfile(
-                name="Highly Rated (8.0+)",
-                library_path="/top_rated",
-                enabled=False,
-                filter_rules=LibraryProfileFilterRules(min_rating=8.0),
-            ),
-            "example_action": LibraryProfile(
-                name="Action & Adventure",
-                library_path="/action",
-                enabled=False,
-                filter_rules=LibraryProfileFilterRules(
-                    genres=["action", "adventure", "thriller"],
-                    exclude_genres=["horror"],  # Exclude horror from action library
-                ),
-            ),
-            "example_hbo": LibraryProfile(
-                name="HBO Originals",
-                library_path="/hbo",
-                enabled=False,
-                filter_rules=LibraryProfileFilterRules(
-                    content_types=["show"], networks=["HBO", "HBO Max"]
-                ),
-            ),
-            "example_british": LibraryProfile(
-                name="British Content",
-                library_path="/british",
-                enabled=False,
-                filter_rules=LibraryProfileFilterRules(
-                    countries=["GB", "UK"],  # ISO country codes
-                    languages=["en"],  # ISO 639-1 language codes
-                ),
-            ),
-            "example_classic": LibraryProfile(
-                name="Classic Films (Pre-2000)",
-                library_path="/classics",
-                enabled=False,
-                filter_rules=LibraryProfileFilterRules(
-                    content_types=["movie"],
-                    max_year=1999,
-                    min_rating=7.0,  # Only well-regarded classics
-                ),
-            ),
         },
         description=(
             "Library profiles for organizing media into different libraries based on metadata. "
-            "Example profiles are provided (disabled by default) - enable them or create your own. "
-            "Each profile filters media by metadata (genres, ratings, etc.) and creates additional "
-            "VFS paths. Media always appears at the base path (/movies, /shows) plus any matching "
-            "profile paths (e.g., /kids/movies, /anime/movies)."
+            "Default profiles ('movies' and 'shows') provide the base /movies and /shows paths. "
+            "Additional example profiles are provided (disabled by default) - enable them or create your own. "
+            "Each profile filters media by metadata (genres, ratings, etc.) and creates VFS paths. "
+            "Media appears in all matching profile paths. Use '!' prefix in filter lists to exclude values "
+            "(e.g., genres: ['action', '!horror'] = action movies but not horror)."
         ),
     )
     cache_dir: Path = Field(

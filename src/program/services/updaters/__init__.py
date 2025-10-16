@@ -12,6 +12,7 @@ from program.services.updaters.plex import PlexUpdater
 from program.settings.manager import settings_manager
 
 
+
 class Updater:
     """
     Main updater service that coordinates multiple media server updaters.
@@ -60,8 +61,21 @@ class Updater:
         refreshed_paths = set()  # Track refreshed paths to avoid duplicates
 
         for _item in items:
-            # Get all VFS paths for this item (base path + library profile paths)
-            all_vfs_paths = _item.filesystem_entry.get_library_paths()
+            # Get all VFS paths from the entry's helper method
+            fe = getattr(_item, "filesystem_entry", None)
+            if not fe:
+                logger.debug(f"No filesystem entry for {_item.log_string}; skipping updater")
+                continue
+
+            try:
+                all_vfs_paths = fe.get_all_vfs_paths()
+            except Exception as e:
+                logger.error(f"Failed to get VFS paths for {_item.log_string}: {e}")
+                continue
+
+            if not all_vfs_paths:
+                logger.debug(f"No VFS paths for {_item.log_string}; skipping updater")
+                continue
 
             logger.debug(f"Updating {_item.log_string} at {len(all_vfs_paths)} path(s)")
 

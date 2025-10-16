@@ -6,8 +6,6 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import select
-
 from program.scheduling.models import ScheduledTask, ScheduledStatus
 from program.media.state import States
 
@@ -238,17 +236,16 @@ class Program(threading.Thread):
 
     def _retry_library(self) -> None:
         """Retry items that failed to download."""
-        with db.Session() as session:
-            item_ids = db_functions.retry_library(session)
-            for item_id in item_ids:
-                self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+        item_ids = db_functions.retry_library()
+        for item_id in item_ids:
+            self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
-            if item_ids:
-                logger.log(
-                    "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
-                )
-            else:
-                logger.log("NOT_FOUND", "No items required retrying")
+        if item_ids:
+            logger.log(
+                "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
+            )
+        else:
+            logger.log("NOT_FOUND", "No items required retrying")
 
     def _reindex_ongoing(self) -> None:
         """Reindex all ongoing items to fetch fresh metadata."""

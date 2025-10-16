@@ -44,6 +44,7 @@ plexapi = "^4.17.1"
 pyfuse3 = "^3.4.0"
 pycurl = "^7.45.6"
 babel = "^2.17.0"
+httpx = {extras = ["http2"], version = "^0.28.1"}
 
 [tool.poetry.group.dev.dependencies]
 pyright = "^1.1.352"
@@ -55,11 +56,11 @@ pyfakefs = "^5.4.1"
 ruff = "^0.13.3"
 isort = "^5.10.1"
 codecov = "^2.1.13"
-httpx = "^0.27.0"
 # memray = "^1.13.4"
 testcontainers = "^4.8.0"
 mypy = "^1.11.2"
 requests-mock = "^1.12.1"
+black = "^25.9.0"
 pre-commit = "^4.3.0"
 
 [tool.poetry.group.test]

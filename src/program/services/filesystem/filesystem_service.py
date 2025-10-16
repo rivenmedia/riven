@@ -33,7 +33,7 @@ class FilesystemService:
             # If VFS already exists and is mounted, synchronize it with current settings
             if self.riven_vfs and getattr(self.riven_vfs, "_mounted", False):
                 logger.info("Synchronizing existing RivenVFS with library profiles")
-                self.riven_vfs.sync_library_profiles()
+                self.riven_vfs.sync()
                 return
 
             # Create new VFS instance
@@ -54,7 +54,7 @@ class FilesystemService:
         """
         Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
 
-        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via _process_single_item, and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
+        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via add(), and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
 
         Parameters:
             item (MediaItem): The media item (episode, movie, season, or show) to process.
@@ -76,59 +76,18 @@ class FilesystemService:
 
         # Process each episode/movie
         for episode_or_movie in items_to_process:
-            self._process_single_item(episode_or_movie)
+            success = self.riven_vfs.add(episode_or_movie)
+
+            if not success:
+                logger.error(f"Failed to register {item.log_string} with RivenVFS")
+                continue
+
+            logger.debug(f"Registered {item.log_string} with RivenVFS")
 
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
         # Yield the original item for state transition
         yield item
-
-    def _process_single_item(self, item: MediaItem) -> None:
-        """
-        Register a single media item's existing file with the RivenVFS so it becomes available in the VFS.
-
-        If the item has no filesystem entry, the function does nothing. On successful registration the function sets
-        `filesystem_entry.available_in_vfs = True`; on failure it leaves the entry unchanged and logs an error. Any
-        exceptions raised during processing are caught and logged.
-        Parameters:
-            item (MediaItem): The media item whose filesystem_entry.path will be registered with RivenVFS.
-        """
-        try:
-            # Check if item has filesystem entry
-            if not item.filesystem_entry:
-                logger.debug(f"No filesystem entry found for {item.log_string}")
-                return
-
-            filesystem_entry = item.filesystem_entry
-
-            # Check if already processed (available in VFS)
-            if getattr(filesystem_entry, "available_in_vfs", False):
-                logger.debug(f"Item {item.log_string} already available in VFS")
-                return
-
-            # Get all VFS paths for this entry (base path + library profile paths)
-            all_paths = filesystem_entry.get_library_paths()
-
-            # Register all paths with FUSE
-            success = True
-            for path in all_paths:
-                if not self.riven_vfs.register_existing_file(path):
-                    logger.error(f"Failed to register {item.log_string} at {path}")
-                    success = False
-
-            if success:
-                filesystem_entry.available_in_vfs = True
-                if len(all_paths) > 1:
-                    logger.debug(
-                        f"Added {item.log_string} to RivenVFS at {len(all_paths)} paths: {all_paths}"
-                    )
-                else:
-                    logger.debug(
-                        f"Added {item.log_string} to RivenVFS at {filesystem_entry.path}"
-                    )
-
-        except Exception as e:
-            logger.error(f"Failed to process {item.log_string} with RivenVFS: {e}")
 
     def close(self):
         """
