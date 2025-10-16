@@ -83,22 +83,20 @@ class LibraryProfileMatcher:
             if not self._matches_content_type(item.type, rules.content_types):
                 return False
 
-        # Genre filters (must have at least one matching genre)
+        # Genre filters with exclusion support
         if rules.genres:
-            item_genres = self._get_normalized_genres(item)
-            if not item_genres:
+            if not self._matches_list_filter(
+                self._get_normalized_genres(item), rules.genres, "genres"
+            ):
                 return False
 
-            # Check if any of the required genres are present
-            if not any(genre in item_genres for genre in rules.genres):
-                return False
-
-        # Excluded genre filter (must not have any excluded genres)
+        # Excluded genre filter (deprecated, but kept for backward compatibility)
+        # The model validator auto-migrates this to genres with '!' prefix
         if rules.exclude_genres:
             item_genres = self._get_normalized_genres(item)
             if item_genres:
                 # Check if any excluded genres are present
-                if any(genre in item_genres for genre in rules.exclude_genres):
+                if any(genre.lower() in item_genres for genre in rules.exclude_genres):
                     return False
 
         # Year filters
@@ -118,34 +116,25 @@ class LibraryProfileMatcher:
             if item.is_anime != rules.is_anime:
                 return False
 
-        # Network filter (for TV shows)
+        # Network filter with exclusion support
         if rules.networks:
-            item_networks = self._get_normalized_networks(item)
-            if not item_networks:
+            if not self._matches_list_filter(
+                self._get_normalized_networks(item), rules.networks, "networks"
+            ):
                 return False
 
-            # Check if any of the required networks are present
-            if not any(network in item_networks for network in rules.networks):
-                return False
-
-        # Country filter
+        # Country filter with exclusion support
         if rules.countries:
-            item_countries = self._get_normalized_countries(item)
-            if not item_countries:
+            if not self._matches_list_filter(
+                self._get_normalized_countries(item), rules.countries, "countries"
+            ):
                 return False
 
-            # Check if any of the required countries are present
-            if not any(country in item_countries for country in rules.countries):
-                return False
-
-        # Language filter
+        # Language filter with exclusion support
         if rules.languages:
-            item_languages = self._get_normalized_languages(item)
-            if not item_languages:
-                return False
-
-            # Check if any of the required languages are present
-            if not any(lang in item_languages for lang in rules.languages):
+            if not self._matches_list_filter(
+                self._get_normalized_languages(item), rules.languages, "languages"
+            ):
                 return False
 
         # Rating filters (0-10 scale)
@@ -159,15 +148,76 @@ class LibraryProfileMatcher:
             if rules.max_rating is not None and item.rating > rules.max_rating:
                 return False
 
-        # Content rating filter (US ratings: G, PG, PG-13, R, etc.)
+        # Content rating filter with exclusion support
         if rules.content_ratings:
-            if not item.content_rating:
-                return False
-
-            if item.content_rating not in rules.content_ratings:
+            item_rating = item.content_rating
+            if not self._matches_list_filter(
+                [item_rating.lower()] if item_rating else [],
+                rules.content_ratings,
+                "content_ratings",
+            ):
                 return False
 
         # All rules matched
+        return True
+
+    def _matches_list_filter(
+        self, item_values: List[str], filter_values: List[str], filter_name: str
+    ) -> bool:
+        """
+        Check if item values match filter with inclusion/exclusion support.
+
+        Args:
+            item_values: Normalized values from the item (e.g., ['action', 'adventure'])
+            filter_values: Filter values with optional '!' prefix (e.g., ['action', '!horror'])
+            filter_name: Name of the filter for logging
+
+        Returns:
+            True if item matches filter rules, False otherwise
+
+        Logic:
+            1. Split filter_values into inclusions and exclusions
+            2. If exclusions exist and any match item_values, return False
+            3. If inclusions exist and none match item_values, return False
+            4. Otherwise return True
+        """
+        if not item_values:
+            # Item has no values for this filter
+            # Only fail if there are inclusion rules (item must have at least one)
+            inclusions = [v for v in filter_values if not v.startswith("!")]
+            return len(inclusions) == 0
+
+        # Normalize item values
+        item_values_lower = [v.lower() for v in item_values]
+
+        # Split into inclusions and exclusions
+        inclusions = []
+        exclusions = []
+
+        for value in filter_values:
+            if value.startswith("!"):
+                # Exclusion rule
+                exclusions.append(value[1:].lower())  # Remove '!' and normalize
+            else:
+                # Inclusion rule
+                inclusions.append(value.lower())
+
+        # Check exclusions first (fail fast)
+        if exclusions:
+            for exclusion in exclusions:
+                if exclusion in item_values_lower:
+                    logger.debug(
+                        f"Item excluded by {filter_name} filter: "
+                        f"item has '{exclusion}' which is in exclusion list"
+                    )
+                    return False
+
+        # Check inclusions (must have at least one match if inclusions exist)
+        if inclusions:
+            has_match = any(inc in item_values_lower for inc in inclusions)
+            if not has_match:
+                return False
+
         return True
 
     def _matches_content_type(self, item_type: str, allowed_types: List[str]) -> bool:
@@ -202,22 +252,52 @@ class LibraryProfileMatcher:
         return [g.lower() for g in item.genres if g]
 
     def _get_normalized_networks(self, item: MediaItem) -> List[str]:
-        """Get normalized network list (lowercase) from MediaItem."""
-        if not item.network:
-            return []
-        return [n.lower() for n in item.network if n]
+        """Get normalized network list (lowercase) from MediaItem.
+        Accepts either a single string (e.g., "HBO Max") or a list of strings.
+        """
+        v = getattr(item, "network", None)
+        return self._normalize_str_list(v)
 
     def _get_normalized_countries(self, item: MediaItem) -> List[str]:
-        """Get normalized country list (lowercase) from MediaItem."""
-        if not item.country:
-            return []
-        return [c.lower() for c in item.country if c]
+        """Get normalized country list (lowercase) from MediaItem.
+        Accepts either a single string (e.g., "USA") or a list of strings/codes.
+        """
+        v = getattr(item, "country", None)
+        return self._normalize_str_list(v)
 
     def _get_normalized_languages(self, item: MediaItem) -> List[str]:
-        """Get normalized language list (lowercase) from MediaItem."""
-        if not item.language:
+        """Get normalized language list (lowercase) from MediaItem.
+        Accepts either a single string (e.g., "eng") or a list of ISO 639-3 codes.
+        """
+        v = getattr(item, "language", None)
+        return self._normalize_str_list(v)
+
+    def _normalize_str_list(self, value) -> List[str]:
+        """Normalize a string or iterable of strings into a lowercase list.
+        - None -> []
+        - "HBO Max" -> ["hbo max"]
+        - ["USA", "UK"] -> ["usa", "uk"]
+        - Filters out empty strings and trims whitespace
+        """
+        if not value:
             return []
-        return [lang.lower() for lang in item.language if lang]
+        if isinstance(value, str):
+            v = value.strip()
+            return [v.lower()] if v else []
+        # Try to iterate (handles lists/tuples/sets)
+        try:
+            result = []
+            for x in value:
+                if x is None:
+                    continue
+                s = str(x).strip()
+                if s:
+                    result.append(s.lower())
+            return result
+        except TypeError:
+            # Not iterable; fallback to string cast
+            s = str(value).strip()
+            return [s.lower()] if s else []
 
     def _get_year(self, item: MediaItem) -> Optional[int]:
         """

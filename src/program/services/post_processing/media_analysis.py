@@ -12,14 +12,11 @@ upgrade decisions.
 """
 
 import os
-from datetime import datetime
 import traceback
-import json
 
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from loguru import logger
-from PTT import parse_title
 from program.utils.ffprobe import parse_media_file
 
 from program.media.item import MediaItem
@@ -46,7 +43,7 @@ class MediaAnalysisService:
 
         Only runs once per item when:
         - Item has a filesystem entry
-        - Item hasn't been analyzed yet (no parsed_data)
+        - Entry hasn't been probed yet (no probed_data in MediaEntry)
         - Item type is movie or episode
 
         Args:
@@ -61,8 +58,8 @@ class MediaAnalysisService:
         if not item.filesystem_entry:
             return False
 
-        # Check if already analyzed by looking for parsed_data
-        if hasattr(item, "parsed_data") and item.parsed_data:
+        # Skip if already probed
+        if item.filesystem_entry.probed_data:
             return False
 
         return True
@@ -72,9 +69,10 @@ class MediaAnalysisService:
         Analyze media file and store metadata.
 
         Performs:
-        1. FFprobe analysis (video/audio codecs, embedded subtitles)
-        2. PTT filename parsing (resolution, codec, audio, release group, etc.)
-        3. Stores results in MediaItem.parsed_data for later use
+        1. PTT filename parsing (resolution, codec, audio, release group, etc.) - only if not already parsed
+        2. FFprobe analysis (video/audio codecs, embedded subtitles) - only if not already probed
+        3. Stores PTT results in MediaEntry.parsed_data
+        4. Stores ffprobe results in MediaEntry.probed_data
 
         Note: Does not handle database commits - caller is responsible for persistence.
 
@@ -85,39 +83,52 @@ class MediaAnalysisService:
             logger.warning(f"No filesystem entry for {item.log_string}, cannot analyze")
             return
 
+        entry = item.filesystem_entry
+
         try:
             logger.debug(f"Analyzing media file for {item.log_string}")
 
-            # Get the mounted VFS path for ffprobe
-            mount_path = settings_manager.settings.filesystem.mount_path
-            vfs_path = item.filesystem_entry.path
-            full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
-
             # Get original filename for PTT parsing
-            original_filename = item.filesystem_entry.original_filename
+            original_filename = entry.original_filename
 
-            # Initialize results dictionary
-            analysis_results = {
-                "analyzed_at": datetime.now().isoformat(),
-                "ffprobe_data": None,
-                "parsed_filename": None,
-            }
+            # 1. Parse filename with PTT (skip if already parsed by downloader)
+            if not entry.parsed_data and original_filename:
+                from RTN import parse
 
-            # 1. Run ffprobe analysis
-            ffprobe_data = self._analyze_with_ffprobe(full_path, item)
-            if ffprobe_data:
-                analysis_results["ffprobe_data"] = ffprobe_data
+                try:
+                    parsed = parse(original_filename)
+                    if parsed:
+                        entry.parsed_data = parsed.model_dump()
+                        logger.debug(f"Parsed filename for {item.log_string}")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to parse filename for {item.log_string}: {e}"
+                    )
 
-            # 2. Parse filename with PTT
-            parsed_data = None
-            if original_filename:
-                parsed_data = self._parse_filename(original_filename, item)
-                if parsed_data:
-                    analysis_results["parsed_filename"] = parsed_data
+            # 2. Run ffprobe analysis (skip if already probed)
+            if not entry.probed_data:
+                # Get the mounted VFS path for ffprobe
+                # Note: We use mount_path (host VFS mount) not library_path (container path)
+                mount_path = settings_manager.settings.filesystem.mount_path
 
-            # 3. Store results in MediaItem
-            if ffprobe_data and parsed_data:
-                item.parsed_data = analysis_results
+                # Generate VFS path from entry
+                vfs_paths = entry.get_all_vfs_paths()
+                if not vfs_paths:
+                    logger.warning(
+                        f"No VFS paths for {item.log_string}, cannot run ffprobe"
+                    )
+                    return
+
+                # Use the first (base) path for ffprobe
+                vfs_path = vfs_paths[0]
+                full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
+
+                # Run ffprobe analysis
+                ffprobe_data = self._analyze_with_ffprobe(full_path, item)
+
+                # Store ffprobe results if we got any
+                if ffprobe_data:
+                    logger.debug(f"FFprobe analysis completed for {item.log_string}")
 
             logger.debug(f"Media analysis completed for {item.log_string}")
 
@@ -145,6 +156,8 @@ class MediaAnalysisService:
             media_metadata = parse_media_file(file_path)
             if media_metadata:
                 ffprobe_dict = media_metadata.model_dump(mode="json")
+                # Store ffprobe data in filesystem_entry.probed_data
+                item.filesystem_entry.probed_data = ffprobe_dict
                 logger.debug(f"ffprobe analysis successful for {item.log_string}")
                 return ffprobe_dict
 
@@ -153,32 +166,5 @@ class MediaAnalysisService:
         except Exception:
             logger.error(
                 f"FFprobe analysis failed for {item.log_string}: {traceback.format_exc()}"
-            )
-            return {}
-
-    def _parse_filename(self, filename: str, item: MediaItem) -> Dict[str, Any]:
-        """
-        Parse filename with PTT to extract metadata.
-
-        Args:
-            filename: Original filename to parse
-            item: MediaItem being analyzed
-
-        Returns:
-            Dictionary with parsed metadata or None if parsing fails
-        """
-        try:
-            parsed_data = parse_title(filename)
-            if parsed_data:
-                logger.debug(
-                    f"PTT parsed {len(parsed_data)} fields from filename for {item.log_string}"
-                )
-                return parsed_data
-
-            logger.warning(f"PTT returned no data for filename: {filename}")
-            return {}
-        except Exception:
-            logger.error(
-                f"PTT parsing failed for {item.log_string}: {traceback.format_exc()}"
             )
             return {}

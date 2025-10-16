@@ -18,8 +18,9 @@ class MediaEntry(FilesystemEntry):
 
     # Media-specific fields
     # Note: file_size and is_directory are inherited from FilesystemEntry base class
-    original_filename: Mapped[Optional[str]] = mapped_column(
-        sqlalchemy.String, nullable=True
+    # original_filename is the source of truth - all VFS paths are generated from this
+    original_filename: Mapped[str] = mapped_column(
+        sqlalchemy.String, nullable=False, index=True
     )
 
     # Debrid service fields
@@ -42,132 +43,145 @@ class MediaEntry(FilesystemEntry):
         comment="List of library profile keys this entry matches (from settings.json)",
     )
 
+    # Parsed filename data (cached to avoid re-parsing)
+    # Stores PTT parse results: {item_type, season, episodes}
+    parsed_data: Mapped[Optional[dict]] = mapped_column(
+        sqlalchemy.JSON,
+        nullable=True,
+        comment="Cached parsed filename data from PTT (item_type, season, episodes)",
+    )
+
+    # Probed media data (cached to avoid re-probing)
+    # Stores ffprobe results: {video, audio, subtitles, duration, etc.}
+    probed_data: Mapped[Optional[dict]] = mapped_column(
+        sqlalchemy.JSON,
+        nullable=True,
+        comment="Cached ffprobe media analysis data (video, audio, subtitles, etc.)",
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "media",
     }
 
-    __table_args__ = (sqlalchemy.Index("ix_media_entry_provider", "provider"),)
+    __table_args__ = (
+        sqlalchemy.Index("ix_media_entry_provider", "provider"),
+        sqlalchemy.Index("ix_media_entry_original_filename", "original_filename"),
+        sqlalchemy.UniqueConstraint(
+            "original_filename", name="uq_media_entry_original_filename"
+        ),
+    )
 
     def __repr__(self):
-        return f"<MediaEntry(id={self.id}, path='{self.path}', size={self.file_size})>"
+        return f"<MediaEntry(id={self.id}, original_filename='{self.original_filename}', size={self.file_size})>"
 
     def get_original_filename(self) -> str:
         """
         Return the original filename for the entry.
 
         Returns:
-            str: The stored `original_filename` if present, otherwise the basename of `path`.
+            str: The stored `original_filename` (always present in new architecture).
         """
-        if self.original_filename:
-            return self.original_filename
-        # Fallback to extracting from path
-        import os
+        return self.original_filename
 
-        return os.path.basename(self.path)
-
-    def get_library_paths(self) -> list[str]:
+    def get_all_vfs_paths(self) -> list[str]:
         """
-        Get all VFS paths for this entry.
+        Generate all VFS paths for this entry from library profiles.
 
-        ALWAYS returns the base path (self.path), plus additional library profile paths
-        if any profiles matched.
+        This is the single source of truth for path generation, used by both
+        RivenVFS registration and Updater refresh logic.
+
+        All paths come from library_profiles - there is no separate "base path".
+        If library_profiles is empty, returns empty list.
 
         Returns:
-            list[str]: List of VFS paths (base path + profile paths)
-
-        Example:
-            entry.path = "/movies/Toy Story (1995)/Toy Story.mkv"
-            entry.library_profiles = ["kids", "anime"]
-            entry.get_library_paths()
-            # Returns: [
-            #   "/movies/Toy Story (1995)/Toy Story.mkv",           # Base path (ALWAYS)
-            #   "/kids/movies/Toy Story (1995)/Toy Story.mkv",      # Kids profile
-            #   "/anime/movies/Toy Story (1995)/Toy Story.mkv"      # Anime profile
-            # ]
-
-            entry.path = "/movies/The Matrix (1999)/The Matrix.mkv"
-            entry.library_profiles = []
-            entry.get_library_paths()
-            # Returns: [
-            #   "/movies/The Matrix (1999)/The Matrix.mkv"          # Base path only
-            # ]
+            List of VFS paths (e.g., ["/movies/Movie.mkv", "/kids/Movie.mkv"])
         """
+        from program.services.filesystem.vfs.naming import generate_clean_path
         from program.settings.manager import settings_manager
 
-        paths = []
+        # Get the associated MediaItem
+        item = self.media_item
+        if not item:
+            return []
 
-        # ALWAYS include the base path first
-        if self.path:
-            paths.append(self.path)
+        # No library profiles = no paths
+        if not self.library_profiles:
+            return []
 
-        # Add library profile paths if any profiles matched
-        if self.library_profiles:
-            profiles = settings_manager.settings.filesystem.library_profiles or {}
+        # Generate clean path structure from original_filename
+        # This gives us the canonical structure: /movies/Title (Year)/Title.mkv
+        # Pass cached parsed_data to avoid re-parsing
+        canonical_path = generate_clean_path(
+            item=item,
+            original_filename=self.original_filename,
+            file_size=self.file_size or 0,
+            parsed_data=self.parsed_data,
+        )
 
-            for profile_key in self.library_profiles:
-                profile = profiles.get(profile_key)
-                if profile and profile.enabled:
-                    library_path = profile.library_path
-                    entry_path = self._generate_path_with_prefix(library_path)
-                    paths.append(entry_path)
+        all_paths = []
+        profiles = settings_manager.settings.filesystem.library_profiles
 
-        return paths
+        # Generate paths for each library profile
+        for profile_key in self.library_profiles:
+            if profile_key not in profiles:
+                continue
 
-    def _generate_path_with_prefix(self, prefix: str) -> str:
-        """
-        Generate VFS path with library profile prefix.
+            profile = profiles[profile_key]
 
-        Prepends the profile's library_path to the base path.
+            # Simplify path if profile only has one content type
+            # e.g., /kids/Movie.mkv instead of /kids/movies/Movie.mkv
+            filter_rules = profile.filter_rules
+            content_types = filter_rules.content_types if filter_rules else None
 
-        Args:
-            prefix: Library path prefix (e.g., "/kids", "/anime")
+            if content_types and len(content_types) == 1:
+                # Single content type - simplify path by removing /movies or /shows
+                if canonical_path.startswith("/movies/"):
+                    simplified = canonical_path[8:]  # Remove "/movies/"
+                elif canonical_path.startswith("/shows/"):
+                    simplified = canonical_path[7:]  # Remove "/shows/"
+                else:
+                    simplified = canonical_path.lstrip("/")
 
-        Returns:
-            str: VFS path with profile prefix
+                profile_path = f"{profile.library_path}/{simplified}"
+            else:
+                # Multiple content types - keep full path structure
+                profile_path = f"{profile.library_path}{canonical_path}"
 
-        Example:
-            self.path = "/movies/Title (2024)/file.mkv"
-            self._generate_path_with_prefix("/kids")
-            # Returns: "/kids/movies/Title (2024)/file.mkv"
-        """
-        if not self.path:
-            return prefix
+            all_paths.append(profile_path)
 
-        # Prepend prefix to the base path
-        # e.g., "/movies/Title (2024)/file.mkv" -> "/kids/movies/Title (2024)/file.mkv"
-        return f"{prefix}{self.path}"
+        return all_paths
 
     @classmethod
     def create_virtual_entry(
         cls,
-        path: str,
+        original_filename: str,
         download_url: str,
         provider: str,
         provider_download_id: str,
         file_size: int = 0,
-        original_filename: str = None,
+        parsed_data: Optional[dict] = None,
     ) -> "MediaEntry":
         """
         Create a MediaEntry representing a virtual (RivenVFS) media file.
 
         Parameters:
-            path (str): Virtual VFS path for the entry.
+            original_filename (str): Original filename from debrid provider (source of truth).
             download_url (str): Provider-restricted URL used to fetch the file.
             provider (str): Identifier of the provider that supplies the file.
             provider_download_id (str): Provider-specific download identifier.
             file_size (int): Size of the file in bytes; defaults to 0.
-            original_filename (str | None): Original source filename, used as a fallback display name.
+            parsed_data (dict, optional): Cached parsed filename data from PTT to avoid re-parsing.
 
         Returns:
             MediaEntry: A new MediaEntry instance populated with the provided values.
         """
         return cls(
-            path=path,
+            original_filename=original_filename,
             download_url=download_url,
             provider=provider,
             provider_download_id=provider_download_id,
             file_size=file_size,
-            original_filename=original_filename,
+            parsed_data=parsed_data,
         )
 
     def to_dict(self) -> dict:
@@ -182,12 +196,11 @@ class MediaEntry(FilesystemEntry):
             dict: {
                 "id": entry id,
                 "entry_type": "media",
-                "path": virtual VFS path,
+                "original_filename": original filename (source of truth),
                 "file_size": size in bytes,
                 "is_directory": true if directory, false otherwise,
                 "created_at": ISO 8601 timestamp or None,
                 "updated_at": ISO 8601 timestamp or None,
-                "original_filename": original filename or None,
                 "download_url": restricted download URL or None,
                 "unrestricted_url": persisted direct URL or None,
                 "provider": provider identifier or None,
@@ -209,3 +222,12 @@ class MediaEntry(FilesystemEntry):
             }
         )
         return base_dict
+
+
+# ============================================================================
+# SQLAlchemy Event Listener for Automatic VFS Cleanup
+# ============================================================================
+
+# Note: VFS sync after FilesystemEntry deletion is handled manually in the code
+# that performs the deletion (e.g., /remove endpoint, item.reset()) to ensure
+# the sync happens AFTER the transaction is committed, not during the delete event.

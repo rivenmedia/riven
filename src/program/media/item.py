@@ -89,7 +89,6 @@ class MediaItem(db.Model):
     last_state: Mapped[Optional[States]] = mapped_column(
         sqlalchemy.Enum(States), default=States.Unknown
     )
-    parsed_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, nullable=True)
     filesystem_entries: Mapped[list["FilesystemEntry"]] = relationship(
         "FilesystemEntry",
         back_populates="media_item",
@@ -490,16 +489,22 @@ class MediaItem(db.Model):
         dict["filesystem_entry"] = (
             self.filesystem_entry.to_dict() if self.filesystem_entry else None
         )
-        dict["parsed_data"] = self.parsed_data if hasattr(self, "parsed_data") else None
+        dict["parsed_data"] = (
+            self.filesystem_entry.parsed_data if self.filesystem_entry else None
+        )
+        dict["probed_data"] = (
+            self.filesystem_entry.probed_data if self.filesystem_entry else None
+        )
         dict["subtitles"] = (
             [subtitle.to_dict() for subtitle in self.subtitles]
             if hasattr(self, "subtitles")
             else []
         )
-        if self.parsed_data:
-            probe_data = self.parsed_data.get("ffprobe_data", {})
-            if probe_data:
-                dict["subtitles"].append(probe_data.get("subtitles", []))
+        # Include embedded subtitles from probed_data
+        if self.filesystem_entry and self.filesystem_entry.probed_data:
+            embedded_subs = self.filesystem_entry.probed_data.get("subtitles", [])
+            if embedded_subs:
+                dict["subtitles"].append(embedded_subs)
         return dict
 
     def __iter__(self):
@@ -622,8 +627,24 @@ class MediaItem(db.Model):
         """
         Reset the media item and its related associations to prepare for rescraping.
 
-        Clears filesystem entries, subtitles, active and related streams, and resets scraping-related metadata (updated, scraped_at, scraped_times, failed_attempts). ORM cascade and configured event listeners are relied upon to delete associated records and perform filesystem/VFS cleanup where applicable.
+        Clears filesystem entries, subtitles, active and related streams, and resets
+        scraping-related metadata (updated, scraped_at, scraped_times, failed_attempts).
+
+        ORM cascade handles deletion of associated records. VFS sync is called to remove
+        this item's nodes from the VFS tree (targeted removal, not full rebuild).
+
+        Note: VFS sync is called BEFORE clearing entries so it can still access them
+        to generate the paths to remove. The entries aren't committed yet, so they're
+        still accessible in the session.
         """
+        # Remove VFS nodes BEFORE clearing entries (so we can still access them)
+        from program.services.filesystem import FilesystemService
+        from program.program import riven
+
+        filesystem_service = riven.services.get(FilesystemService)
+        if filesystem_service and filesystem_service.riven_vfs:
+            filesystem_service.riven_vfs.remove(self)
+
         # Clear filesystem entries - ORM automatically deletes orphaned entries
         self.filesystem_entries.clear()
 
@@ -636,7 +657,6 @@ class MediaItem(db.Model):
 
         # Reset scraping metadata
         self.updated = False
-        self.parsed_data = {}
         self.scraped_at = None
         self.scraped_times = 0
         self.failed_attempts = 0
@@ -1081,14 +1101,3 @@ def copy_item(item):
         return MediaItem(item={}).copy(item)
     else:
         raise ValueError(f"Cannot copy item of type {type(item)}")
-
-
-# ============================================================================
-# SQLAlchemy Event Listeners for Automatic Cleanup
-# ============================================================================
-
-# No event listeners needed for FilesystemEntry cleanup!
-# The cascade="all, delete-orphan" on MediaItem.filesystem_entries handles everything:
-# - When MediaItem is deleted, all FilesystemEntries are automatically deleted (CASCADE)
-# - When filesystem_entries.clear() is called, orphaned entries are automatically deleted (delete-orphan)
-# - The FilesystemEntry's before_delete event listener still handles VFS cache invalidation

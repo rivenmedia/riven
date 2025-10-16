@@ -3,10 +3,13 @@ import signal
 import sys
 import threading
 import time
-import traceback
 
+import httpx
+from kink import di
 import uvicorn
 from dotenv import load_dotenv
+
+from program.db.db import db
 
 load_dotenv()  # import required here to support SETTINGS_FILENAME
 
@@ -42,6 +45,14 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 
 args = handle_args()
 
+
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI):
+    di[httpx.AsyncClient] = httpx.AsyncClient(http2=True)
+    yield
+    await di[httpx.AsyncClient].aclose()
+
+
 app = FastAPI(
     title="Riven",
     summary="A media management system.",
@@ -51,6 +62,7 @@ app = FastAPI(
         "name": "GPL-3.0",
         "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
     },
+    lifespan=lifespan,
 )
 
 
@@ -87,10 +99,9 @@ class Server(uvicorn.Server):
             while not self.started:
                 time.sleep(1e-3)
             yield
-        except Exception as e:
-            logger.error(f"Error in server thread: {e}")
-            logger.exception(traceback.format_exc())
-            raise e
+        except Exception:
+            logger.exception("Error in server thread")
+            raise
         finally:
             self.should_exit = True
             sys.exit(0)
@@ -108,13 +119,13 @@ signal.signal(signal.SIGTERM, signal_handler)
 config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_config=None)
 server = Server(config=config)
 
+
 with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
-    except Exception as e:
-        logger.error(f"Error in main thread: {e}")
-        logger.exception(traceback.format_exc())
+    except Exception:
+        logger.exception("Error in main thread")
     finally:
         logger.critical("Server has been stopped")
         sys.exit(0)

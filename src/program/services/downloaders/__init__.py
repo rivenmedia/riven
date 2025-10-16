@@ -13,10 +13,10 @@ from program.services.downloaders.models import (
     InvalidDebridFileException,
     NoMatchingFilesException,
     NotCachedException,
-    ParsedFileData,
     TorrentContainer,
     TorrentInfo,
 )
+from RTN import ParsedData
 from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
 
@@ -295,7 +295,7 @@ class Downloader:
 
             for file in files:
                 try:
-                    file_data: ParsedFileData = parse_filename(file.filename)
+                    file_data: ParsedData = parse_filename(file.filename)
                 except Exception as e:
                     continue
 
@@ -304,7 +304,7 @@ class Downloader:
                         continue
                     elif 0 in file_data.episodes and len(file_data.episodes) == 1:
                         continue
-                    elif file_data.season == 0:
+                    elif file_data.seasons and file_data.seasons[0] == 0:
                         continue
 
                 if self.match_file_to_item(
@@ -327,7 +327,7 @@ class Downloader:
     def match_file_to_item(
         self,
         item: MediaItem,
-        file_data: ParsedFileData,
+        file_data: ParsedData,
         file: DebridFile,
         download_result: DownloadedTorrent,
         show: Optional[Show] = None,
@@ -342,7 +342,7 @@ class Downloader:
 
         Parameters:
             item (MediaItem): The target media item to match against.
-            file_data (ParsedFileData): Parsed metadata from the filename (item type, season, episode list, etc.).
+            file_data (ParsedData): Parsed metadata from RTN (item type, season, episode list, etc.).
             file (DebridFile): The debrid file candidate containing filename, download URL, and size.
             download_result (DownloadedTorrent): The download context containing infohash and torrent id.
             show (Optional[Show]): The show object used to resolve absolute episode numbers when matching episodes.
@@ -361,13 +361,13 @@ class Downloader:
         )
         found = False
 
-        if item.type == "movie" and file_data.item_type == "movie":
+        if item.type == "movie" and file_data.type == "movie":
             logger.debug("match_file_to_item: movie match -> updating attributes")
             self._update_attributes(item, file, download_result, service, file_data)
             return True
 
         if item.type in ("show", "season", "episode"):
-            season_number = file_data.season
+            season_number = file_data.seasons[0] if file_data.seasons else None
             for file_episode in file_data.episodes:
                 if episode_cap and file_episode > episode_cap:
                     logger.debug(
@@ -474,19 +474,21 @@ class Downloader:
         debrid_file: DebridFile,
         download_result: DownloadedTorrent,
         service=None,
-        file_data: ParsedFileData = None,
+        file_data: ParsedData = None,
     ) -> None:
         """
         Update the media item's active stream and filesystem entries using a debrid file from a completed download.
 
-        Sets item.active_stream from the download_result and, if the debrid file exposes a download URL, computes a virtual filesystem path (using the item, current filesystem settings, original filename, and optional parsed file data), creates a virtual FilesystemEntry containing provider, provider download id, file size, and original filename, and replaces the item's filesystem_entries with that single entry.
+        Sets item.active_stream from the download_result and, if the debrid file exposes a download URL,
+        creates a MediaEntry with the original filename, download URL, and provider information.
+        Path generation is now handled by RivenVFS when the entry is registered.
 
         Parameters:
             item (Movie|Episode): The media item to update.
             debrid_file (DebridFile): Debrid file metadata (must include filename and optionally download_url and filesize).
             download_result (DownloadedTorrent): Result of the download containing id and infohash.
             service: Optional debrid service instance; defaults to the downloader's configured service.
-            file_data (ParsedFileData, optional): Parsed filename metadata to influence path generation; may be omitted.
+            file_data (ParsedData, optional): Parsed filename metadata from RTN to cache in MediaEntry.
         """
         if service is None:
             service = self.service
@@ -496,30 +498,24 @@ class Downloader:
             "id": download_result.info.id,
         }
 
-        # Create FilesystemEntry for virtual file if download URL is available
+        # Create MediaEntry for virtual file if download URL is available
         if debrid_file.download_url:
-            from program.services.filesystem.path_utils import generate_target_path
-            from program.settings.manager import settings_manager
             from program.services.library_profile_matcher import LibraryProfileMatcher
-
-            vfs_path = generate_target_path(
-                item,
-                settings_manager.settings.filesystem,
-                original_filename=debrid_file.filename,
-                file_data=file_data,
-            )
 
             # Match library profiles for this item
             matcher = LibraryProfileMatcher()
             library_profiles = matcher.get_matching_profiles(item)
 
+            # Create MediaEntry with original_filename as source of truth
+            # Path generation is now handled by RivenVFS during registration
+            # Pass parsed_data to avoid re-parsing the filename later
             entry = MediaEntry.create_virtual_entry(
-                path=vfs_path,
+                original_filename=debrid_file.filename,
                 download_url=debrid_file.download_url,
                 provider=service.key,
                 provider_download_id=str(download_result.info.id),
                 file_size=debrid_file.filesize or 0,
-                original_filename=debrid_file.filename,
+                parsed_data=file_data.model_dump() if file_data else None,
             )
 
             # Populate library profiles
@@ -529,7 +525,9 @@ class Downloader:
             item.filesystem_entries.clear()
             item.filesystem_entries.append(entry)
 
-            logger.debug(f"Created FilesystemEntry for {item.log_string} at {vfs_path}")
+            logger.debug(
+                f"Created MediaEntry for {item.log_string} with original_filename={debrid_file.filename}"
+            )
             if library_profiles:
                 logger.debug(
                     f"Matched library profiles for {item.log_string}: {library_profiles}"
