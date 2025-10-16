@@ -32,7 +32,7 @@ class Observable(MigratableBaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    _notify_observers: Callable = None
+    _notify_observers: Callable | None = None
 
     @classmethod
     def set_notify_observers(cls, notify_observers_callable):
@@ -47,10 +47,10 @@ class Observable(MigratableBaseModel):
     @staticmethod
     def _notify_observers_context():
         class NotifyContextManager:
-            def __enter__(self_):
+            def __enter__(self):
                 pass
 
-            def __exit__(self_, exc_type, exc_value, traceback):
+            def __exit__(self, exc_type, exc_value, traceback):
                 pass
 
         return NotifyContextManager()

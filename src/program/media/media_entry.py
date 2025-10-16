@@ -141,11 +141,11 @@ class MediaEntry(FilesystemEntry):
     def create_virtual_entry(
         cls,
         path: str,
-        download_url: str,
-        provider: str,
-        provider_download_id: str,
+        download_url: str | None,
+        provider: str | None,
+        provider_download_id: str | None,
         file_size: int = 0,
-        original_filename: str = None,
+        original_filename: str | None = None,
     ) -> "MediaEntry":
         """
         Create a MediaEntry representing a virtual (RivenVFS) media file.
