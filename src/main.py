@@ -100,7 +100,7 @@ class Server(uvicorn.Server):
                 time.sleep(1e-3)
             yield
         except Exception:
-            logger.exception(f"Error in server thread")
+            logger.exception("Error in server thread")
             raise
         finally:
             self.should_exit = True
