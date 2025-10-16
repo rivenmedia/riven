@@ -3,11 +3,9 @@ import signal
 import sys
 import threading
 import time
-import traceback
 
 import httpx
 from kink import di
-import trio
 import uvicorn
 from dotenv import load_dotenv
 
@@ -120,16 +118,12 @@ config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_config=None)
 server = Server(config=config)
 
 
-async def main():
-    with server.run_in_thread():
-        try:
-            app.program.start()
-            app.program.run()
-        except Exception:
-            logger.exception("Error in main thread")
-        finally:
-            logger.critical("Server has been stopped")
-            sys.exit(0)
-
-
-trio.run(main)
+with server.run_in_thread():
+    try:
+        app.program.start()
+        app.program.run()
+    except Exception:
+        logger.exception("Error in main thread")
+    finally:
+        logger.critical("Server has been stopped")
+        sys.exit(0)

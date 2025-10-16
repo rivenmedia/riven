@@ -6,8 +6,6 @@ from datetime import datetime
 from queue import Empty
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from kink import di
-import trio
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
