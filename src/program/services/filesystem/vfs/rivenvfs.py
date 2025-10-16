@@ -92,7 +92,7 @@ class VFSNode:
     name: str
     is_directory: bool
     original_filename: Optional[str] = None
-    inode: Optional[int] = None
+    inode: Optional[pyfuse3.InodeT] = None
     parent: Optional["VFSNode"] = None
 
     # Cached metadata for files (eliminates database queries)
@@ -325,9 +325,7 @@ class URLCacheItem(TypedDict):
 
 
 class FileHandle(TypedDict):
-    path: str
-    file_size: int | None
-    entry_type: str | None
+    inode: pyfuse3.InodeT
     sequential_reads: int
     last_read_end: int
     subtitle_content: bytes | None
@@ -1337,7 +1335,7 @@ class RivenVFS(pyfuse3.Operations):
             parent_node = self._get_node_by_path(parent_path)
             if parent_node and parent_node.inode:
                 pyfuse3.invalidate_entry_async(
-                    parent_node.inode,
+                    pyfuse3.InodeT(parent_node.inode),
                     pyfuse3.FileNameT(entry_name.encode("utf-8")),
                     deleted=pyfuse3.InodeT(deleted_inode or 0),
                     ignore_enoent=True,
@@ -1609,8 +1607,6 @@ class RivenVFS(pyfuse3.Operations):
             self._next_fh += 1
             self._file_handles[fh] = {
                 "inode": inode,  # Store inode to resolve node/metadata later
-                "is_scanner": False,  # Will be detected based on read pattern (large jumps)
-                "buffers": [],
                 "sequential_reads": 0,
                 "last_read_end": 0,
                 "subtitle_content": None,
