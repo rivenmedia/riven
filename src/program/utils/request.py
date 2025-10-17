@@ -306,14 +306,18 @@ class SmartSession:
             backoff_factor (float): Backoff factor for retries.
         """
         # Tuned for higher concurrency and longer keep-alive to reduce reconnect overhead
-        self._limits = httpx.Limits(max_connections=200, max_keepalive_connections=100, keepalive_expiry=60.0)
+        self._limits = httpx.Limits(
+            max_connections=200, max_keepalive_connections=100, keepalive_expiry=60.0
+        )
         self._timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
         # Reuse a single SSLContext per session to enable TLS session resumption and avoid repeated CA setup
         self._ssl_context = ssl.create_default_context()
 
         mounts = None
         if proxies:
-            http_proxy = proxies.get("http") or proxies.get("all") or proxies.get("all://")
+            http_proxy = (
+                proxies.get("http") or proxies.get("all") or proxies.get("all://")
+            )
             https_proxy = proxies.get("https") or http_proxy
             transports = {}
             if http_proxy:
@@ -346,7 +350,9 @@ class SmartSession:
         if rate_limits:
             for domain, cfg in rate_limits.items():
                 self.limiters[domain] = TokenBucket(
-                    rate=cfg.get("rate", 1), capacity=cfg.get("capacity", 5), name=domain
+                    rate=cfg.get("rate", 1),
+                    capacity=cfg.get("capacity", 5),
+                    name=domain,
                 )
                 self.breakers[domain] = CircuitBreaker(name=domain)
 
@@ -416,7 +422,11 @@ class SmartSession:
         if per_request_proxies:
             mounts = None
             try:
-                http_proxy = per_request_proxies.get("http") or per_request_proxies.get("all") or per_request_proxies.get("all://")
+                http_proxy = (
+                    per_request_proxies.get("http")
+                    or per_request_proxies.get("all")
+                    or per_request_proxies.get("all://")
+                )
                 https_proxy = per_request_proxies.get("https") or http_proxy
                 transports = {}
                 if http_proxy:
@@ -430,6 +440,7 @@ class SmartSession:
 
             # Prefer context manager when not streaming; for streaming we will hand off client closure to resp.close
             if not stream:
+
                 def _make_client():
                     return httpx.Client(
                         http2=True,
@@ -439,6 +450,7 @@ class SmartSession:
                         cert=None,
                         mounts=mounts or None,
                     )
+
                 per_request_client_factory = _make_client
             else:
                 tmp_client = httpx.Client(
@@ -462,7 +474,10 @@ class SmartSession:
                         # For streaming, build request and send with stream=True to avoid pre-reading body
                         # Ensure cookies are represented via header if provided
                         if cookies:
-                            headers.setdefault("Cookie", "; ".join(f"{k}={v}" for k, v in cookies.items()))
+                            headers.setdefault(
+                                "Cookie",
+                                "; ".join(f"{k}={v}" for k, v in cookies.items()),
+                            )
                         req_kwargs: dict = {}
                         for key in ("params", "data", "json", "files", "content"):
                             if key in kwargs:
@@ -503,6 +518,7 @@ class SmartSession:
                     if tmp_client is not None:
                         if stream:
                             orig_close = hx_resp.close
+
                             def _close():
                                 try:
                                     orig_close()
@@ -511,13 +527,16 @@ class SmartSession:
                                         tmp_client.close()
                                     except Exception:
                                         pass
+
                             resp.close = _close  # type: ignore[assignment]
                             # Prevent outer finally from closing the client prematurely
                             tmp_client = None
                         else:
                             # Non-streaming: active content is read; defer closing to outer finally or context manager
                             pass
-                    success_for_breaker = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
+                    success_for_breaker = not (
+                        resp.status_code == 429 or 500 <= resp.status_code < 600
+                    )
                     if breaker:
                         breaker.after_request(success_for_breaker)
                     return resp
@@ -594,7 +613,9 @@ class SmartSession:
         self.close()
 
     # --- helpers ---
-    def _to_smart_response(self, hx_resp: httpx.Response, url: str, stream: bool = False) -> SmartResponse:
+    def _to_smart_response(
+        self, hx_resp: httpx.Response, url: str, stream: bool = False
+    ) -> SmartResponse:
         """
         Convert httpx.Response to a SmartResponse (requests.Response subclass).
         If stream is True, avoid pre-reading content and provide lazy access via .content/.iter_content.
@@ -609,9 +630,11 @@ class SmartSession:
             class _RawAdapter:
                 def __init__(self, resp: httpx.Response):
                     self._resp = resp
+
                 def read(self, *args, **kwargs):
                     # Read full body on-demand; httpx buffers efficiently
                     return self._resp.read()
+
                 def close(self):
                     try:
                         self._resp.close()
@@ -619,9 +642,11 @@ class SmartSession:
                         pass
 
             r.raw = _RawAdapter(hx_resp)
+
             # Provide iter_content similar to requests
             def _iter_content(chunk_size: int = 8192, decode_unicode: bool = False):
                 yield from hx_resp.iter_bytes(chunk_size=chunk_size)
+
             r.iter_content = _iter_content  # type: ignore[attr-defined]
             # Ensure context manager closes underlying response
             r.close = hx_resp.close  # type: ignore[assignment]
