@@ -12,7 +12,6 @@ from program.services.updaters.plex import PlexUpdater
 from program.settings.manager import settings_manager
 
 
-
 class Updater:
     """
     Main updater service that coordinates multiple media server updaters.
@@ -64,7 +63,9 @@ class Updater:
             # Get all VFS paths from the entry's helper method
             fe = getattr(_item, "filesystem_entry", None)
             if not fe:
-                logger.debug(f"No filesystem entry for {_item.log_string}; skipping updater")
+                logger.debug(
+                    f"No filesystem entry for {_item.log_string}; skipping updater"
+                )
                 continue
 
             try:

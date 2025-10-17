@@ -32,8 +32,10 @@ class SubtitleEntry(FilesystemEntry):
     # Original filename of the parent MediaEntry (video file)
     # Used to generate subtitle paths dynamically alongside the video
     parent_original_filename: Mapped[Optional[str]] = mapped_column(
-        sqlalchemy.String, nullable=True, index=True,
-        comment="Original filename of the parent MediaEntry (video file)"
+        sqlalchemy.String,
+        nullable=True,
+        index=True,
+        comment="Original filename of the parent MediaEntry (video file)",
     )
 
     # Subtitle content stored directly in database (SRT format)
@@ -60,7 +62,9 @@ class SubtitleEntry(FilesystemEntry):
 
     __table_args__ = (
         sqlalchemy.Index("ix_subtitle_entry_language", "language"),
-        sqlalchemy.Index("ix_subtitle_entry_parent_original_filename", "parent_original_filename"),
+        sqlalchemy.Index(
+            "ix_subtitle_entry_parent_original_filename", "parent_original_filename"
+        ),
         sqlalchemy.Index("ix_subtitle_entry_file_hash", "file_hash"),
         sqlalchemy.Index("ix_subtitle_entry_opensubtitles_id", "opensubtitles_id"),
     )

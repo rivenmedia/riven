@@ -29,7 +29,7 @@ class NamingService:
         item: MediaItem,
         original_filename: str,
         file_size: int = 0,
-        parsed_data: Optional[dict] = None
+        parsed_data: Optional[dict] = None,
     ) -> str:
         """
         Generate clean VFS path from original filename and item metadata.
@@ -79,7 +79,7 @@ class NamingService:
         full_path = f"{folder_path}/{filename}.{extension}"
 
         # Normalize any accidental duplicate slashes without altering directory structure
-        full_path = full_path.replace('//', '/')
+        full_path = full_path.replace("//", "/")
 
         return full_path
 
@@ -94,11 +94,13 @@ class NamingService:
             Base path string ("/movies" or "/shows")
         """
         # Check by type attribute first (for compatibility with mock objects)
-        item_type = getattr(item, 'type', None)
+        item_type = getattr(item, "type", None)
 
-        if item_type == 'movie' or isinstance(item, Movie):
+        if item_type == "movie" or isinstance(item, Movie):
             return "/movies"
-        elif item_type in ['show', 'season', 'episode'] or isinstance(item, (Show, Season, Episode)):
+        elif item_type in ["show", "season", "episode"] or isinstance(
+            item, (Show, Season, Episode)
+        ):
             return "/shows"
         else:
             return "/movies"  # Fallback
@@ -114,7 +116,7 @@ class NamingService:
         if isinstance(obj, str):
             return obj
         try:
-            t = getattr(obj, 'title', None)
+            t = getattr(obj, "title", None)
             return t if isinstance(t, str) else None
         except Exception:
             return None
@@ -126,8 +128,12 @@ class NamingService:
         current = item
         seen = 0
         try:
-            while hasattr(current, 'parent') and getattr(current, 'parent') is not None and seen < 10:
-                current = getattr(current, 'parent')
+            while (
+                hasattr(current, "parent")
+                and getattr(current, "parent") is not None
+                and seen < 10
+            ):
+                current = getattr(current, "parent")
                 seen += 1
         except Exception:
             # If anything unexpected, just return the last known object
@@ -165,9 +171,9 @@ class NamingService:
         Default scheme: Title (Year) {tmdb-<tmdb_id>}
         Skips missing parts (no 'Unknown').
         """
-        title = self._sanitize_name(getattr(item, 'title', None))
-        year = getattr(item, 'year', None)
-        tmdb_id = getattr(item, 'tmdb_id', None)
+        title = self._sanitize_name(getattr(item, "title", None))
+        year = getattr(item, "year", None)
+        tmdb_id = getattr(item, "tmdb_id", None)
 
         segment = ""
         if title:
@@ -181,11 +187,7 @@ class NamingService:
 
         return f"{base_path}/{segment}" if segment else base_path
 
-    def _create_show_folder(
-        self,
-        item: Show | Season | Episode,
-        base_path: str
-    ) -> str:
+    def _create_show_folder(self, item: Show | Season | Episode, base_path: str) -> str:
         """
         Create folder structure for show/season/episode.
 
@@ -200,18 +202,18 @@ class NamingService:
 
         # Year: from top parent aired_at or year; avoid 'Unknown'
         year = None
-        if hasattr(top_parent, 'aired_at') and getattr(top_parent, 'aired_at'):
+        if hasattr(top_parent, "aired_at") and getattr(top_parent, "aired_at"):
             try:
-                year = str(getattr(top_parent, 'aired_at')).split('-')[0]
+                year = str(getattr(top_parent, "aired_at")).split("-")[0]
             except (ValueError, IndexError, AttributeError):
                 year = None
-        if year is None and hasattr(top_parent, 'year') and getattr(top_parent, 'year'):
-            year = getattr(top_parent, 'year')
-        if year is None and hasattr(item, 'year') and getattr(item, 'year'):
-            year = getattr(item, 'year')
+        if year is None and hasattr(top_parent, "year") and getattr(top_parent, "year"):
+            year = getattr(top_parent, "year")
+        if year is None and hasattr(item, "year") and getattr(item, "year"):
+            year = getattr(item, "year")
 
         # TVDB ID: strictly from show-level (top parent) when present
-        tvdb_id = getattr(top_parent, 'tvdb_id', None)
+        tvdb_id = getattr(top_parent, "tvdb_id", None)
 
         # Build folder segment without 'Unknown' fallbacks
         segment = title
@@ -227,9 +229,9 @@ class NamingService:
         if isinstance(item, (Season, Episode)):
             # Derive season number from the Season itself or parent of Episode
             if isinstance(item, Season):
-                season_num = getattr(item, 'number', 1) or 1
+                season_num = getattr(item, "number", 1) or 1
             else:  # Episode
-                season_num = getattr(getattr(item, 'parent', None), 'number', 1) or 1
+                season_num = getattr(getattr(item, "parent", None), "number", 1) or 1
             folder += f"/{title}"
             if year:
                 folder += f" ({year})"
@@ -238,9 +240,7 @@ class NamingService:
         return folder
 
     def _generate_clean_filename(
-        self,
-        item: MediaItem,
-        parsed: Optional[dict] = None
+        self, item: MediaItem, parsed: Optional[dict] = None
     ) -> str:
         """
         Generate clean filename from item metadata.
@@ -271,9 +271,9 @@ class NamingService:
         Default scheme: "Title (Year) {tmdb-<tmdb_id>}"
         Skips missing parts (no 'Unknown').
         """
-        title = self._sanitize_name(getattr(item, 'title', None))
-        year = getattr(item, 'year', None)
-        tmdb_id = getattr(item, 'tmdb_id', None)
+        title = self._sanitize_name(getattr(item, "title", None))
+        year = getattr(item, "year", None)
+        tmdb_id = getattr(item, "tmdb_id", None)
 
         parts = []
         if title:
@@ -287,9 +287,7 @@ class NamingService:
         return " ".join(parts) if parts else ""
 
     def _generate_episode_filename(
-        self,
-        item: Episode,
-        parsed: Optional[dict] = None
+        self, item: Episode, parsed: Optional[dict] = None
     ) -> str:
         """
         Generate clean filename for episode.
@@ -304,13 +302,13 @@ class NamingService:
         title = self._sanitize_name(title_str)
 
         year = None
-        if hasattr(top_parent, 'aired_at') and getattr(top_parent, 'aired_at'):
+        if hasattr(top_parent, "aired_at") and getattr(top_parent, "aired_at"):
             try:
-                year = str(getattr(top_parent, 'aired_at')).split('-')[0]
+                year = str(getattr(top_parent, "aired_at")).split("-")[0]
             except (ValueError, IndexError, AttributeError):
                 year = None
-        if year is None and getattr(top_parent, 'year', None):
-            year = getattr(top_parent, 'year')
+        if year is None and getattr(top_parent, "year", None):
+            year = getattr(top_parent, "year")
 
         season_num = item.parent.number if item.parent else 1
         episode_num = item.number
@@ -322,14 +320,16 @@ class NamingService:
         if parsed:
             # RTN's ParsedData has 'episodes' as a list
             if isinstance(parsed, dict):
-                episodes = parsed.get('episodes')
-            elif hasattr(parsed, 'episodes'):
-                episodes = getattr(parsed, 'episodes')
+                episodes = parsed.get("episodes")
+            elif hasattr(parsed, "episodes"):
+                episodes = getattr(parsed, "episodes")
 
         if episodes and len(episodes) > 1:
             # Multi-episode file: sYYeXX-eZZ (season & endpoints 2-digit)
             episodes = sorted(episodes)
-            episode_string = f"e{str(episodes[0]).zfill(2)}-e{str(episodes[-1]).zfill(2)}"
+            episode_string = (
+                f"e{str(episodes[0]).zfill(2)}-e{str(episodes[-1]).zfill(2)}"
+            )
 
         prefix = title
         if year:
@@ -367,22 +367,22 @@ class NamingService:
 
         # Replace problematic characters
         replacements = {
-            '/': '-',
-            '\\': '-',
-            ':': ' -',
-            '*': '',
-            '?': '',
+            "/": "-",
+            "\\": "-",
+            ":": " -",
+            "*": "",
+            "?": "",
             '"': "'",
-            '<': '',
-            '>': '',
-            '|': '-',
+            "<": "",
+            ">": "",
+            "|": "-",
         }
         for old, new in replacements.items():
             name = name.replace(old, new)
 
         # Collapse multiple spaces
-        while '  ' in name:
-            name = name.replace('  ', ' ')
+        while "  " in name:
+            name = name.replace("  ", " ")
 
         # Trim whitespace
         name = name.strip()
@@ -398,12 +398,13 @@ def generate_clean_path(
     item: MediaItem,
     original_filename: str,
     file_size: int = 0,
-    parsed_data: Optional[dict] = None
+    parsed_data: Optional[dict] = None,
 ) -> str:
     """
     Convenience function for generating clean VFS paths.
 
     This is the main entry point for path generation.
     """
-    return naming_service.generate_clean_path(item, original_filename, file_size, parsed_data)
-
+    return naming_service.generate_clean_path(
+        item, original_filename, file_size, parsed_data
+    )

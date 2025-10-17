@@ -1,20 +1,27 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
-    # Using this mirror lets us use mypyc-compiled black, which is about 2x faster
-    - repo: https://github.com/psf/black-pre-commit-mirror
-      rev: 25.9.0
-      hooks:
-          - id: black
-            # It is recommended to specify the latest version of Python
-            # supported by your project here, or alternatively use
-            # pre-commit's default_language_version, see
-            # https://pre-commit.com/#top_level-default_language_version
-            language_version: python3.13
-    - repo: https://github.com/pre-commit/pre-commit-hooks
-      rev: v3.2.0
-      hooks:
-          - id: trailing-whitespace
-          - id: end-of-file-fixer
-          - id: check-yaml
-          - id: check-added-large-files
+  # Using this mirror lets us use mypyc-compiled black, which is about 2x faster
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 25.9.0
+    hooks:
+      - id: black
+        # It is recommended to specify the latest version of Python
+        # supported by your project here, or alternatively use
+        # pre-commit's default_language_version, see
+        # https://pre-commit.com/#top_level-default_language_version
+        language_version: python3.13
+        entry: /bin/sh ./dev/hooks/black.sh
+        require_serial: true
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.2.0
+    hooks:
+      - id: trailing-whitespace
+        entry: /bin/sh ./dev/hooks/trailing_whitespace.sh
+        require_serial: true
+      - id: end-of-file-fixer
+        entry: /bin/sh ./dev/hooks/end_of_file_fixer.sh
+        require_serial: true
+      - id: check-yaml
+      - id: check-added-large-files
