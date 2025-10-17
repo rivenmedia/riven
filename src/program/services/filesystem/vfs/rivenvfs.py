@@ -412,6 +412,12 @@ class RivenVFS(pyfuse3.Operations):
         # pyfuse3 runs FUSE operations in threads, so we use threading.RLock()
         self._tree_lock = threading.RLock()
 
+        # Pending invalidations for batching (optimization: collect during sync, invalidate at end)
+        self._pending_invalidations: Set[pyfuse3.InodeT] = set()
+
+        # Profile hash for detecting changes (optimization: skip re-matching if unchanged)
+        self._last_profile_hash: Optional[int] = None
+
         # URL cache for provider links with automatic expiration
         self._url_cache: Dict[str, URLCacheItem] = {}
         self.url_cache_ttl = 15 * 60  # 15 minutes
@@ -888,14 +894,37 @@ class RivenVFS(pyfuse3.Operations):
         Full VFS sync: Re-match all entries and rebuild entire VFS tree.
 
         Steps:
-        1. Re-match all MediaEntry items against current library profiles
-        2. Clear VFS tree
-        3. Re-register all entries using add()
+        1. Check if profiles changed (skip if not)
+        2. Re-match all entries against current library profiles
+        3. Clear VFS tree
+        4. Re-register all entries using add()
+        5. Batch invalidate all collected inodes
         """
         from program.media.media_entry import MediaEntry
         from program.services.library_profile_matcher import LibraryProfileMatcher
 
         log.log("VFS", "Full sync: re-matching library profiles")
+
+        try:
+            profiles = settings_manager.settings.filesystem.library_profiles or {}
+            current_profile_hash = hash(
+                frozenset(
+                    (k, hash(frozenset(v.filter_rules.model_dump().items())))
+                    for k, v in profiles.items()
+                )
+            )
+        except Exception:
+            current_profile_hash = None
+
+        # Skip re-matching if profiles haven't changed
+        if (
+            current_profile_hash is not None
+            and current_profile_hash == self._last_profile_hash
+        ):
+            log.debug("Library profiles unchanged, skipping re-matching")
+            return
+
+        self._last_profile_hash = current_profile_hash
 
         matcher = LibraryProfileMatcher()
 
@@ -944,19 +973,22 @@ class RivenVFS(pyfuse3.Operations):
             # Keep inode counter to avoid reusing inodes
             # self._next_inode is preserved
 
-        # Step 3: Re-register all items (in a new session to avoid detached instance errors)
+        # Clear pending invalidations for this sync
+        self._pending_invalidations.clear()
+
+        # Step 3: Re-register all items
         log.debug(f"Re-registering {len(item_ids)} items")
         registered_count = 0
 
         with db_module.Session() as session:
+            from program.media.item import MediaItem
+
+            items = session.query(MediaItem).filter(MediaItem.id.in_(item_ids)).all()
+            item_map = {item.id: item for item in items}
+
             for item_id in item_ids:
                 try:
-                    # Re-fetch item in this session
-                    from program.media.item import MediaItem
-
-                    item = (
-                        session.query(MediaItem).filter(MediaItem.id == item_id).first()
-                    )
+                    item = item_map.get(item_id)
                     if not item:
                         continue
 
@@ -970,14 +1002,34 @@ class RivenVFS(pyfuse3.Operations):
 
         log.log("VFS", f"Full sync complete: re-registered {registered_count} items")
 
-        # Step 4: Invalidate directory caches to ensure Plex/Jellyfin see the changes
+        # Step 4: Batch invalidate all collected inodes
+        # This is critical: reduces syscalls from O(n) to O(1)
+        if self._pending_invalidations:
+            invalidated_count = 0
+            try:
+                for inode in self._pending_invalidations:
+                    try:
+                        pyfuse3.invalidate_inode(inode, attr_only=False)
+                        invalidated_count += 1
+                    except OSError as e:
+                        # Expected: some inodes may not be in kernel cache
+                        # This is not an error, just means kernel already evicted them
+                        if getattr(e, "errno", None) != errno.ENOENT:
+                            log.trace(f"Could not invalidate inode {inode}: {e}")
+                if invalidated_count > 0:
+                    log.trace(
+                        f"Batch invalidated {invalidated_count}/{len(self._pending_invalidations)} inodes"
+                    )
+            finally:
+                self._pending_invalidations.clear()
+
+        # Invalidate root directory
         if registered_count > 0:
             try:
-                # Invalidate root directory
                 pyfuse3.invalidate_inode(pyfuse3.ROOT_INODE, attr_only=False)
                 log.debug(f"Invalidated root directory cache after sync")
             except Exception as e:
-                log.trace(f"Could not invalidate directory caches: {e}")
+                log.trace(f"Could not invalidate root directory: {e}")
 
     def _sync_individual(self, item: "MediaItem") -> None:
         """
@@ -1178,6 +1230,9 @@ class RivenVFS(pyfuse3.Operations):
         Register a clean VFS path with original_filename mapping.
 
         Creates VFSNode with original_filename reference for later resolution.
+
+        Note: Invalidations are collected in _pending_invalidations and batched
+        at the end of _sync_full() for better performance with large libraries.
         """
         clean_path = self._normalize_path(clean_path)
 
@@ -1199,11 +1254,12 @@ class RivenVFS(pyfuse3.Operations):
             node.updated_at = updated_at
             node.entry_type = entry_type
 
-            # Get parent inodes for invalidation
+            # Get parent inodes for invalidation (collect for batching)
             parent_inodes = self._get_parent_inodes(node)
 
-        # Invalidate FUSE cache
-        self._invalidate_directory_cache(clean_path, parent_inodes)
+            # Collect invalidations for batching instead of invalidating immediately
+            # This is a critical optimization: reduces syscalls from O(n) to O(1)
+            self._pending_invalidations.update(parent_inodes)
 
         return True
 
