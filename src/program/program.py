@@ -2,10 +2,7 @@ import linecache
 import os
 import threading
 import time
-from datetime import datetime
 from queue import Empty
-
-from apscheduler.schedulers.background import BackgroundScheduler
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -27,7 +24,8 @@ from program.services.updaters import Updater
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
-from program.utils.logging import log_cleaner, logger
+from program.utils.logging import logger
+from program.scheduling import ProgramScheduler
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
@@ -43,7 +41,6 @@ from program.db.db import (
     create_database_if_not_exists,
     db,
     run_migrations,
-    vacuum_and_analyze_index_maintenance,
 )
 
 
@@ -167,7 +164,7 @@ class Program(threading.Thread):
             time.sleep(1)
 
         if not self.validate_database():
-            # We should really make this configurable via frontend...
+            # TODO: We should really make this configurable via frontend...
             logger.log("PROGRAM", "Database not found, trying to create database")
             if not create_database_if_not_exists():
                 logger.error("Failed to create database, exiting")
@@ -175,13 +172,9 @@ class Program(threading.Thread):
             logger.success("Database created successfully")
 
         run_migrations()
-
-        # Initialize services AFTER database schema is ready
         self.initialize_services()
 
         with db.Session() as session:
-            # Count items with filesystem entries
-            # Use exists() to check if any filesystem_entries exist for the item
             from sqlalchemy import exists
 
             movies_with_fs = session.execute(
@@ -217,126 +210,12 @@ class Program(threading.Thread):
             )
 
         self.executors = []
-        self.scheduler = BackgroundScheduler()
-        self._schedule_services()
-        self._schedule_functions()
+        self.scheduler_manager = ProgramScheduler(self)
+        self.scheduler_manager.start()
 
         super().start()
-        self.scheduler.start()
         logger.success("Riven is running!")
         self.initialized = True
-
-    def _retry_library(self) -> None:
-        """Retry items that failed to download."""
-        item_ids = db_functions.retry_library()
-        for item_id in item_ids:
-            self.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
-
-        if item_ids:
-            logger.log(
-                "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
-            )
-        else:
-            logger.log("NOT_FOUND", "No items required retrying")
-
-    def _reindex_ongoing(self) -> None:
-        """Reindex all ongoing items to fetch fresh metadata."""
-        indexer_service = self.services.get(IndexerService)
-        if not indexer_service:
-            logger.error("IndexerService not available")
-            return
-
-        # Call the indexer's built-in reindex method; this will not enqueue events
-        count = indexer_service.reindex_ongoing()
-        if count:
-            logger.log("PROGRAM", f"Reindexed {count} ongoing items")
-        else:
-            logger.debug("No ongoing items reindexed")
-
-    def _schedule_functions(self) -> None:
-        """Schedule each service based on its update interval."""
-        scheduled_functions = {
-            vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
-        }
-
-        # Add reindex_ongoing if enabled (interval > 0)
-        reindex_interval = settings_manager.settings.indexer.reindex_ongoing_interval
-        if reindex_interval > 0:
-            scheduled_functions[self._reindex_ongoing] = {"interval": reindex_interval}
-
-        # Add retry_library if enabled (interval > 0)
-        retry_interval = settings_manager.settings.retry_interval
-        if retry_interval > 0:
-            scheduled_functions[self._retry_library] = {"interval": retry_interval}
-
-        # Add log_cleaner if enabled (interval > 0)
-        clean_interval = settings_manager.settings.logging.clean_interval
-        if clean_interval > 0:
-            scheduled_functions[log_cleaner] = {"interval": clean_interval}
-
-        for func, config in scheduled_functions.items():
-            self.scheduler.add_job(
-                func,
-                "interval",
-                seconds=config["interval"],
-                args=config.get("args"),
-                id=f"{func.__name__}",
-                max_instances=config.get("max_instances", 1),
-                replace_existing=True,
-                next_run_time=datetime.now(),
-                misfire_grace_time=30,
-            )
-            logger.debug(
-                f"Scheduled {func.__name__} to run every {config['interval']} seconds."
-            )
-
-    def _schedule_services(self) -> None:
-        """Schedule each service based on its update interval."""
-        scheduled_services = {**self.requesting_services}
-        for service_cls, service_instance in scheduled_services.items():
-            if not service_instance.initialized:
-                continue
-
-            # If the service supports webhooks and webhook mode is enabled, run it once now and do not schedule periodically
-            use_webhook = getattr(
-                getattr(service_instance, "settings", object()), "use_webhook", False
-            )
-            if use_webhook:
-                self.scheduler.add_job(
-                    self.em.submit_job,
-                    "date",
-                    run_date=datetime.now(),
-                    args=[service_cls, self],
-                    id=f"{service_cls.__name__}_update_once",
-                    replace_existing=True,
-                    misfire_grace_time=30,
-                )
-                logger.debug(
-                    f"Scheduled {service_cls.__name__} to run once (webhook mode enabled)."
-                )
-                continue
-
-            if not (
-                update_interval := getattr(
-                    service_instance.settings, "update_interval", False
-                )
-            ):
-                continue
-
-            self.scheduler.add_job(
-                self.em.submit_job,
-                "interval",
-                seconds=update_interval,
-                args=[service_cls, self],
-                id=f"{service_cls.__name__}_update",
-                max_instances=1,
-                replace_existing=True,
-                next_run_time=datetime.now(),
-                coalesce=False,
-            )
-            logger.debug(
-                f"Scheduled {service_cls.__name__} to run every {update_interval} seconds."
-            )
 
     def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
         import psutil
@@ -419,8 +298,8 @@ class Program(threading.Thread):
             for executor in self.executors:
                 if not executor["_executor"]._shutdown:
                     executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler") and self.scheduler.running:
-            self.scheduler.shutdown(wait=False)
+        if hasattr(self, "scheduler_manager"):
+            self.scheduler_manager.stop()
 
         self.services[FilesystemService].close()
         logger.log("PROGRAM", "Riven has been stopped.")

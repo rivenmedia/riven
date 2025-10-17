@@ -43,14 +43,18 @@ class OverseerrAPI:
             logger.error(f"Overseerr validation failed: {e}")
             return None
 
-    def get_media_requests(self, service_key: str) -> list["MediaItem"]:
+    def get_media_requests(
+        self, service_key: str, filter: str = "approved", take: int = 10000
+    ) -> list["MediaItem"]:
         """Get media requests from `Overseerr`"""
         from program.media.item import MediaItem
 
+        url = f"api/v1/request?take={take}&sort=added"
+        if filter:
+            url += f"&filter={filter}"
+
         try:
-            response = self.session.get(
-                f"api/v1/request?take={10000}&filter=approved&sort=added"
-            )
+            response = self.session.get(url)
             if (
                 not response.ok
                 or not hasattr(response.data, "pageInfo")
@@ -71,11 +75,13 @@ class OverseerrAPI:
             return []
 
         # Lets look at approved items only that are only in the pending state
-        pending_items = [
-            item
-            for item in response.data.results
-            if item.status == 2 and item.media.status == 3
-        ]
+        pending_items = response.data.results
+        if filter == "approved":
+            pending_items = [
+                item
+                for item in response.data.results
+                if item.status == 2 and item.media.status == 3
+            ]
 
         media_items: list[MediaItem] = []
         for item in pending_items:

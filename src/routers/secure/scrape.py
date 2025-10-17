@@ -25,6 +25,7 @@ from program.services.indexers import IndexerService
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
+from ..models.shared import MessageResponse
 
 
 class Stream(BaseModel):
@@ -681,3 +682,51 @@ async def parse_torrent_titles(
             )
     else:
         return ParseTorrentTitleResponse(message="No titles provided", data=[])
+
+
+@router.post(
+    "/overseerr/requests",
+    summary="Fetch Overseerr Requests",
+    operation_id="fetch_overseerr_requests",
+)
+async def overseerr_requests(
+    request: Request,
+    filter: Optional[str] = None,
+    take: int = 100000,
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    """Get all overseerr requests and make sure they exist in the database"""
+    from program.apis.overseerr_api import OverseerrAPI
+    from program.db.db_functions import item_exists_by_any_id
+    from kink import di
+
+    overseerr_api = di[OverseerrAPI]
+    o_items = overseerr_api.get_media_requests("overseerr", filter, take)
+
+    if not o_items:
+        return MessageResponse(message="Submitted overseerr requests to the queue")
+
+    overseerr_items = [
+        item
+        for item in o_items
+        if not item_exists_by_any_id(
+            tvdb_id=item.tvdb_id,
+            tmdb_id=item.tmdb_id,
+            session=db,
+        )
+    ]
+
+    logger.info(f"Found {len(overseerr_items)} new overseerr requests")
+
+    if overseerr_items:
+        # Persist first, then enqueue
+        persisted_items: list[MediaItem] = []
+        for item in overseerr_items:
+            persisted = db.merge(item)
+            persisted_items.append(persisted)
+        db.commit()
+
+        for persisted in persisted_items:
+            request.app.program.em.add_item(persisted, service="Overseerr")
+
+    return MessageResponse(message="Submitted overseerr requests to the queue")

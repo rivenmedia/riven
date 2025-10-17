@@ -66,38 +66,13 @@ def upgrade() -> None:
     Destructive upgrade: Reset database and create new schema from scratch.
 
     This migration will:
-    1. Create a named database snapshot (pre_834cba7d26b4) before making changes
-    2. Drop all existing tables and data
-    3. Create the new schema with FilesystemEntry architecture
+    1. Drop all existing tables and data
+    2. Create the new schema with FilesystemEntry architecture
 
-    Note: This migration does NOT recreate alembic_version - Alembic handles that automatically.
+    Note: No automatic snapshot/backup is performed by this migration.
     """
     # Get the connection from the current context
     connection = op.get_bind()
-
-    # Create a named snapshot before destructive changes
-    # This snapshot can be used to restore the database if needed
-    logger.warning(
-        "⚠️  DESTRUCTIVE MIGRATION: Creating database snapshot before migration..."
-    )
-    from program.utils.cli import snapshot_database
-    from pathlib import Path
-
-    snapshot_dir = Path("./data/db_snapshot")
-    snapshot_name = "pre_destructive_migration_834cba7d26b4"
-
-    if snapshot_database(snapshot_dir, snapshot_name):
-        logger.log(
-            "DATABASE",
-            f"✅ Database snapshot created: {snapshot_dir / (snapshot_name + '.sql')}",
-        )
-        logger.log("DATABASE", f"   To restore: alembic downgrade -1")
-    else:
-        logger.error("❌ Failed to create database snapshot!")
-        logger.warning(
-            "⚠️  Migration will continue, but you may want to create a manual backup."
-        )
-        # Don't fail the migration if snapshot fails - user might not have pg_dump available
 
     # Reset the database
     logger.warning(
@@ -140,62 +115,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """
-    Downgrade by restoring from the pre-migration snapshot.
+    Downgrade is not supported for this destructive migration.
 
-    This will:
-    1. Check if the pre-migration snapshot exists
-    2. Restore the database from the snapshot (which includes alembic_version)
-    3. The snapshot already contains the correct alembic_version (834cba7d26b4)
-
-    Note: After restore, Alembic may show an error about version mismatch, but this is
-    expected because the restore operation sets the version directly. The database will
-    be in the correct state.
+    This migration resets the database schema.
     """
-    from program.utils.cli import restore_database
-    from pathlib import Path
-
-    snapshot_dir = Path("./data/db_snapshot")
-    snapshot_name = "pre_destructive_migration_834cba7d26b4.sql"
-    snapshot_file = snapshot_dir / snapshot_name
-
-    if not snapshot_file.exists():
-        logger.error(f"❌ Snapshot file not found: {snapshot_file}")
-        logger.error("Cannot downgrade without the pre-migration snapshot.")
-        logger.error(
-            "The snapshot should have been created automatically during upgrade."
-        )
-        raise Exception(
-            f"Downgrade failed: Snapshot file not found at {snapshot_file}. "
-            "Please restore from a manual backup if available."
-        )
-
-    logger.warning("⚠️  DOWNGRADE: Restoring database from pre-migration snapshot...")
-    logger.log("DATABASE", f"Restoring from: {snapshot_file}")
-
-    # Get connection to manually update alembic_version after restore
-    connection = op.get_bind()
-
-    if restore_database(snapshot_file):
-        logger.log("DATABASE", "✅ Database restored successfully from snapshot")
-
-        # The restore includes alembic_version table set to 834cba7d26b4
-        # But Alembic expects to find 7e5b5cf430ff so it can update it to 834cba7d26b4
-        # We need to temporarily set it to the current version so Alembic can update it
-        try:
-            connection.execute(text("DELETE FROM alembic_version"))
-            connection.execute(
-                text(
-                    "INSERT INTO alembic_version (version_num) VALUES ('7e5b5cf430ff')"
-                )
-            )
-            logger.log("DATABASE", "   Prepared alembic_version for downgrade tracking")
-        except Exception as e:
-            # If this fails, the restore still worked, just log it
-            logger.warning(f"Could not update alembic_version: {e}")
-            logger.log(
-                "DATABASE",
-                "   Database is restored, but alembic version tracking may be inconsistent",
-            )
-    else:
-        logger.error("❌ Failed to restore database from snapshot!")
-        raise Exception("Downgrade failed: Could not restore database from snapshot")
+    logger.error("Downgrade is not supported for this destructive migration.")
+    raise Exception("Downgrade is not supported for this destructive migration.")
