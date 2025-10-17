@@ -1,1 +1,1 @@
-(end-of-file-fixer $@ || true) && git add $@
+(end-of-file-fixer $@ || true) && git add $@ && exit 0
