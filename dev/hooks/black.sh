@@ -1,1 +1,3 @@
-black $(git diff --name-only --cached | grep '\.py$') && git add .
+python_files=$(echo $@ | grep '\.py$')
+
+black $python_files && git add $python_files

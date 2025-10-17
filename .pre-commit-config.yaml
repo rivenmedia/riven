@@ -11,12 +11,14 @@ repos:
         # pre-commit's default_language_version, see
         # https://pre-commit.com/#top_level-default_language_version
         language_version: python3.13
-        entry: /bin/sh dev/hooks/black.sh
+        entry: /bin/sh ./dev/hooks/black.sh
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v3.2.0
     hooks:
       - id: trailing-whitespace
+        entry: /bin/sh ./dev/hooks/trailing_whitespace.sh
       - id: end-of-file-fixer
+        entry: /bin/sh ./dev/hooks/end_of_file_fixer.sh
       - id: check-yaml
       - id: check-added-large-files
