@@ -3,6 +3,7 @@ import os
 import subprocess
 from pathlib import Path
 from datetime import datetime
+from typing import Tuple, Optional
 
 from program.db.db_functions import (
     hard_reset_database,
@@ -10,11 +11,148 @@ from program.db.db_functions import (
 from program.utils.logging import log_cleaner, logger
 
 
+def _parse_db_connection(db_url: str) -> Optional[Tuple[str, str, str, str, str]]:
+    """
+    Parse database connection string.
+
+    Returns:
+        Tuple of (user, password, host, port, dbname) or None if invalid
+    """
+    # Format: postgresql+psycopg2://user:password@host:port/dbname
+    try:
+        if "://" not in db_url:
+            logger.error("Invalid database URL format")
+            return None
+
+        _, rest = db_url.split("://", 1)
+        if "@" in rest:
+            credentials, host_db = rest.split("@", 1)
+            if ":" in credentials:
+                user, password = credentials.split(":", 1)
+            else:
+                user = credentials
+                password = ""
+        else:
+            user = "postgres"
+            password = ""
+            host_db = rest
+
+        if "/" in host_db:
+            host_part, dbname = host_db.rsplit("/", 1)
+        else:
+            host_part = host_db
+            dbname = "riven"
+
+        # Extract host and port
+        if ":" in host_part:
+            host, port = host_part.split(":", 1)
+        else:
+            host = host_part
+            port = "5432"
+
+        logger.debug(
+            f"Parsed DB connection - host: {host}, port: {port}, user: {user}, dbname: {dbname}"
+        )
+        return user, password, host, port, dbname
+    except Exception as e:
+        logger.error(f"Error parsing database URL: {e}")
+        return None
+
+
+def _setup_pg_env(password: str) -> dict:
+    """Setup environment variables for PostgreSQL commands."""
+    env = os.environ.copy()
+    if password:
+        env["PGPASSWORD"] = password
+    else:
+        env.pop("PGPASSWORD", None)
+    return env
+
+
+def _run_pg_dump(
+    host: str, port: str, user: str, password: str, dbname: str, output_file: Path
+) -> bool:
+    """
+    Run pg_dump directly (not via docker exec).
+
+    Returns:
+        True if successful, False otherwise
+    """
+    cmd = [
+        "pg_dump",
+        "-h",
+        host,
+        "-p",
+        port,
+        "-U",
+        user,
+        "-d",
+        dbname,
+        "-f",
+        str(output_file),
+        "--clean",
+        "--if-exists",
+    ]
+
+    logger.info(f"Creating database snapshot at {output_file} using pg_dump...")
+    env = _setup_pg_env(password)
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+    if result.returncode == 0:
+        return True
+    else:
+        # Check if pg_dump is not installed
+        if "No such file or directory" in result.stderr or result.returncode == 127:
+            logger.error("pg_dump not found. Please install postgresql17 binaries.")
+        else:
+            logger.error(f"Failed to create snapshot: {result.stderr}")
+        return False
+
+
+def _run_psql(
+    host: str, port: str, user: str, password: str, dbname: str, snapshot_file: Path
+) -> bool:
+    """
+    Run psql directly (not via docker exec).
+
+    Returns:
+        True if successful, False otherwise
+    """
+    cmd = [
+        "psql",
+        "-h",
+        host,
+        "-p",
+        port,
+        "-U",
+        user,
+        "-d",
+        dbname,
+        "-f",
+        str(snapshot_file),
+    ]
+
+    logger.info(f"Restoring database from {snapshot_file} using psql...")
+    env = _setup_pg_env(password)
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+    if result.returncode == 0:
+        return True
+    else:
+        # Check if psql is not installed
+        if "No such file or directory" in result.stderr or result.returncode == 127:
+            logger.error("pg_dump not found. Please install postgresql17 binaries.")
+        else:
+            logger.error(f"Failed to restore database: {result.stderr}")
+        return False
+
+
 def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
     """
     Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
 
-    Creates a snapshot file in `snapshot_dir` (defaults to ./data/db_snapshot), choosing either to run `pg_dump` directly or to run it inside a detected PostgreSQL Docker container when the configured host indicates a local/container instance. On success the snapshot file is written and `latest.sql` is updated to point to the new snapshot; on failure no symlink update is performed.
+    Uses `pg_dump` directly to create a snapshot. Requires `postgresql-client` to be installed on the system.
+    On success the snapshot file is written and `latest.sql` is updated to point to the new snapshot; on failure no symlink update is performed.
 
     Parameters:
         snapshot_dir (Path | None): Directory to store snapshot files. If None, uses ./data/db_snapshot.
@@ -32,39 +170,13 @@ def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
 
     # Parse database connection string
     db_url = str(settings_manager.settings.database.host)
-    # Format: postgresql+psycopg2://user:password@host:port/dbname
 
     try:
-        # Extract connection details
-        if "://" in db_url:
-            _, rest = db_url.split("://", 1)
-            if "@" in rest:
-                credentials, host_db = rest.split("@", 1)
-                if ":" in credentials:
-                    user, password = credentials.split(":", 1)
-                else:
-                    user = credentials
-                    password = ""
-            else:
-                user = "postgres"
-                password = ""
-                host_db = rest
-
-            if "/" in host_db:
-                host_part, dbname = host_db.rsplit("/", 1)
-            else:
-                host_part = host_db
-                dbname = "riven"
-
-            # Extract host and port
-            if ":" in host_part:
-                host, port = host_part.split(":", 1)
-            else:
-                host = host_part
-                port = "5432"
-        else:
-            logger.error("Invalid database URL format")
+        # Parse connection details
+        parsed = _parse_db_connection(db_url)
+        if not parsed:
             return False
+        user, password, host, port, dbname = parsed
 
         # Create snapshot filename
         if snapshot_name:
@@ -77,108 +189,19 @@ def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             snapshot_file = snapshot_dir / f"riven_snapshot_{timestamp}.sql"
 
-        # Check if we're running in Docker or need to use docker exec
-        # If host is localhost/127.0.0.1, try to use docker exec to access postgres container
-        use_docker = host in ["localhost", "127.0.0.1", "riven-db", "postgres"]
+        success = _run_pg_dump(host, port, user, password, dbname, snapshot_file)
 
-        if use_docker:
-            # Try to find postgres container
-            container_name = None
-            for name in ["postgres", "riven-db", "riven_postgres"]:
-                check_cmd = ["docker", "inspect", name]
-                check_result = subprocess.run(check_cmd, capture_output=True, text=True)
-                if check_result.returncode == 0:
-                    container_name = name
-                    break
-
-            if container_name:
-                # Use docker exec to run pg_dump inside the container
-                # Pass PGPASSWORD into the container via -e flag
-                cmd = [
-                    "docker",
-                    "exec",
-                    "-e",
-                    f"PGPASSWORD={password}",
-                    container_name,
-                    "pg_dump",
-                    "-U",
-                    user,
-                    "-d",
-                    dbname,
-                    "--clean",
-                    "--if-exists",
-                ]
-
-                logger.info(
-                    f"Creating database snapshot at {snapshot_file} using docker exec..."
-                )
-                # Use os.environ.copy() to preserve PATH and other env vars
-                env = os.environ.copy()
-                # Don't set PGPASSWORD in local env since we pass it via docker exec -e
-                result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-
-                if result.returncode == 0:
-                    # Write output to file
-                    snapshot_file.write_text(result.stdout)
-                else:
-                    logger.error(f"Failed to create snapshot: {result.stderr}")
-                    return False
-            else:
-                logger.error(
-                    "Could not find postgres container. Available containers: postgres, riven-db, riven_postgres"
-                )
-                return False
+        if success:
+            logger.success(f"Database snapshot created successfully: {snapshot_file}")
+            # Create a symlink to latest snapshot
+            latest_link = snapshot_dir / "latest.sql"
+            if latest_link.exists() or latest_link.is_symlink():
+                latest_link.unlink()
+            latest_link.symlink_to(snapshot_file.name)
+            logger.info(f"Latest snapshot link updated: {latest_link}")
+            return True
         else:
-            # Use pg_dump directly (assumes it's in PATH)
-            # Preserve PATH and other env vars by copying os.environ
-            env = os.environ.copy()
-            if password:
-                env["PGPASSWORD"] = password
-            else:
-                env.pop("PGPASSWORD", None)
-
-            cmd = [
-                "pg_dump",
-                "-h",
-                host,
-                "-p",
-                port,
-                "-U",
-                user,
-                "-d",
-                dbname,
-                "-f",
-                str(snapshot_file),
-                "--clean",
-                "--if-exists",
-            ]
-
-            logger.info(f"Creating database snapshot at {snapshot_file}...")
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-
-            if result.returncode == 0:
-                logger.success(
-                    f"Database snapshot created successfully: {snapshot_file}"
-                )
-                # Create a symlink to latest snapshot
-                latest_link = snapshot_dir / "latest.sql"
-                if latest_link.exists() or latest_link.is_symlink():
-                    latest_link.unlink()
-                latest_link.symlink_to(snapshot_file.name)
-                logger.info(f"Latest snapshot link updated: {latest_link}")
-                return True
-            else:
-                logger.error(f"Failed to create snapshot: {result.stderr}")
-                return False
-
-        # Common success path for docker exec (already handled above)
-        logger.success(f"Database snapshot created successfully: {snapshot_file}")
-        latest_link = snapshot_dir / "latest.sql"
-        if latest_link.exists() or latest_link.is_symlink():
-            latest_link.unlink()
-        latest_link.symlink_to(snapshot_file.name)
-        logger.info(f"Latest snapshot link updated: {latest_link}")
-        return True
+            return False
 
     except Exception as e:
         logger.error(f"Error creating database snapshot: {e}")
@@ -188,6 +211,8 @@ def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
 def restore_database(snapshot_file: Path = None):
     """
     Restore the configured PostgreSQL database from a SQL snapshot file.
+
+    Uses `psql` directly to restore the database. Requires `postgresql-client` to be installed on the system.
 
     Parameters:
         snapshot_file (Path | None): Path to the SQL snapshot to restore. If None, uses ./data/db_snapshot/latest.sql.
@@ -209,126 +234,19 @@ def restore_database(snapshot_file: Path = None):
     db_url = str(settings_manager.settings.database.host)
 
     try:
-        # Extract connection details (same as snapshot_database)
-        if "://" in db_url:
-            _, rest = db_url.split("://", 1)
-            if "@" in rest:
-                credentials, host_db = rest.split("@", 1)
-                if ":" in credentials:
-                    user, password = credentials.split(":", 1)
-                else:
-                    user = credentials
-                    password = ""
-            else:
-                user = "postgres"
-                password = ""
-                host_db = rest
-
-            if "/" in host_db:
-                host_part, dbname = host_db.rsplit("/", 1)
-            else:
-                host_part = host_db
-                dbname = "riven"
-
-            if ":" in host_part:
-                host, port = host_part.split(":", 1)
-            else:
-                host = host_part
-                port = "5432"
-        else:
-            logger.error("Invalid database URL format")
+        # Parse connection details
+        parsed = _parse_db_connection(db_url)
+        if not parsed:
             return False
+        user, password, host, port, dbname = parsed
 
-        # Check if we're running in Docker or need to use docker exec
-        use_docker = host in ["localhost", "127.0.0.1", "riven-db", "postgres"]
+        success = _run_psql(host, port, user, password, dbname, snapshot_file)
 
-        if use_docker:
-            # Try to find postgres container
-            container_name = None
-            for name in ["postgres", "riven-db", "riven_postgres"]:
-                check_cmd = ["docker", "inspect", name]
-                check_result = subprocess.run(check_cmd, capture_output=True, text=True)
-                if check_result.returncode == 0:
-                    container_name = name
-                    break
-
-            if container_name:
-                # Use docker exec to run psql inside the container
-                logger.info(
-                    f"Restoring database from {snapshot_file} using docker exec..."
-                )
-
-                # Read snapshot file and pipe to psql
-                with open(snapshot_file, "r") as f:
-                    snapshot_content = f.read()
-
-                # Pass PGPASSWORD into the container via -e flag
-                cmd = [
-                    "docker",
-                    "exec",
-                    "-i",
-                    "-e",
-                    f"PGPASSWORD={password}",
-                    container_name,
-                    "psql",
-                    "-U",
-                    user,
-                    "-d",
-                    dbname,
-                ]
-
-                # Use os.environ.copy() to preserve PATH and other env vars
-                env = os.environ.copy()
-                # Don't set PGPASSWORD in local env since we pass it via docker exec -e
-                result = subprocess.run(
-                    cmd, env=env, input=snapshot_content, capture_output=True, text=True
-                )
-
-                if result.returncode == 0:
-                    logger.success(
-                        f"Database restored successfully from {snapshot_file}"
-                    )
-                    return True
-                else:
-                    logger.error(f"Failed to restore database: {result.stderr}")
-                    return False
-            else:
-                logger.error(
-                    "Could not find postgres container. Available containers: postgres, riven-db, riven_postgres"
-                )
-                return False
+        if success:
+            logger.success(f"Database restored successfully from {snapshot_file}")
+            return True
         else:
-            # Use psql directly (assumes it's in PATH)
-            # Preserve PATH and other env vars by copying os.environ
-            env = os.environ.copy()
-            if password:
-                env["PGPASSWORD"] = password
-            else:
-                env.pop("PGPASSWORD", None)
-
-            cmd = [
-                "psql",
-                "-h",
-                host,
-                "-p",
-                port,
-                "-U",
-                user,
-                "-d",
-                dbname,
-                "-f",
-                str(snapshot_file),
-            ]
-
-            logger.info(f"Restoring database from {snapshot_file}...")
-            result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-
-            if result.returncode == 0:
-                logger.success(f"Database restored successfully from {snapshot_file}")
-                return True
-            else:
-                logger.error(f"Failed to restore database: {result.stderr}")
-                return False
+            return False
 
     except Exception as e:
         logger.error(f"Error restoring database: {e}")
@@ -362,8 +280,11 @@ def handle_args():
     )
     parser.add_argument(
         "--snapshot_db",
-        action="store_true",
-        help="Create a snapshot of the current database state.",
+        type=str,
+        metavar="SNAPSHOT_FILE",
+        nargs="?",
+        const=True,
+        help="Create a snapshot of the current database state. Optionally specify a custom filename.",
     )
     parser.add_argument(
         "--restore_db",
@@ -394,7 +315,11 @@ def handle_args():
         exit(0)
 
     if args.snapshot_db:
-        success = snapshot_database()
+        snapshot_dir = Path(args.snapshot_dir) if args.snapshot_dir else None
+        snapshot_name = args.snapshot_db if isinstance(args.snapshot_db, str) else None
+        success = snapshot_database(
+            snapshot_dir=snapshot_dir, snapshot_name=snapshot_name
+        )
         exit(0 if success else 1)
 
     if args.restore_db:
