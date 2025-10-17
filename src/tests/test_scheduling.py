@@ -14,6 +14,8 @@ from program.media.item import Episode, Movie, Show, Season
 from program.media.state import States
 from program.scheduling.models import ScheduledTask, ScheduledStatus
 
+from program.scheduling.scheduler import ProgramScheduler
+
 
 @pytest.fixture(scope="session")
 def test_container():
@@ -236,7 +238,7 @@ class TestComputeNextAirDatetime:
             "airs_time": "20:00",
         }
 
-        result = Program._compute_next_air_datetime(release_data, now)
+        result = ProgramScheduler._compute_next_air_datetime(release_data, now)
 
         assert result is not None
         assert result.weekday() == 1  # Tuesday
@@ -256,7 +258,7 @@ class TestComputeNextAirDatetime:
             "airs_time": "21:30",
         }
 
-        result = Program._compute_next_air_datetime(release_data, now)
+        result = ProgramScheduler._compute_next_air_datetime(release_data, now)
 
         assert result is not None
         assert result.year == 2025
@@ -274,7 +276,7 @@ class TestComputeNextAirDatetime:
             "next_aired": "2025-01-15T22:00:00",
         }
 
-        result = Program._compute_next_air_datetime(release_data, now)
+        result = ProgramScheduler._compute_next_air_datetime(release_data, now)
 
         assert result is not None
         assert result == datetime(2025, 1, 15, 22, 0, 0)
@@ -289,7 +291,7 @@ class TestComputeNextAirDatetime:
             "timezone": "Invalid/Timezone",
         }
 
-        result = Program._compute_next_air_datetime(release_data, now)
+        result = ProgramScheduler._compute_next_air_datetime(release_data, now)
 
         # Should still return a result, treating as local naive
         assert result is not None
@@ -302,7 +304,7 @@ class TestComputeNextAirDatetime:
         now = datetime(2025, 1, 13, 10, 0, 0)
         release_data = {}
 
-        result = Program._compute_next_air_datetime(release_data, now)
+        result = ProgramScheduler._compute_next_air_datetime(release_data, now)
 
         assert result is None
 
@@ -316,7 +318,7 @@ class TestComputeNextAirDatetime:
             "airs_time": "invalid",
         }
 
-        result = Program._compute_next_air_datetime(release_data, now)
+        result = ProgramScheduler._compute_next_air_datetime(release_data, now)
 
         assert result is None
 
@@ -326,7 +328,7 @@ class TestComputeNextAirDatetime:
 class TestMonitoringAndProcessing:
     """Test monitoring and processing of scheduled tasks."""
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_monitor_creates_tasks_for_upcoming_episodes(
         self, mock_settings, test_scoped_db_session
     ):
@@ -341,7 +343,8 @@ class TestMonitoringAndProcessing:
         mock_settings.settings.indexer.schedule_offset_minutes = 30
 
         program = Program()
-        program._monitor_ongoing_schedules()
+        scheduler = ProgramScheduler(program)
+        scheduler._monitor_ongoing_schedules()
 
         # Check that a task was created
         task = session.query(ScheduledTask).filter_by(item_id=ep.id).first()
@@ -349,7 +352,7 @@ class TestMonitoringAndProcessing:
         assert task.task_type == "episode_release"
         assert task.status == ScheduledStatus.Pending
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_monitor_creates_tasks_for_upcoming_movies(
         self, mock_settings, test_scoped_db_session
     ):
@@ -363,14 +366,15 @@ class TestMonitoringAndProcessing:
         mock_settings.settings.indexer.schedule_offset_minutes = 30
 
         program = Program()
-        program._monitor_ongoing_schedules()
+        scheduler = ProgramScheduler(program)
+        scheduler._monitor_ongoing_schedules()
 
         task = session.query(ScheduledTask).filter_by(item_id=mv.id).first()
         assert task is not None
         assert task.task_type == "movie_release"
         assert task.status == ScheduledStatus.Pending
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_monitor_creates_reindex_for_ongoing_shows(
         self, mock_settings, test_scoped_db_session
     ):
@@ -397,14 +401,15 @@ class TestMonitoringAndProcessing:
         mock_settings.settings.indexer.schedule_offset_minutes = 30
 
         program = Program()
-        program._monitor_ongoing_schedules()
+        scheduler = ProgramScheduler(program)
+        scheduler._monitor_ongoing_schedules()
 
         task = session.query(ScheduledTask).filter_by(item_id=show.id).first()
         assert task is not None
         assert task.task_type == "reindex_show"
         assert task.status == ScheduledStatus.Pending
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_monitor_creates_daily_fallback_for_shows_without_hints(
         self, mock_settings, test_scoped_db_session
     ):
@@ -418,7 +423,8 @@ class TestMonitoringAndProcessing:
         mock_settings.settings.indexer.schedule_offset_minutes = 30
 
         program = Program()
-        program._monitor_ongoing_schedules()
+        scheduler = ProgramScheduler(program)
+        scheduler._monitor_ongoing_schedules()
 
         task = session.query(ScheduledTask).filter_by(item_id=show.id).first()
         assert task is not None
@@ -427,7 +433,7 @@ class TestMonitoringAndProcessing:
         # Should be scheduled for tomorrow
         assert task.scheduled_for > datetime.now()
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_monitor_creates_daily_fallback_for_movies_without_release_date(
         self, mock_settings, test_scoped_db_session
     ):
@@ -441,14 +447,15 @@ class TestMonitoringAndProcessing:
         mock_settings.settings.indexer.schedule_offset_minutes = 30
 
         program = Program()
-        program._monitor_ongoing_schedules()
+        scheduler = ProgramScheduler(program)
+        scheduler._monitor_ongoing_schedules()
 
         task = session.query(ScheduledTask).filter_by(item_id=mv.id).first()
         assert task is not None
         assert task.task_type == "reindex_movie"
         assert task.status == ScheduledStatus.Pending
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     @patch("program.program.IndexerService")
     def test_process_scheduled_tasks_marks_completed(
         self, mock_indexer_service, mock_settings, test_scoped_db_session
@@ -475,14 +482,15 @@ class TestMonitoringAndProcessing:
         program = Program()
         program.em = MagicMock()  # Mock event manager
         program.services = MagicMock()
-        program._process_scheduled_tasks()
+        scheduler = ProgramScheduler(program)
+        scheduler._process_scheduled_tasks()
 
         # Refresh task from DB
         session.refresh(task)
         assert task.status == ScheduledStatus.Completed
         assert task.executed_at is not None
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_process_scheduled_tasks_marks_failed_when_item_missing(
         self, mock_settings, test_scoped_db_session
     ):
@@ -505,13 +513,14 @@ class TestMonitoringAndProcessing:
         mock_settings.settings.indexer.schedule_offset_minutes = 30
 
         program = Program()
-        program._process_scheduled_tasks()
+        scheduler = ProgramScheduler(program)
+        scheduler._process_scheduled_tasks()
 
         session.refresh(task)
         assert task.status == ScheduledStatus.Failed
         assert task.executed_at is not None
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     @patch("program.program.IndexerService")
     def test_process_handles_exceptions_gracefully(
         self, mock_indexer_service, mock_settings, test_scoped_db_session
@@ -537,10 +546,11 @@ class TestMonitoringAndProcessing:
         program = Program()
         program.em = MagicMock()
         program.em.add_event.side_effect = Exception("Test exception")
+        scheduler = ProgramScheduler(program)
         program.services = MagicMock()
 
         # Should not raise, should handle gracefully
-        program._process_scheduled_tasks()
+        scheduler._process_scheduled_tasks()
 
         session.refresh(task)
         assert task.status == ScheduledStatus.Failed
@@ -552,7 +562,7 @@ class TestMonitoringAndProcessing:
 class TestStateTransitions:
     """Test state transitions for scheduled tasks."""
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_scheduled_tasks_enqueue_events_for_episodes(
         self, mock_settings, test_scoped_db_session
     ):
@@ -577,12 +587,13 @@ class TestStateTransitions:
         program = Program()
         program.em = MagicMock()
         program.services = MagicMock()
-        program._process_scheduled_tasks()
+        scheduler = ProgramScheduler(program)
+        scheduler._process_scheduled_tasks()
 
         # Verify event was enqueued
         program.em.add_event.assert_called_once()
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_reindex_tasks_call_indexer_service(
         self, mock_settings, test_scoped_db_session
     ):
@@ -610,12 +621,13 @@ class TestStateTransitions:
         program.services = MagicMock()
         program.services.get.return_value = mock_indexer
 
-        program._process_scheduled_tasks()
+        scheduler = ProgramScheduler(program)
+        scheduler._process_scheduled_tasks()
 
         # Verify indexer was called
         mock_indexer.run.assert_called_once()
 
-    @patch("program.program.settings_manager")
+    @patch("program.scheduling.scheduler.settings_manager")
     def test_completed_items_not_reenqueued(
         self, mock_settings, test_scoped_db_session
     ):
@@ -640,7 +652,8 @@ class TestStateTransitions:
         program = Program()
         program.em = MagicMock()
         program.services = MagicMock()
-        program._process_scheduled_tasks()
+        scheduler = ProgramScheduler(program)
+        scheduler._process_scheduled_tasks()
 
         # Verify event was NOT enqueued for completed item
         program.em.add_event.assert_not_called()

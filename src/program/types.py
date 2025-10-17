@@ -44,19 +44,10 @@ class Event:
     item_state: Optional[str] = None  # Cached state for priority sorting
 
     @property
-    def log_message(self):
-        # Defensive: content_item may be None
-        external_id = None
+    def log_message(self) -> str:
+        """Human-friendly description of the event target for logging."""
         if self.content_item:
-            if self.content_item.tmdb_id:
-                external_id = f"TMDB ID {self.content_item.tmdb_id}"
-            elif self.content_item.tvdb_id:
-                external_id = f"TVDB ID {self.content_item.tvdb_id}"
-            elif self.content_item.imdb_id:
-                external_id = f"IMDB ID {self.content_item.imdb_id}"
+            return self.content_item.log_string
         elif self.item_id:
             return f"Item ID {self.item_id}"
-        elif external_id:
-            return f"External ID {external_id}"
-        else:
-            return "Unknown Event"
+        return "Unknown Event"
