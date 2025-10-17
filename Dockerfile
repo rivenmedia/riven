@@ -1,7 +1,7 @@
 # -----------------
 # Builder Stage
 # -----------------
-FROM python:3.11-alpine AS builder
+FROM python:3.13-alpine AS builder
 
 # Install only the necessary build dependencies
 RUN apk add --no-cache gcc musl-dev libffi-dev python3-dev build-base curl curl-dev openssl-dev fuse3-dev pkgconf fuse3
@@ -16,12 +16,13 @@ WORKDIR /app
 
 # Install dependencies
 COPY pyproject.toml poetry.lock ./
+RUN poetry lock
 RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
 
 # -----------------
 # Final Stage
 # -----------------
-FROM python:3.11-alpine
+FROM python:3.13-alpine
 LABEL name="Riven" \
       description="Riven Media Server" \
       url="https://github.com/rivenmedia/riven"
@@ -39,7 +40,7 @@ WORKDIR /riven
 COPY --from=builder /app/.venv /riven/.venv
 
 # Grant the necessary capabilities to the Python binary
-RUN setcap cap_sys_admin+ep /usr/local/bin/python3.11
+RUN setcap cap_sys_admin+ep /usr/local/bin/python3.13
 
 # Activate the virtual environment by adding it to the PATH
 ENV PATH="/riven/.venv/bin:$PATH"

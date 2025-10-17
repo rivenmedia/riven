@@ -47,7 +47,6 @@ files = [
 [package.dependencies]
 idna = ">=2.8"
 sniffio = ">=1.1"
-typing_extensions = {version = ">=4.5", markers = "python_version < \"3.13\""}
 
 [package.extras]
 trio = ["trio (>=0.31.0)"]
@@ -2884,7 +2883,6 @@ files = [
 [package.dependencies]
 attrs = ">=22.2.0"
 rpds-py = ">=0.7.0"
-typing-extensions = {version = ">=4.4.0", markers = "python_version < \"3.13\""}
 
 [[package]]
 name = "regex"
@@ -4213,5 +4211,5 @@ type = ["pytest-mypy"]
 
 [metadata]
 lock-version = "2.1"
-python-versions = "^3.11"
-content-hash = "ee82cf954211fbfd6ff85085b760867918cc62607e8daa0e70dd83a2b8544b7a"
+python-versions = "^3.13"
+content-hash = "612e9b09edcbd3755fa4ad580fd1c409291dc2a215fc3a659fabbdf9da7346d3"
