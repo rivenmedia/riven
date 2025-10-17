@@ -1186,7 +1186,7 @@ class RivenVFS(pyfuse3.Operations):
             existing_node = self._get_node_by_path(clean_path)
             if existing_node:
                 log.debug(f"Path already registered: {clean_path}")
-                return False
+                return True
 
             # Create node in tree
             node = self._get_or_create_node(

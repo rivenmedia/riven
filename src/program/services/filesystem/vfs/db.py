@@ -239,21 +239,29 @@ class VFSDatabase:
         with self.SessionLocal() as s:
             from program.media.subtitle_entry import SubtitleEntry
 
-            subtitles = s.query(SubtitleEntry).filter_by(
-                parent_original_filename=parent_original_filename
-            ).all()
+            subtitles = (
+                s.query(SubtitleEntry)
+                .filter_by(parent_original_filename=parent_original_filename)
+                .all()
+            )
 
             return [
                 {
                     "language": sub.language,
                     "file_size": sub.file_size or 0,
-                    "created_at": sub.created_at.isoformat() if sub.created_at else None,
-                    "updated_at": sub.updated_at.isoformat() if sub.updated_at else None,
+                    "created_at": (
+                        sub.created_at.isoformat() if sub.created_at else None
+                    ),
+                    "updated_at": (
+                        sub.updated_at.isoformat() if sub.updated_at else None
+                    ),
                 }
                 for sub in subtitles
             ]
 
-    def get_subtitle_content(self, parent_original_filename: str, language: str) -> Optional[bytes]:
+    def get_subtitle_content(
+        self, parent_original_filename: str, language: str
+    ) -> Optional[bytes]:
         """
         Get the subtitle content for a SubtitleEntry.
 
@@ -271,17 +279,25 @@ class VFSDatabase:
             from program.media.subtitle_entry import SubtitleEntry
 
             # Query specifically for SubtitleEntry by parent and language
-            subtitle = s.query(SubtitleEntry).filter_by(
-                parent_original_filename=parent_original_filename,
-                language=language
-            ).first()
+            subtitle = (
+                s.query(SubtitleEntry)
+                .filter_by(
+                    parent_original_filename=parent_original_filename, language=language
+                )
+                .first()
+            )
 
             if subtitle and subtitle.content:
                 return subtitle.content.encode("utf-8")
 
             return None
 
-    def get_entry_by_original_filename(self, original_filename: str, for_http: bool = False, force_resolve: bool = False) -> Optional[Dict]:
+    def get_entry_by_original_filename(
+        self,
+        original_filename: str,
+        for_http: bool = False,
+        force_resolve: bool = False,
+    ) -> Optional[Dict]:
         """
         Get entry metadata and download URL by original filename.
 
@@ -297,9 +313,11 @@ class VFSDatabase:
         """
         try:
             with self.SessionLocal() as s:
-                entry = s.query(MediaEntry).filter(
-                    MediaEntry.original_filename == original_filename
-                ).one_or_none()
+                entry = (
+                    s.query(MediaEntry)
+                    .filter(MediaEntry.original_filename == original_filename)
+                    .first()
+                )
 
                 if not entry:
                     return None
@@ -313,19 +331,30 @@ class VFSDatabase:
                     if self.downloader and entry.provider:
                         # Find service by matching the key attribute (services dict uses class as key)
                         service = next(
-                            (svc for svc in self.downloader.services.values() if svc.key == entry.provider),
-                            None
+                            (
+                                svc
+                                for svc in self.downloader.services.values()
+                                if svc.key == entry.provider
+                            ),
+                            None,
                         )
-                        if service and hasattr(service, 'unrestrict_link'):
+                        if service and hasattr(service, "unrestrict_link"):
                             try:
                                 new_unrestricted = service.unrestrict_link(download_url)
-                                if new_unrestricted and new_unrestricted.download != unrestricted_url:
+                                if (
+                                    new_unrestricted
+                                    and new_unrestricted.download != unrestricted_url
+                                ):
                                     entry.unrestricted_url = new_unrestricted.download
                                     unrestricted_url = new_unrestricted.download
                                     s.commit()
-                                    log.debug(f"Refreshed unrestricted URL for {original_filename}")
+                                    log.debug(
+                                        f"Refreshed unrestricted URL for {original_filename}"
+                                    )
                             except Exception as e:
-                                log.warning(f"Failed to unrestrict URL for {original_filename}: {e}")
+                                log.warning(
+                                    f"Failed to unrestrict URL for {original_filename}: {e}"
+                                )
 
                 # Choose URL based on for_http flag
                 if for_http:
@@ -340,16 +369,24 @@ class VFSDatabase:
                     "provider": entry.provider,
                     "provider_download_id": entry.provider_download_id,
                     "size": entry.file_size,
-                    "created": entry.created_at.isoformat() if entry.created_at else None,
-                    "modified": entry.updated_at.isoformat() if entry.updated_at else None,
+                    "created": (
+                        entry.created_at.isoformat() if entry.created_at else None
+                    ),
+                    "modified": (
+                        entry.updated_at.isoformat() if entry.updated_at else None
+                    ),
                     "entry_type": "media",
-                    "url": chosen_url  # The URL to use for this request
+                    "url": chosen_url,  # The URL to use for this request
                 }
         except Exception as e:
-            log.error(f"Error getting entry by original_filename {original_filename}: {e}")
+            log.error(
+                f"Error getting entry by original_filename {original_filename}: {e}"
+            )
             return None
 
-    def get_download_url(self, path: str, for_http: bool = False, force_resolve: bool = False) -> Optional[str]:
+    def get_download_url(
+        self, path: str, for_http: bool = False, force_resolve: bool = False
+    ) -> Optional[str]:
         """
         Get download URL for a file using database-driven provider lookup.
 

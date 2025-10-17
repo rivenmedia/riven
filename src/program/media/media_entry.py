@@ -66,9 +66,6 @@ class MediaEntry(FilesystemEntry):
     __table_args__ = (
         sqlalchemy.Index("ix_media_entry_provider", "provider"),
         sqlalchemy.Index("ix_media_entry_original_filename", "original_filename"),
-        sqlalchemy.UniqueConstraint(
-            "original_filename", name="uq_media_entry_original_filename"
-        ),
     )
 
     def __repr__(self):
