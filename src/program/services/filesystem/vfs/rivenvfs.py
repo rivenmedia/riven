@@ -965,6 +965,8 @@ class RivenVFS(pyfuse3.Operations):
                         registered_count += 1
                 except Exception as e:
                     log.error(f"Failed to register item {item_id}: {e}")
+            if registered_count > 0:
+                session.commit()
 
         log.log("VFS", f"Full sync complete: re-registered {registered_count} items")
 
@@ -1024,6 +1026,7 @@ class RivenVFS(pyfuse3.Operations):
 
                 # Step 2: Re-add the item with current state (including new subtitles)
                 self.add(fresh_item)
+                session.commit()
 
         log.debug(f"Individual sync complete for item {item.id}")
 
@@ -1183,7 +1186,7 @@ class RivenVFS(pyfuse3.Operations):
             existing_node = self._get_node_by_path(clean_path)
             if existing_node:
                 log.debug(f"Path already registered: {clean_path}")
-                return False
+                return True
 
             # Create node in tree
             node = self._get_or_create_node(

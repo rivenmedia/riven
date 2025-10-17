@@ -237,20 +237,6 @@ class FilesystemModel(Observable):
 
     library_profiles: dict[str, LibraryProfile] = Field(
         default_factory=lambda: {
-            # Default profiles (enabled by default) - these provide the base /movies and /shows paths
-            # All media appears in these base libraries
-            "movies": LibraryProfile(
-                name="Movies",
-                library_path="/movies",
-                enabled=True,
-                filter_rules=LibraryProfileFilterRules(content_types=["movie"]),
-            ),
-            "shows": LibraryProfile(
-                name="TV Shows",
-                library_path="/shows",
-                enabled=True,
-                filter_rules=LibraryProfileFilterRules(content_types=["show"]),
-            ),
             "anime": LibraryProfile(
                 name="Anime",
                 library_path="/anime",
@@ -275,8 +261,7 @@ class FilesystemModel(Observable):
         },
         description=(
             "Library profiles for organizing media into different libraries based on metadata. "
-            "Default profiles ('movies' and 'shows') provide the base /movies and /shows paths. "
-            "Additional example profiles are provided (disabled by default) - enable them or create your own. "
+            "An example profile is provided (disabled by default) - enable them or create your own. "
             "Each profile filters media by metadata (genres, ratings, etc.) and creates VFS paths. "
             "Media appears in all matching profile paths. Use '!' prefix in filter lists to exclude values "
             "(e.g., genres: ['action', '!horror'] = action movies but not horror)."

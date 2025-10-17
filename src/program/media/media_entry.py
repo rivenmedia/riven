@@ -66,9 +66,6 @@ class MediaEntry(FilesystemEntry):
     __table_args__ = (
         sqlalchemy.Index("ix_media_entry_provider", "provider"),
         sqlalchemy.Index("ix_media_entry_original_filename", "original_filename"),
-        sqlalchemy.UniqueConstraint(
-            "original_filename", name="uq_media_entry_original_filename"
-        ),
     )
 
     def __repr__(self):
@@ -85,16 +82,17 @@ class MediaEntry(FilesystemEntry):
 
     def get_all_vfs_paths(self) -> list[str]:
         """
-        Generate all VFS paths for this entry from library profiles.
+        Generate all VFS paths for this entry.
 
         This is the single source of truth for path generation, used by both
         RivenVFS registration and Updater refresh logic.
 
-        All paths come from library_profiles - there is no separate "base path".
-        If library_profiles is empty, returns empty list.
+        Every item ALWAYS appears in the base /movies or /shows path.
+        Library profiles provide ADDITIONAL filtered views (e.g., /kids, /anime).
 
         Returns:
             List of VFS paths (e.g., ["/movies/Movie.mkv", "/kids/Movie.mkv"])
+            Always includes at least the base path.
         """
         from program.services.filesystem.vfs.naming import generate_clean_path
         from program.settings.manager import settings_manager
@@ -104,12 +102,8 @@ class MediaEntry(FilesystemEntry):
         if not item:
             return []
 
-        # No library profiles = no paths
-        if not self.library_profiles:
-            return []
-
         # Generate clean path structure from original_filename
-        # This gives us the canonical structure: /movies/Title (Year)/Title.mkv
+        # This gives us the canonical structure: /movies/Title (Year)/Title.mkv or /shows/...
         # Pass cached parsed_data to avoid re-parsing
         canonical_path = generate_clean_path(
             item=item,
@@ -118,36 +112,40 @@ class MediaEntry(FilesystemEntry):
             parsed_data=self.parsed_data,
         )
 
-        all_paths = []
-        profiles = settings_manager.settings.filesystem.library_profiles
+        # ALWAYS include the base path (/movies or /shows)
+        # This is non-configurable and ensures every item is accessible
+        all_paths = [canonical_path]
 
-        # Generate paths for each library profile
-        for profile_key in self.library_profiles:
-            if profile_key not in profiles:
-                continue
+        # Add additional paths from library profiles (optional filtered views)
+        if self.library_profiles:
+            profiles = settings_manager.settings.filesystem.library_profiles
 
-            profile = profiles[profile_key]
+            for profile_key in self.library_profiles:
+                if profile_key not in profiles:
+                    continue
 
-            # Simplify path if profile only has one content type
-            # e.g., /kids/Movie.mkv instead of /kids/movies/Movie.mkv
-            filter_rules = profile.filter_rules
-            content_types = filter_rules.content_types if filter_rules else None
+                profile = profiles[profile_key]
 
-            if content_types and len(content_types) == 1:
-                # Single content type - simplify path by removing /movies or /shows
-                if canonical_path.startswith("/movies/"):
-                    simplified = canonical_path[8:]  # Remove "/movies/"
-                elif canonical_path.startswith("/shows/"):
-                    simplified = canonical_path[7:]  # Remove "/shows/"
+                # Simplify path if profile only has one content type
+                # e.g., /kids/Movie.mkv instead of /kids/movies/Movie.mkv
+                filter_rules = profile.filter_rules
+                content_types = filter_rules.content_types if filter_rules else None
+
+                if content_types and len(content_types) == 1:
+                    # Single content type - simplify path by removing /movies or /shows
+                    if canonical_path.startswith("/movies/"):
+                        simplified = canonical_path[8:]  # Remove "/movies/"
+                    elif canonical_path.startswith("/shows/"):
+                        simplified = canonical_path[7:]  # Remove "/shows/"
+                    else:
+                        simplified = canonical_path.lstrip("/")
+
+                    profile_path = f"{profile.library_path}/{simplified}"
                 else:
-                    simplified = canonical_path.lstrip("/")
+                    # Multiple content types - keep full path structure
+                    profile_path = f"{profile.library_path}{canonical_path}"
 
-                profile_path = f"{profile.library_path}/{simplified}"
-            else:
-                # Multiple content types - keep full path structure
-                profile_path = f"{profile.library_path}{canonical_path}"
-
-            all_paths.append(profile_path)
+                all_paths.append(profile_path)
 
         return all_paths
 

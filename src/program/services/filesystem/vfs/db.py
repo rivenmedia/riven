@@ -316,7 +316,7 @@ class VFSDatabase:
                 entry = (
                     s.query(MediaEntry)
                     .filter(MediaEntry.original_filename == original_filename)
-                    .one_or_none()
+                    .first()
                 )
 
                 if not entry:
