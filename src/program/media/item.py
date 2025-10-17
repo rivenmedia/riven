@@ -254,7 +254,14 @@ class MediaItem(db.Model):
             )
             return True
 
-    def schedule(self, run_at: datetime, task_type: str = "episode_release", *, offset_seconds: int | None = None, reason: str | None = None) -> bool:
+    def schedule(
+        self,
+        run_at: datetime,
+        task_type: str = "episode_release",
+        *,
+        offset_seconds: int | None = None,
+        reason: str | None = None,
+    ) -> bool:
         """Schedule a task for this item at a specific time.
 
         Creates a ScheduledTask row (idempotent via unique index).
@@ -273,7 +280,9 @@ class MediaItem(db.Model):
         try:
             # Defensive: avoid scheduling in the past
             if run_at <= datetime.now():
-                logger.debug(f"Refusing to schedule past/now task for {self.log_string} at {run_at.isoformat()} [{task_type}]")
+                logger.debug(
+                    f"Refusing to schedule past/now task for {self.log_string} at {run_at.isoformat()} [{task_type}]"
+                )
                 return False
         except Exception:
             pass
@@ -292,10 +301,14 @@ class MediaItem(db.Model):
                 st = ScheduledTask(**payload)
                 session.add(st)
                 session.commit()
-                logger.info(f"Scheduled {task_type} for {self.log_string} at {run_at.isoformat()} (offset={offset_seconds})")
+                logger.info(
+                    f"Scheduled {task_type} for {self.log_string} at {run_at.isoformat()} (offset={offset_seconds})"
+                )
                 return True
         except IntegrityError:
-            logger.debug(f"Schedule already exists for item {self.id} at {run_at.isoformat()} [{task_type}]")
+            logger.debug(
+                f"Schedule already exists for item {self.id} at {run_at.isoformat()} [{task_type}]"
+            )
             return False
         except Exception as e:
             logger.error(f"Failed to schedule task for {self.log_string}: {e}")

@@ -13,6 +13,7 @@ from program.db.db import db
 
 class ScheduledStatus(str, Enum):
     """Status values for scheduled tasks."""
+
     Pending = "pending"
     Completed = "completed"
     Failed = "failed"
@@ -39,15 +40,27 @@ class ScheduledTask(db.Model):
         ),
         default=ScheduledStatus.Pending,
     )
-    created_at: Mapped[datetime] = mapped_column(sqlalchemy.DateTime, default=datetime.now)
-    executed_at: Mapped[Optional[datetime]] = mapped_column(sqlalchemy.DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sqlalchemy.DateTime, default=datetime.now
+    )
+    executed_at: Mapped[Optional[datetime]] = mapped_column(
+        sqlalchemy.DateTime, nullable=True
+    )
     reason: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    offset_seconds: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
+    offset_seconds: Mapped[Optional[int]] = mapped_column(
+        sqlalchemy.Integer, nullable=True
+    )
 
     __table_args__ = (
         Index("ix_scheduledtask_scheduled_for", "scheduled_for"),
         Index("ix_scheduledtask_status", "status"),
-        Index("ux_scheduledtask_item_task_time", "item_id", "task_type", "scheduled_for", unique=True),
+        Index(
+            "ux_scheduledtask_item_task_time",
+            "item_id",
+            "task_type",
+            "scheduled_for",
+            unique=True,
+        ),
     )
 
     def to_dict(self) -> dict:
@@ -56,11 +69,16 @@ class ScheduledTask(db.Model):
             "id": self.id,
             "item_id": self.item_id,
             "task_type": self.task_type,
-            "scheduled_for": self.scheduled_for.isoformat() if self.scheduled_for else None,
-            "status": self.status.value if isinstance(self.status, ScheduledStatus) else str(self.status),
+            "scheduled_for": (
+                self.scheduled_for.isoformat() if self.scheduled_for else None
+            ),
+            "status": (
+                self.status.value
+                if isinstance(self.status, ScheduledStatus)
+                else str(self.status)
+            ),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "executed_at": self.executed_at.isoformat() if self.executed_at else None,
             "offset_seconds": self.offset_seconds,
             "reason": self.reason,
         }
-

@@ -568,6 +568,7 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
         ],
     }
 
+
 # TODO: reimplement later
 # class UpdateNewReleasesResponse(BaseModel):
 #     message: str

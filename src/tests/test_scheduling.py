@@ -1,4 +1,5 @@
 """Tests for the scheduling system's edge cases and durability."""
+
 from __future__ import annotations
 
 import os
@@ -38,6 +39,7 @@ def db_engine(test_container):
 
     # Ensure Alembic env.py uses this test URL (it reads from settings_manager)
     from program.settings.manager import settings_manager
+
     settings_manager.settings.database.host = url
 
     run_migrations(database_url=url)
@@ -64,9 +66,13 @@ def test_scoped_db_session(db_engine):
     finally:
         session.close()
         with db_engine.connect() as conn:
-            tables = conn.execute(
-                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-            ).scalars().all()
+            tables = (
+                conn.execute(
+                    text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+                )
+                .scalars()
+                .all()
+            )
             if tables:
                 quoted = ", ".join(f'"public"."{t}"' for t in tables)
                 conn.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
@@ -74,6 +80,7 @@ def test_scoped_db_session(db_engine):
 
 
 # Helper functions
+
 
 def _create_episode(session, aired_at: datetime | None = None, **kwargs) -> Episode:
     """Create and persist an episode with required parent hierarchy.
@@ -155,6 +162,7 @@ def _create_show(session, release_data: dict | None = None, **kwargs) -> Show:
 
 # Core scheduling functionality tests
 
+
 class TestCoreScheduling:
     """Test core scheduling functionality."""
 
@@ -216,6 +224,7 @@ class TestCoreScheduling:
 
 
 # Tests for _compute_next_air_datetime edge cases
+
 
 class TestComputeNextAirDatetime:
     """Test edge cases for _compute_next_air_datetime()."""
@@ -325,6 +334,7 @@ class TestComputeNextAirDatetime:
 
 # Monitoring and processing tests
 
+
 class TestMonitoringAndProcessing:
     """Test monitoring and processing of scheduled tasks."""
 
@@ -396,7 +406,9 @@ class TestMonitoringAndProcessing:
             },
             "airs_time": "20:00",
         }
-        show = _create_show(session, release_data=release_data, last_state=States.Ongoing)
+        show = _create_show(
+            session, release_data=release_data, last_state=States.Ongoing
+        )
 
         mock_settings.settings.indexer.schedule_offset_minutes = 30
 
@@ -559,6 +571,7 @@ class TestMonitoringAndProcessing:
 
 # State transition tests
 
+
 class TestStateTransitions:
     """Test state transitions for scheduled tasks."""
 
@@ -657,5 +670,3 @@ class TestStateTransitions:
 
         # Verify event was NOT enqueued for completed item
         program.em.add_event.assert_not_called()
-
-

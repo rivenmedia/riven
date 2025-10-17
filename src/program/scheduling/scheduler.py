@@ -3,6 +3,7 @@
 Encapsulates APScheduler setup, background jobs, and time-based orchestration
 for content services and item-specific schedules.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -113,7 +114,9 @@ class ProgramScheduler:
                 )
                 continue
 
-            update_interval = getattr(service_instance.settings, "update_interval", False)
+            update_interval = getattr(
+                service_instance.settings, "update_interval", False
+            )
             if not update_interval:
                 continue
 
@@ -139,13 +142,15 @@ class ProgramScheduler:
             self.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
         if item_ids:
-            logger.log("PROGRAM", f"Successfully retried {len(item_ids)} incomplete items")
+            logger.log(
+                "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
+            )
         else:
             logger.log("NOT_FOUND", "No items required retrying")
 
     def _schedule_callback(self, task: ScheduledTask, callback: Callable) -> None:
         """Schedule a callback to run at the task's scheduled_for time."""
-        try:        
+        try:
             self.scheduler.add_job(
                 callback,
                 "date",
@@ -200,7 +205,9 @@ class ProgramScheduler:
         except SQLAlchemyError as e:
             logger.error(f"Scheduler DB error: {e}")
 
-    def _process_single_scheduled_task(self, session: Session, task: ScheduledTask, now: datetime) -> None:
+    def _process_single_scheduled_task(
+        self, session: Session, task: ScheduledTask, now: datetime
+    ) -> None:
         """Process a single ScheduledTask instance.
 
         Args:
@@ -212,7 +219,9 @@ class ProgramScheduler:
             item = self._load_item_for_task(session, task)
             if not item:
                 self._mark_task_status(session, task, ScheduledStatus.Failed, now)
-                logger.debug(f"ScheduledTask {task.id} item {task.item_id} no longer exists")
+                logger.debug(
+                    f"ScheduledTask {task.id} item {task.item_id} no longer exists"
+                )
                 return
 
             if task.task_type in ("reindex_show", "reindex", "reindex_movie"):
@@ -220,11 +229,17 @@ class ProgramScheduler:
             else:
                 self._enqueue_item_if_needed(session, item)
 
-            self._mark_task_status(session, task, ScheduledStatus.Completed, datetime.now())
+            self._mark_task_status(
+                session, task, ScheduledStatus.Completed, datetime.now()
+            )
         except Exception as e:
             session.rollback()
-            self._mark_task_status(session, task, ScheduledStatus.Failed, datetime.now())
-            logger.error(f"Failed processing ScheduledTask {getattr(task,'id',None)}: {e}")
+            self._mark_task_status(
+                session, task, ScheduledStatus.Failed, datetime.now()
+            )
+            logger.error(
+                f"Failed processing ScheduledTask {getattr(task,'id',None)}: {e}"
+            )
 
     def _load_item_for_task(self, session: Session, task: ScheduledTask):
         """Load and merge the MediaItem for a scheduled task.
@@ -232,7 +247,9 @@ class ProgramScheduler:
         Returns:
             The merged item or None if missing.
         """
-        item = db_functions.get_item_by_id(task.item_id, session=session, load_tree=False)
+        item = db_functions.get_item_by_id(
+            task.item_id, session=session, load_tree=False
+        )
         if not item:
             return None
         return session.merge(item)
@@ -258,7 +275,12 @@ class ProgramScheduler:
             logger.info(f"Enqueued {item.log_string} from scheduler")
 
     @staticmethod
-    def _mark_task_status(session: Session, task: ScheduledTask, status: ScheduledStatus, executed_at: datetime) -> None:
+    def _mark_task_status(
+        session: Session,
+        task: ScheduledTask,
+        status: ScheduledStatus,
+        executed_at: datetime,
+    ) -> None:
         """Persist a task status update in a single place."""
         task.status = status
         task.executed_at = executed_at
@@ -285,7 +307,9 @@ class ProgramScheduler:
         except Exception as e:
             logger.error(f"Monitor ongoing schedules failed: {e}")
 
-    def _has_future_task(self, session: Session, item_id: int, task_type: str, now: datetime) -> bool:
+    def _has_future_task(
+        self, session: Session, item_id: int, task_type: str, now: datetime
+    ) -> bool:
         """Return True if a pending future task of this type already exists for item."""
         existing = (
             session.execute(
@@ -301,7 +325,9 @@ class ProgramScheduler:
         )
         return existing is not None
 
-    def _schedule_upcoming_episodes(self, session: Session, now: datetime, offset_seconds: int) -> None:
+    def _schedule_upcoming_episodes(
+        self, session: Session, now: datetime, offset_seconds: int
+    ) -> None:
         """Schedule episode_release for future-dated episodes that are not completed."""
         upcoming_eps = (
             session.execute(
@@ -327,7 +353,9 @@ class ProgramScheduler:
                 except Exception as e:
                     logger.debug(f"Skipping schedule for {ep.log_string}: {e}")
 
-    def _schedule_upcoming_movies(self, session: Session, now: datetime, offset_seconds: int) -> None:
+    def _schedule_upcoming_movies(
+        self, session: Session, now: datetime, offset_seconds: int
+    ) -> None:
         """Schedule movie_release for future-dated movies that are not completed."""
         upcoming_movies = (
             session.execute(
@@ -356,7 +384,11 @@ class ProgramScheduler:
     def _schedule_ongoing_shows(self, session: Session, now: datetime) -> None:
         """Schedule reindex_show for ongoing/unreleased shows based on next air, with daily fallback."""
         ongoing_shows = (
-            session.execute(select(Show).where(Show.last_state.in_([States.Ongoing, States.Unreleased])))
+            session.execute(
+                select(Show).where(
+                    Show.last_state.in_([States.Ongoing, States.Unreleased])
+                )
+            )
             .unique()
             .scalars()
             .all()
@@ -367,16 +399,30 @@ class ProgramScheduler:
             if next_air and next_air > now:
                 if not self._has_future_task(session, show.id, "reindex_show", now):
                     try:
-                        show.schedule(next_air, task_type="reindex_show", reason="monitor:next_air")
+                        show.schedule(
+                            next_air,
+                            task_type="reindex_show",
+                            reason="monitor:next_air",
+                        )
                     except Exception as e:
-                        logger.debug(f"Skipping reindex schedule for {show.log_string}: {e}")
+                        logger.debug(
+                            f"Skipping reindex schedule for {show.log_string}: {e}"
+                        )
             else:
-                fallback_time = (now + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+                fallback_time = (now + timedelta(days=1)).replace(
+                    minute=0, second=0, microsecond=0
+                )
                 if not self._has_future_task(session, show.id, "reindex_show", now):
                     try:
-                        show.schedule(fallback_time, task_type="reindex_show", reason="monitor:fallback_daily")
+                        show.schedule(
+                            fallback_time,
+                            task_type="reindex_show",
+                            reason="monitor:fallback_daily",
+                        )
                     except Exception as e:
-                        logger.debug(f"Skipping fallback reindex for {show.log_string}: {e}")
+                        logger.debug(
+                            f"Skipping fallback reindex for {show.log_string}: {e}"
+                        )
 
     def _schedule_unknown_movies(self, session: Session, now: datetime) -> None:
         """Schedule daily reindex for movies without any known release date."""
@@ -384,22 +430,39 @@ class ProgramScheduler:
             session.execute(
                 select(Movie)
                 .where(Movie.aired_at.is_(None))
-                .where(Movie.last_state.in_([States.Unreleased, States.Indexed, States.Requested, States.Unknown]))
+                .where(
+                    Movie.last_state.in_(
+                        [
+                            States.Unreleased,
+                            States.Indexed,
+                            States.Requested,
+                            States.Unknown,
+                        ]
+                    )
+                )
             )
             .unique()
             .scalars()
             .all()
         )
         for mv in unknown_movies:
-            fallback_time = (now + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+            fallback_time = (now + timedelta(days=1)).replace(
+                minute=0, second=0, microsecond=0
+            )
             if not self._has_future_task(session, mv.id, "reindex_movie", now):
                 try:
-                    mv.schedule(fallback_time, task_type="reindex_movie", reason="monitor:fallback_daily")
+                    mv.schedule(
+                        fallback_time,
+                        task_type="reindex_movie",
+                        reason="monitor:fallback_daily",
+                    )
                 except Exception as e:
                     logger.debug(f"Skipping fallback reindex for {mv.log_string}: {e}")
 
     @staticmethod
-    def _compute_next_air_datetime(release_data: dict, ref: datetime) -> datetime | None:
+    def _compute_next_air_datetime(
+        release_data: dict, ref: datetime
+    ) -> datetime | None:
         """Compute the next air datetime from a TVDB-like payload.
 
         Strategy:
@@ -430,8 +493,12 @@ class ProgramScheduler:
         for i in range(0, 21):
             candidate = ref + timedelta(days=i)
             if candidate.weekday() in valid_days:
-                candidate_dt = candidate.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                candidate_dt = ProgramScheduler._to_local_naive(release_data, candidate_dt)
+                candidate_dt = candidate.replace(
+                    hour=hour, minute=minute, second=0, microsecond=0
+                )
+                candidate_dt = ProgramScheduler._to_local_naive(
+                    release_data, candidate_dt
+                )
                 if candidate_dt and candidate_dt >= ref:
                     return candidate_dt
         return None
@@ -517,4 +584,3 @@ class ProgramScheduler:
             "sunday",
         ]
         return [i for i, name in enumerate(day_map) if airs_days.get(name) is True]
-

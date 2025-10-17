@@ -44,11 +44,8 @@ class OverseerrAPI:
             return None
 
     def get_media_requests(
-            self,
-            service_key: str,
-            filter: str = "approved",
-            take: int = 10000
-        ) -> list["MediaItem"]:
+        self, service_key: str, filter: str = "approved", take: int = 10000
+    ) -> list["MediaItem"]:
         """Get media requests from `Overseerr`"""
         from program.media.item import MediaItem
 

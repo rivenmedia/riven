@@ -34,13 +34,21 @@ def requests_mock(monkeypatch):
         key = (request.method.upper(), str(request.url))
         entry = routes.get(key)
         if not entry:
-            return httpx.Response(404, json={"detail": "Not mocked"}, headers={"Content-Type": "application/json"})
+            return httpx.Response(
+                404,
+                json={"detail": "Not mocked"},
+                headers={"Content-Type": "application/json"},
+            )
         if entry["queue"]:
             cfg = entry["queue"].pop(0)
         else:
             cfg = entry["sticky"]
         if cfg is None:
-            return httpx.Response(404, json={"detail": "Not mocked"}, headers={"Content-Type": "application/json"})
+            return httpx.Response(
+                404,
+                json={"detail": "Not mocked"},
+                headers={"Content-Type": "application/json"},
+            )
         status_code = cfg.get("status_code", 200)
         headers = dict(cfg.get("headers", {}))
         if "json" in cfg:
@@ -84,6 +92,7 @@ def requests_mock(monkeypatch):
             get(url, cfg)
 
     return _Mock()
+
 
 class FakeClock:
     """A monotonic clock you can control; time.sleep() advances it instantly."""
@@ -250,7 +259,9 @@ def test_circuit_breaker_opens_and_recovers(monkeypatch, requests_mock):
     monkeypatch.setattr(request_mod.time, "monotonic", clock.monotonic, raising=True)
     monkeypatch.setattr(request_mod.time, "sleep", clock.sleep, raising=True)
 
-    session = SmartSession(rate_limits={"cb.local": {"rate": 100, "capacity": 100}}, retries=0)
+    session = SmartSession(
+        rate_limits={"cb.local": {"rate": 100, "capacity": 100}}, retries=0
+    )
     # Override breaker config for this test
     session.breakers["cb.local"] = CircuitBreaker(failure_threshold=2, recovery_time=5)
 
@@ -307,7 +318,9 @@ def test_streaming_iter_content_and_no_error_with_stream(requests_mock):
     session = SmartSession()
     url = "https://stream.local/blob"
     data = b"x" * 10000
-    requests_mock.get(url, {"content": data, "headers": {"Content-Type": "application/octet-stream"}})
+    requests_mock.get(
+        url, {"content": data, "headers": {"Content-Type": "application/octet-stream"}}
+    )
 
     r = session.get(url, stream=True)
     assert isinstance(r, SmartResponse)
@@ -325,7 +338,9 @@ def test_streaming_iter_content_and_no_error_with_stream(requests_mock):
 def test_per_request_proxies_is_accepted_and_request_succeeds(requests_mock):
     session = SmartSession()
     url = "https://proxy.local/ok"
-    requests_mock.get(url, json={"ok": True}, headers={"Content-Type": "application/json"})
+    requests_mock.get(
+        url, json={"ok": True}, headers={"Content-Type": "application/json"}
+    )
 
     proxies = {"http": "http://localhost:3128", "https": "http://localhost:3128"}
     r = session.get(url, proxies=proxies)
@@ -342,24 +357,36 @@ def test_backoff_equal_jitter_bounds(monkeypatch, requests_mock):
     monkeypatch.setattr(request_mod.random, "random", lambda: 0.0, raising=True)
 
     sleeps = []
+
     def fake_sleep(s):
         sleeps.append(s)
+
     monkeypatch.setattr(request_mod.time, "sleep", fake_sleep, raising=True)
 
     session = SmartSession(retries=1, backoff_factor=1.0)
     url = "https://jitter.local/unstable"
     # First and second responses 500 → one retry sleep should occur
-    requests_mock.get(url, [
-        {"status_code": 500, "json": {"err": "x"}, "headers": {"Content-Type": "application/json"}},
-        {"status_code": 500, "json": {"err": "y"}, "headers": {"Content-Type": "application/json"}},
-    ])
+    requests_mock.get(
+        url,
+        [
+            {
+                "status_code": 500,
+                "json": {"err": "x"},
+                "headers": {"Content-Type": "application/json"},
+            },
+            {
+                "status_code": 500,
+                "json": {"err": "y"},
+                "headers": {"Content-Type": "application/json"},
+            },
+        ],
+    )
 
     r = session.get(url)
     assert r.status_code == 500
     # Exactly one sleep, and equals 0.5 * base (base=1.0 for attempt 1)
     assert len(sleeps) == 1
     assert abs(sleeps[0] - 0.5) < 1e-6
-
 
 
 def test_tokenbucket_concurrency_respects_rate_real_time(requests_mock):
@@ -370,9 +397,18 @@ def test_tokenbucket_concurrency_respects_rate_real_time(requests_mock):
     import threading
     import time
 
-    session = SmartSession(rate_limits={"conc.local": {"rate": 20, "capacity": 2}}, retries=0)
+    session = SmartSession(
+        rate_limits={"conc.local": {"rate": 20, "capacity": 2}}, retries=0
+    )
     url = "https://conc.local/x"
-    requests_mock.get(url, {"status_code": 200, "json": {"ok": True}, "headers": {"Content-Type": "application/json"}})
+    requests_mock.get(
+        url,
+        {
+            "status_code": 200,
+            "json": {"ok": True},
+            "headers": {"Content-Type": "application/json"},
+        },
+    )
 
     n = 6
     barrier = threading.Barrier(n)
@@ -401,19 +437,32 @@ def test_tokenbucket_concurrency_respects_rate_real_time(requests_mock):
     assert total < 1.0
 
 
-
 def test_429_with_retry_after_seconds_header(monkeypatch, requests_mock):
     import program.utils.request as request_mod
+
     sleeps = []
-    monkeypatch.setattr(request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True)
+    monkeypatch.setattr(
+        request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True
+    )
 
     session = SmartSession(retries=1, backoff_factor=10.0)
     url = "https://ratelimit.local/res"
     # First: 429 with Retry-After: 2; then success
-    requests_mock.get(url, [
-        {"status_code": 429, "json": {"err": "too many"}, "headers": {"Content-Type": "application/json", "Retry-After": "2"}},
-        {"status_code": 200, "json": {"ok": True}, "headers": {"Content-Type": "application/json"}},
-    ])
+    requests_mock.get(
+        url,
+        [
+            {
+                "status_code": 429,
+                "json": {"err": "too many"},
+                "headers": {"Content-Type": "application/json", "Retry-After": "2"},
+            },
+            {
+                "status_code": 200,
+                "json": {"ok": True},
+                "headers": {"Content-Type": "application/json"},
+            },
+        ],
+    )
 
     r = session.get(url)
     assert r.status_code == 200
@@ -422,11 +471,14 @@ def test_429_with_retry_after_seconds_header(monkeypatch, requests_mock):
 
 def test_429_with_retry_after_http_date(monkeypatch, requests_mock):
     import program.utils.request as request_mod
+
     sleeps = []
     # Fix now to a known instant
     now = 1_000_000.0
     monkeypatch.setattr(request_mod.time, "time", lambda: now, raising=True)
-    monkeypatch.setattr(request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True)
+    monkeypatch.setattr(
+        request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True
+    )
 
     # Build HTTP-date header 3s in the future
     dt = datetime.fromtimestamp(now + 3.0, tz=timezone.utc)
@@ -434,10 +486,24 @@ def test_429_with_retry_after_http_date(monkeypatch, requests_mock):
 
     session = SmartSession(retries=1)
     url = "https://ratelimit.local/date"
-    requests_mock.get(url, [
-        {"status_code": 429, "json": {"err": "rl"}, "headers": {"Content-Type": "application/json", "Retry-After": http_date}},
-        {"status_code": 200, "json": {"ok": True}, "headers": {"Content-Type": "application/json"}},
-    ])
+    requests_mock.get(
+        url,
+        [
+            {
+                "status_code": 429,
+                "json": {"err": "rl"},
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Retry-After": http_date,
+                },
+            },
+            {
+                "status_code": 200,
+                "json": {"ok": True},
+                "headers": {"Content-Type": "application/json"},
+            },
+        ],
+    )
 
     r = session.get(url)
     assert r.status_code == 200
@@ -446,18 +512,32 @@ def test_429_with_retry_after_http_date(monkeypatch, requests_mock):
 
 def test_429_invalid_retry_after_falls_back_to_jitter(monkeypatch, requests_mock):
     import program.utils.request as request_mod
+
     # Fix jitter to 0.0 to get 0.5 * base
     monkeypatch.setattr(request_mod.random, "random", lambda: 0.0, raising=True)
 
     sleeps = []
-    monkeypatch.setattr(request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True)
+    monkeypatch.setattr(
+        request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True
+    )
 
     session = SmartSession(retries=1, backoff_factor=2.0)
     url = "https://ratelimit.local/bad"
-    requests_mock.get(url, [
-        {"status_code": 429, "json": {"err": "rl"}, "headers": {"Content-Type": "application/json", "Retry-After": "bogus"}},
-        {"status_code": 200, "json": {"ok": True}, "headers": {"Content-Type": "application/json"}},
-    ])
+    requests_mock.get(
+        url,
+        [
+            {
+                "status_code": 429,
+                "json": {"err": "rl"},
+                "headers": {"Content-Type": "application/json", "Retry-After": "bogus"},
+            },
+            {
+                "status_code": 200,
+                "json": {"ok": True},
+                "headers": {"Content-Type": "application/json"},
+            },
+        ],
+    )
 
     r = session.get(url)
     assert r.status_code == 200
@@ -467,12 +547,22 @@ def test_429_invalid_retry_after_falls_back_to_jitter(monkeypatch, requests_mock
 
 def test_429_no_retry_when_retries_zero(monkeypatch, requests_mock):
     import program.utils.request as request_mod
+
     sleeps = []
-    monkeypatch.setattr(request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True)
+    monkeypatch.setattr(
+        request_mod.time, "sleep", lambda s: sleeps.append(s), raising=True
+    )
 
     session = SmartSession(retries=0)
     url = "https://ratelimit.local/noretry"
-    requests_mock.get(url, {"status_code": 429, "json": {"err": "rl"}, "headers": {"Content-Type": "application/json"}})
+    requests_mock.get(
+        url,
+        {
+            "status_code": 429,
+            "json": {"err": "rl"},
+            "headers": {"Content-Type": "application/json"},
+        },
+    )
 
     r = session.get(url)
     assert r.status_code == 429

@@ -1,5 +1,7 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
+# default_language_version:
+#   python: python3.13
 repos:
     # Using this mirror lets us use mypyc-compiled black, which is about 2x faster
     - repo: https://github.com/psf/black-pre-commit-mirror
@@ -10,7 +12,7 @@ repos:
             # supported by your project here, or alternatively use
             # pre-commit's default_language_version, see
             # https://pre-commit.com/#top_level-default_language_version
-            language_version: python3.13
+            # language_version: python3.13
     - repo: https://github.com/pre-commit/pre-commit-hooks
       rev: v3.2.0
       hooks:
