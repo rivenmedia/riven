@@ -1,4 +1,4 @@
-.PHONY: help install run start start-dev stop restart logs logs-dev shell build push push-dev clean format check lint sort test coverage pr-ready
+.PHONY: help install run start stop restart logs shell build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -12,54 +12,32 @@ endif
 BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 COMMIT_HASH := $(shell git rev-parse --short HEAD)
 
+# Prevent inheriting an external virtualenv (e.g., old Poetry VIRTUAL_ENV)
+unexport VIRTUAL_ENV
+
 help:
-	@echo "Riven Local Development Environment"
-	@echo "-------------------------------------------------------------------------"
-	@echo "install   : Install the required packages"
-	@echo "run       : Run the Riven src"
-	@echo "start     : Build and run the Riven container (requires Docker)"
-	@echo "start-dev : Build and run the Riven container in development mode (requires Docker)"
-	@echo "stop      : Stop and remove the Riven container (requires Docker)"
-	@echo "logs      : Show the logs of the Riven container (requires Docker)"
-	@echo "logs-dev  : Show the logs of the Riven container in development mode (requires Docker)"
-	@echo "clean     : Remove all the temporary files"
-	@echo "format    : Format the code using isort"
-	@echo "lint      : Lint the code using ruff and isort"
-	@echo "test      : Run the tests using pytest"
-	@echo "coverage  : Run the tests and generate coverage report"
-	@echo "pr-ready  : Run the linter and tests"
-	@echo "-------------------------------------------------------------------------"
-# Docker related commands
+	@echo "make install     - Install dependencies"
+	@echo "make run         - Run the application"
+	@echo "make start       - Start the application in a Docker container"
+	@echo "make stop        - Stop the application container"
+	@echo "make restart     - Restart the application container"
+	@echo "make logs        - View the application logs"
+	@echo "make shell       - Open a shell in the application container"
+	@echo "make build       - Build the application image"
+	@echo "make push        - Build and push the application image to Docker Hub"
+	@echo "make push-dev    - Build and push the dev image to Docker Hub"
+	@echo "make push-branch - Build and push the branch image to Docker Hub"
+	@echo "make tidy        - Remove unused Docker images"
+	@echo "make clean       - Clean up temporary files"
+	@echo "make hard_reset  - Hard reset the database"
+	@echo "make format      - Format the code"
+	@echo "make check       - Check the code for errors"
+	@echo "make sort        - Sort the imports"
+	@echo "make test        - Run the tests"
+	@echo "make coverage    - Run the tests with coverage"
+	@echo "make pr-ready    - Run the linter and tests"
+	@echo "make update      - Update dependencies"
 
-start: stop
-	@docker compose -f docker-compose.yml up --build -d --force-recreate --remove-orphans
-	@docker compose -f docker-compose.yml logs -f
-
-start-dev: stop-dev
-	@docker compose -f docker-compose-dev.yml up --build -d --force-recreate --remove-orphans
-	@docker compose -f docker-compose-dev.yml logs -f
-
-stop:
-	@docker compose -f docker-compose.yml down
-
-stop-dev:
-	@docker compose -f docker-compose-dev.yml down
-
-restart:
-	@docker restart riven
-	@docker logs -f riven
-
-logs:
-	@docker logs -f riven
-
-logs-dev:
-	@docker compose -f docker-compose-dev.yml logs -f
-
-kill:
-	@pkill -f "src/main.py" || true
-
-shell:
-	@docker exec -it riven fish
 
 # Ensure the Buildx builder is set up
 setup-builder:
@@ -95,7 +73,7 @@ tidy:
 	@docker rmi $(docker images | awk '$1 == "<none>" || $1 == "riven" {print $3}') -f
 
 
-# Poetry related commands
+# Project environment & quality commands (uv-based)
 
 clean:
 	@find . -type f -name '*.pyc' -exec rm -f {} +
@@ -104,41 +82,41 @@ clean:
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
 
 hard_reset: clean
-	@poetry run python src/main.py --hard_reset_db
+	@uv run python src/main.py --hard_reset_db
 
 install:
-	@poetry install --with dev
+	@uv sync --group dev
 
 update:
-	@poetry cache clear PyPI --all
-	@poetry update
+	@uv lock --upgrade
+	@uv sync --group dev
 
 diff:
 	@git diff HEAD~1 HEAD
 
 # Run the application
 run:
-	@poetry run python src/main.py
+	@uv run python src/main.py
 
 # Code quality commands
 format:
-	@poetry run isort src
+	@uv run isort src
 
 check:
-	@poetry run pyright
+	@uv run pyright
 
 lint:
-	@poetry run ruff check src
-	@poetry run isort --check-only src
+	@uv run ruff check src
+	@uv run isort --check-only src
 
 sort:
-	@poetry run isort src
+	@uv run isort src
 
 test:
-	@poetry run pytest src
+	@uv run pytest src
 
 coverage: clean
-	@poetry run pytest src --cov=src --cov-report=xml --cov-report=term
+	@uv run pytest src --cov=src --cov-report=xml --cov-report=term
 
 # Run the linter and tests
 pr-ready: clean lint test
