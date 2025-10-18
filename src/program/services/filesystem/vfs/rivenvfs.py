@@ -36,10 +36,8 @@ from contextlib import asynccontextmanager
 import os
 import shutil
 import errno
-import time
 from dataclasses import dataclass
 from kink import di
-from loguru import logger
 import subprocess
 from http import HTTPStatus
 from typing import (
@@ -50,6 +48,7 @@ from typing import (
     Optional,
     Set,
     TypedDict,
+    Literal,
 )
 
 import threading
@@ -63,10 +62,9 @@ import trio
 from program.settings.models import FilesystemModel
 from .db import VFSDatabase
 
+from program.utils.logging import logger as log
 from program.settings.manager import settings_manager
 from .cache import Cache, CacheConfig
-
-log = logger
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
@@ -174,19 +172,29 @@ class FileHandlePrefetchState(TypedDict):
     prefetch_window_end: int
 
 
-class ActiveStream:
+class MediaStream:
     """Represents an active streaming session for a file."""
 
     response: httpx.Response
     iterator: AsyncIterator[bytes]
-    path: str
     target_url: str
     prefetch_lock: trio.Lock | None
 
-    def __init__(self, vfs: RivenVFS, fh: pyfuse3.FileHandleT) -> None:
+    def __init__(
+        self,
+        vfs: RivenVFS,
+        fh: pyfuse3.FileHandleT,
+        file_size: int,
+        path: str,
+        start: int,
+    ) -> None:
         self.vfs = vfs
         self.fh = fh
         self.cache_buffer = bytearray()
+        self.prefetch_lock = None
+        self.file_size = file_size
+        self.path = path
+        self.current_read_position = start
 
         # Lock prefetch immediately to prevent prefetch until explicitly unlocked
         self.lock_prefetch()
@@ -200,30 +208,27 @@ class ActiveStream:
 
     async def connect(
         self,
-        path: str,
         target_url: str,
-        byte_index: int,
+        start: int,
+        end: int | None = None,
     ) -> tuple[httpx.Response, AsyncIterator[bytes]]:
         """Establish a streaming connection starting at the given byte offset."""
 
-        log.debug(f"Establishing stream connection for {path} from byte {byte_index}")
+        log.debug(f"Establishing stream connection for {self.path} from byte {start}")
 
         headers = httpx.Headers(
             {
                 "Accept-Encoding": "identity",
                 "Connection": "keep-alive",
-                "Range": (f"bytes={byte_index}-"),
+                "Range": f"bytes={start}-{end or ''}",
             }
         )
 
         try:
-            target_url = await self._attempt_range_preflight_checks(
-                path,
-                target_url,
-                headers,
-            )
+            target_url = await self._attempt_range_preflight_checks(target_url, headers)
+            log.trace(f"Preflight checks passed for {self.path}")
         except Exception as e:
-            log.error(f"Preflight checks failed for {path}: {e}")
+            log.error(f"Preflight checks failed for {self.path}: {e}")
             raise
 
         max_attempts = 4
@@ -237,25 +242,25 @@ class ActiveStream:
                 response.raise_for_status()
 
                 content_length = response.headers.get("Content-Length")
+                range_bytes = self.file_size - start
 
                 if (
                     response.status_code == HTTPStatus.OK
                     and content_length is not None
-                    # and int(content_length) > range_bytes
+                    and int(content_length) > range_bytes
                 ):
                     # Server appears to be ignoring range request and returning full content
                     # This shouldn't happen due to preflight, treat as error
                     log.warning(
-                        f"Server returned full content instead of range: path={path}"
+                        f"Server returned full content instead of range: path={self.path}"
                     )
                     raise pyfuse3.FUSEError(errno.EIO)
 
                 log.debug(
-                    f"Stream connection established for {path} from byte {byte_index}"
+                    f"Stream connection established for {self.path} from byte {start}"
                 )
 
                 self.target_url = target_url
-                self.path = path
 
                 return response, response.aiter_bytes(1024)
             except httpx.HTTPStatusError as e:
@@ -263,7 +268,9 @@ class ActiveStream:
 
                 if status_code == HTTPStatus.FORBIDDEN:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
-                    log.debug(f"HTTP 403 Forbidden: path={path} attempt={attempt + 1}")
+                    log.debug(
+                        f"HTTP 403 Forbidden: path={self.path} attempt={attempt + 1}"
+                    )
 
                     if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                         continue
@@ -279,7 +286,7 @@ class ActiveStream:
                 elif status_code == HTTPStatus.TOO_MANY_REQUESTS:
                     # Rate limited - back off exponentially, don't refresh URL
                     log.warning(
-                        f"HTTP 429 Rate Limited: path={path} attempt={attempt + 1}"
+                        f"HTTP 429 Rate Limited: path={self.path} attempt={attempt + 1}"
                     )
 
                     if await self._retry_with_backoff(attempt, max_attempts, backoffs):
@@ -288,22 +295,22 @@ class ActiveStream:
                     raise pyfuse3.FUSEError(errno.EAGAIN) from e
                 else:
                     # Other unexpected status codes
-                    log.warning(f"Unexpected HTTP {status_code}: path={path}")
+                    log.warning(f"Unexpected HTTP {status_code}: path={self.path}")
                     raise pyfuse3.FUSEError(errno.EIO) from e
             except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 log.debug(
-                    f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
+                    f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): path={self.path} error={type(e).__name__}"
                 )
 
                 if attempt == 0:
                     # On first exception, try refreshing the URL in case it's a connectivity issue
                     fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url, path, target_url
+                        self._refresh_download_url, self.path, target_url
                     )
 
                     if fresh_url is not None:
                         target_url = fresh_url
-                        log.warning(f"URL refresh after timeout: path={path}")
+                        log.warning(f"URL refresh after timeout: path={self.path}")
 
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                     continue
@@ -312,7 +319,7 @@ class ActiveStream:
             except httpx.RemoteProtocolError as e:
                 # This can happen if the server closes the connection prematurely
                 log.debug(
-                    f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
+                    f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): path={self.path} error={type(e).__name__}"
                 )
 
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
@@ -322,43 +329,58 @@ class ActiveStream:
             except pyfuse3.FUSEError:
                 raise
             except Exception:
-                log.exception(f"Unexpected error fetching data block for {path}")
+                log.exception(f"Unexpected error fetching data block for {self.path}")
                 raise pyfuse3.FUSEError(errno.EIO) from None
 
         raise pyfuse3.FUSEError(errno.EIO)
 
-    async def fetch_footer(self, file_size: int) -> bytes:
+    async def fetch_footer(self, request_start: int, request_end: int) -> bytes:
         """Fetch footer data for media files that store metadata at the end."""
 
-        footer_size = 4096
-        footer_start_byte = file_size - footer_size
-
-        _, iterator = await self.connect(
-            self.path,
-            self.target_url,
-            footer_start_byte,
+        response, _ = await self.connect(
+            target_url=self.target_url,
+            start=request_start,
+            end=request_end,
         )
 
-        data = b""
+        return await response.aread()
 
-        # Read to the rest of the file.
-        # HTTPX automatically closes the connection once the body is fully read.
-        async for chunk in iterator:
-            data += chunk
+    async def read_bytes(self, start: int, end: int) -> bytes:
+        """Read a specific number of bytes from the stream."""
+        data = bytearray()
+        num_bytes = end - self.current_read_position + 1
 
-        return data
+        if start < self.current_read_position:
+            log.warning(
+                f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. This may cause issues with the stream."
+            )
 
-    async def seek(self, start: int) -> None:
-        """Seek to a new byte position in the stream."""
-        await self.close()
+        try:
+            async for chunk in self.iterator:
+                data += chunk
 
-        response, iterator = await self.connect(self.path, self.target_url, start)
+                if len(data) >= num_bytes:
+                    break
 
-        self.response = response
-        self.iterator = iterator
+            cache_start = self.current_read_position
+            cache_end = cache_start + len(data) - 1
+
+            self.cache_buffer[cache_start:cache_end] = data
+            self.current_read_position += len(data)
+
+            return self.cache_buffer[start : end + 1]
+        except Exception as e:
+            log.error(f"Error reading bytes from stream for {self.path}: {e}")
+            raise pyfuse3.FUSEError(errno.EIO) from e
+
+    def get_buffered_bytes(self, start: int, end: int) -> bytes:
+        """Get bytes from the cache buffer if available."""
+        return bytes(self.cache_buffer[start : end + 1])
 
     async def close(self) -> None:
         """Close the active stream."""
+        log.debug(f"Closing stream for {self.path}")
+
         await self.response.aclose()
 
     def lock_prefetch(self) -> None:
@@ -409,7 +431,6 @@ class ActiveStream:
 
     async def _attempt_range_preflight_checks(
         self,
-        path: str,
         target_url: str,
         headers: httpx.Headers,
     ) -> str:
@@ -446,7 +467,7 @@ class ActiveStream:
                     # Server refused range request. Serving this request would return the full media file,
                     # which eats downloader bandwidth usage unnecessarily. Wait and retry.
                     log.warning(
-                        f"Server doesn't support range requests yet: path={path}"
+                        f"Server doesn't support range requests yet: path={self.path}"
                     )
 
                     if await self._retry_with_backoff(
@@ -458,7 +479,7 @@ class ActiveStream:
                     raise pyfuse3.FUSEError(errno.EIO)
             except httpx.RemoteProtocolError as e:
                 log.debug(
-                    f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path} error={type(e).__name__}"
+                    f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={self.path} error={type(e).__name__}"
                 )
 
                 if await self._retry_with_backoff(
@@ -470,18 +491,20 @@ class ActiveStream:
             except httpx.HTTPStatusError as e:
                 preflight_status_code = e.response.status_code
 
-                log.debug(f"Preflight HTTP error {preflight_status_code}: path={path}")
+                log.debug(
+                    f"Preflight HTTP error {preflight_status_code}: path={self.path}"
+                )
 
                 if preflight_status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
                     # File can't be found at this URL; try refreshing the URL once
                     if preflight_attempt == 0:
                         fresh_url = await trio.to_thread.run_sync(
-                            self._refresh_download_url, path, target_url
+                            self._refresh_download_url, self.path, target_url
                         )
 
                         if fresh_url is not None:
                             log.warning(
-                                f"URL refresh after HTTP {preflight_status_code}: path={path}"
+                                f"URL refresh after HTTP {preflight_status_code}: path={self.path}"
                             )
                             target_url = fresh_url
 
@@ -494,23 +517,23 @@ class ActiveStream:
                 else:
                     # Other unexpected status codes
                     log.warning(
-                        f"Unexpected preflight HTTP {preflight_status_code}: path={path}"
+                        f"Unexpected preflight HTTP {preflight_status_code}: path={self.path}"
                     )
                     raise pyfuse3.FUSEError(errno.EIO) from e
             except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 log.debug(
-                    f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path} error={type(e).__name__}"
+                    f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={self.path} error={type(e).__name__}"
                 )
 
                 if preflight_attempt == 0:
                     # On first exception, try refreshing the URL in case it's a connectivity issue
                     fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url, path, target_url
+                        self._refresh_download_url, self.path, target_url
                     )
 
                     if fresh_url is not None:
                         target_url = fresh_url
-                        log.warning(f"URL refresh after timeout: path={path}")
+                        log.warning(f"URL refresh after timeout: path={self.path}")
 
                 if await self._retry_with_backoff(
                     preflight_attempt, max_preflight_attempts, backoffs
@@ -521,7 +544,9 @@ class ActiveStream:
             except pyfuse3.FUSEError:
                 raise
             except Exception:
-                log.exception(f"Unexpected error during preflight checks for {path}")
+                log.exception(
+                    f"Unexpected error during preflight checks for {self.path}"
+                )
 
                 if await self._retry_with_backoff(
                     preflight_attempt, max_preflight_attempts, backoffs
@@ -601,7 +626,7 @@ class RivenVFS(pyfuse3.Operations):
         effective_max_bytes = configured_bytes
         if free_bytes > 0 and configured_bytes > int(free_bytes * 0.9):
             effective_max_bytes = int(free_bytes * 0.9)
-            logger.bind(component="RivenVFS").warning(
+            log.bind(component="RivenVFS").warning(
                 f"cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
             )
         cfg = CacheConfig(
@@ -647,7 +672,7 @@ class RivenVFS(pyfuse3.Operations):
         # Minimum: chunk_size * (fetch_ahead_chunks + 4 for concurrent reads)
         min_cache_mb = fs.chunk_size_mb * (self.fetch_ahead_chunks + 4)
         if size_mb < min_cache_mb:
-            logger.bind(component="RivenVFS").warning(
+            log.bind(component="RivenVFS").warning(
                 f"Cache size ({size_mb}MB) is too small for chunk_size ({fs.chunk_size_mb}MB) "
                 f"and fetch_ahead_chunks ({self.fetch_ahead_chunks}). "
                 f"Minimum recommended: {min_cache_mb}MB. "
@@ -655,7 +680,7 @@ class RivenVFS(pyfuse3.Operations):
             )
 
         # Set of paths currently being streamed
-        self._active_streams: dict[str, ActiveStream] = {}
+        self._active_streams: dict[str, MediaStream] = {}
 
         # Stream locks to prevent duplicate instantiations of the same stream
         self._stream_locks: Dict[str, trio.Lock] = {}  # "path:chunk_start" -> lock
@@ -1917,6 +1942,7 @@ class RivenVFS(pyfuse3.Operations):
 
             # Resolve node from inode to get current metadata
             inode = handle_info.get("inode")
+
             if not inode:
                 raise pyfuse3.FUSEError(errno.EBADF)
 
@@ -1931,6 +1957,9 @@ class RivenVFS(pyfuse3.Operations):
                 file_size = node.file_size
                 entry_type = node.entry_type
                 original_filename = node.original_filename
+
+                if file_size is None:
+                    raise pyfuse3.FUSEError(errno.EIO)
 
             if size == 0:
                 return b""
@@ -2005,10 +2034,8 @@ class RivenVFS(pyfuse3.Operations):
 
             # Calculate request and aligned chunk boundaries (use inclusive end)
             request_start = off
-            request_end = off + size - 1
-            if file_size is not None:
-                # Clamp to last byte index
-                request_end = min(request_end, file_size - 1)
+            request_end = min(off + size - 1, file_size - 1)
+
             if request_end < request_start:
                 return b""
 
@@ -2018,30 +2045,55 @@ class RivenVFS(pyfuse3.Operations):
                 lambda: self.cache.get(cache_key, request_start, request_end)
             )
 
-            returned_data = cached_bytes or b""
+            if cached_bytes:
+                log.debug(
+                    f"Found cached bytes: {len(cached_bytes)} for fh={fh} off={off} size={size}"
+                )
 
-            stream_lock = await self._get_stream_lock(path, fh)
+            returned_data = cached_bytes or b""
 
             # Data integrity check: ensure we return exactly the requested size
             # The expected_size is already correctly calculated as request_end - request_start + 1
             # which accounts for file size clamping done earlier
             expected_size = request_end - request_start + 1
 
+            stream_lock = await self._get_stream_lock(path, fh)
+
             async with stream_lock:
-                stream = await self._get_stream(path, url, off, fh)
+                stream = await self._get_stream(path, url, off, fh, file_size)
 
-                while len(returned_data) < size:
-                    chunk = await anext(stream.iterator)
+                buffered_bytes = stream.get_buffered_bytes(request_start, request_end)
 
-                    # Update cache buffer with new chunk
-                    stream.cache_buffer[
-                        off + len(returned_data) : off + len(returned_data) + len(chunk)
-                    ] = chunk
+                if buffered_bytes:
+                    log.debug(
+                        f"Found buffered bytes: {len(buffered_bytes)} [{request_start}:{request_end}] for {path}"
+                    )
+                    returned_data = buffered_bytes
 
-                    returned_data += chunk
+                is_footer_scan = (
+                    handle_info["last_read_start"] <= 1024 * 1024
+                    and file_size - (1024 * 192) <= off <= file_size
+                )
+
+                is_request_satisfied_from_cache = len(returned_data) >= expected_size
+
+                if is_footer_scan:
+                    returned_data = await stream.fetch_footer(
+                        request_start, request_end
+                    )
+                else:
+                    if is_request_satisfied_from_cache:
+                        log.debug(
+                            f"Read satisfied from cache for fh={fh} off={off} size={size}"
+                        )
+                    else:
+                        returned_data += await stream.read_bytes(
+                            start=request_start,
+                            end=request_end,
+                        )
 
                 # Track sequential reads for prefetching
-                if off == handle_info["last_read_end"]:
+                if off > 0 and off == handle_info["last_read_end"]:
                     handle_info["sequential_reads"] += 1
                 else:
                     # Non-sequential read, reset counter
@@ -2050,15 +2102,11 @@ class RivenVFS(pyfuse3.Operations):
                 returned_data = bytes(returned_data[:expected_size])
 
                 log.debug(
-                    f"read: fh={fh} off={off} last_read_start={handle_info['last_read_start']} last_read_end={handle_info['last_read_end']} estimated_next_read_start={off + len(returned_data)} size={size}"
+                    f"read: fh={fh} off={off} last_read_start={handle_info['last_read_start']} last_read_end={handle_info['last_read_end']} estimated_next_read_start={off + len(returned_data)} size={size} file_size={file_size} request_start={request_start} request_end={request_end} returned_data={len(returned_data)} expected_size={expected_size}"
                 )
 
                 handle_info["last_read_start"] = off
                 handle_info["last_read_end"] = off + len(returned_data)
-
-                log.debug(
-                    f"Sequential reads for fh={fh}: {handle_info['sequential_reads']}"
-                )
 
             if len(returned_data) > expected_size:
                 log.warning(
@@ -2201,7 +2249,8 @@ class RivenVFS(pyfuse3.Operations):
         target_url: str,
         start: int,
         fh: pyfuse3.FileHandleT,
-    ) -> ActiveStream:
+        file_size: int,
+    ) -> MediaStream:
         """
         Get a stream iterator for the specified path.
 
@@ -2219,13 +2268,17 @@ class RivenVFS(pyfuse3.Operations):
 
             if stream_key not in self._active_streams:
                 # If it's a new stream, set and connect
-                stream = self._active_streams[stream_key] = ActiveStream(
-                    vfs=self, fh=fh
+                stream = self._active_streams[stream_key] = MediaStream(
+                    vfs=self,
+                    fh=fh,
+                    file_size=file_size,
+                    path=path,
+                    start=start,
                 )
 
-                response, iterator = await stream.connect(path, target_url, start)
+                response, iterator = await stream.connect(target_url, start)
 
                 stream.response = response
                 stream.iterator = iterator
 
-            return stream
+            return self._active_streams[stream_key]
