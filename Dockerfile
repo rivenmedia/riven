@@ -6,18 +6,17 @@ FROM python:3.13-alpine AS builder
 # Install only the necessary build dependencies
 RUN apk add --no-cache gcc musl-dev libffi-dev python3-dev build-base curl curl-dev openssl-dev fuse3-dev pkgconf fuse3
 
-# Install and configure poetry
-RUN pip install --upgrade pip && pip install poetry==1.8.3
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+# Install uv (fast package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /app
 
-# Install dependencies
-COPY pyproject.toml poetry.lock ./
-RUN poetry lock
-RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
+# Install dependencies with uv (no dev in builder)
+COPY pyproject.toml uv.lock* ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/pip \
+    uv venv .venv && uv sync --no-dev --frozen
 
 # -----------------
 # Final Stage
@@ -47,7 +46,7 @@ ENV PATH="/riven/.venv/bin:$PATH"
 
 # Copy application code and entrypoint
 COPY src/ ./src
-COPY pyproject.toml poetry.lock ./
+COPY pyproject.toml uv.lock* ./
 COPY entrypoint.sh ./
 
 RUN chmod +x ./entrypoint.sh
