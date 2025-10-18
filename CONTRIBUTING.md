@@ -101,6 +101,10 @@ uv run python src/main.py
 - Add a dev dependency: `uv add --dev <package>`
 - Upgrade a dependency: `uv add --upgrade <package>`
 - Remove a dependency: `uv remove <package>`
+- View dependencies: `uv pip list`
+- View single dependency: `uv pip show <package>`
+
+For more information, see [uv documentation](https://docs.astral.sh/uv/).
 
 #### Update Dependencies
 

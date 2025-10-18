@@ -42,6 +42,7 @@ dependencies = [
     "pycurl>=7.45.6,<8",
     "babel>=2.17.0,<3",
     "httpx[http2]>=0.28.1,<0.29",
+    "starlette>=0.37.2",
 ]
 
 [dependency-groups]

@@ -1643,6 +1643,7 @@ dependencies = [
     { name = "scalar-fastapi" },
     { name = "sqla-wrapper" },
     { name = "sqlalchemy" },
+    { name = "starlette" },
     { name = "subliminal" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1703,6 +1704,7 @@ requires-dist = [
     { name = "scalar-fastapi", specifier = ">=1.0.3,<2" },
     { name = "sqla-wrapper", specifier = ">=6.0.0,<7" },
     { name = "sqlalchemy", specifier = ">=2.0.31,<3" },
+    { name = "starlette", specifier = ">=0.37.2" },
     { name = "subliminal", specifier = ">=2.2.1,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.6,<0.31" },
 ]
