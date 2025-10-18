@@ -71,11 +71,6 @@ Which outputs:
 ```sh
 make install     - Install dependencies
 make run         - Run the application
-make start       - Start the application in a Docker container
-make stop        - Stop the application container
-make restart     - Restart the application container
-make logs        - View the application logs
-make shell       - Open a shell in the application container
 make build       - Build the application image
 make push        - Build and push the application image to Docker Hub
 make push-dev    - Build and push the dev image to Docker Hub
