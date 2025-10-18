@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.0.0](https://github.com/rivenmedia/riven/compare/v0.23.6...v1.0.0) (2025-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **db:** Database schema change requires migration or fresh database
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks
+* seperate from trakt to tvdb and tmdb indexers
+
+### Features
+
+* Add SSE event publishing for completed media items ([582778e](https://github.com/rivenmedia/riven/commit/582778ed507419314bafb8daa543acc48b273161))
+* implement proper ratelimiting for services ([0b8b3e7](https://github.com/rivenmedia/riven/commit/0b8b3e72eaef37b00f7208c80158d5e63a9ebebd))
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks ([722c7c4](https://github.com/rivenmedia/riven/commit/722c7c475380e57b7dc8f2bc5961cff4f61ab394))
+* **logging:** Adds user-configurable logging settings (enable/disable file logging, retention hours, rotation size MB, optional compression) in app settings. ([2001362](https://github.com/rivenmedia/riven/commit/20013620153276d910333e7bd736c65672ffee9e))
+* Media is now ffprobed after completion for more accurate metadata ([edb502e](https://github.com/rivenmedia/riven/commit/edb502ec5bf4304a908f3897d3e7b611d0a816f1))
+* schedule new releases and reindex on time ([#1209](https://github.com/rivenmedia/riven/issues/1209)) ([b4123b7](https://github.com/rivenmedia/riven/commit/b4123b702e59fe023949c689f41169f8eb16875d))
+* seperate from trakt to tvdb and tmdb indexers ([7e7dcc5](https://github.com/rivenmedia/riven/commit/7e7dcc59aabc90567b6135ce15827b483293bcd8))
+
+
+### Bug Fixes
+
+* **cli,vfs:** fix environment variable handling and event listener invocation ([d28ae78](https://github.com/rivenmedia/riven/commit/d28ae7850b9fdb0554c0b827eeacfd0acee1dbda))
+* **docs:** remove elfhosted from readme ([5451027](https://github.com/rivenmedia/riven/commit/54510272cc02490a4ffa17841713f6fde25846c7))
+* fixed incompleted items from reinit db ([add17ed](https://github.com/rivenmedia/riven/commit/add17ed5f219c2cd338501be00e7f64b71c3f7bd))
+* make requests explicit. no guessing when trying to index ([0c0bf64](https://github.com/rivenmedia/riven/commit/0c0bf64d060c60c2d18e2fba1eb82d129acd0d21))
+* Show and movie states for ongoing items are now corrected ([9fe0d2b](https://github.com/rivenmedia/riven/commit/9fe0d2bb56dc498ca175bbb91c106e203ee42968))
+* Show and movie states for ongoing items are now corrected ([7846539](https://github.com/rivenmedia/riven/commit/78465398f53d8f82003e2389375dd2a3eb64cef4))
+* Show and movie states for ongoing items are now corrected ([a6df95c](https://github.com/rivenmedia/riven/commit/a6df95cb9f045982edcda8e56eb7edcccfc93acd))
+* simplify iteration over service sub-services ([aaad909](https://github.com/rivenmedia/riven/commit/aaad909b1c09d1aec52585323b5e5fe832d21eff))
+* subtitles not initializing ([78a512a](https://github.com/rivenmedia/riven/commit/78a512a079fca05daebf5f00b0aebfc975ec2fb9))
+* switch to tvdb/tmdb in orionoid scraping ([50329e1](https://github.com/rivenmedia/riven/commit/50329e175bcf9bae161c1cbdf95fe5015fb1dac9))
+* typo in mediaitem attr ([0a67c6b](https://github.com/rivenmedia/riven/commit/0a67c6b96fc18aac7080e36265a8022a15f4bb16))
+* updated calendar endpoint ([dd6ccbc](https://github.com/rivenmedia/riven/commit/dd6ccbc884dcdc78a873d68d7945328303428bb9))
+
+
+### Performance Improvements
+
+* **requests:** Improve requests perfomance by moving to httpx library ([153c3a3](https://github.com/rivenmedia/riven/commit/153c3a3f9a1c630ab56fb581327b951231a2c87e))
+* **scraping:** Improve scraping performance by removing redundant operations ([3a0a9a7](https://github.com/rivenmedia/riven/commit/3a0a9a76e448ced989331cb371486ff5cd313d44))
+
+
+### Code Refactoring
+
+* **db:** flip MediaItem-FilesystemEntry relationship and add automatic cleanup ([a94785b](https://github.com/rivenmedia/riven/commit/a94785be1cf5b21646caab8e8f46856bcfc648a6))
+
 ## [0.23.6](https://github.com/rivenmedia/riven/compare/v0.23.5...v0.23.6) (2025-08-24)
 
 
