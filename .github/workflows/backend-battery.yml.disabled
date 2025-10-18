@@ -19,31 +19,34 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Cache Poetry dependencies
-      uses: actions/cache@v4.0.2
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Cache uv and venv
+      uses: actions/cache@v4
       with:
         path: |
-          ~/.cache/pypoetry
+          ~/.cache/uv
           .venv
-        key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
+        key: ${{ runner.os }}-uv-${{ hashFiles('uv.lock') }}
         restore-keys: |
-          ${{ runner.os }}-poetry-
+          ${{ runner.os }}-uv-
 
-    - name: Install dependencies
-      run: |
-        pip install poetry
-        poetry install --no-root --with dev
+    - name: Install dependencies (dev)
+      run: uv sync --group dev --frozen
 
     - name: Ruff & Isort Check
       run: |
-        poetry run ruff check ./src
-        poetry run isort --check-only ./src
+        uv run ruff check ./src
+        uv run isort --check-only ./src
 
     - name: Type check
-      run: poetry run pyright
+      run: uv run pyright
 
     - name: Run Tests & Coverage
-      run: poetry run pytest --cov=./src --cov-report=xml
+      run: uv run pytest --cov=./src --cov-report=xml
 
     - name: Upload Coverage Report to Codecov
       uses: codecov/codecov-action@v4.1.1

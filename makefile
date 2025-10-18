@@ -1,4 +1,4 @@
-.PHONY: help install run start start-dev stop restart logs logs-dev shell build push push-dev clean format check lint sort test coverage pr-ready
+.PHONY: help install run build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -13,56 +13,27 @@ BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD | sed 's/[^a-zA-Z0-9]/-/g
 COMMIT_HASH := $(shell git rev-parse --short HEAD)
 
 help:
-	@echo "Riven Local Development Environment"
-	@echo "-------------------------------------------------------------------------"
-	@echo "install   : Install the required packages"
-	@echo "run       : Run the Riven src"
-	@echo "start     : Build and run the Riven container (requires Docker)"
-	@echo "start-dev : Build and run the Riven container in development mode (requires Docker)"
-	@echo "stop      : Stop and remove the Riven container (requires Docker)"
-	@echo "logs      : Show the logs of the Riven container (requires Docker)"
-	@echo "logs-dev  : Show the logs of the Riven container in development mode (requires Docker)"
-	@echo "clean     : Remove all the temporary files"
-	@echo "format    : Format the code using isort"
-	@echo "lint      : Lint the code using ruff and isort"
-	@echo "test      : Run the tests using pytest"
-	@echo "coverage  : Run the tests and generate coverage report"
-	@echo "pr-ready  : Run the linter and tests"
-	@echo "-------------------------------------------------------------------------"
-# Docker related commands
+	@echo "make install     - Install dependencies"
+	@echo "make run         - Run the application"
+	@echo "make build       - Build the application image"
+	@echo "make push        - Build and push the application image to Docker Hub"
+	@echo "make push-dev    - Build and push the dev image to Docker Hub"
+	@echo "make push-branch - Build and push the branch image to Docker Hub"
+	@echo "make tidy        - Remove unused Docker images"
+	@echo "make clean       - Clean up temporary files"
+	@echo "make hard_reset  - Hard reset the database"
+	@echo "make format      - Format the code"
+	@echo "make check       - Check the code for errors"
+	@echo "make sort        - Sort the imports"
+	@echo "make test        - Run the tests"
+	@echo "make coverage    - Run the tests with coverage"
+	@echo "make pr-ready    - Run the linter and tests"
+	@echo "make update      - Update dependencies"
 
-start: stop
-	@docker compose -f docker-compose.yml up --build -d --force-recreate --remove-orphans
-	@docker compose -f docker-compose.yml logs -f
 
-start-dev: stop-dev
-	@docker compose -f docker-compose-dev.yml up --build -d --force-recreate --remove-orphans
-	@docker compose -f docker-compose-dev.yml logs -f
-
-stop:
-	@docker compose -f docker-compose.yml down
-
-stop-dev:
-	@docker compose -f docker-compose-dev.yml down
-
-restart:
-	@docker restart riven
-	@docker logs -f riven
-
-logs:
-	@docker logs -f riven
-
-logs-dev:
-	@docker compose -f docker-compose-dev.yml logs -f
-
-kill:
-	@pkill -f "src/main.py" || true
-
-shell:
-	@docker exec -it riven fish
-
-# Ensure the Buildx builder is set up
+# Ensure the Buildx builder is set up and support multi-arch builds
 setup-builder:
+	@echo "Setting up Buildx builder..."
 	@if ! docker buildx ls | grep -q "mybuilder"; then \
 		echo "Creating Buildx builder..."; \
 		docker buildx create --use --name mybuilder --driver docker-container; \
@@ -70,17 +41,10 @@ setup-builder:
 		echo "Using existing Buildx builder..."; \
 	fi
 
-# Build multi-architecture image (local only, no push)
 build: setup-builder
+	@echo "Building application image..."
 	@docker buildx build --platform linux/amd64,linux/arm64 -t riven --load .
 
-# Build and push multi-architecture release image
-push: setup-builder
-	@echo "Building and pushing release image to Docker Hub..."
-	@docker buildx build --platform linux/amd64,linux/arm64 -t spoked/riven:latest --push .
-	@echo "Image 'spoked/riven:latest' pushed to Docker Hub"
-
-# Build and push multi-architecture dev image
 push-dev: setup-builder
 	@echo "Building and pushing dev image to Docker Hub..."
 	@docker buildx build --platform linux/amd64,linux/arm64 -t spoked/riven:dev --push .
@@ -92,53 +56,63 @@ push-branch: setup-builder
 	@echo "Image 'spoked/riven:${BRANCH_NAME}' pushed to Docker Hub"
 
 tidy:
+	@echo "Removing unused Docker images..."
 	@docker rmi $(docker images | awk '$1 == "<none>" || $1 == "riven" {print $3}') -f
 
 
-# Poetry related commands
+# Project environment & quality commands (uv-based)
 
 clean:
+	@echo "Cleaning up temporary files..."
 	@find . -type f -name '*.pyc' -exec rm -f {} +
 	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
+	@echo "Temporary files cleaned up"
 
 hard_reset: clean
-	@poetry run python src/main.py --hard_reset_db
+	@echo "Hard resetting the database..."
+	@uv run python src/main.py --hard_reset_db
+	@echo "Database hard reset complete"
 
 install:
-	@poetry install --with dev
+	@echo "Installing dependencies..."
+	@uv sync --group dev
+	@echo "Dependencies installed"
 
 update:
-	@poetry cache clear PyPI --all
-	@poetry update
+	@echo "Updating dependencies..."
+	@uv lock --upgrade
+	@uv sync --group dev
+	@echo "Dependencies updated"
 
 diff:
+	@echo "Diffing against previous commit..."
 	@git diff HEAD~1 HEAD
 
 # Run the application
 run:
-	@poetry run python src/main.py
+	@uv run python src/main.py
 
 # Code quality commands
 format:
-	@poetry run isort src
+	@uv run black .
 
 check:
-	@poetry run pyright
+	@uv run pyright
 
 lint:
-	@poetry run ruff check src
-	@poetry run isort --check-only src
+	@uv run ruff check src
+	@uv run isort --check-only src
 
 sort:
-	@poetry run isort src
+	@uv run isort src
 
 test:
-	@poetry run pytest src
+	@uv run pytest src
 
 coverage: clean
-	@poetry run pytest src --cov=src --cov-report=xml --cov-report=term
+	@uv run pytest src --cov=src --cov-report=xml --cov-report=term
 
 # Run the linter and tests
 pr-ready: clean lint test

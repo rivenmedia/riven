@@ -40,23 +40,11 @@ We are constantly adding features and improvements as we go along and squashing 
 
 ## Table of Contents
 
-- [Table of Contents](#table-of-contents)
 - [Self Hosted](#self-hosted)
   - [Installation](#installation)
   - [Plex](#plex)
 - [RivenVFS and Caching](#rivenvfs-and-caching)
-- [Development](#development)
-  - [Prerequisites](#prerequisites)
-  - [Initial Setup](#initial-setup)
-  - [Using `make` for Development](#using-make-for-development)
-  - [Development without `make`](#development-without-make)
-  - [Additional Tips](#additional-tips)
 - [Contributing](#contributing)
-  - [Submitting Changes](#submitting-changes)
-  - [Code Formatting](#code-formatting)
-  - [Dependency Management](#dependency-management)
-    - [Adding or Updating Dependencies](#adding-or-updating-dependencies)
-  - [Running Tests and Linters](#running-tests-and-linters)
 - [License](#license)
 
 ---
@@ -264,126 +252,16 @@ Library profiles allow you to organize media into different virtual libraries ba
 - List filters (genres, networks, etc.) match if ANY value matches (OR logic)
 - Shows/Seasons inherit metadata from parent for filtering purposes
 
-## Development
-
-Welcome to the development section! Here, you'll find all the necessary steps to set up your development environment and start contributing to the project.
-
-### Prerequisites
-
-Ensure you have the following installed on your system:
-
--   **Python** (3.10+)
-
-### Initial Setup
-
-1. **Clone the Repository:**
-
-    ```sh
-    git clone https://github.com/rivenmedia/riven.git && cd riven
-    ```
-
-2. **Install Dependencies:**
-
-    ```sh
-    apk add --no-cache \
-    openssl-dev \
-    fuse3-dev \
-    pkgconf \
-    fuse3
-    ```
-
-3. **Install Python Dependencies:**
-
-    ```sh
-    pip install poetry
-    poetry install
-    ```
-
-### Using `make` for Development
-
-We provide a `Makefile` to simplify common development tasks. Here are some useful commands:
-
--   **Initialize the Project:**
-
-    ```sh
-    make
-    ```
-
--   **Start the Development Environment:**
-    This command stops any previous containers, removes old images, and rebuilds the image using cached layers. Any changes in the code will trigger a rebuild.
-
-    ```sh
-    make start
-    ```
-
--   **Restart the Container:**
-
-    ```sh
-    make restart
-    ```
-
--   **View Logs:**
-    ```sh
-    make logs
-    ```
-
-### Development without `make`
-
-If you prefer not to use `make` and Docker, you can manually set up the development environment with the following steps:
-
-1. **Start Riven:**
-
-    ```sh
-    poetry run python src/main.py
-    ```
-
-### Additional Tips
-
--   **Environment Variables:**
-    Ensure you set the `ORIGIN` environment variable to the URL where the frontend will be accessible. For example:
-
-    ```sh
-    export ORIGIN=http://localhost:3000
-    ```
-
-By following these guidelines, you'll be able to set up your development environment smoothly and start contributing to the project. Happy coding!
-
----
 
 ## Contributing
 
-We welcome contributions from the community! To ensure a smooth collaboration, please follow these guidelines:
+We welcome contributions from the community! For development setup, dependency management, coding standards, and how to run tests, please see the Contributing Guide.
 
-### Submitting Changes
+- Contributing Guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Issues: https://github.com/rivenmedia/riven/issues
+- Discord: https://discord.gg/rivenmedia
 
-1. **Open an Issue**: For major changes, start by opening an issue to discuss your proposed modifications. This helps us understand your intentions and provide feedback early in the process.
-2. **Pull Requests**: Once your changes are ready, submit a pull request. Ensure your code adheres to our coding standards and passes all tests. Commits should follow [conventional-commits](https://www.conventionalcommits.org/) specification.
-
-### Code Formatting
-
--   We use [Black](https://black.readthedocs.io/en/stable/) for code formatting. Run `black` on your code before submitting.
--   Use CRLF line endings unless the file is a shell script or another format that requires LF line endings.
-
-### Dependency Management
-
-We use [Poetry](https://python-poetry.org/) for managing dependencies. Poetry simplifies dependency management by automatically handling package versions and resolving conflicts, ensuring consistency across all environments.
-
-#### Adding or Updating Dependencies
-
--   **Add a Dependency**: Use `poetry add <package-name>` to add a new dependency.
--   **Update a Dependency**: Use `poetry update <package-name>` to update an existing dependency.
-
-### Running Tests and Linters
-
-Before submitting a pull request, ensure your changes are compatible with the project's dependencies and coding standards. Use the following commands to run tests and linters:
-
--   **Run Tests**: `poetry run pytest`
--   **Run Linters**: `poetry run ruff check backend` and `poetry run isort --check-only backend`
-
-By following these guidelines, you help us maintain a high-quality codebase and streamline the review process. Thank you for contributing!
-
----
-
+Commits should follow the [conventional-commits](https://www.conventionalcommits.org/) specification.
 <a href="https://github.com/rivenmedia/riven/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=rivenmedia/riven" />
 </a>

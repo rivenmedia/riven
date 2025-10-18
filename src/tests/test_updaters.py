@@ -52,15 +52,14 @@ def mock_show():
 @pytest.fixture
 def mock_settings():
     """Mock settings manager"""
-    with patch(
-        "program.services.updaters.plex.settings_manager"
-    ) as mock_plex_settings, patch(
-        "program.services.updaters.emby.settings_manager"
-    ) as mock_emby_settings, patch(
-        "program.services.updaters.jellyfin.settings_manager"
-    ) as mock_jellyfin_settings, patch(
-        "program.services.updaters.settings_manager"
-    ) as mock_main_settings:
+    with (
+        patch("program.services.updaters.plex.settings_manager") as mock_plex_settings,
+        patch("program.services.updaters.emby.settings_manager") as mock_emby_settings,
+        patch(
+            "program.services.updaters.jellyfin.settings_manager"
+        ) as mock_jellyfin_settings,
+        patch("program.services.updaters.settings_manager") as mock_main_settings,
+    ):
 
         # Plex settings
         mock_plex_settings.settings.updaters.plex.enabled = False
@@ -353,8 +352,9 @@ class TestUpdater:
         mock_settings["emby"].settings.updaters.emby.enabled = True
         mock_settings["jellyfin"].settings.updaters.jellyfin.enabled = True
 
-        with patch.object(EmbyUpdater, "validate", return_value=True), patch.object(
-            JellyfinUpdater, "validate", return_value=True
+        with (
+            patch.object(EmbyUpdater, "validate", return_value=True),
+            patch.object(JellyfinUpdater, "validate", return_value=True),
         ):
             updater = Updater()
 
@@ -390,8 +390,9 @@ class TestUpdater:
         mock_settings["emby"].settings.updaters.emby.enabled = True
         mock_settings["jellyfin"].settings.updaters.jellyfin.enabled = True
 
-        with patch.object(EmbyUpdater, "validate", return_value=True), patch.object(
-            JellyfinUpdater, "validate", return_value=True
+        with (
+            patch.object(EmbyUpdater, "validate", return_value=True),
+            patch.object(JellyfinUpdater, "validate", return_value=True),
         ):
             updater = Updater()
 
