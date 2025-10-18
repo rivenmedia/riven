@@ -56,6 +56,14 @@ sudo apt-get install -y \
 uv sync
 ```
 
+### Development
+
+Run the app directly with uv:
+
+```sh
+uv run python src/main.py
+```
+
 ### Using make
 
 A Makefile is provided for common tasks. Explore available commands:
@@ -68,7 +76,7 @@ Additionally, you can view all the commands by running `make`.
 
 Which outputs:
 
-```sh
+```
 make install     - Install dependencies
 make run         - Run the application
 make build       - Build the application image
@@ -85,13 +93,6 @@ make test        - Run the tests
 make coverage    - Run the tests with coverage
 make pr-ready    - Run the linter and tests
 make update      - Update dependencies
-```
-### Development without make
-
-Run the app directly with uv:
-
-```sh
-uv run python src/main.py
 ```
 
 ### Dependency Management (uv)
