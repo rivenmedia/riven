@@ -2117,8 +2117,6 @@ class RivenVFS(pyfuse3.Operations):
                     f"Found cached bytes: {len(cached_bytes)} for fh={fh} off={off} size={size}"
                 )
 
-            returned_data = cached_bytes or b""
-
             # Data integrity check: ensure we return exactly the requested size
             # The expected_size is already correctly calculated as request_end - request_start + 1
             # which accounts for file size clamping done earlier
@@ -2127,38 +2125,54 @@ class RivenVFS(pyfuse3.Operations):
             stream_lock = await self._get_stream_lock(path, fh)
 
             async with stream_lock:
-                stream = await self._get_stream(path, url, off, fh, file_size)
+                is_request_satisfied_from_cache = (
+                    cached_bytes and len(cached_bytes) >= expected_size
+                )
 
-                buffered_bytes = stream.get_buffered_bytes(request_start, request_end)
+                if cached_bytes and is_request_satisfied_from_cache:
+                    returned_data = cached_bytes
+                else:
+                    stream = await self._get_stream(path, url, off, fh, file_size)
 
-                if buffered_bytes and len(buffered_bytes) == expected_size:
-                    returned_data = buffered_bytes
-
-                is_request_satisfied_from_cache = len(returned_data) >= expected_size
-
-                if not is_request_satisfied_from_cache:
-                    is_footer_scan = (
-                        handle_info["last_read_start"] <= 1024 * 1024
-                        and file_size - (stream.footer_size) <= off <= file_size
+                    buffered_bytes = stream.get_buffered_bytes(
+                        request_start, request_end
                     )
 
-                    if is_footer_scan:
-                        returned_data = await stream.fetch_footer()
+                    is_request_satisfied_from_buffer = (
+                        len(buffered_bytes) == expected_size
+                    )
+
+                    if is_request_satisfied_from_buffer:
+                        returned_data = buffered_bytes
                     else:
-                        returned_data += await stream.read_bytes(
-                            start=request_start,
-                            end=request_end,
+                        is_footer_scan = (
+                            handle_info["last_read_start"] <= 1024 * 1024
+                            and file_size - (stream.footer_size) <= off <= file_size
                         )
 
-                # Track sequential reads for prefetching
-                if off > 0 and off == handle_info["last_read_end"]:
-                    handle_info["sequential_reads"] += 1
-                else:
-                    # Non-sequential read, reset counter
-                    handle_info["sequential_reads"] = 0
+                        if is_footer_scan:
+                            returned_data = await stream.fetch_footer()
+                        else:
+                            returned_data = await stream.read_bytes(
+                                start=request_start,
+                                end=request_end,
+                            )
 
                 returned_data = returned_data[:expected_size]
 
+                # Reads don't always *technically* come in exactly sequentially.
+                # They may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4), so allow for some tolerance.
+                sequential_read_tolerance = 1024 * 128 * 10
+                is_sequential_read = (
+                    off > 0
+                    and handle_info["last_read_end"] - sequential_read_tolerance
+                    <= off
+                    <= handle_info["last_read_end"] + sequential_read_tolerance
+                )
+
+                handle_info["sequential_reads"] = (
+                    handle_info["sequential_reads"] + 1 if is_sequential_read else 0
+                )
                 handle_info["last_read_start"] = off
                 handle_info["last_read_end"] = off + len(returned_data)
 
