@@ -213,6 +213,7 @@ class MediaStream:
     iterator: AsyncIterator[bytes]
     target_url: str
     prefetch_lock: trio.Lock | None
+    chunk_size = 1024 * 1024
 
     def __init__(
         self,
@@ -221,17 +222,21 @@ class MediaStream:
         file_size: int,
         path: str,
         start: int,
+        original_filename: str,
     ) -> None:
         self.vfs = vfs
         self.fh = fh
-        self.cache_buffer = SparseByteArray()
+        self.byte_stash = SparseByteArray()
         self.prefetch_lock = None
         self.file_size = file_size
         self.path = path
-        self.current_read_position = start
         self.footer_size = self._calculate_footer_size()
+        self.original_filename = original_filename
 
-        # Lock prefetch immediately to prevent prefetch until explicitly unlocked
+        chunk_start, _ = self._get_chunk_range(start)
+        self.current_read_position = chunk_start
+
+        # Lock immediately to prevent prefetch requests until explicitly unlocked
         self.lock_prefetch()
 
         try:
@@ -294,7 +299,7 @@ class MediaStream:
 
                 self.target_url = target_url
 
-                return response, response.aiter_bytes(1024 * 1024)
+                return response, response.aiter_raw(self.chunk_size)
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
@@ -385,7 +390,8 @@ class MediaStream:
         )
 
         data = await response.aread()
-        self.store_buffered_bytes(self.file_size - self.footer_size, data)
+
+        await self._cache_chunk(self.file_size - self.footer_size, data)
 
         return data
 
@@ -393,45 +399,94 @@ class MediaStream:
         """Read a specific number of bytes from the stream."""
 
         data = b""
-        buffered_bytes = self.get_buffered_bytes(
-            start, self.current_read_position - 1
-        )  # Check to see if the request has partially been buffered
 
-        if len(buffered_bytes) == (self.current_read_position - start):
-            data += buffered_bytes
+        # Chunk boundaries for the start position
+        left_chunk_start, left_chunk_end = self._get_chunk_range(start)
 
-        if start + len(data) < self.current_read_position:
+        # Chunk boundaries for the end position
+        right_chunk_start, _ = self._get_chunk_range(end)
+
+        # A cross-chunk request is when the start and end positions span multiple chunks.
+        # Usually this means the left chunk will have cached data, and the right chunk will need to be fetched.
+        is_cross_chunk_request = left_chunk_end < right_chunk_start
+
+        request_length = end - start + 1
+
+        # Check to see if a previous request contains cached or stashed data
+        cached_bytes = (
+            await trio.to_thread.run_sync(
+                lambda: self.vfs.cache.get(
+                    cache_key=self.original_filename,
+                    start=start,
+                    end=left_chunk_end,
+                )
+            )
+            if is_cross_chunk_request
+            else b""
+        )
+
+        # If a non-playback request (e.g. seeking) lands mid-chunk,
+        # we need to skip the first X bytes to get to the requested position.
+        # If we have cached bytes, we don't need this, as we stitch the cached and fetched data together
+        # and slice the stitched data by the request length
+        chunk_offset = start - left_chunk_start if not cached_bytes else 0
+
+        if cached_bytes:
+            log.trace(
+                f"Found {len(cached_bytes)} cached bytes for {self.path} from {start} to {left_chunk_end}"
+            )
+
+        stashed_bytes = self.get_stashed_bytes(start, self.current_read_position - 1)
+        cached_or_stashed_bytes = cached_bytes or stashed_bytes
+
+        if start + len(cached_or_stashed_bytes) < self.current_read_position:
             log.warning(
                 f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
             )
             await self.seek(start)
 
-        num_bytes = end - self.current_read_position + 1
-
         try:
             async for chunk in self.iterator:
                 data += chunk
 
-                if len(data) >= num_bytes:
+                if len(data) >= request_length:
                     break
 
-            cache_start = self.current_read_position
+            # Chop off any extraneous bytes beyond the chunk size
+            extra_bytes = data[self.chunk_size :]
 
-            self.store_buffered_bytes(cache_start, data)
+            if extra_bytes:
+                log.trace(
+                    f"Read excess data for {self.path}, stashing extra bytes for the next request."
+                )
+
+                self.stash_bytes(
+                    self.current_read_position - len(extra_bytes),
+                    extra_bytes,
+                )
+
+                data = data[: self.chunk_size]
+
+            cache_chunk_start, _ = self._get_chunk_range(self.current_read_position)
+
+            await self._cache_chunk(cache_chunk_start, data)
+
             self.current_read_position += len(data)
 
-            return self.get_buffered_bytes(start, end)
+            stitched_data = cached_or_stashed_bytes + data
+
+            return stitched_data[chunk_offset : chunk_offset + request_length]
         except Exception as e:
             log.error(f"Error reading bytes from stream for {self.path}: {e}")
             raise pyfuse3.FUSEError(errno.EIO) from e
 
-    def get_buffered_bytes(self, start: int, end: int) -> bytes:
-        """Get bytes from the cache buffer if available."""
-        return self.cache_buffer[start : end + 1]
+    def get_stashed_bytes(self, start: int, end: int) -> bytes:
+        """Get bytes from the stash if available."""
+        return self.byte_stash[start : end + 1]
 
-    def store_buffered_bytes(self, start: int, data: bytes) -> None:
-        """Set bytes in the cache buffer at the specified start index."""
-        self.cache_buffer[start:] = data
+    def stash_bytes(self, start: int, data: bytes) -> None:
+        """Stash overfetched bytes at the specified start index. Used when the stream reads more than requested."""
+        self.byte_stash[start:] = data
 
     async def close(self) -> None:
         """Close the active stream."""
@@ -455,11 +510,24 @@ class MediaStream:
                 f"Attempted to unlock prefetch when not locked: path={self.path}"
             )
 
+    def _get_chunk_range(self, position: int) -> tuple[int, int]:
+        """Get the chunk-aligned byte range for the given byte position."""
+
+        chunk_start = (position // self.chunk_size) * self.chunk_size
+        chunk_end = min(chunk_start + self.chunk_size - 1, self.file_size - 1)
+
+        return chunk_start, chunk_end
+
+    async def _cache_chunk(self, start: int, data: bytes) -> None:
+        await trio.to_thread.run_sync(
+            lambda: self.vfs.cache.put(self.original_filename, start, data)
+        )
+
     def _calculate_footer_size(self) -> int:
         # Use a percentage-based approach for requesting the footer
         # using the file size to determine an appropriate range.
         min_footer_size = 1024 * 16  # Minimum footer size of 16KB
-        max_footer_size = 1024 * 1024 * 2  # Maximum footer size of 2MB
+        max_footer_size = self.chunk_size * 2  # Maximum footer size of 2MB
         footer_percentage = 0.002  # 0.2% of file size
 
         percentage_size = int(self.file_size * footer_percentage)
@@ -725,9 +793,6 @@ class RivenVFS(pyfuse3.Operations):
         self._last_profile_hash: Optional[int] = None
 
         self._stream_lock = threading.Lock()
-
-        # Chunking
-        self.chunk_size = fs.chunk_size_mb * 1024 * 1024
 
         # Prefetch window size (number of chunks to prefetch ahead of current read position)
         # This determines how many chunks ahead we prefetch for smooth streaming
@@ -2097,7 +2162,7 @@ class RivenVFS(pyfuse3.Operations):
 
             # Use original_filename as cache key for consistency
             # This ensures cache is shared between all paths pointing to the same file
-            cache_key = original_filename or path
+            cache_key = original_filename
 
             # Calculate request and aligned chunk boundaries (use inclusive end)
             request_start = off
@@ -2105,17 +2170,6 @@ class RivenVFS(pyfuse3.Operations):
 
             if request_end < request_start:
                 return b""
-
-            # Try cache first for the exact request (cache handles chunk lookup and slicing)
-            # Use cache_key to share cache between all paths pointing to same file
-            cached_bytes = await trio.to_thread.run_sync(
-                lambda: self.cache.get(cache_key, request_start, request_end)
-            )
-
-            if cached_bytes:
-                log.debug(
-                    f"Found cached bytes: {len(cached_bytes)} for fh={fh} off={off} size={size}"
-                )
 
             # Data integrity check: ensure we return exactly the requested size
             # The expected_size is already correctly calculated as request_end - request_start + 1
@@ -2125,38 +2179,36 @@ class RivenVFS(pyfuse3.Operations):
             stream_lock = await self._get_stream_lock(path, fh)
 
             async with stream_lock:
-                is_request_satisfied_from_cache = (
-                    cached_bytes and len(cached_bytes) >= expected_size
+                # Try cache first for the exact request (cache handles chunk lookup and slicing)
+                # Use cache_key to share cache between all paths pointing to same file
+                cached_bytes = await trio.to_thread.run_sync(
+                    lambda: self.cache.get(cache_key, request_start, request_end)
                 )
 
-                if cached_bytes and is_request_satisfied_from_cache:
+                if cached_bytes:
                     returned_data = cached_bytes
                 else:
-                    stream = await self._get_stream(path, url, off, fh, file_size)
-
-                    buffered_bytes = stream.get_buffered_bytes(
-                        request_start, request_end
+                    stream = await self._get_stream(
+                        path=path,
+                        target_url=url,
+                        start=request_start,
+                        fh=fh,
+                        file_size=file_size,
+                        original_filename=original_filename,
                     )
 
-                    is_request_satisfied_from_buffer = (
-                        len(buffered_bytes) == expected_size
+                    is_footer_scan = (
+                        handle_info["last_read_start"] <= stream.chunk_size
+                        and file_size - (stream.footer_size) <= off <= file_size
                     )
 
-                    if is_request_satisfied_from_buffer:
-                        returned_data = buffered_bytes
+                    if is_footer_scan:
+                        returned_data = await stream.fetch_footer()
                     else:
-                        is_footer_scan = (
-                            handle_info["last_read_start"] <= 1024 * 1024
-                            and file_size - (stream.footer_size) <= off <= file_size
+                        returned_data = await stream.read_bytes(
+                            start=request_start,
+                            end=request_end,
                         )
-
-                        if is_footer_scan:
-                            returned_data = await stream.fetch_footer()
-                        else:
-                            returned_data = await stream.read_bytes(
-                                start=request_start,
-                                end=request_end,
-                            )
 
                 returned_data = returned_data[:expected_size]
 
@@ -2312,6 +2364,7 @@ class RivenVFS(pyfuse3.Operations):
         start: int,
         fh: pyfuse3.FileHandleT,
         file_size: int,
+        original_filename: str,
     ) -> MediaStream:
         """
         Get a stream iterator for the specified path.
@@ -2336,11 +2389,12 @@ class RivenVFS(pyfuse3.Operations):
                     file_size=file_size,
                     path=path,
                     start=start,
+                    original_filename=original_filename,
                 )
 
                 stream.response, stream.iterator = await stream.connect(
                     target_url=target_url,
-                    start=start,
+                    start=stream.current_read_position,
                 )
 
             return self._active_streams[stream_key]

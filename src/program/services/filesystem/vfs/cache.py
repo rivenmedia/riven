@@ -187,7 +187,7 @@ class Cache:
         if removed:
             self._metrics.evictions += removed
 
-    def get(self, path: str, start: int, end: int) -> Optional[bytes]:
+    def get(self, cache_key: str, start: int, end: int) -> bytes:
         needed_len = max(0, end - start + 1)
         if needed_len == 0:
             return b""
@@ -201,13 +201,13 @@ class Cache:
         chunk_start_offset = 0
 
         with self._lock:
-            s_list = self._by_path.get(path)
+            s_list = self._by_path.get(cache_key)
             if s_list:
                 # Find chunk that might contain start position
                 idx = bisect_right(s_list, start) - 1
                 if idx >= 0:
                     chunk_start = s_list[idx]
-                    chunk_entry = self._index.get(self._key(path, chunk_start))
+                    chunk_entry = self._index.get(self._key(cache_key, chunk_start))
                     if chunk_entry:
                         chunk_size, _, _, _ = chunk_entry
                         chunk_end = chunk_start + chunk_size - 1
@@ -215,7 +215,7 @@ class Cache:
                         # Check if this single chunk covers the entire request
                         if start >= chunk_start and end <= chunk_end:
                             # Fast path: single chunk covers entire request
-                            chunk_key = self._key(path, chunk_start)
+                            chunk_key = self._key(cache_key, chunk_start)
                             chunk_file = self._file_for(chunk_key)
                             chunk_start_offset = chunk_start
                             # Don't update timestamps yet - do it after successful read
@@ -280,7 +280,7 @@ class Cache:
         chunks_to_read = []
 
         with self._lock:
-            s_list = self._by_path.get(path)
+            s_list = self._by_path.get(cache_key)
             if s_list:
                 current_pos = start
 
@@ -291,7 +291,7 @@ class Cache:
                         break  # No chunk starts at or before current_pos
 
                     chunk_start = s_list[idx]
-                    chunk_key = self._key(path, chunk_start)
+                    chunk_key = self._key(cache_key, chunk_start)
                     chunk_entry = self._index.get(chunk_key)
 
                     if not chunk_entry:
@@ -370,42 +370,50 @@ class Cache:
                     return bytes(result_data)
 
         # Fallback: Direct probe for exact key on filesystem and rebuild index
-        k = self._key(path, start)
+        k = self._key(cache_key, start)
         fp = self._file_for(k)
         data: Optional[bytes] = None
+
         try:
             with fp.open("rb") as f:
                 data = f.read()
         except FileNotFoundError:
             data = None
+
         if data is None:
             with self._lock:
                 self._index.pop(k, None)
             self._metrics.misses += 1
             # No log for cache misses - reduces noise (misses are expected and normal)
-            return None
+            return b""
+
         # If we got here but entry was missing in index, rebuild it
         with self._lock:
             if k not in self._index:
                 sz = len(data)
-                self._index[k] = (sz, time.time(), path, start)
-                lst = self._by_path.setdefault(path, [])
+                self._index[k] = (sz, time.time(), cache_key, start)
+                lst = self._by_path.setdefault(cache_key, [])
                 insort(lst, start)
                 self._total_bytes += sz
+
         if end < start:
             return b""
+
         length = end - start + 1
+
         if len(data) >= length:
             self._metrics.hits += 1
             self._metrics.bytes_from_cache += length
             return data[:length]
-        self._metrics.misses += 1
-        return None
 
-    def put(self, path: str, start: int, data: bytes) -> None:
+        self._metrics.misses += 1
+
+        return b""
+
+    def put(self, cache_key: str, start: int, data: bytes) -> None:
         if not data:
             return
-        k = self._key(path, start)
+        k = self._key(cache_key, start)
         need = len(data)
         if self.cfg.eviction == "TTL":
             # TTL pruning plus size enforcement
@@ -424,15 +432,15 @@ class Cache:
             prev = self._index.pop(k, None)
             if prev:
                 self._total_bytes -= prev[0]
-                lst_prev = self._by_path.get(path)
+                lst_prev = self._by_path.get(cache_key)
                 if lst_prev:
                     idx_prev = bisect_right(lst_prev, start) - 1
                     if idx_prev >= 0 and lst_prev[idx_prev] == start:
                         del lst_prev[idx_prev]
                     if not lst_prev:
-                        self._by_path.pop(path, None)
-            self._index[k] = (need, time.time(), path, start)
-            lst = self._by_path.setdefault(path, [])
+                        self._by_path.pop(cache_key, None)
+            self._index[k] = (need, time.time(), cache_key, start)
+            lst = self._by_path.setdefault(cache_key, [])
             insort(lst, start)
             self._total_bytes += need
             self._metrics.bytes_written += need
