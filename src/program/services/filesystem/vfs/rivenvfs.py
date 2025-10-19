@@ -172,6 +172,40 @@ class FileHandlePrefetchState(TypedDict):
     prefetch_window_end: int
 
 
+class SparseByteArray:
+    """A sparse byte array that allows setting and getting bytes at arbitrary indices."""
+
+    data: dict[int, int]
+
+    def __init__(self) -> None:
+        self.data = {}
+        self.max_index = 0
+
+    def __setitem__(self, key: slice[int, int | None, None], value: bytes) -> None:
+        # Handle slice assignment
+        start = key.start
+        stop = key.stop or key.start + len(value) - 1
+
+        # Write each byte at the appropriate index
+        for i, byte in enumerate(value):
+            if start + i <= stop:  # Only write within the slice bounds
+                self.data[start + i] = byte
+                self.max_index = max(self.max_index, start + i)
+
+    def __getitem__(self, key: slice[int, int, None]) -> bytes:
+        start = key.start
+        stop = key.stop or (self.max_index + 1)
+
+        result = bytearray()
+
+        for i in range(start, stop):
+            byte = self.data.get(i)
+            if byte is not None:
+                result.append(byte)
+
+        return result
+
+
 class MediaStream:
     """Represents an active streaming session for a file."""
 
@@ -190,7 +224,7 @@ class MediaStream:
     ) -> None:
         self.vfs = vfs
         self.fh = fh
-        self.cache_buffer = bytearray()
+        self.cache_buffer = SparseByteArray()
         self.prefetch_lock = None
         self.file_size = file_size
         self.path = path
@@ -214,8 +248,6 @@ class MediaStream:
     ) -> tuple[httpx.Response, AsyncIterator[bytes]]:
         """Establish a streaming connection starting at the given byte offset."""
 
-        log.debug(f"Establishing stream connection for {self.path} from byte {start}")
-
         headers = httpx.Headers(
             {
                 "Accept-Encoding": "identity",
@@ -226,7 +258,6 @@ class MediaStream:
 
         try:
             target_url = await self._attempt_range_preflight_checks(target_url, headers)
-            log.trace(f"Preflight checks passed for {self.path}")
         except Exception as e:
             log.error(f"Preflight checks failed for {self.path}: {e}")
             raise
@@ -262,7 +293,7 @@ class MediaStream:
 
                 self.target_url = target_url
 
-                return response, response.aiter_bytes(1024)
+                return response, response.aiter_bytes(2048)
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
@@ -334,26 +365,50 @@ class MediaStream:
 
         raise pyfuse3.FUSEError(errno.EIO)
 
-    async def fetch_footer(self, request_start: int, request_end: int) -> bytes:
+    async def seek(self, position: int) -> None:
+        await self.close()
+
+        self.response, self.iterator = await self.connect(
+            target_url=self.target_url,
+            start=position,
+        )
+        self.current_read_position = position
+
+    async def fetch_footer(self) -> bytes:
         """Fetch footer data for media files that store metadata at the end."""
+
+        # Use a percentage-based approach for requesting the footer
+        # using the file size to determine an appropriate range.
+        min_footer_size = 1024 * 16  # Minimum footer size of 16KB
+        max_footer_size = 1024 * 1024 * 2  # Maximum footer size of 2MB
+        footer_percentage = 0.002  # 0.2% of file size
+
+        percentage_size = int(self.file_size * footer_percentage)
+
+        footer_size = min(max(percentage_size, min_footer_size), max_footer_size)
 
         response, _ = await self.connect(
             target_url=self.target_url,
-            start=request_start,
-            end=request_end,
+            start=self.file_size - footer_size,
+            end=self.file_size - 1,
         )
 
-        return await response.aread()
+        data = await response.aread()
+        self.store_buffered_bytes(self.file_size - footer_size, data)
+
+        return data
 
     async def read_bytes(self, start: int, end: int) -> bytes:
         """Read a specific number of bytes from the stream."""
-        data = bytearray()
-        num_bytes = end - self.current_read_position + 1
 
         if start < self.current_read_position:
             log.warning(
-                f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. This may cause issues with the stream."
+                f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
             )
+            await self.seek(start)
+
+        data = b""
+        num_bytes = end - self.current_read_position + 1
 
         try:
             async for chunk in self.iterator:
@@ -363,19 +418,22 @@ class MediaStream:
                     break
 
             cache_start = self.current_read_position
-            cache_end = cache_start + len(data) - 1
 
-            self.cache_buffer[cache_start:cache_end] = data
+            self.store_buffered_bytes(cache_start, data)
             self.current_read_position += len(data)
 
-            return self.cache_buffer[start : end + 1]
+            return self.get_buffered_bytes(start, end)
         except Exception as e:
             log.error(f"Error reading bytes from stream for {self.path}: {e}")
             raise pyfuse3.FUSEError(errno.EIO) from e
 
     def get_buffered_bytes(self, start: int, end: int) -> bytes:
         """Get bytes from the cache buffer if available."""
-        return bytes(self.cache_buffer[start : end + 1])
+        return self.cache_buffer[start : end + 1]
+
+    def store_buffered_bytes(self, start: int, data: bytes) -> None:
+        """Set bytes in the cache buffer at the specified start index."""
+        self.cache_buffer[start:] = data
 
     async def close(self) -> None:
         """Close the active stream."""
@@ -2077,15 +2135,9 @@ class RivenVFS(pyfuse3.Operations):
 
                 is_request_satisfied_from_cache = len(returned_data) >= expected_size
 
-                if is_footer_scan:
-                    returned_data = await stream.fetch_footer(
-                        request_start, request_end
-                    )
-                else:
-                    if is_request_satisfied_from_cache:
-                        log.debug(
-                            f"Read satisfied from cache for fh={fh} off={off} size={size}"
-                        )
+                if not is_request_satisfied_from_cache:
+                    if is_footer_scan:
+                        returned_data = await stream.fetch_footer()
                     else:
                         returned_data += await stream.read_bytes(
                             start=request_start,
@@ -2099,26 +2151,16 @@ class RivenVFS(pyfuse3.Operations):
                     # Non-sequential read, reset counter
                     handle_info["sequential_reads"] = 0
 
-                returned_data = bytes(returned_data[:expected_size])
-
-                log.debug(
-                    f"read: fh={fh} off={off} last_read_start={handle_info['last_read_start']} last_read_end={handle_info['last_read_end']} estimated_next_read_start={off + len(returned_data)} size={size} file_size={file_size} request_start={request_start} request_end={request_end} returned_data={len(returned_data)} expected_size={expected_size}"
-                )
+                returned_data = returned_data[:expected_size]
 
                 handle_info["last_read_start"] = off
                 handle_info["last_read_end"] = off + len(returned_data)
-
-            if len(returned_data) > expected_size:
-                log.warning(
-                    f"Read returned too much data: got {len(returned_data)} bytes, expected {expected_size}"
-                )
-                # This should never happen, but if it does, truncate/pad to exact size
-                returned_data = returned_data[:expected_size]
 
             if len(returned_data) < expected_size:
                 log.error(
                     f"Read returned too little data: got {len(returned_data)} bytes, expected {expected_size}"
                 )
+
                 # For media playback, returning partial data is worse than returning empty
                 returned_data = b""
 
@@ -2276,9 +2318,9 @@ class RivenVFS(pyfuse3.Operations):
                     start=start,
                 )
 
-                response, iterator = await stream.connect(target_url, start)
-
-                stream.response = response
-                stream.iterator = iterator
+                stream.response, stream.iterator = await stream.connect(
+                    target_url=target_url,
+                    start=start,
+                )
 
             return self._active_streams[stream_key]
