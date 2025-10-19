@@ -229,6 +229,7 @@ class MediaStream:
         self.file_size = file_size
         self.path = path
         self.current_read_position = start
+        self.footer_size = self._calculate_footer_size()
 
         # Lock prefetch immediately to prevent prefetch until explicitly unlocked
         self.lock_prefetch()
@@ -293,7 +294,7 @@ class MediaStream:
 
                 self.target_url = target_url
 
-                return response, response.aiter_bytes(2048)
+                return response, response.aiter_bytes(1024 * 1024)
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
@@ -377,37 +378,34 @@ class MediaStream:
     async def fetch_footer(self) -> bytes:
         """Fetch footer data for media files that store metadata at the end."""
 
-        # Use a percentage-based approach for requesting the footer
-        # using the file size to determine an appropriate range.
-        min_footer_size = 1024 * 16  # Minimum footer size of 16KB
-        max_footer_size = 1024 * 1024 * 2  # Maximum footer size of 2MB
-        footer_percentage = 0.002  # 0.2% of file size
-
-        percentage_size = int(self.file_size * footer_percentage)
-
-        footer_size = min(max(percentage_size, min_footer_size), max_footer_size)
-
         response, _ = await self.connect(
             target_url=self.target_url,
-            start=self.file_size - footer_size,
+            start=self.file_size - self.footer_size,
             end=self.file_size - 1,
         )
 
         data = await response.aread()
-        self.store_buffered_bytes(self.file_size - footer_size, data)
+        self.store_buffered_bytes(self.file_size - self.footer_size, data)
 
         return data
 
     async def read_bytes(self, start: int, end: int) -> bytes:
         """Read a specific number of bytes from the stream."""
 
-        if start < self.current_read_position:
+        data = b""
+        buffered_bytes = self.get_buffered_bytes(
+            start, self.current_read_position - 1
+        )  # Check to see if the request has partially been buffered
+
+        if len(buffered_bytes) == (self.current_read_position - start):
+            data += buffered_bytes
+
+        if start + len(data) < self.current_read_position:
             log.warning(
                 f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
             )
             await self.seek(start)
 
-        data = b""
         num_bytes = end - self.current_read_position + 1
 
         try:
@@ -456,6 +454,17 @@ class MediaStream:
             log.warning(
                 f"Attempted to unlock prefetch when not locked: path={self.path}"
             )
+
+    def _calculate_footer_size(self) -> int:
+        # Use a percentage-based approach for requesting the footer
+        # using the file size to determine an appropriate range.
+        min_footer_size = 1024 * 16  # Minimum footer size of 16KB
+        max_footer_size = 1024 * 1024 * 2  # Maximum footer size of 2MB
+        footer_percentage = 0.002  # 0.2% of file size
+
+        percentage_size = int(self.file_size * footer_percentage)
+
+        return min(max(percentage_size, min_footer_size), max_footer_size)
 
     def _refresh_download_url(
         self,
@@ -2122,20 +2131,17 @@ class RivenVFS(pyfuse3.Operations):
 
                 buffered_bytes = stream.get_buffered_bytes(request_start, request_end)
 
-                if buffered_bytes:
-                    log.debug(
-                        f"Found buffered bytes: {len(buffered_bytes)} [{request_start}:{request_end}] for {path}"
-                    )
+                if buffered_bytes and len(buffered_bytes) == expected_size:
                     returned_data = buffered_bytes
-
-                is_footer_scan = (
-                    handle_info["last_read_start"] <= 1024 * 1024
-                    and file_size - (1024 * 192) <= off <= file_size
-                )
 
                 is_request_satisfied_from_cache = len(returned_data) >= expected_size
 
                 if not is_request_satisfied_from_cache:
+                    is_footer_scan = (
+                        handle_info["last_read_start"] <= 1024 * 1024
+                        and file_size - (stream.footer_size) <= off <= file_size
+                    )
+
                     if is_footer_scan:
                         returned_data = await stream.fetch_footer()
                     else:
