@@ -431,11 +431,6 @@ class MediaStream:
         # and slice the stitched data by the request length
         chunk_offset = start - left_chunk_start if not cached_bytes else 0
 
-        if cached_bytes:
-            log.trace(
-                f"Found {len(cached_bytes)} cached bytes for {self.path} from {start} to {left_chunk_end}"
-            )
-
         stashed_bytes = self.get_stashed_bytes(start, self.current_read_position - 1)
         cached_or_stashed_bytes = cached_bytes or stashed_bytes
 
