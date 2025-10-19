@@ -3,7 +3,7 @@ name = "riven"
 version = "0.23.6"
 description = "Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc."
 authors = [{ name = "Riven Developers" }]
-requires-python = "~=3.13"
+requires-python = "~=3.13.0"
 readme = "README.md"
 license = "GPL-3.0"
 dependencies = [
