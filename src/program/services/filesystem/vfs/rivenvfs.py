@@ -214,6 +214,7 @@ class MediaStream:
     target_url: str
     prefetch_lock: trio.Lock | None
     chunk_size = 1024 * 1024
+    bytes_transferred: int = 0
 
     def __init__(
         self,
@@ -398,8 +399,6 @@ class MediaStream:
     async def read_bytes(self, start: int, end: int) -> bytes:
         """Read a specific number of bytes from the stream."""
 
-        data = b""
-
         # Chunk boundaries for the start position
         left_chunk_start, left_chunk_end = self._get_chunk_range(start)
 
@@ -440,9 +439,15 @@ class MediaStream:
             )
             await self.seek(start)
 
+        data = b""
+
         try:
+            # Get the chunk-aligned start for caching based on the stream's current read position
+            cache_chunk_start, _ = self._get_chunk_range(self.current_read_position)
+
             async for chunk in self.iterator:
                 data += chunk
+                self.bytes_transferred += len(chunk)
 
                 if len(data) >= request_length:
                     break
@@ -461,8 +466,6 @@ class MediaStream:
                 )
 
                 data = data[: self.chunk_size]
-
-            cache_chunk_start, _ = self._get_chunk_range(self.current_read_position)
 
             await self._cache_chunk(cache_chunk_start, data)
 
@@ -485,7 +488,9 @@ class MediaStream:
 
     async def close(self) -> None:
         """Close the active stream."""
-        log.debug(f"Closing stream for {self.path}")
+        log.debug(
+            f"Closing stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
+        )
 
         await self.response.aclose()
 
@@ -1031,7 +1036,7 @@ class RivenVFS(pyfuse3.Operations):
                 self._stream_locks[stream_key] = trio.Lock()
             return self._stream_locks[stream_key]
 
-    def sync(self, item: Optional["MediaItem"] = None) -> None:
+    def sync(self, item: MediaItem | None = None) -> None:
         """
         Synchronize VFS with database state.
 
@@ -1984,7 +1989,8 @@ class RivenVFS(pyfuse3.Operations):
             # Send directory entries starting from offset
             for idx in range(off, len(items)):
                 name_bytes, child_ino = items[idx]
-                attrs = await self.getattr(child_ino)
+                if child_ino:
+                    attrs = await self.getattr(child_ino)
                 if not pyfuse3.readdir_reply(
                     token, pyfuse3.FileNameT(name_bytes), attrs, idx + 1
                 ):
@@ -1995,7 +2001,7 @@ class RivenVFS(pyfuse3.Operations):
             log.exception(f"readdir error for inode={inode}")
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def open(self, inode: pyfuse3.InodeT, flags: int, ctx):
+    async def open(self, inode: pyfuse3.InodeT, flags: int, ctx) -> pyfuse3.FileInfo:
         """Open a file for reading."""
         try:
             with self._tree_lock:
@@ -2222,6 +2228,10 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 handle_info["last_read_start"] = off
                 handle_info["last_read_end"] = off + len(returned_data)
+
+                log.debug(
+                    f"Sequential reads for fh={fh}: {handle_info['sequential_reads']}"
+                )
 
             if len(returned_data) < expected_size:
                 log.error(
