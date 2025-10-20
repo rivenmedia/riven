@@ -98,23 +98,27 @@ class VFSNode:
 
     name: str
     is_directory: bool
-    original_filename: Optional[str] = None
-    inode: Optional[pyfuse3.InodeT] = None
-    parent: Optional["VFSNode"] = None
+    original_filename: str | None = None
+    inode: pyfuse3.InodeT | None = None
+    parent: "VFSNode | None" = None
 
     # Cached metadata for files (eliminates database queries)
-    file_size: Optional[int] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    entry_type: Optional[str] = None
+    file_size: int | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    entry_type: str | None = None
+    probed_data: dict | None = None
+    parsed_data: dict | None = None
+    bitrate: int | None = None
+    duration: int | None = None
 
     def __post_init__(self):
         """Initialize children dict after dataclass init."""
         if not hasattr(self, "_children"):
-            self._children: Dict[str, VFSNode] = {}
+            self._children: dict[str, VFSNode] = {}
 
     @property
-    def children(self) -> Dict[str, "VFSNode"]:
+    def children(self) -> dict[str, "VFSNode"]:
         """Get children dict."""
         if not hasattr(self, "_children"):
             self._children = {}
@@ -144,14 +148,14 @@ class VFSNode:
         child.parent = self
         self.children[child.name] = child
 
-    def remove_child(self, name: str) -> Optional["VFSNode"]:
+    def remove_child(self, name: str) -> "VFSNode | None":
         """Remove and return a child node by name."""
         child = self.children.pop(name, None)
         if child:
             child.parent = None
         return child
 
-    def get_child(self, name: str) -> Optional["VFSNode"]:
+    def get_child(self, name: str) -> "VFSNode | None":
         """Get a child node by name."""
         return self.children.get(name)
 
@@ -164,12 +168,9 @@ class FileHandle(TypedDict):
     sequential_reads: int
     last_read_start: int
     last_read_end: int
+    bitrate: int | None
+    duration: int | None
     subtitle_content: bytes | None
-
-
-class FileHandlePrefetchState(TypedDict):
-    last_prefetch_pos: int
-    prefetch_window_end: int
 
 
 class SparseByteArray:
@@ -213,7 +214,6 @@ class MediaStream:
     iterator: AsyncIterator[bytes]
     target_url: str
     prefetch_lock: trio.Lock | None
-    chunk_size = 1024 * 1024
     bytes_transferred: int = 0
 
     def __init__(
@@ -224,6 +224,8 @@ class MediaStream:
         path: str,
         start: int,
         original_filename: str,
+        bitrate: int | None = None,
+        duration: int | None = None,
     ) -> None:
         self.vfs = vfs
         self.fh = fh
@@ -231,11 +233,16 @@ class MediaStream:
         self.prefetch_lock = None
         self.file_size = file_size
         self.path = path
+        self.bitrate = bitrate
+        self.duration = duration
+        self.chunk_size = self._calculate_chunk_size()
         self.footer_size = self._calculate_footer_size()
         self.original_filename = original_filename
+        self.current_read_position, _ = self._get_chunk_range(start)
 
-        chunk_start, _ = self._get_chunk_range(start)
-        self.current_read_position = chunk_start
+        log.trace(
+            f"Initialized MediaStream with chunk size {self.chunk_size / 1024} KB. Bitrate={self.bitrate}, Duration={self.duration}"
+        )
 
         # Lock immediately to prevent prefetch requests until explicitly unlocked
         self.lock_prefetch()
@@ -381,6 +388,21 @@ class MediaStream:
         )
         self.current_read_position = position
 
+    async def fetch_header(self) -> bytes:
+        """Fetch header data for media files that store metadata at the beginning."""
+
+        response, _ = await self.connect(
+            target_url=self.target_url,
+            start=0,
+            end=1024 * 1024 - 1,
+        )
+
+        data = await response.aread()
+
+        await self._cache_chunk(0, data)
+
+        return data
+
     async def fetch_footer(self) -> bytes:
         """Fetch footer data for media files that store metadata at the end."""
 
@@ -509,6 +531,26 @@ class MediaStream:
             log.warning(
                 f"Attempted to unlock prefetch when not locked: path={self.path}"
             )
+
+    def _calculate_chunk_size(self) -> int:
+        # Calculate chunk size based on bitrate and target duration
+        # Aim for approximately 2 seconds worth of data per chunk
+        target_chunk_duration_seconds = 2
+
+        if self.bitrate:
+            bytes_per_second = self.bitrate // 8  # Convert bits to bytes
+            calculated_chunk_size = (
+                (bytes_per_second // 1024) * 1024 * target_chunk_duration_seconds
+            )
+
+            # Clamp chunk size between 256kB and 5MiB
+            min_chunk_size = 256 * 1024
+            max_chunk_size = 5 * 1024 * 1024
+
+            return max(min(calculated_chunk_size, max_chunk_size), min_chunk_size)
+        else:
+            # Fallback to default chunk size if bitrate not available
+            return 1024 * 1024  # 1MiB default chunk size
 
     def _get_chunk_range(self, position: int) -> tuple[int, int]:
         """Get the chunk-aligned byte range for the given byte position."""
@@ -815,21 +857,18 @@ class RivenVFS(pyfuse3.Operations):
         self._active_streams: dict[str, MediaStream] = {}
 
         # Stream locks to prevent duplicate instantiations of the same stream
-        self._stream_locks: Dict[str, trio.Lock] = {}  # "path:chunk_start" -> lock
+        self._stream_locks: dict[str, trio.Lock] = {}  # "path:chunk_start" -> lock
         self._stream_locks_lock = trio.Lock()  # Lock for managing stream locks dict
 
         # path -> lock for preventing prefetch
-        self._stream_prefetch_locks: Dict[str, trio.Lock] = {}
+        self._stream_prefetch_locks: dict[str, trio.Lock] = {}
 
         # Open file handles: fh -> handle info
-        self._file_handles: Dict[pyfuse3.FileHandleT, FileHandle] = {}
+        self._file_handles: dict[pyfuse3.FileHandleT, FileHandle] = {}
         self._next_fh = pyfuse3.FileHandleT(1)
 
         # Opener statistics
-        self._opener_stats: Dict[str, Dict] = {}
-
-        # Per-file-handle prefetch tracking (for proper multi-user coordination)
-        self._fh_prefetch_state: Dict[int, FileHandlePrefetchState] = {}
+        self._opener_stats: dict[str, dict] = {}
 
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)
@@ -1474,6 +1513,10 @@ class RivenVFS(pyfuse3.Operations):
                     updated_at=(
                         entry.updated_at.isoformat() if entry.updated_at else None
                     ),
+                    bitrate=entry.probed_data["bitrate"] if entry.probed_data else None,
+                    duration=(
+                        entry.probed_data["duration"] if entry.probed_data else None
+                    ),
                     entry_type="media",
                 ):
                     registered_paths.append(path)
@@ -1508,6 +1551,8 @@ class RivenVFS(pyfuse3.Operations):
                     updated_at=(
                         entry.updated_at.isoformat() if entry.updated_at else None
                     ),
+                    bitrate=entry.bitrate,
+                    duration=entry.duration,
                     entry_type="subtitle",
                 ):
                     registered_paths.append(subtitle_path)
@@ -1519,7 +1564,9 @@ class RivenVFS(pyfuse3.Operations):
             return []
 
     def _unregister_filesystem_entry(
-        self, entry: FilesystemEntry, video_paths: Optional[list[str]] = None
+        self,
+        entry: FilesystemEntry,
+        video_paths: list[str] | None = None,
     ) -> list[str]:
         """
         Unregister a FilesystemEntry (MediaEntry or SubtitleEntry) from the VFS.
@@ -1581,8 +1628,10 @@ class RivenVFS(pyfuse3.Operations):
         clean_path: str,
         original_filename: str,
         file_size: int,
-        created_at: Optional[str],
-        updated_at: Optional[str],
+        created_at: str | None,
+        updated_at: str | None,
+        bitrate: int | None = None,
+        duration: int | None = None,
         entry_type: str = "media",
     ) -> bool:
         """
@@ -1612,6 +1661,8 @@ class RivenVFS(pyfuse3.Operations):
             node.created_at = created_at
             node.updated_at = updated_at
             node.entry_type = entry_type
+            node.bitrate = bitrate
+            node.duration = duration
 
             # Get parent inodes for invalidation (collect for batching)
             parent_inodes = self._get_parent_inodes(node)
@@ -2030,12 +2081,8 @@ class RivenVFS(pyfuse3.Operations):
                 "last_read_start": 0,
                 "last_read_end": 0,
                 "subtitle_content": None,
-            }
-
-            # Initialize per-file-handle prefetch state
-            self._fh_prefetch_state[fh] = {
-                "last_prefetch_pos": -1,
-                "prefetch_window_end": -1,
+                "bitrate": node.bitrate,
+                "duration": node.duration,
             }
 
             log.trace(f"open: path={path} fh={fh}")
@@ -2196,6 +2243,8 @@ class RivenVFS(pyfuse3.Operations):
                         fh=fh,
                         file_size=file_size,
                         original_filename=original_filename,
+                        bitrate=handle_info["bitrate"],
+                        duration=handle_info["duration"],
                     )
 
                     is_footer_scan = (
@@ -2370,6 +2419,8 @@ class RivenVFS(pyfuse3.Operations):
         fh: pyfuse3.FileHandleT,
         file_size: int,
         original_filename: str,
+        bitrate: int | None = None,
+        duration: int | None = None,
     ) -> MediaStream:
         """
         Get a stream iterator for the specified path.
@@ -2395,6 +2446,8 @@ class RivenVFS(pyfuse3.Operations):
                     path=path,
                     start=start,
                     original_filename=original_filename,
+                    bitrate=bitrate,
+                    duration=duration,
                 )
 
                 stream.response, stream.iterator = await stream.connect(
