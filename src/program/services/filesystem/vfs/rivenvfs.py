@@ -213,8 +213,6 @@ class MediaStream:
     response: httpx.Response
     iterator: AsyncIterator[bytes]
     target_url: str
-    prefetch_lock: trio.Lock | None
-    bytes_transferred: int = 0
 
     def __init__(
         self,
@@ -227,10 +225,11 @@ class MediaStream:
         bitrate: int | None = None,
         duration: int | None = None,
     ) -> None:
+        self.bytes_transferred = 0
+        self.lock = trio.Lock()
         self.vfs = vfs
         self.fh = fh
         self.byte_stash = SparseByteArray()
-        self.prefetch_lock = None
         self.file_size = file_size
         self.path = path
         self.bitrate = bitrate
@@ -239,13 +238,11 @@ class MediaStream:
         self.footer_size = self._calculate_footer_size()
         self.original_filename = original_filename
         self.current_read_position, _ = self._get_chunk_range(start)
+        self.is_connected = False
 
         log.trace(
-            f"Initialized MediaStream with chunk size {self.chunk_size / 1024} KB. Bitrate={self.bitrate}, Duration={self.duration}"
+            f"Initialized MediaStream for {self.path} with chunk size {self.chunk_size / 1024} KB. Bitrate={self.bitrate}, Duration={self.duration}"
         )
-
-        # Lock immediately to prevent prefetch requests until explicitly unlocked
-        self.lock_prefetch()
 
         try:
             self.async_client = di[httpx.AsyncClient]
@@ -256,7 +253,6 @@ class MediaStream:
 
     async def connect(
         self,
-        target_url: str,
         start: int,
         end: int | None = None,
     ) -> tuple[httpx.Response, AsyncIterator[bytes]]:
@@ -271,7 +267,7 @@ class MediaStream:
         )
 
         try:
-            target_url = await self._attempt_range_preflight_checks(target_url, headers)
+            target_url = await self._attempt_range_preflight_checks(headers)
         except Exception as e:
             log.error(f"Preflight checks failed for {self.path}: {e}")
             raise
@@ -306,6 +302,7 @@ class MediaStream:
                 )
 
                 self.target_url = target_url
+                self.is_connected = True
 
                 return response, response.aiter_raw(self.chunk_size)
             except httpx.HTTPStatusError as e:
@@ -383,36 +380,21 @@ class MediaStream:
         await self.close()
 
         self.response, self.iterator = await self.connect(
-            target_url=self.target_url,
             start=position,
         )
         self.current_read_position = position
-
-    async def fetch_header(self) -> bytes:
-        """Fetch header data for media files that store metadata at the beginning."""
-
-        response, _ = await self.connect(
-            target_url=self.target_url,
-            start=0,
-            end=1024 * 1024 - 1,
-        )
-
-        data = await response.aread()
-
-        await self._cache_chunk(0, data)
-
-        return data
 
     async def fetch_footer(self) -> bytes:
         """Fetch footer data for media files that store metadata at the end."""
 
         response, _ = await self.connect(
-            target_url=self.target_url,
             start=self.file_size - self.footer_size,
             end=self.file_size - 1,
         )
 
         data = await response.aread()
+
+        self.bytes_transferred += len(data)
 
         await self._cache_chunk(self.file_size - self.footer_size, data)
 
@@ -469,10 +451,11 @@ class MediaStream:
 
             async for chunk in self.iterator:
                 data += chunk
-                self.bytes_transferred += len(chunk)
 
                 if len(data) >= request_length:
                     break
+
+            self.bytes_transferred += len(data)
 
             # Chop off any extraneous bytes beyond the chunk size
             extra_bytes = data[self.chunk_size :]
@@ -510,27 +493,13 @@ class MediaStream:
 
     async def close(self) -> None:
         """Close the active stream."""
-        log.debug(
-            f"Closing stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
-        )
-
         await self.response.aclose()
 
-    def lock_prefetch(self) -> None:
-        """Sets a lock for preventing prefetch on this stream's path."""
-        if self.prefetch_lock is None:
-            self.prefetch_lock = trio.Lock()
-        else:
-            log.warning(f"Prefetch already locked: path={self.path}")
+        self.is_connected = False
 
-    def unlock_prefetch(self) -> None:
-        """Release the prefetch lock."""
-        if self.prefetch_lock is not None:
-            self.prefetch_lock = None
-        else:
-            log.warning(
-                f"Attempted to unlock prefetch when not locked: path={self.path}"
-            )
+        log.debug(
+            f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
+        )
 
     def _calculate_chunk_size(self) -> int:
         # Calculate chunk size based on bitrate and target duration
@@ -608,7 +577,6 @@ class MediaStream:
 
     async def _attempt_range_preflight_checks(
         self,
-        target_url: str,
         headers: httpx.Headers,
     ) -> str:
         """
@@ -625,6 +593,27 @@ class MediaStream:
 
         max_preflight_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
+
+        # Get entry info from DB
+        # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
+        # Let the refresh logic handle re-unrestricting on failures
+        entry_info = await trio.to_thread.run_sync(
+            lambda: self.vfs.db.get_entry_by_original_filename(
+                self.original_filename,
+                True,  # for_http (use unrestricted URL if available)
+                False,  # force_resolve (don't unrestrict if already have unrestricted URL)
+            )
+        )
+
+        if not entry_info:
+            log.error(f"No entry info for {self.original_filename}")
+            raise pyfuse3.FUSEError(errno.ENOENT)
+
+        target_url = entry_info["url"]
+
+        if not target_url:
+            log.error(f"No URL for {self.original_filename}")
+            raise pyfuse3.FUSEError(errno.ENOENT)
 
         for preflight_attempt in range(max_preflight_attempts):
             try:
@@ -780,18 +769,23 @@ class RivenVFS(pyfuse3.Operations):
         Raises:
             OSError: If mountpoint cannot be prepared or FUSE initialization fails
         """
+
         super().__init__()
+
         # Initialize VFS cache from settings
         try:
             fs = settings_manager.settings.filesystem
         except Exception:
             fs = FilesystemModel()
+
         cache_dir = fs.cache_dir
         size_mb = fs.cache_max_size_mb
+
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
+
         try:
             usage = shutil.disk_usage(
                 str(cache_dir if cache_dir.exists() else cache_dir.parent)
@@ -799,21 +793,25 @@ class RivenVFS(pyfuse3.Operations):
             free_bytes = int(usage.free)
         except Exception:
             free_bytes = 0
+
         configured_bytes = int(size_mb) * 1024 * 1024
         effective_max_bytes = configured_bytes
+
         if free_bytes > 0 and configured_bytes > int(free_bytes * 0.9):
             effective_max_bytes = int(free_bytes * 0.9)
             log.bind(component="RivenVFS").warning(
                 f"cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
             )
-        cfg = CacheConfig(
-            cache_dir=cache_dir,
-            max_size_bytes=effective_max_bytes,
-            ttl_seconds=int(getattr(fs, "cache_ttl_seconds", 2 * 60 * 60)),
-            eviction=(getattr(fs, "cache_eviction", "LRU") or "LRU"),
-            metrics_enabled=bool(getattr(fs, "cache_metrics", True)),
+
+        self.cache = Cache(
+            cfg=CacheConfig(
+                cache_dir=cache_dir,
+                max_size_bytes=effective_max_bytes,
+                ttl_seconds=int(getattr(fs, "cache_ttl_seconds", 2 * 60 * 60)),
+                eviction=(getattr(fs, "cache_eviction", "LRU") or "LRU"),
+                metrics_enabled=bool(getattr(fs, "cache_metrics", True)),
+            )
         )
-        self.cache = Cache(cfg)
 
         self.downloader = downloader
         self.db = VFSDatabase(downloader=downloader)
@@ -821,7 +819,7 @@ class RivenVFS(pyfuse3.Operations):
         # VFS Tree: In-memory tree structure for O(1) path lookups
         # This replaces _path_to_inode, _path_aliases, and _dir_tree
         self._root = VFSNode(name="", is_directory=True, inode=pyfuse3.ROOT_INODE)
-        self._inode_to_node: Dict[int, VFSNode] = {pyfuse3.ROOT_INODE: self._root}
+        self._inode_to_node: dict[int, VFSNode] = {pyfuse3.ROOT_INODE: self._root}
         self._next_inode = pyfuse3.InodeT(pyfuse3.ROOT_INODE + 1)
 
         # Tree lock to prevent race conditions between FUSE operations and tree rebuilds
@@ -829,12 +827,10 @@ class RivenVFS(pyfuse3.Operations):
         self._tree_lock = threading.RLock()
 
         # Pending invalidations for batching (optimization: collect during sync, invalidate at end)
-        self._pending_invalidations: Set[pyfuse3.InodeT] = set()
+        self._pending_invalidations: set[pyfuse3.InodeT] = set()
 
         # Profile hash for detecting changes (optimization: skip re-matching if unchanged)
-        self._last_profile_hash: Optional[int] = None
-
-        self._stream_lock = threading.Lock()
+        self._last_profile_hash: int | None = None
 
         # Prefetch window size (number of chunks to prefetch ahead of current read position)
         # This determines how many chunks ahead we prefetch for smooth streaming
@@ -855,13 +851,7 @@ class RivenVFS(pyfuse3.Operations):
 
         # Set of paths currently being streamed
         self._active_streams: dict[str, MediaStream] = {}
-
-        # Stream locks to prevent duplicate instantiations of the same stream
-        self._stream_locks: dict[str, trio.Lock] = {}  # "path:chunk_start" -> lock
-        self._stream_locks_lock = trio.Lock()  # Lock for managing stream locks dict
-
-        # path -> lock for preventing prefetch
-        self._stream_prefetch_locks: dict[str, trio.Lock] = {}
+        self._active_streams_lock = trio.Lock()  # Lock for managing active streams dict
 
         # Open file handles: fh -> handle info
         self._file_handles: dict[pyfuse3.FileHandleT, FileHandle] = {}
@@ -1057,23 +1047,6 @@ class RivenVFS(pyfuse3.Operations):
         return inodes
 
     # Public API methods
-
-    async def _get_stream_lock(self, path: str, fh: pyfuse3.FileHandleT) -> trio.Lock:
-        """
-        Get or create a lock for a specific stream to prevent duplicate fetches.
-
-        Args:
-            path: File path
-            fh: File handle
-
-        Returns:
-            Lock for this specific stream
-        """
-        stream_key = self._stream_key(path, fh)
-        async with self._stream_locks_lock:
-            if stream_key not in self._stream_locks:
-                self._stream_locks[stream_key] = trio.Lock()
-            return self._stream_locks[stream_key]
 
     def sync(self, item: MediaItem | None = None) -> None:
         """
@@ -2091,6 +2064,7 @@ class RivenVFS(pyfuse3.Operations):
             raise
 
     async def read(self, fh: pyfuse3.FileHandleT, off: int, size: int) -> bytes:
+        log.debug(f"read: fh={fh} off={off} size={size}")
         """
         Read data from file at offset.
 
@@ -2189,29 +2163,6 @@ class RivenVFS(pyfuse3.Operations):
                 log.error(f"No original_filename for {path}")
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
-            # Get entry info from DB
-            # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
-            # Let the refresh logic handle re-unrestricting on failures
-            entry_info = await trio.to_thread.run_sync(
-                self.db.get_entry_by_original_filename,
-                original_filename,
-                True,  # for_http (use unrestricted URL if available)
-                False,  # force_resolve (don't unrestrict if already have unrestricted URL)
-            )
-
-            if not entry_info:
-                log.error(f"No entry info for {original_filename}")
-                raise pyfuse3.FUSEError(errno.ENOENT)
-
-            url = entry_info.get("url")
-            if not url:
-                log.error(f"No URL for {original_filename}")
-                raise pyfuse3.FUSEError(errno.ENOENT)
-
-            # Use original_filename as cache key for consistency
-            # This ensures cache is shared between all paths pointing to the same file
-            cache_key = original_filename
-
             # Calculate request and aligned chunk boundaries (use inclusive end)
             request_start = off
             request_end = min(off + size - 1, file_size - 1)
@@ -2219,34 +2170,34 @@ class RivenVFS(pyfuse3.Operations):
             if request_end < request_start:
                 return b""
 
-            # Data integrity check: ensure we return exactly the requested size
-            # The expected_size is already correctly calculated as request_end - request_start + 1
-            # which accounts for file size clamping done earlier
-            expected_size = request_end - request_start + 1
+            stream = await self._get_stream(
+                path=path,
+                start=request_start,
+                fh=fh,
+                file_size=file_size,
+                original_filename=original_filename,
+                bitrate=handle_info["bitrate"],
+                duration=handle_info["duration"],
+            )
 
-            stream_lock = await self._get_stream_lock(path, fh)
+            log.debug(f"Acquired stream lock: {stream.lock.statistics()}")
 
-            async with stream_lock:
+            async with stream.lock:
+                log.debug(f"Read request: path={path} fh={fh} off={off} size={size} ")
+
                 # Try cache first for the exact request (cache handles chunk lookup and slicing)
                 # Use cache_key to share cache between all paths pointing to same file
                 cached_bytes = await trio.to_thread.run_sync(
-                    lambda: self.cache.get(cache_key, request_start, request_end)
+                    lambda: self.cache.get(
+                        original_filename,
+                        request_start,
+                        request_end,
+                    )
                 )
 
                 if cached_bytes:
                     returned_data = cached_bytes
                 else:
-                    stream = await self._get_stream(
-                        path=path,
-                        target_url=url,
-                        start=request_start,
-                        fh=fh,
-                        file_size=file_size,
-                        original_filename=original_filename,
-                        bitrate=handle_info["bitrate"],
-                        duration=handle_info["duration"],
-                    )
-
                     is_footer_scan = (
                         handle_info["last_read_start"] <= stream.chunk_size
                         and file_size - (stream.footer_size) <= off <= file_size
@@ -2259,6 +2210,11 @@ class RivenVFS(pyfuse3.Operations):
                             start=request_start,
                             end=request_end,
                         )
+
+                # Data integrity check: ensure we return exactly the requested size
+                # The expected_size is already correctly calculated as request_end - request_start + 1
+                # which accounts for file size clamping done earlier
+                expected_size = request_end - request_start + 1
 
                 returned_data = returned_data[:expected_size]
 
@@ -2278,19 +2234,19 @@ class RivenVFS(pyfuse3.Operations):
                 handle_info["last_read_start"] = off
                 handle_info["last_read_end"] = off + len(returned_data)
 
+                if len(returned_data) < expected_size:
+                    log.error(
+                        f"Read returned too little data: got {len(returned_data)} bytes, expected {expected_size}"
+                    )
+
+                    # For media playback, returning partial data is worse than returning empty
+                    returned_data = b""
+
                 log.debug(
-                    f"Sequential reads for fh={fh}: {handle_info['sequential_reads']}"
+                    f"Returning {len(returned_data)} bytes for read: path={path} fh={fh} off={off} size={size}"
                 )
 
-            if len(returned_data) < expected_size:
-                log.error(
-                    f"Read returned too little data: got {len(returned_data)} bytes, expected {expected_size}"
-                )
-
-                # For media playback, returning partial data is worse than returning empty
-                returned_data = b""
-
-            return returned_data
+                return returned_data
         except pyfuse3.FUSEError:
             raise
         except Exception:
@@ -2324,7 +2280,6 @@ class RivenVFS(pyfuse3.Operations):
                         stream_key = self._stream_key(path, fh)
 
                         # No other handles for this inode, clean up shared path state
-                        self._stream_locks.pop(stream_key, None)
                         active_stream = self._active_streams.pop(stream_key, None)
                         if active_stream:
                             await active_stream.close()
@@ -2414,7 +2369,6 @@ class RivenVFS(pyfuse3.Operations):
     async def _get_stream(
         self,
         path: str,
-        target_url: str,
         start: int,
         fh: pyfuse3.FileHandleT,
         file_size: int,
@@ -2423,7 +2377,7 @@ class RivenVFS(pyfuse3.Operations):
         duration: int | None = None,
     ) -> MediaStream:
         """
-        Get a stream iterator for the specified path.
+        Get the file handle's stream. If no stream exists, create and connect it.
 
         Args:
             path: The path to stream.
@@ -2432,26 +2386,34 @@ class RivenVFS(pyfuse3.Operations):
             fh: The file handle associated with the stream.
 
         Returns:
-            An async iterator that yields chunks of data from the stream.
+            The MediaStream for the specified path and file handle.
         """
         stream_key = self._stream_key(path, fh)
 
         if stream_key not in self._active_streams:
-            # If it's a new stream, set and connect
-            stream = self._active_streams[stream_key] = MediaStream(
-                vfs=self,
-                fh=fh,
-                file_size=file_size,
-                path=path,
-                start=start,
-                original_filename=original_filename,
-                bitrate=bitrate,
-                duration=duration,
-            )
+            async with self._active_streams_lock:
+                # If it's a new stream, set and connect
+                stream = MediaStream(
+                    vfs=self,
+                    fh=fh,
+                    file_size=file_size,
+                    path=path,
+                    start=start,
+                    original_filename=original_filename,
+                    bitrate=bitrate,
+                    duration=duration,
+                )
 
-            stream.response, stream.iterator = await stream.connect(
-                target_url=target_url,
-                start=stream.current_read_position,
-            )
+                self._active_streams[stream_key] = stream
+
+            try:
+                async with stream.lock:
+                    stream.response, stream.iterator = await stream.connect(
+                        # Connect is aligned to the current read position to allow for chunk alignment
+                        start=stream.current_read_position,
+                    )
+
+            except:
+                raise
 
         return self._active_streams[stream_key]

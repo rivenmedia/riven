@@ -297,7 +297,7 @@ class VFSDatabase:
         original_filename: str,
         for_http: bool = False,
         force_resolve: bool = False,
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """
         Get entry metadata and download URL by original filename.
 
@@ -356,6 +356,15 @@ class VFSDatabase:
                                     f"Failed to unrestrict URL for {original_filename}: {e}"
                                 )
 
+                                is_download_url_valid = (
+                                    service.unrestrict_check(download_url)
+                                    if hasattr(service, "unrestrict_check")
+                                    else True
+                                )
+
+                                if not is_download_url_valid:
+                                    download_url = None
+
                 # Choose URL based on for_http flag
                 if for_http:
                     chosen_url = unrestricted_url or download_url
@@ -386,7 +395,7 @@ class VFSDatabase:
 
     def get_download_url(
         self, path: str, for_http: bool = False, force_resolve: bool = False
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Get download URL for a file using database-driven provider lookup.
 
