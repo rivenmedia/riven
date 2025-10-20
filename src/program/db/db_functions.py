@@ -104,14 +104,15 @@ def get_item_by_external_id(
         ValueError: If none of `imdb_id`, `tvdb_id`, or `tmdb_id` are provided.
     """
     from program.media.item import MediaItem, Season, Show
+    from program.media.metadata import Metadata
 
     conditions: List[Any] = []
     if imdb_id:
-        conditions.append(MediaItem.imdb_id == imdb_id)
+        conditions.append(Metadata.imdb_id == imdb_id)
     if tvdb_id:
-        conditions.append(MediaItem.tvdb_id == tvdb_id)
+        conditions.append(Metadata.tvdb_id == tvdb_id)
     if tmdb_id:
-        conditions.append(MediaItem.tmdb_id == tmdb_id)
+        conditions.append(Metadata.tmdb_id == tmdb_id)
 
     if not conditions:
         raise ValueError("At least one external ID must be provided")
@@ -119,6 +120,7 @@ def get_item_by_external_id(
     with _maybe_session(session) as (_s, _owns):
         query = (
             select(MediaItem)
+            .join(Metadata, MediaItem.metadata_id == Metadata.id)
             .options(selectinload(Show.seasons).selectinload(Season.episodes))
             .where(MediaItem.type.in_(["movie", "show"]))
             .where(or_(*conditions))
@@ -148,6 +150,7 @@ def item_exists_by_any_id(
         ValueError: If no identifier is provided.
     """
     from program.media.item import MediaItem
+    from program.media.metadata import Metadata
 
     if not any([item_id, tvdb_id, tmdb_id, imdb_id]):
         raise ValueError("At least one ID must be provided")
@@ -156,16 +159,18 @@ def item_exists_by_any_id(
     if item_id is not None:
         clauses.append(MediaItem.id == item_id)
     if tvdb_id is not None:
-        clauses.append(MediaItem.tvdb_id == str(tvdb_id))
+        clauses.append(Metadata.tvdb_id == str(tvdb_id))
     if tmdb_id is not None:
-        clauses.append(MediaItem.tmdb_id == str(tmdb_id))
+        clauses.append(Metadata.tmdb_id == str(tmdb_id))
     if imdb_id is not None:
-        clauses.append(MediaItem.imdb_id == str(imdb_id))
+        clauses.append(Metadata.imdb_id == str(imdb_id))
 
     with _maybe_session(session) as (_s, _owns):
-        count = _s.execute(
-            select(func.count()).select_from(MediaItem).where(or_(*clauses)).limit(1)
-        ).scalar_one()
+        query = select(func.count()).select_from(MediaItem)
+        # Join metadata if any external ID clause is used
+        if any([tvdb_id is not None, tmdb_id is not None, imdb_id is not None]):
+            query = query.join(Metadata, MediaItem.metadata_id == Metadata.id)
+        count = _s.execute(query.where(or_(*clauses)).limit(1)).scalar_one()
         return count > 0
 
 
@@ -278,16 +283,18 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
     Returns a dict keyed by item.id with minimal metadata for scheduling.
     """
     from program.media.item import MediaItem, Season, Show
+    from program.media.metadata import Metadata
 
     session = session if session else db.Session()
 
     result = session.execute(
         select(MediaItem)
+        .join(Metadata, MediaItem.metadata_id == Metadata.id)
         .options(selectinload(Show.seasons).selectinload(Season.episodes))
         .where(MediaItem.type.in_(["movie", "episode"]))
         .where(MediaItem.last_state != States.Completed)
-        .where(MediaItem.aired_at.is_not(None))
-        .where(MediaItem.aired_at >= datetime.now() - timedelta(days=1))
+        .where(Metadata.aired_at.is_not(None))
+        .where(Metadata.aired_at >= datetime.now() - timedelta(days=1))
         .execution_options(stream_results=True)
     ).unique()
 
@@ -313,6 +320,179 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
             calendar[item.id]["episode"] = item.number
 
     return calendar
+
+
+# --------------------------------------------------------------------------- #
+# Centralized Metadata attach/upsert
+# --------------------------------------------------------------------------- #
+
+
+def get_or_create_metadata_by_ids(
+    session: Session,
+    media_type: str,
+    imdb_id: Optional[str] = None,
+    tmdb_id: Optional[str] = None,
+    tvdb_id: Optional[str] = None,
+):
+    """Return a canonical Metadata row for the given IDs, creating or merging as needed.
+
+    Rules:
+    - If any external ID exists, reuse that row (media_type scoped) and enrich missing IDs.
+    - If multiple rows match (split IDs), merge into a canonical row (priority imdb > tmdb > tvdb),
+      re-point related items, and delete redundant rows.
+    - If no row matches, create a new Metadata with the provided IDs.
+    """
+    from program.media.metadata import Metadata
+    from program.media.item import MediaItem
+
+    def _norm(v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+    imdb_id = _norm(imdb_id)
+    tmdb_id = _norm(tmdb_id)
+    tvdb_id = _norm(tvdb_id)
+
+    # Build query only if at least one ID provided
+    metas: list[Metadata] = []
+    if any([imdb_id, tmdb_id, tvdb_id]):
+        from sqlalchemy import or_
+
+        clauses = []
+        if imdb_id:
+            clauses.append(Metadata.imdb_id == imdb_id)
+        if tmdb_id:
+            clauses.append(Metadata.tmdb_id == tmdb_id)
+        if tvdb_id:
+            clauses.append(Metadata.tvdb_id == tvdb_id)
+        q = (
+            select(Metadata)
+            .where(Metadata.media_type == media_type)
+            .where(or_(*clauses))
+        )
+        metas = session.execute(q).scalars().all()
+
+    # Choose or create canonical
+    canonical: Optional[Metadata] = None
+    if metas:
+        # Priority chooser: prefer the one with imdb_id, then tmdb_id, then tvdb_id, else first
+        def score(m: Metadata) -> int:
+            return (
+                (3 if m.imdb_id else 0)
+                + (2 if m.tmdb_id else 0)
+                + (1 if m.tvdb_id else 0)
+            )
+
+        canonical = max(metas, key=score)
+        # Enrich missing IDs on canonical
+        if imdb_id and not canonical.imdb_id:
+            canonical.imdb_id = imdb_id
+        if tmdb_id and not canonical.tmdb_id:
+            canonical.tmdb_id = tmdb_id
+        if tvdb_id and not canonical.tvdb_id:
+            canonical.tvdb_id = tvdb_id
+
+        # Merge duplicates into canonical
+        for m in metas:
+            if m.id == canonical.id:
+                continue
+            # Fill missing simple fields if canonical lacks them
+            for attr in [
+                "title",
+                "year",
+                "aired_at",
+                "genres",
+                "rating",
+                "plot",
+                "cast",
+                "crew",
+                "runtime",
+                "language",
+                "country",
+                "network",
+                "is_anime",
+                "aliases",
+                "content_rating",
+                "release_data",
+                "status",
+            ]:
+                if getattr(canonical, attr) in (None, [], {}):
+                    val = getattr(m, attr)
+                    if val not in (None, [], {}):
+                        setattr(canonical, attr, val)
+            # Repoint items
+            for it in list(getattr(m, "items", []) or []):
+                it.meta = canonical
+            session.delete(m)
+        session.flush()
+    else:
+        # Create fresh
+        from program.media.metadata import Metadata as _MD
+
+        canonical = _MD(media_type=media_type)
+        canonical.imdb_id = imdb_id
+        canonical.tmdb_id = tmdb_id
+        canonical.tvdb_id = tvdb_id
+        session.add(canonical)
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            # Re-select and return the existing canonical
+            return get_or_create_metadata_by_ids(
+                session, media_type, imdb_id=imdb_id, tmdb_id=tmdb_id, tvdb_id=tvdb_id
+            )
+
+    return canonical
+
+
+def attach_metadata(item: "MediaItem", session: Session):
+    """Attach canonical Metadata to the given item based on its known external IDs.
+
+    - If the item already has a temporary Metadata with values, merge missing fields into canonical.
+    - Always returns the canonical Metadata instance and assigns item.meta to it.
+    """
+    from program.media.metadata import Metadata
+
+    media_type = getattr(item, "type", None) or "mediaitem"
+    meta = get_or_create_metadata_by_ids(
+        session,
+        media_type=media_type,
+        imdb_id=getattr(item, "imdb_id", None),
+        tmdb_id=getattr(item, "tmdb_id", None),
+        tvdb_id=getattr(item, "tvdb_id", None),
+    )
+
+    # If item had a different metadata object, merge non-empty fields into canonical
+    if getattr(item, "meta", None) is not None and item.meta is not meta:
+        temp = item.meta
+        for attr in [
+            "title",
+            "year",
+            "aired_at",
+            "genres",
+            "rating",
+            "plot",
+            "cast",
+            "crew",
+            "runtime",
+            "language",
+            "country",
+            "network",
+            "is_anime",
+            "aliases",
+            "content_rating",
+            "release_data",
+            "status",
+        ]:
+            if getattr(meta, attr) in (None, [], {}):
+                val = getattr(temp, attr)
+                if val not in (None, [], {}):
+                    setattr(meta, attr, val)
+    item.meta = meta
+    return meta
 
 
 def run_thread_with_db_item(
@@ -394,6 +574,14 @@ def run_thread_with_db_item(
                         f"Item with ID {indexed_item.id} already exists, skipping save"
                     )
                     return indexed_item.id
+
+                # Ensure we attach canonical metadata to avoid duplicates and preserve fields
+                try:
+                    attach_metadata(indexed_item, session)
+                except Exception as e:
+                    logger.error(
+                        f"Failed to attach metadata for {indexed_item.log_string}: {e}"
+                    )
 
                 indexed_item.store_state()
                 session.add(indexed_item)

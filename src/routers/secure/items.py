@@ -13,6 +13,7 @@ from program.utils.ffprobe import parse_media_file
 from program.db import db_functions
 from program.db.db import db, get_db
 from program.media.item import MediaItem, Show, Season
+from program.media.metadata import Metadata
 from program.media.state import States
 from program.services.content import Overseerr
 from program.services.updaters import Updater
@@ -140,10 +141,11 @@ async def get_items(
 
     if search:
         search_lower = search.lower()
+        query = query.join(Metadata)
         if search_lower.startswith("tt"):
-            query = query.where(MediaItem.imdb_id == search_lower)
+            query = query.where(Metadata.imdb_id == search_lower)
         else:
-            query = query.where(func.lower(MediaItem.title).like(f"%{search_lower}%"))
+            query = query.where(func.lower(Metadata.title).like(f"%{search_lower}%"))
 
     if states:
         states = states.split(",")
@@ -277,7 +279,7 @@ async def add_items(
             for id in all_tmdb_ids:
                 # Check if item exists using ORM
                 existing = session.execute(
-                    select(MediaItem).where(MediaItem.tmdb_id == id)
+                    select(MediaItem).join(Metadata).where(Metadata.tmdb_id == id)
                 ).scalar_one_or_none()
 
                 if not existing:
@@ -297,7 +299,7 @@ async def add_items(
             for id in all_tvdb_ids:
                 # Check if item exists using ORM
                 existing = session.execute(
-                    select(MediaItem).where(MediaItem.tvdb_id == id)
+                    select(MediaItem).join(Metadata).where(Metadata.tvdb_id == id)
                 ).scalar_one_or_none()
 
                 if not existing:
@@ -339,13 +341,21 @@ async def get_item(
     with db.Session() as session:
         if media_type == "movie":
             # needs to be a string
-            query = select(MediaItem).where(
-                MediaItem.tmdb_id == id,
+            query = (
+                select(MediaItem)
+                .join(Metadata)
+                .where(
+                    Metadata.tmdb_id == id,
+                )
             )
         elif media_type == "tv":
             # needs to be a string
-            query = select(MediaItem).where(
-                MediaItem.tvdb_id == id,
+            query = (
+                select(MediaItem)
+                .join(Metadata)
+                .where(
+                    Metadata.tvdb_id == id,
+                )
             )
         elif media_type == "item":
             # needs to be an integer
@@ -969,15 +979,15 @@ async def reindex_item(
             item = session.get(MediaItem, item_id)
         elif tvdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tvdb_id == tvdb_id)
+                select(MediaItem).join(Metadata).where(Metadata.tvdb_id == tvdb_id)
             ).scalar_one_or_none()
         elif tmdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tmdb_id == tmdb_id)
+                select(MediaItem).join(Metadata).where(Metadata.tmdb_id == tmdb_id)
             ).scalar_one_or_none()
         elif imdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.imdb_id == imdb_id)
+                select(MediaItem).join(Metadata).where(Metadata.imdb_id == imdb_id)
             ).scalar_one_or_none()
         else:
             raise HTTPException(

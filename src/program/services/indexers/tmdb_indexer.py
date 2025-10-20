@@ -9,6 +9,8 @@ from loguru import logger
 from program.apis.tmdb_api import TMDBApi
 from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
+from sqlalchemy.orm import object_session
+from program.db.db_functions import attach_metadata
 
 
 class TMDBIndexer(BaseIndexer):
@@ -144,6 +146,14 @@ class TMDBIndexer(BaseIndexer):
                                 content_rating = release.certification
                                 break
                         break
+
+            # Attach or create canonical metadata first
+            try:
+                sess = object_session(movie)
+                if sess:
+                    attach_metadata(movie, sess)
+            except Exception as e:
+                logger.debug(f"attach_metadata failed for {movie.log_string}: {e}")
 
             # Update the Movie object's attributes
             movie.title = getattr(movie_details, "title", None)

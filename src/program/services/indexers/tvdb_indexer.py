@@ -10,6 +10,8 @@ from loguru import logger
 from program.apis.tvdb_api import TVDBApi
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
+from sqlalchemy.orm import object_session
+from program.db.db_functions import attach_metadata
 
 
 class TVDBIndexer(BaseIndexer):
@@ -199,6 +201,14 @@ class TVDBIndexer(BaseIndexer):
             if hasattr(show_data, "status") and show_data.status:
                 if hasattr(show_data.status, "name"):
                     tvdb_status = show_data.status.name
+
+            # Attach or create canonical metadata first
+            try:
+                sess = object_session(show)
+                if sess:
+                    attach_metadata(show, sess)
+            except Exception as e:
+                logger.debug(f"attach_metadata failed for {show.log_string}: {e}")
 
             # Update the Show object's attributes
             show.title = title
@@ -432,6 +442,15 @@ class TVDBIndexer(BaseIndexer):
                         if not season_item:
                             continue
                         show.add_season(season_item)
+                        # Attach canonical metadata for new season
+                        try:
+                            sess = object_session(show)
+                            if sess:
+                                attach_metadata(season_item, sess)
+                        except Exception as e:
+                            logger.debug(
+                                f"attach_metadata failed for New Season {getattr(season_item, 'number', None)}: {e}"
+                            )
 
                     # Handle episodes for this season
                     if (episodes := extended_data.episodes) and isinstance(
@@ -462,6 +481,15 @@ class TVDBIndexer(BaseIndexer):
                                     episode_data, season_item
                                 )
                                 if episode_item:
+                                    # Attach canonical metadata for new episode
+                                    try:
+                                        sess = object_session(season_item)
+                                        if sess:
+                                            attach_metadata(episode_item, sess)
+                                    except Exception as e:
+                                        logger.debug(
+                                            f"attach_metadata failed for New Episode {getattr(episode_item, 'number', None)}: {e}"
+                                        )
                                     season_item.add_episode(episode_item)
         except Exception as e:
             logger.error(f"Error adding/updating seasons to show: {str(e)}")
@@ -469,6 +497,16 @@ class TVDBIndexer(BaseIndexer):
     def _update_season_metadata(self, season: Season, season_data):
         """Update an existing Season object with fresh TVDB metadata."""
         try:
+            # Attach or create metadata for season first
+            try:
+                sess = object_session(season)
+                if sess:
+                    attach_metadata(season, sess)
+            except Exception as e:
+                logger.debug(
+                    f"attach_metadata failed for Season {getattr(season, 'number', None)}: {e}"
+                )
+
             # Parse aired date from first episode
             aired_at = None
             try:
@@ -536,6 +574,16 @@ class TVDBIndexer(BaseIndexer):
     def _update_episode_metadata(self, episode: Episode, episode_data):
         """Update an existing Episode object with fresh TVDB metadata."""
         try:
+            # Attach or create metadata for episode first
+            try:
+                sess = object_session(episode)
+                if sess:
+                    attach_metadata(episode, sess)
+            except Exception as e:
+                logger.debug(
+                    f"attach_metadata failed for Episode {getattr(episode, 'number', None)}: {e}"
+                )
+
             # Parse aired date
             aired_at = None
             if first_aired := episode_data.aired:

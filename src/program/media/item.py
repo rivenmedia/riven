@@ -17,6 +17,7 @@ from .stream import Stream
 
 if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
+    from .metadata import Metadata
 
 
 class MediaItem(db.Model):
@@ -24,12 +25,10 @@ class MediaItem(db.Model):
 
     __tablename__ = "MediaItem"
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    imdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+
+    # Request/indexing lifecycle
     requested_at: Mapped[Optional[datetime]] = mapped_column(
         sqlalchemy.DateTime, default=datetime.now()
     )
@@ -46,6 +45,8 @@ class MediaItem(db.Model):
         sqlalchemy.DateTime, nullable=True
     )
     scraped_times: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, default=0)
+
+    # Streams
     active_stream: Mapped[Optional[dict]] = mapped_column(
         sqlalchemy.JSON, nullable=True
     )
@@ -62,24 +63,13 @@ class MediaItem(db.Model):
         cascade="all",
     )
 
-    aliases: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
-    is_anime: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
-    network: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    country: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    language: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    aired_at: Mapped[Optional[datetime]] = mapped_column(
-        sqlalchemy.DateTime, nullable=True
+    # New metadata linkage (instead of columns on this table)
+    metadata_id: Mapped[Optional[int]] = mapped_column(
+        sqlalchemy.ForeignKey("Metadata.id", ondelete="SET NULL"), nullable=True
     )
-    year: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
-    genres: Mapped[Optional[List[str]]] = mapped_column(sqlalchemy.JSON, nullable=True)
-
-    # Rating metadata (normalized for filtering)
-    rating: Mapped[Optional[float]] = mapped_column(
-        sqlalchemy.Float, nullable=True
-    )  # 0.0-10.0 scale (TMDB vote_average)
-    content_rating: Mapped[Optional[str]] = mapped_column(
-        sqlalchemy.String, nullable=True
-    )  # US content rating (G, PG, PG-13, R, NC-17, TV-Y, TV-PG, TV-14, TV-MA, etc.)
+    meta: Mapped[Optional["Metadata"]] = relationship(
+        "Metadata", back_populates="items", lazy="joined"
+    )
 
     updated: Mapped[Optional[bool]] = mapped_column(sqlalchemy.Boolean, default=False)
     guid: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
@@ -114,20 +104,146 @@ class MediaItem(db.Model):
     __table_args__ = (
         Index("ix_mediaitem_type", "type"),
         Index("ix_mediaitem_requested_by", "requested_by"),
-        Index("ix_mediaitem_title", "title"),
-        Index("ix_mediaitem_imdb_id", "imdb_id"),
-        Index("ix_mediaitem_tvdb_id", "tvdb_id"),
-        Index("ix_mediaitem_tmdb_id", "tmdb_id"),
-        Index("ix_mediaitem_network", "network"),
-        Index("ix_mediaitem_country", "country"),
-        Index("ix_mediaitem_language", "language"),
-        Index("ix_mediaitem_aired_at", "aired_at"),
-        Index("ix_mediaitem_year", "year"),
-        Index("ix_mediaitem_rating", "rating"),
-        Index("ix_mediaitem_content_rating", "content_rating"),
         Index("ix_mediaitem_overseerr_id", "overseerr_id"),
-        Index("ix_mediaitem_type_aired_at", "type", "aired_at"),  # Composite index
     )
+
+    # --- Metadata property proxies for backward compatibility ---
+    def _ensure_metadata(self) -> None:
+        if self.meta is None:
+            # Default to current type if available, else generic
+            media_type = getattr(self, "type", "mediaitem")
+            self.meta = Metadata(media_type=media_type)
+
+    @property
+    def title(self) -> Optional[str]:
+        return self.meta.title if self.meta else None
+
+    @title.setter
+    def title(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.title = value
+
+    @property
+    def imdb_id(self) -> Optional[str]:
+        return self.meta.imdb_id if self.meta else None
+
+    @imdb_id.setter
+    def imdb_id(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.imdb_id = value
+
+    @property
+    def tvdb_id(self) -> Optional[str]:
+        return self.meta.tvdb_id if self.meta else None
+
+    @tvdb_id.setter
+    def tvdb_id(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.tvdb_id = value
+
+    @property
+    def tmdb_id(self) -> Optional[str]:
+        return self.meta.tmdb_id if self.meta else None
+
+    @tmdb_id.setter
+    def tmdb_id(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.tmdb_id = value
+
+    @property
+    def network(self) -> Optional[str]:
+        return self.meta.network if self.meta else None
+
+    @network.setter
+    def network(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.network = value
+
+    @property
+    def country(self) -> Optional[str]:
+        return self.meta.country if self.meta else None
+
+    @country.setter
+    def country(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.country = value
+
+    @property
+    def language(self) -> Optional[str]:
+        return self.meta.language if self.meta else None
+
+    @language.setter
+    def language(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.language = value
+
+    @property
+    def aired_at(self) -> Optional[datetime]:
+        return self.meta.aired_at if self.meta else None
+
+    @aired_at.setter
+    def aired_at(self, value: Optional[datetime]) -> None:
+        self._ensure_metadata()
+        self.meta.aired_at = value
+
+    @property
+    def year(self) -> Optional[int]:
+        return self.meta.year if self.meta else None
+
+    @year.setter
+    def year(self, value: Optional[int]) -> None:
+        self._ensure_metadata()
+        self.meta.year = value
+
+    @property
+    def genres(self) -> Optional[List[str]]:
+        return self.meta.genres if self.meta else None
+
+    @genres.setter
+    def genres(self, value: Optional[List[str]]) -> None:
+        self._ensure_metadata()
+        self.meta.genres = value
+
+    @property
+    def rating(self) -> Optional[float]:
+        return self.meta.rating if self.meta else None
+
+    @rating.setter
+    def rating(self, value: Optional[float]) -> None:
+        self._ensure_metadata()
+        self.meta.rating = value
+
+    @property
+    def content_rating(self) -> Optional[str]:
+        return self.meta.content_rating if self.meta else None
+
+    @content_rating.setter
+    def content_rating(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.content_rating = value
+
+    @property
+    def aliases(self) -> Optional[dict]:
+        return self.meta.aliases if self.meta else {}
+
+    @aliases.setter
+    def aliases(self, value: Optional[dict]) -> None:
+        self._ensure_metadata()
+        self.meta.aliases = value or {}
+
+    @property
+    def is_anime(self) -> Optional[bool]:
+        return self.meta.is_anime if self.meta else None
+
+    @is_anime.setter
+    def is_anime(self, value: Optional[bool]) -> None:
+        self._ensure_metadata()
+        self.meta.is_anime = bool(value) if value is not None else None
+
+    @property
+    def parent_meta(self):
+        """Convenience accessor for parent's metadata."""
+        return self.parent.meta if getattr(self, "parent", None) else None
 
     def __init__(self, item: dict | None) -> None:
         if item is None:
@@ -748,8 +864,25 @@ class Show(MediaItem):
         cascade="all, delete-orphan",
         order_by="Season.number",
     )
-    release_data: Mapped[Optional[dict]] = mapped_column(sqlalchemy.JSON, default={})
-    tvdb_status: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+
+    # Release/status moved to Metadata; keep properties for backward compatibility
+    @property
+    def release_data(self) -> dict:
+        return (self.meta.release_data or {}) if self.meta else {}
+
+    @release_data.setter
+    def release_data(self, value: Optional[dict]) -> None:
+        self._ensure_metadata()
+        self.meta.release_data = value or {}
+
+    @property
+    def tvdb_status(self) -> Optional[str]:
+        return self.meta.status if self.meta else None
+
+    @tvdb_status.setter
+    def tvdb_status(self, value: Optional[str]) -> None:
+        self._ensure_metadata()
+        self.meta.status = value
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
