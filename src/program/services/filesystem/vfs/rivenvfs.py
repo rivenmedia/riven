@@ -855,8 +855,13 @@ class RivenVFS(pyfuse3.Operations):
                     trio.from_thread.run(
                         self._terminate_async, trio_token=self._trio_token
                     )
-                except Exception as e:
-                    log.exception(f"Error requesting FUSE termination")
+                except trio.RunFinishedError:
+                    # Trio loop is already gone; nothing to terminate
+                    log.debug(
+                        "Trio loop already finished; skipping pyfuse3.terminate()"
+                    )
+                except Exception:
+                    log.exception("Error requesting FUSE termination")
             else:
                 log.warning("No Trio token available; skipping graceful terminate")
 
