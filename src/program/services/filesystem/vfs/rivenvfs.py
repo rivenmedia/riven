@@ -2434,25 +2434,24 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             An async iterator that yields chunks of data from the stream.
         """
-        with self._stream_lock:
-            stream_key = self._stream_key(path, fh)
+        stream_key = self._stream_key(path, fh)
 
-            if stream_key not in self._active_streams:
-                # If it's a new stream, set and connect
-                stream = self._active_streams[stream_key] = MediaStream(
-                    vfs=self,
-                    fh=fh,
-                    file_size=file_size,
-                    path=path,
-                    start=start,
-                    original_filename=original_filename,
-                    bitrate=bitrate,
-                    duration=duration,
-                )
+        if stream_key not in self._active_streams:
+            # If it's a new stream, set and connect
+            stream = self._active_streams[stream_key] = MediaStream(
+                vfs=self,
+                fh=fh,
+                file_size=file_size,
+                path=path,
+                start=start,
+                original_filename=original_filename,
+                bitrate=bitrate,
+                duration=duration,
+            )
 
-                stream.response, stream.iterator = await stream.connect(
-                    target_url=target_url,
-                    start=stream.current_read_position,
-                )
+            stream.response, stream.iterator = await stream.connect(
+                target_url=target_url,
+                start=stream.current_read_position,
+            )
 
-            return self._active_streams[stream_key]
+        return self._active_streams[stream_key]
