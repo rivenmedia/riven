@@ -58,6 +58,12 @@ class Mdblist:
                         logger.error(f"Mdblist error: {item.error}")
                         continue
 
+                    if item.mediatype == "movie" and not item.id:
+                        continue
+
+                    if item.mediatype == "show" and not item.tvdbid:
+                        continue
+
                     if item.mediatype == "movie" and not item_exists_by_any_id(
                         imdb_id=item.imdb_id, tmdb_id=str(item.id)
                     ):
