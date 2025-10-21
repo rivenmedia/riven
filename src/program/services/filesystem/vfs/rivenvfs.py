@@ -220,7 +220,6 @@ class MediaStream:
         fh: pyfuse3.FileHandleT,
         file_size: int,
         path: str,
-        start: int,
         original_filename: str,
         bitrate: int | None = None,
         duration: int | None = None,
@@ -235,9 +234,10 @@ class MediaStream:
         self.bitrate = bitrate
         self.duration = duration
         self.chunk_size = self._calculate_chunk_size()
+        self.header_size = self._calculate_header_size()
         self.footer_size = self._calculate_footer_size()
         self.original_filename = original_filename
-        self.current_read_position, _ = self._get_chunk_range(start)
+        self.cache_key = original_filename
         self.is_connected = False
 
         log.trace(
@@ -251,11 +251,195 @@ class MediaStream:
                 "httpx.AsyncClient not found in dependency injector"
             ) from None
 
-    async def connect(
-        self,
-        start: int,
-        end: int | None = None,
-    ) -> tuple[httpx.Response, AsyncIterator[bytes]]:
+    async def connect(self, start: int) -> None:
+        """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
+        chunk_aligned_start, _ = self._get_chunk_range(position=start)
+
+        self.response = await self._prepare_response(start=chunk_aligned_start)
+        self.iterator = self.response.aiter_bytes(chunk_size=self.chunk_size)
+        self.is_connected = True
+        self.current_read_position = chunk_aligned_start
+
+        log.debug(
+            f"Stream connection established for {self.path} from byte {chunk_aligned_start}"
+        )
+
+    async def seek(self, position: int) -> None:
+        await self.close()
+
+        chunk_aligned_start, _ = self._get_chunk_range(position=position)
+
+        await self.connect(start=chunk_aligned_start)
+
+    async def fetch_header(self, read_position: int, size: int) -> bytes:
+        """Fetch header data for media files that store metadata at the beginning."""
+        data = await self._fetch_discrete_byte_range(
+            start=0,
+            size=self.header_size,
+        )
+
+        return data[read_position : read_position + size]
+
+    async def fetch_footer(self, read_position: int, size: int) -> bytes:
+        """Fetch footer data for media files that store metadata at the end."""
+
+        footer_start = self.file_size - self.footer_size
+
+        data = await self._fetch_discrete_byte_range(
+            start=footer_start,
+            size=self.file_size - footer_start,
+        )
+
+        slice_offset = read_position - footer_start
+
+        return data[slice_offset : slice_offset + size]
+
+    async def read_bytes(self, start: int, end: int) -> bytes:
+        """Read a specific number of bytes from the stream."""
+
+        # Chunk boundaries for the start position
+        left_chunk_start, left_chunk_end = self._get_chunk_range(start)
+
+        # Chunk boundaries for the end position
+        right_chunk_start, _ = self._get_chunk_range(end)
+
+        # A cross-chunk request is when the start and end positions span multiple chunks.
+        # Usually this means the left chunk will have cached data, and the right chunk will need to be fetched.
+        is_cross_chunk_request = left_chunk_start < right_chunk_start
+
+        request_length = end - start + 1
+
+        # Check to see if a previous request contains cached or stashed data
+        cached_bytes = (
+            await trio.to_thread.run_sync(
+                lambda: self.vfs.cache.get(
+                    cache_key=self.original_filename,
+                    start=start,
+                    end=left_chunk_end,
+                )
+            )
+            if is_cross_chunk_request
+            else b""
+        )
+
+        if cached_bytes:
+            log.trace(f"Cached bytes length: {len(cached_bytes)} for {self.path}")
+
+        # If a non-playback request (e.g. seeking) lands mid-chunk,
+        # we need to skip the first X bytes to get to the requested position.
+        # If we have cached bytes, we don't need this, as we stitch the cached and fetched data together
+        # and slice the stitched data by the request length
+        chunk_offset = start - left_chunk_start - len(cached_bytes)
+
+        stashed_bytes = self.get_stashed_bytes(start, self.current_read_position)
+        cached_or_stashed_bytes = cached_bytes or stashed_bytes
+
+        log.trace(
+            f"left_chunk_start={left_chunk_start}, left_chunk_end={left_chunk_end}, right_chunk_start={right_chunk_start}, is_cross_chunk_request={is_cross_chunk_request}, chunk_offset={chunk_offset}, cached_or_stashed_bytes_length={len(cached_or_stashed_bytes)} for {self.path}"
+        )
+
+        if start + len(cached_or_stashed_bytes) < self.current_read_position:
+            log.warning(
+                f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
+            )
+            await self.seek(start)
+
+        data = b""
+
+        try:
+            # Get the chunk-aligned start for caching based on the stream's current read position
+            cache_chunk_start, _ = self._get_chunk_range(self.current_read_position)
+
+            log.debug(f"Cache chunk range 0 : {self._get_chunk_range(0)}")
+            log.debug(
+                f"Cache chunk range 7371513856 : {self._get_chunk_range(7371513856)}"
+            )
+            log.debug(
+                f"Cache chunk range 7371554816 : {self._get_chunk_range(7371554816)}"
+            )
+
+            async for chunk in self.iterator:
+                data += chunk
+
+                if len(data) >= self.chunk_size:
+                    break
+
+            self.bytes_transferred += len(data)
+
+            # Chop off any extraneous bytes beyond the chunk size
+            extra_bytes = data[self.chunk_size :]
+
+            if extra_bytes:
+                log.trace(
+                    f"Read excess data for {self.path}, stashing extra bytes for the next request."
+                )
+
+                self.stash_bytes(
+                    self.current_read_position - len(extra_bytes),
+                    extra_bytes,
+                )
+
+                data = data[: self.chunk_size]
+
+            await self._cache_chunk(cache_chunk_start, data)
+
+            self.current_read_position += len(data)
+
+            stitched_data = cached_or_stashed_bytes + data
+
+            return stitched_data[chunk_offset : chunk_offset + request_length]
+        except Exception as e:
+            log.error(f"Error reading bytes from stream for {self.path}: {e}")
+            raise pyfuse3.FUSEError(errno.EIO) from e
+
+    def get_stashed_bytes(self, start: int, end: int) -> bytes:
+        """Get bytes from the stash if available."""
+        return self.byte_stash[start:end]
+
+    def stash_bytes(self, start: int, data: bytes) -> None:
+        """Stash overfetched bytes at the specified start index. Used when the stream reads more than requested."""
+        self.byte_stash[start:] = data
+
+    async def close(self) -> None:
+        """Close the active stream."""
+        await self.response.aclose()
+
+        self.is_connected = False
+
+        log.debug(
+            f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
+        )
+
+    async def _fetch_discrete_byte_range(self, start: int, size: int) -> bytes:
+        """Fetch a discrete range of data outside of the main stream. Used for fetching the header/footer."""
+        if start < 0:
+            raise ValueError("Start must be non-negative")
+
+        if size <= 0:
+            raise ValueError("Size must be positive")
+
+        response = await self._prepare_response(
+            start,
+            end=start + size - 1,
+        )
+
+        data = b""
+
+        async for chunk in response.aiter_bytes(chunk_size=min(size, self.chunk_size)):
+            data += chunk
+
+            if len(data) >= size:
+                break
+
+        self.bytes_transferred += len(data)
+
+        await self._cache_chunk(start, data[:size])
+
+        return data
+
+    async def _prepare_response(
+        self, start: int, *, end: int | None = None
+    ) -> httpx.Response:
         """Establish a streaming connection starting at the given byte offset."""
 
         headers = httpx.Headers(
@@ -267,7 +451,7 @@ class MediaStream:
         )
 
         try:
-            target_url = await self._attempt_range_preflight_checks(headers)
+            await self._attempt_range_preflight_checks(headers)
         except Exception as e:
             log.error(f"Preflight checks failed for {self.path}: {e}")
             raise
@@ -277,7 +461,7 @@ class MediaStream:
 
         for attempt in range(max_attempts):
             try:
-                request = httpx.Request("GET", url=target_url, headers=headers)
+                request = httpx.Request("GET", url=self.target_url, headers=headers)
                 response = await self.async_client.send(request, stream=True)
 
                 response.raise_for_status()
@@ -297,14 +481,7 @@ class MediaStream:
                     )
                     raise pyfuse3.FUSEError(errno.EIO)
 
-                log.debug(
-                    f"Stream connection established for {self.path} from byte {start}"
-                )
-
-                self.target_url = target_url
-                self.is_connected = True
-
-                return response, response.aiter_raw(self.chunk_size)
+                return response
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
@@ -339,7 +516,11 @@ class MediaStream:
                     # Other unexpected status codes
                     log.warning(f"Unexpected HTTP {status_code}: path={self.path}")
                     raise pyfuse3.FUSEError(errno.EIO) from e
-            except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
+            except (
+                httpx.TimeoutException,
+                httpx.ConnectError,
+                httpx.InvalidURL,
+            ) as e:
                 log.debug(
                     f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): path={self.path} error={type(e).__name__}"
                 )
@@ -347,11 +528,10 @@ class MediaStream:
                 if attempt == 0:
                     # On first exception, try refreshing the URL in case it's a connectivity issue
                     fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url, self.path, target_url
+                        self._refresh_download_url
                     )
 
-                    if fresh_url is not None:
-                        target_url = fresh_url
+                    if fresh_url:
                         log.warning(f"URL refresh after timeout: path={self.path}")
 
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
@@ -376,131 +556,6 @@ class MediaStream:
 
         raise pyfuse3.FUSEError(errno.EIO)
 
-    async def seek(self, position: int) -> None:
-        await self.close()
-
-        self.response, self.iterator = await self.connect(
-            start=position,
-        )
-        self.current_read_position = position
-
-    async def fetch_footer(self) -> bytes:
-        """Fetch footer data for media files that store metadata at the end."""
-
-        response, _ = await self.connect(
-            start=self.file_size - self.footer_size,
-            end=self.file_size - 1,
-        )
-
-        data = await response.aread()
-
-        self.bytes_transferred += len(data)
-
-        await self._cache_chunk(self.file_size - self.footer_size, data)
-
-        return data
-
-    async def read_bytes(self, start: int, end: int) -> bytes:
-        """Read a specific number of bytes from the stream."""
-
-        # Chunk boundaries for the start position
-        left_chunk_start, left_chunk_end = self._get_chunk_range(start)
-
-        # Chunk boundaries for the end position
-        right_chunk_start, _ = self._get_chunk_range(end)
-
-        # A cross-chunk request is when the start and end positions span multiple chunks.
-        # Usually this means the left chunk will have cached data, and the right chunk will need to be fetched.
-        is_cross_chunk_request = left_chunk_end < right_chunk_start
-
-        request_length = end - start + 1
-
-        # Check to see if a previous request contains cached or stashed data
-        cached_bytes = (
-            await trio.to_thread.run_sync(
-                lambda: self.vfs.cache.get(
-                    cache_key=self.original_filename,
-                    start=start,
-                    end=left_chunk_end,
-                )
-            )
-            if is_cross_chunk_request
-            else b""
-        )
-
-        # If a non-playback request (e.g. seeking) lands mid-chunk,
-        # we need to skip the first X bytes to get to the requested position.
-        # If we have cached bytes, we don't need this, as we stitch the cached and fetched data together
-        # and slice the stitched data by the request length
-        chunk_offset = start - left_chunk_start if not cached_bytes else 0
-
-        stashed_bytes = self.get_stashed_bytes(start, self.current_read_position - 1)
-        cached_or_stashed_bytes = cached_bytes or stashed_bytes
-
-        if start + len(cached_or_stashed_bytes) < self.current_read_position:
-            log.warning(
-                f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
-            )
-            await self.seek(start)
-
-        data = b""
-
-        try:
-            # Get the chunk-aligned start for caching based on the stream's current read position
-            cache_chunk_start, _ = self._get_chunk_range(self.current_read_position)
-
-            async for chunk in self.iterator:
-                data += chunk
-
-                if len(data) >= request_length:
-                    break
-
-            self.bytes_transferred += len(data)
-
-            # Chop off any extraneous bytes beyond the chunk size
-            extra_bytes = data[self.chunk_size :]
-
-            if extra_bytes:
-                log.trace(
-                    f"Read excess data for {self.path}, stashing extra bytes for the next request."
-                )
-
-                self.stash_bytes(
-                    self.current_read_position - len(extra_bytes),
-                    extra_bytes,
-                )
-
-                data = data[: self.chunk_size]
-
-            await self._cache_chunk(cache_chunk_start, data)
-
-            self.current_read_position += len(data)
-
-            stitched_data = cached_or_stashed_bytes + data
-
-            return stitched_data[chunk_offset : chunk_offset + request_length]
-        except Exception as e:
-            log.error(f"Error reading bytes from stream for {self.path}: {e}")
-            raise pyfuse3.FUSEError(errno.EIO) from e
-
-    def get_stashed_bytes(self, start: int, end: int) -> bytes:
-        """Get bytes from the stash if available."""
-        return self.byte_stash[start : end + 1]
-
-    def stash_bytes(self, start: int, data: bytes) -> None:
-        """Stash overfetched bytes at the specified start index. Used when the stream reads more than requested."""
-        self.byte_stash[start:] = data
-
-    async def close(self) -> None:
-        """Close the active stream."""
-        await self.response.aclose()
-
-        self.is_connected = False
-
-        log.debug(
-            f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
-        )
-
     def _calculate_chunk_size(self) -> int:
         # Calculate chunk size based on bitrate and target duration
         # Aim for approximately 2 seconds worth of data per chunk
@@ -524,7 +579,10 @@ class MediaStream:
     def _get_chunk_range(self, position: int) -> tuple[int, int]:
         """Get the chunk-aligned byte range for the given byte position."""
 
-        chunk_start = (position // self.chunk_size) * self.chunk_size
+        chunk_start = max(
+            ((position + self.header_size) // self.chunk_size) * self.chunk_size,
+            self.header_size,
+        )
         chunk_end = min(chunk_start + self.chunk_size - 1, self.file_size - 1)
 
         return chunk_start, chunk_end
@@ -533,6 +591,11 @@ class MediaStream:
         await trio.to_thread.run_sync(
             lambda: self.vfs.cache.put(self.original_filename, start, data)
         )
+
+    def _calculate_header_size(self) -> int:
+        max_header_size = 1024 * 64  # Maximum header size of 64kB
+
+        return min(max_header_size, self.chunk_size)
 
     def _calculate_footer_size(self) -> int:
         # Use a percentage-based approach for requesting the footer
@@ -545,40 +608,38 @@ class MediaStream:
 
         return min(max(percentage_size, min_footer_size), max_footer_size)
 
-    def _refresh_download_url(
-        self,
-        original_filename: str,
-        target_url: str,
-    ) -> str | None:
+    def _refresh_download_url(self) -> bool:
         """
         Refresh download URL by unrestricting from provider.
 
         Updates the database with the fresh URL.
 
-        Args:
-            original_filename: Original filename from debrid provider
-            target_url: Current URL that failed
-
         Returns:
-            Fresh URL if successfully refreshed, None otherwise
+            True if successfully refreshed, False otherwise
         """
         # Query database by original_filename and force unrestrict
         entry_info = self.vfs.db.get_entry_by_original_filename(
-            original_filename, for_http=True, force_resolve=True
+            original_filename=self.original_filename,
+            for_http=True,
+            force_resolve=True,
         )
 
         if entry_info:
             fresh_url = entry_info.get("url")
-            if fresh_url and fresh_url != target_url:
-                log.debug(f"Refreshed URL for {original_filename}")
-                return fresh_url
 
-        return None
+            if fresh_url and fresh_url != self.target_url:
+                log.debug(f"Refreshed URL for {self.original_filename}")
+
+                self.target_url = fresh_url
+
+                return True
+
+        return False
 
     async def _attempt_range_preflight_checks(
         self,
         headers: httpx.Headers,
-    ) -> str:
+    ) -> None:
         """
         Attempts to verify that the server will honour range requests by requesting the HEAD of the media URL.
 
@@ -609,16 +670,16 @@ class MediaStream:
             log.error(f"No entry info for {self.original_filename}")
             raise pyfuse3.FUSEError(errno.ENOENT)
 
-        target_url = entry_info["url"]
+        self.target_url = entry_info["url"]
 
-        if not target_url:
+        if not self.target_url:
             log.error(f"No URL for {self.original_filename}")
             raise pyfuse3.FUSEError(errno.ENOENT)
 
         for preflight_attempt in range(max_preflight_attempts):
             try:
                 preflight_response = await self.async_client.head(
-                    url=target_url,
+                    url=self.target_url,
                     headers=headers,
                     follow_redirects=True,
                 )
@@ -628,7 +689,7 @@ class MediaStream:
 
                 if preflight_status_code == HTTPStatus.PARTIAL_CONTENT:
                     # Preflight passed, proceed to actual request
-                    return target_url
+                    return
                 elif preflight_status_code == HTTPStatus.OK:
                     # Server refused range request. Serving this request would return the full media file,
                     # which eats downloader bandwidth usage unnecessarily. Wait and retry.
@@ -649,7 +710,9 @@ class MediaStream:
                 )
 
                 if await self._retry_with_backoff(
-                    preflight_attempt, max_preflight_attempts, backoffs
+                    preflight_attempt,
+                    max_preflight_attempts,
+                    backoffs,
                 ):
                     continue
 
@@ -665,14 +728,13 @@ class MediaStream:
                     # File can't be found at this URL; try refreshing the URL once
                     if preflight_attempt == 0:
                         fresh_url = await trio.to_thread.run_sync(
-                            self._refresh_download_url, self.path, target_url
+                            self._refresh_download_url
                         )
 
-                        if fresh_url is not None:
+                        if fresh_url:
                             log.warning(
                                 f"URL refresh after HTTP {preflight_status_code}: path={self.path}"
                             )
-                            target_url = fresh_url
 
                             if await self._retry_with_backoff(
                                 preflight_attempt, max_preflight_attempts, backoffs
@@ -694,11 +756,10 @@ class MediaStream:
                 if preflight_attempt == 0:
                     # On first exception, try refreshing the URL in case it's a connectivity issue
                     fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url, self.path, target_url
+                        self._refresh_download_url
                     )
 
-                    if fresh_url is not None:
-                        target_url = fresh_url
+                    if fresh_url:
                         log.warning(f"URL refresh after timeout: path={self.path}")
 
                 if await self._retry_with_backoff(
@@ -2064,7 +2125,6 @@ class RivenVFS(pyfuse3.Operations):
             raise
 
     async def read(self, fh: pyfuse3.FileHandleT, off: int, size: int) -> bytes:
-        log.debug(f"read: fh={fh} off={off} size={size}")
         """
         Read data from file at offset.
 
@@ -2166,13 +2226,13 @@ class RivenVFS(pyfuse3.Operations):
             # Calculate request and aligned chunk boundaries (use inclusive end)
             request_start = off
             request_end = min(off + size - 1, file_size - 1)
+            request_size = request_end - request_start + 1
 
             if request_end < request_start:
                 return b""
 
             stream = await self._get_stream(
                 path=path,
-                start=request_start,
                 fh=fh,
                 file_size=file_size,
                 original_filename=original_filename,
@@ -2180,43 +2240,55 @@ class RivenVFS(pyfuse3.Operations):
                 duration=handle_info["duration"],
             )
 
-            log.debug(f"Acquired stream lock: {stream.lock.statistics()}")
-
             async with stream.lock:
-                log.debug(f"Read request: path={path} fh={fh} off={off} size={size} ")
+                log.debug(
+                    f"Read request: path={path} fh={fh} request_start={request_start} request_end={request_end} size={request_size}"
+                )
 
                 # Try cache first for the exact request (cache handles chunk lookup and slicing)
                 # Use cache_key to share cache between all paths pointing to same file
                 cached_bytes = await trio.to_thread.run_sync(
                     lambda: self.cache.get(
-                        original_filename,
-                        request_start,
-                        request_end,
+                        cache_key=stream.cache_key,
+                        start=request_start,
+                        end=request_end,
                     )
                 )
 
                 if cached_bytes:
                     returned_data = cached_bytes
                 else:
+                    is_header_scan = (
+                        handle_info["last_read_start"] == 0
+                        and 0 <= off <= stream.header_size
+                    )
+
                     is_footer_scan = (
                         handle_info["last_read_start"] <= stream.chunk_size
                         and file_size - (stream.footer_size) <= off <= file_size
                     )
 
-                    if is_footer_scan:
-                        returned_data = await stream.fetch_footer()
+                    if is_header_scan:
+                        returned_data = await stream.fetch_header(
+                            read_position=request_start,
+                            size=request_size,
+                        )
+                    elif is_footer_scan:
+                        returned_data = await stream.fetch_footer(
+                            read_position=request_start,
+                            size=request_size,
+                        )
                     else:
+                        if not hasattr(stream, "response"):
+                            await stream.connect(request_start)
+
                         returned_data = await stream.read_bytes(
                             start=request_start,
                             end=request_end,
                         )
 
                 # Data integrity check: ensure we return exactly the requested size
-                # The expected_size is already correctly calculated as request_end - request_start + 1
-                # which accounts for file size clamping done earlier
-                expected_size = request_end - request_start + 1
-
-                returned_data = returned_data[:expected_size]
+                returned_data = returned_data[:request_size]
 
                 # Reads don't always *technically* come in exactly sequentially.
                 # They may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4), so allow for some tolerance.
@@ -2234,17 +2306,13 @@ class RivenVFS(pyfuse3.Operations):
                 handle_info["last_read_start"] = off
                 handle_info["last_read_end"] = off + len(returned_data)
 
-                if len(returned_data) < expected_size:
+                if len(returned_data) < request_size:
                     log.error(
-                        f"Read returned too little data: got {len(returned_data)} bytes, expected {expected_size}"
+                        f"Read returned too little data for {request_start}-{request_end}: got {len(returned_data)} bytes, expected {request_size}"
                     )
 
                     # For media playback, returning partial data is worse than returning empty
                     returned_data = b""
-
-                log.debug(
-                    f"Returning {len(returned_data)} bytes for read: path={path} fh={fh} off={off} size={size}"
-                )
 
                 return returned_data
         except pyfuse3.FUSEError:
@@ -2369,7 +2437,6 @@ class RivenVFS(pyfuse3.Operations):
     async def _get_stream(
         self,
         path: str,
-        start: int,
         fh: pyfuse3.FileHandleT,
         file_size: int,
         original_filename: str,
@@ -2398,22 +2465,11 @@ class RivenVFS(pyfuse3.Operations):
                     fh=fh,
                     file_size=file_size,
                     path=path,
-                    start=start,
                     original_filename=original_filename,
                     bitrate=bitrate,
                     duration=duration,
                 )
 
                 self._active_streams[stream_key] = stream
-
-            try:
-                async with stream.lock:
-                    stream.response, stream.iterator = await stream.connect(
-                        # Connect is aligned to the current read position to allow for chunk alignment
-                        start=stream.current_read_position,
-                    )
-
-            except:
-                raise
 
         return self._active_streams[stream_key]
