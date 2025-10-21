@@ -147,6 +147,7 @@ class TMDBIndexer(BaseIndexer):
 
             # Update the Movie object's attributes
             movie.title = getattr(movie_details, "title", None)
+            movie.poster_path = getattr(movie_details, "poster_path", None)
             movie.year = (
                 int(movie_details.release_date[:4])
                 if getattr(movie_details, "release_date", None)
@@ -258,6 +259,7 @@ class TMDBIndexer(BaseIndexer):
 
             movie_item = {
                 "title": getattr(movie_details, "title", None),
+                "poster_path": getattr(movie_details, "poster_path", None),
                 "year": (
                     int(movie_details.release_date[:4])
                     if getattr(movie_details, "release_date", None)

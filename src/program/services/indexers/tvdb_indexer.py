@@ -148,6 +148,7 @@ class TVDBIndexer(BaseIndexer):
 
             # Get title (with translation if needed)
             title = show_data.name
+            poster_path = show_data.image
             if (
                 hasattr(show_data, "originalLanguage")
                 and show_data.originalLanguage != "eng"
@@ -202,6 +203,7 @@ class TVDBIndexer(BaseIndexer):
 
             # Update the Show object's attributes
             show.title = title
+            show.poster_path = poster_path
             show.year = (
                 int(show_data.firstAired.split("-")[0])
                 if show_data.firstAired
@@ -313,6 +315,7 @@ class TVDBIndexer(BaseIndexer):
             aliases.setdefault("eng", []).append(slug.title())
 
             title = show_data.name
+            poster_path = show_data.image
             if (
                 hasattr(show_data, "originalLanguage")
                 and show_data.originalLanguage != "eng"
@@ -371,6 +374,7 @@ class TVDBIndexer(BaseIndexer):
 
             show_item = {
                 "title": title,
+                "poster_path": poster_path,
                 "year": (
                     int(show_data.firstAired.split("-")[0])
                     if show_data.firstAired
