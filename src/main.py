@@ -9,9 +9,9 @@ from kink import di
 import uvicorn
 from dotenv import load_dotenv
 
-from program.db.db import db
-
 load_dotenv()  # import required here to support SETTINGS_FILENAME
+
+from program.db.db import db # noqa
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
