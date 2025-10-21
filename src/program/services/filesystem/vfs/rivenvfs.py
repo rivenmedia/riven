@@ -172,40 +172,6 @@ class FileHandle(TypedDict):
     subtitle_content: bytes | None
 
 
-class SparseByteArray:
-    """A sparse byte array that allows setting and getting bytes at arbitrary indices."""
-
-    data: dict[int, int]
-
-    def __init__(self) -> None:
-        self.data = {}
-        self.max_index = 0
-
-    def __setitem__(self, key: slice[int, int | None, None], value: bytes) -> None:
-        # Handle slice assignment
-        start = key.start
-        stop = key.stop or key.start + len(value) - 1
-
-        # Write each byte at the appropriate index
-        for i, byte in enumerate(value):
-            if start + i <= stop:  # Only write within the slice bounds
-                self.data[start + i] = byte
-                self.max_index = max(self.max_index, start + i)
-
-    def __getitem__(self, key: slice[int, int, None]) -> bytes:
-        start = key.start
-        stop = key.stop or (self.max_index + 1)
-
-        result = bytearray()
-
-        for i in range(start, stop):
-            byte = self.data.get(i)
-            if byte is not None:
-                result.append(byte)
-
-        return result
-
-
 class ChunkRange:
     def __init__(
         self,
@@ -220,18 +186,23 @@ class ChunkRange:
         self.chunk_size = chunk_size
         self.header_size = header_size
 
-        # Calculate first chunk range
-        first_chunk_index = position // chunk_size
+        # Calculate position relative to content start (excluding header)
+        content_position = max(0, position - header_size)
 
-        self.first_chunk_start = first_chunk_index * chunk_size + header_size
+        # Calculate first chunk range based on content position
+        first_chunk_index = content_position // chunk_size
+
+        self.first_chunk_start = header_size + (first_chunk_index * chunk_size)
         self.first_chunk_end = self.first_chunk_start + chunk_size - 1
 
         # Calculate request end position
         request_end = position + size - 1 if size else self.first_chunk_end
 
-        # Calculate last chunk range
-        last_chunk_index = request_end // chunk_size
-        self.last_chunk_start = last_chunk_index * chunk_size + header_size
+        # Calculate last chunk range based on content position
+        content_request_end = max(0, request_end - header_size)
+
+        last_chunk_index = content_request_end // chunk_size
+        self.last_chunk_start = header_size + (last_chunk_index * chunk_size)
         self.last_chunk_end = self.last_chunk_start + chunk_size - 1
 
         # Calculate the chunks required to satisfy this range
@@ -243,18 +214,17 @@ class ChunkRange:
         self.bytes_required = self.chunks_required * chunk_size
 
         # Determine the slice to be used when selecting bytes from the stream data,
-        # ignoring the header size, as this is a discrete chunk, separate from the stream
-        slice_left = (
-            self.bytes_required - (self.bytes_required - position) - header_size
-        )
-        slice_right = slice_left + size
+        # The slice should be relative to the content start within the fetched chunk data
+        content_offset_in_chunk = content_position % chunk_size
+        slice_left = content_offset_in_chunk
+        slice_right = slice_left + size if size else chunk_size
 
-        self.chunk_slice = slice(slice_left, slice_right)
+        self.chunk_slice = slice(slice_left, slice_right, 1)
 
     def __repr__(self) -> str:
         return (
             "ChunkRange("
-            f"position={self.position}, "
+            f"range=[{self.position}-{self.position + self.size}], "
             f"size={self.size}, "
             f"first_chunk=[{self.first_chunk_start}-{self.first_chunk_end}], "
             f"last_chunk=[{self.last_chunk_start}-{self.last_chunk_end}], "
@@ -288,7 +258,6 @@ class MediaStream:
         self.lock = trio.Lock()
         self.vfs = vfs
         self.fh = fh
-        self.byte_stash = SparseByteArray()
         self.file_size = file_size
         self.path = path
         self.bitrate = bitrate
@@ -362,50 +331,42 @@ class MediaStream:
         """Read a specific number of bytes from the stream."""
 
         # Chunk boundaries for the request
-        chunk_range = self._get_chunk_range(position=start, size=end - start)
+        chunk_range = self._get_chunk_range(
+            position=start,
+            size=end - start + 1,
+        )
 
         # A cross-chunk request is when the start and end positions span multiple chunks.
-        # Usually this means the left chunk will have cached data, and the right chunk will need to be fetched.
+        # Usually this means the left chunk will be cached, and the right chunk will be streamed.
+        # However, in some cases (e.g. seeks), the previous chunk may not be cached.
+        # When a stream is connected, it is automatically aligned to the nearest chunk start.
         is_cross_chunk_request = chunk_range.chunks_required > 1
 
-        request_length = end - start + 1
-
-        # Check to see if a previous request contains cached or stashed data
-        cached_bytes = (
+        # Check to see if a previous request contains cached bytes
+        data = (
             await trio.to_thread.run_sync(
                 lambda: self.vfs.cache.get(
                     cache_key=self.original_filename,
-                    start=start,
-                    end=chunk_range.first_chunk_start,
+                    start=chunk_range.first_chunk_start,
+                    end=chunk_range.first_chunk_end,
                 )
             )
             if is_cross_chunk_request
             else b""
         )
 
-        if cached_bytes:
-            log.trace(f"Cached bytes length: {len(cached_bytes)} for {self.path}")
+        if data:
+            log.trace(
+                f"Cached bytes length: {len(data)} for {self.path} [fh {self.fh}]"
+            )
 
-        # If a non-playback request (e.g. seeking) lands mid-chunk,
-        # we need to skip the first X bytes to get to the requested position.
-        # If we have cached bytes, we don't need this, as we stitch the cached and fetched data together
-        # and slice the stitched data by the request length
-        chunk_offset = start - chunk_range.first_chunk_end - len(cached_bytes)
+        log.trace(f"chunk_range={chunk_range}, data_length={len(data)} for {self.path}")
 
-        stashed_bytes = self.get_stashed_bytes(start, self.current_read_position)
-        cached_or_stashed_bytes = cached_bytes or stashed_bytes
-
-        log.trace(
-            f"chunk_range={chunk_range}, chunk_offset={chunk_offset}, cached_or_stashed_bytes_length={len(cached_or_stashed_bytes)} for {self.path}"
-        )
-
-        if start + len(cached_or_stashed_bytes) < self.current_read_position:
+        if start + len(data) < self.current_read_position:
             log.warning(
                 f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
             )
             await self.seek(start)
-
-        data = b""
 
         try:
             # Get the chunk-aligned start for caching based on the stream's current read position
@@ -421,41 +382,14 @@ class MediaStream:
 
             self.bytes_transferred += len(data)
 
-            # Chop off any extraneous bytes beyond the chunk size
-            extra_bytes = data[self.chunk_size :]
-
-            if extra_bytes:
-                log.trace(
-                    f"Read excess data for {self.path}, stashing extra bytes for the next request."
-                )
-
-                self.stash_bytes(
-                    self.current_read_position - len(extra_bytes),
-                    extra_bytes,
-                )
-
-                data = data[: self.chunk_size]
-
             await self._cache_chunk(cache_chunk_start, data)
 
             self.current_read_position += len(data)
 
-            stitched_data = cached_or_stashed_bytes + data
-
-            return stitched_data[chunk_offset : chunk_offset + request_length]
+            return data[chunk_range.chunk_slice]
         except Exception as e:
             log.error(f"Error reading bytes from stream for {self.path}: {e}")
             raise pyfuse3.FUSEError(errno.EIO) from e
-
-    def get_stashed_bytes(self, start: int, end: int) -> bytes:
-        """Get bytes from the stash if available."""
-
-        return self.byte_stash[start:end]
-
-    def stash_bytes(self, start: int, data: bytes) -> None:
-        """Stash overfetched bytes at the specified start index. Used when the stream reads more than requested."""
-
-        self.byte_stash[start:] = data
 
     async def close(self) -> None:
         """Close the active stream."""
@@ -650,7 +584,7 @@ class MediaStream:
         )
 
     def _calculate_header_size(self) -> int:
-        max_header_size = 1024 * 64  # Maximum header size of 64kB
+        max_header_size = 1024 * 128  # Maximum header size of 128kB
 
         return min(max_header_size, self.chunk_size)
 
@@ -2344,8 +2278,11 @@ class RivenVFS(pyfuse3.Operations):
                             end=request_end,
                         )
 
-                # Data integrity check: ensure we return exactly the requested size
-                returned_data = returned_data[:request_size]
+                if len(returned_data) != request_size:
+                    log.error(
+                        f"Data length mismatch for {request_start}-{request_end}: got {len(returned_data)} bytes, expected {request_size}"
+                    )
+                    return b""
 
                 # Reads don't always *technically* come in exactly sequentially.
                 # They may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4), so allow for some tolerance.
@@ -2362,14 +2299,6 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 handle_info["last_read_start"] = off
                 handle_info["last_read_end"] = off + len(returned_data)
-
-                if len(returned_data) < request_size:
-                    log.error(
-                        f"Read returned too little data for {request_start}-{request_end}: got {len(returned_data)} bytes, expected {request_size}"
-                    )
-
-                    # For media playback, returning partial data is worse than returning empty
-                    returned_data = b""
 
                 return returned_data
         except pyfuse3.FUSEError:
