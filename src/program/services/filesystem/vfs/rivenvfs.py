@@ -48,7 +48,6 @@ from typing import (
     Optional,
     Set,
     TypedDict,
-    Literal,
 )
 
 import threading
@@ -207,6 +206,67 @@ class SparseByteArray:
         return result
 
 
+class ChunkRange:
+    def __init__(
+        self,
+        position: int,
+        *,
+        chunk_size: int,
+        header_size: int,
+        size: int,
+    ) -> None:
+        self.position = position
+        self.size = size
+        self.chunk_size = chunk_size
+        self.header_size = header_size
+
+        # Calculate first chunk range
+        first_chunk_index = position // chunk_size
+
+        self.first_chunk_start = first_chunk_index * chunk_size + header_size
+        self.first_chunk_end = self.first_chunk_start + chunk_size - 1
+
+        # Calculate request end position
+        request_end = position + size - 1 if size else self.first_chunk_end
+
+        # Calculate last chunk range
+        last_chunk_index = request_end // chunk_size
+        self.last_chunk_start = last_chunk_index * chunk_size + header_size
+        self.last_chunk_end = self.last_chunk_start + chunk_size - 1
+
+        # Calculate the chunks required to satisfy this range
+        self.chunks_required = (
+            (last_chunk_index or first_chunk_index) - first_chunk_index + 1
+        )
+
+        # Calculate the bytes required to satisfy this range (a request may span multiple chunks)
+        self.bytes_required = self.chunks_required * chunk_size
+
+        # Determine the slice to be used when selecting bytes from the stream data,
+        # ignoring the header size, as this is a discrete chunk, separate from the stream
+        slice_left = (
+            self.bytes_required - (self.bytes_required - position) - header_size
+        )
+        slice_right = slice_left + size
+
+        self.chunk_slice = slice(slice_left, slice_right)
+
+    def __repr__(self) -> str:
+        return (
+            "ChunkRange("
+            f"position={self.position}, "
+            f"size={self.size}, "
+            f"first_chunk=[{self.first_chunk_start}-{self.first_chunk_end}], "
+            f"last_chunk=[{self.last_chunk_start}-{self.last_chunk_end}], "
+            f"chunks_required={self.chunks_required}, "
+            f"bytes_required={self.bytes_required}, "
+            f"chunk_slice={self.chunk_slice}, "
+            f"header_size={self.header_size}, "
+            f"chunk_size={self.chunk_size}"
+            ")"
+        )
+
+
 class MediaStream:
     """Represents an active streaming session for a file."""
 
@@ -253,7 +313,8 @@ class MediaStream:
 
     async def connect(self, start: int) -> None:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
-        chunk_aligned_start, _ = self._get_chunk_range(position=start)
+
+        chunk_aligned_start = self._get_chunk_range(position=start).first_chunk_start
 
         self.response = await self._prepare_response(start=chunk_aligned_start)
         self.iterator = self.response.aiter_bytes(chunk_size=self.chunk_size)
@@ -265,14 +326,17 @@ class MediaStream:
         )
 
     async def seek(self, position: int) -> None:
+        """Seek to a specific byte position in the stream."""
+
         await self.close()
 
-        chunk_aligned_start, _ = self._get_chunk_range(position=position)
+        chunk_aligned_start = self._get_chunk_range(position=position).first_chunk_start
 
         await self.connect(start=chunk_aligned_start)
 
     async def fetch_header(self, read_position: int, size: int) -> bytes:
         """Fetch header data for media files that store metadata at the beginning."""
+
         data = await self._fetch_discrete_byte_range(
             start=0,
             size=self.header_size,
@@ -297,15 +361,12 @@ class MediaStream:
     async def read_bytes(self, start: int, end: int) -> bytes:
         """Read a specific number of bytes from the stream."""
 
-        # Chunk boundaries for the start position
-        left_chunk_start, left_chunk_end = self._get_chunk_range(start)
-
-        # Chunk boundaries for the end position
-        right_chunk_start, _ = self._get_chunk_range(end)
+        # Chunk boundaries for the request
+        chunk_range = self._get_chunk_range(position=start, size=end - start)
 
         # A cross-chunk request is when the start and end positions span multiple chunks.
         # Usually this means the left chunk will have cached data, and the right chunk will need to be fetched.
-        is_cross_chunk_request = left_chunk_start < right_chunk_start
+        is_cross_chunk_request = chunk_range.chunks_required > 1
 
         request_length = end - start + 1
 
@@ -315,7 +376,7 @@ class MediaStream:
                 lambda: self.vfs.cache.get(
                     cache_key=self.original_filename,
                     start=start,
-                    end=left_chunk_end,
+                    end=chunk_range.first_chunk_start,
                 )
             )
             if is_cross_chunk_request
@@ -329,13 +390,13 @@ class MediaStream:
         # we need to skip the first X bytes to get to the requested position.
         # If we have cached bytes, we don't need this, as we stitch the cached and fetched data together
         # and slice the stitched data by the request length
-        chunk_offset = start - left_chunk_start - len(cached_bytes)
+        chunk_offset = start - chunk_range.first_chunk_end - len(cached_bytes)
 
         stashed_bytes = self.get_stashed_bytes(start, self.current_read_position)
         cached_or_stashed_bytes = cached_bytes or stashed_bytes
 
         log.trace(
-            f"left_chunk_start={left_chunk_start}, left_chunk_end={left_chunk_end}, right_chunk_start={right_chunk_start}, is_cross_chunk_request={is_cross_chunk_request}, chunk_offset={chunk_offset}, cached_or_stashed_bytes_length={len(cached_or_stashed_bytes)} for {self.path}"
+            f"chunk_range={chunk_range}, chunk_offset={chunk_offset}, cached_or_stashed_bytes_length={len(cached_or_stashed_bytes)} for {self.path}"
         )
 
         if start + len(cached_or_stashed_bytes) < self.current_read_position:
@@ -348,15 +409,9 @@ class MediaStream:
 
         try:
             # Get the chunk-aligned start for caching based on the stream's current read position
-            cache_chunk_start, _ = self._get_chunk_range(self.current_read_position)
-
-            log.debug(f"Cache chunk range 0 : {self._get_chunk_range(0)}")
-            log.debug(
-                f"Cache chunk range 7371513856 : {self._get_chunk_range(7371513856)}"
-            )
-            log.debug(
-                f"Cache chunk range 7371554816 : {self._get_chunk_range(7371554816)}"
-            )
+            cache_chunk_start = self._get_chunk_range(
+                position=self.current_read_position
+            ).first_chunk_start
 
             async for chunk in self.iterator:
                 data += chunk
@@ -394,14 +449,17 @@ class MediaStream:
 
     def get_stashed_bytes(self, start: int, end: int) -> bytes:
         """Get bytes from the stash if available."""
+
         return self.byte_stash[start:end]
 
     def stash_bytes(self, start: int, data: bytes) -> None:
         """Stash overfetched bytes at the specified start index. Used when the stream reads more than requested."""
+
         self.byte_stash[start:] = data
 
     async def close(self) -> None:
         """Close the active stream."""
+
         await self.response.aclose()
 
         self.is_connected = False
@@ -412,6 +470,7 @@ class MediaStream:
 
     async def _fetch_discrete_byte_range(self, start: int, size: int) -> bytes:
         """Fetch a discrete range of data outside of the main stream. Used for fetching the header/footer."""
+
         if start < 0:
             raise ValueError("Start must be non-negative")
 
@@ -576,16 +635,14 @@ class MediaStream:
             # Fallback to default chunk size if bitrate not available
             return 1024 * 1024  # 1MiB default chunk size
 
-    def _get_chunk_range(self, position: int) -> tuple[int, int]:
-        """Get the chunk-aligned byte range for the given byte position."""
-
-        chunk_start = max(
-            ((position + self.header_size) // self.chunk_size) * self.chunk_size,
-            self.header_size,
+    def _get_chunk_range(self, position: int, size: int = 0) -> ChunkRange:
+        """Get the range of bytes required to fulfill a read at the given position and for the given size, aligned to chunk boundaries."""
+        return ChunkRange(
+            position=position,
+            chunk_size=self.chunk_size,
+            header_size=self.header_size,
+            size=size,
         )
-        chunk_end = min(chunk_start + self.chunk_size - 1, self.file_size - 1)
-
-        return chunk_start, chunk_end
 
     async def _cache_chunk(self, start: int, data: bytes) -> None:
         await trio.to_thread.run_sync(
