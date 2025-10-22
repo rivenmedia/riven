@@ -59,6 +59,7 @@ class MediaStream:
         self.cache_key = original_filename
         self.is_connected = False
         self.response = None
+        self.total_session_connections = 0
 
         # Reads don't always *technically* come in exactly sequentially.
         # They may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4), so allow for some tolerance.
@@ -236,7 +237,8 @@ class MediaStream:
             self.is_connected = False
 
             logger.debug(
-                f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
+                f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB "
+                f"in {self.total_session_connections} connections."
             )
 
     async def _fetch_discrete_byte_range(
@@ -466,6 +468,8 @@ class MediaStream:
                         f"Server returned full content instead of range: path={self.path}"
                     )
                     raise pyfuse3.FUSEError(errno.EIO)
+
+                self.total_session_connections += 1
 
                 return response
             except httpx.HTTPStatusError as e:
