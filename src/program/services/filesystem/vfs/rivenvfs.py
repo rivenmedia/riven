@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Riven Virtual File System (RivenVFS)
 
@@ -30,35 +29,32 @@ Usage:
     # Clean up when done
     vfs.close()
 """
+
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 import os
 import shutil
 import errno
 from dataclasses import dataclass
-from kink import di
 import subprocess
-from http import HTTPStatus
 from typing import (
     TYPE_CHECKING,
-    AsyncIterator,
     Dict,
     List,
     Optional,
-    Set,
     TypedDict,
 )
 
 import threading
 
 from program.services.downloaders import Downloader
-import httpx
 
 import pyfuse3
 import trio
 
 from program.settings.models import FilesystemModel
+from src.program.services.streaming.exceptions import MediaStreamException
+from src.program.services.streaming.media_stream import MediaStream
 from .db import VFSDatabase
 
 from program.utils.logging import logger as log
@@ -170,627 +166,6 @@ class FileHandle(TypedDict):
     bitrate: int | None
     duration: int | None
     subtitle_content: bytes | None
-
-
-class ChunkRange:
-    def __init__(
-        self,
-        position: int,
-        *,
-        chunk_size: int,
-        header_size: int,
-        size: int,
-    ) -> None:
-        self.position = position
-        self.size = size
-        self.chunk_size = chunk_size
-        self.header_size = header_size
-
-        # Calculate position relative to content start (excluding header)
-        content_position = max(0, position - header_size)
-
-        # Calculate first chunk range based on content position
-        first_chunk_index = content_position // chunk_size
-
-        self.first_chunk_start = header_size + (first_chunk_index * chunk_size)
-        self.first_chunk_end = self.first_chunk_start + chunk_size - 1
-
-        # Calculate request end position
-        request_end = position + size - 1 if size else self.first_chunk_end
-
-        # Calculate last chunk range based on content position
-        content_request_end = max(0, request_end - header_size)
-
-        last_chunk_index = content_request_end // chunk_size
-        self.last_chunk_start = header_size + (last_chunk_index * chunk_size)
-        self.last_chunk_end = self.last_chunk_start + chunk_size - 1
-
-        # Calculate the chunks required to satisfy this range
-        self.chunks_required = (
-            (last_chunk_index or first_chunk_index) - first_chunk_index + 1
-        )
-
-        # Calculate the bytes required to satisfy this range (a request may span multiple chunks)
-        self.bytes_required = self.chunks_required * chunk_size
-
-        # Determine the slice to be used when selecting bytes from the stream data,
-        # The slice should be relative to the content start within the fetched chunk data
-        content_offset_in_chunk = content_position % chunk_size
-        slice_left = content_offset_in_chunk
-        slice_right = slice_left + size if size else chunk_size
-
-        self.chunk_slice = slice(slice_left, slice_right, 1)
-
-    def __repr__(self) -> str:
-        return (
-            "ChunkRange("
-            f"range=[{self.position}-{self.position + self.size}], "
-            f"size={self.size}, "
-            f"first_chunk=[{self.first_chunk_start}-{self.first_chunk_end}], "
-            f"last_chunk=[{self.last_chunk_start}-{self.last_chunk_end}], "
-            f"chunks_required={self.chunks_required}, "
-            f"bytes_required={self.bytes_required}, "
-            f"chunk_slice={self.chunk_slice}, "
-            f"header_size={self.header_size}, "
-            f"chunk_size={self.chunk_size}"
-            ")"
-        )
-
-
-class MediaStream:
-    """Represents an active streaming session for a file."""
-
-    response: httpx.Response
-    iterator: AsyncIterator[bytes]
-    target_url: str
-
-    def __init__(
-        self,
-        vfs: RivenVFS,
-        fh: pyfuse3.FileHandleT,
-        file_size: int,
-        path: str,
-        original_filename: str,
-        bitrate: int | None = None,
-        duration: int | None = None,
-    ) -> None:
-        self.bytes_transferred = 0
-        self.lock = trio.Lock()
-        self.vfs = vfs
-        self.fh = fh
-        self.file_size = file_size
-        self.path = path
-        self.bitrate = bitrate
-        self.duration = duration
-        self.chunk_size = self._calculate_chunk_size()
-        self.header_size = self._calculate_header_size()
-        self.footer_size = self._calculate_footer_size()
-        self.original_filename = original_filename
-        self.cache_key = original_filename
-        self.is_connected = False
-
-        log.trace(
-            f"Initialized MediaStream for {self.path} with chunk size {self.chunk_size / 1024} KB. Bitrate={self.bitrate}, Duration={self.duration}"
-        )
-
-        try:
-            self.async_client = di[httpx.AsyncClient]
-        except KeyError:
-            raise RuntimeError(
-                "httpx.AsyncClient not found in dependency injector"
-            ) from None
-
-    async def connect(self, start: int) -> None:
-        """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
-
-        chunk_aligned_start = self._get_chunk_range(position=start).first_chunk_start
-
-        self.response = await self._prepare_response(start=chunk_aligned_start)
-        self.iterator = self.response.aiter_bytes(chunk_size=self.chunk_size)
-        self.is_connected = True
-        self.current_read_position = chunk_aligned_start
-
-        log.debug(
-            f"Stream connection established for {self.path} from byte {chunk_aligned_start}"
-        )
-
-    async def seek(self, position: int) -> None:
-        """Seek to a specific byte position in the stream."""
-
-        await self.close()
-
-        chunk_aligned_start = self._get_chunk_range(position=position).first_chunk_start
-
-        await self.connect(start=chunk_aligned_start)
-
-    async def fetch_header(self, read_position: int, size: int) -> bytes:
-        """Fetch header data for media files that store metadata at the beginning."""
-
-        data = await self._fetch_discrete_byte_range(
-            start=0,
-            size=self.header_size,
-        )
-
-        return data[read_position : read_position + size]
-
-    async def fetch_footer(self, read_position: int, size: int) -> bytes:
-        """Fetch footer data for media files that store metadata at the end."""
-
-        footer_start = self.file_size - self.footer_size
-
-        data = await self._fetch_discrete_byte_range(
-            start=footer_start,
-            size=self.file_size - footer_start,
-        )
-
-        slice_offset = read_position - footer_start
-
-        return data[slice_offset : slice_offset + size]
-
-    async def read_bytes(self, start: int, end: int) -> bytes:
-        """Read a specific number of bytes from the stream."""
-
-        # Chunk boundaries for the request
-        chunk_range = self._get_chunk_range(
-            position=start,
-            size=end - start + 1,
-        )
-
-        # A cross-chunk request is when the start and end positions span multiple chunks.
-        # Usually this means the left chunk will be cached, and the right chunk will be streamed.
-        # However, in some cases (e.g. seeks), the previous chunk may not be cached.
-        # When a stream is connected, it is automatically aligned to the nearest chunk start.
-        is_cross_chunk_request = chunk_range.chunks_required > 1
-
-        # Check to see if a previous request contains cached bytes
-        data = (
-            await trio.to_thread.run_sync(
-                lambda: self.vfs.cache.get(
-                    cache_key=self.original_filename,
-                    start=chunk_range.first_chunk_start,
-                    end=chunk_range.first_chunk_end,
-                )
-            )
-            if is_cross_chunk_request
-            else b""
-        )
-
-        if data:
-            log.trace(
-                f"Cached bytes length: {len(data)} for {self.path} [fh {self.fh}]"
-            )
-
-        log.trace(f"chunk_range={chunk_range}, data_length={len(data)} for {self.path}")
-
-        if start + len(data) < self.current_read_position:
-            log.warning(
-                f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
-            )
-            await self.seek(start)
-
-        try:
-            # Get the chunk-aligned start for caching based on the stream's current read position
-            cache_chunk_start = self._get_chunk_range(
-                position=self.current_read_position
-            ).first_chunk_start
-
-            async for chunk in self.iterator:
-                data += chunk
-
-                if len(data) >= self.chunk_size:
-                    break
-
-            self.bytes_transferred += len(data)
-
-            await self._cache_chunk(cache_chunk_start, data)
-
-            self.current_read_position += len(data)
-
-            return data[chunk_range.chunk_slice]
-        except Exception as e:
-            log.error(f"Error reading bytes from stream for {self.path}: {e}")
-            raise pyfuse3.FUSEError(errno.EIO) from e
-
-    async def close(self) -> None:
-        """Close the active stream."""
-
-        await self.response.aclose()
-
-        self.is_connected = False
-
-        log.debug(
-            f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
-        )
-
-    async def _fetch_discrete_byte_range(self, start: int, size: int) -> bytes:
-        """Fetch a discrete range of data outside of the main stream. Used for fetching the header/footer."""
-
-        if start < 0:
-            raise ValueError("Start must be non-negative")
-
-        if size <= 0:
-            raise ValueError("Size must be positive")
-
-        response = await self._prepare_response(
-            start,
-            end=start + size - 1,
-        )
-
-        data = b""
-
-        async for chunk in response.aiter_bytes(chunk_size=min(size, self.chunk_size)):
-            data += chunk
-
-            if len(data) >= size:
-                break
-
-        self.bytes_transferred += len(data)
-
-        await self._cache_chunk(start, data[:size])
-
-        return data
-
-    async def _prepare_response(
-        self, start: int, *, end: int | None = None
-    ) -> httpx.Response:
-        """Establish a streaming connection starting at the given byte offset."""
-
-        headers = httpx.Headers(
-            {
-                "Accept-Encoding": "identity",
-                "Connection": "keep-alive",
-                "Range": f"bytes={start}-{end or ''}",
-            }
-        )
-
-        try:
-            await self._attempt_range_preflight_checks(headers)
-        except Exception as e:
-            log.error(f"Preflight checks failed for {self.path}: {e}")
-            raise
-
-        max_attempts = 4
-        backoffs = [0.2, 0.5, 1.0]
-
-        for attempt in range(max_attempts):
-            try:
-                request = httpx.Request("GET", url=self.target_url, headers=headers)
-                response = await self.async_client.send(request, stream=True)
-
-                response.raise_for_status()
-
-                content_length = response.headers.get("Content-Length")
-                range_bytes = self.file_size - start
-
-                if (
-                    response.status_code == HTTPStatus.OK
-                    and content_length is not None
-                    and int(content_length) > range_bytes
-                ):
-                    # Server appears to be ignoring range request and returning full content
-                    # This shouldn't happen due to preflight, treat as error
-                    log.warning(
-                        f"Server returned full content instead of range: path={self.path}"
-                    )
-                    raise pyfuse3.FUSEError(errno.EIO)
-
-                return response
-            except httpx.HTTPStatusError as e:
-                status_code = e.response.status_code
-
-                if status_code == HTTPStatus.FORBIDDEN:
-                    # Forbidden - could be rate limiting or auth issue, don't refresh URL
-                    log.debug(
-                        f"HTTP 403 Forbidden: path={self.path} attempt={attempt + 1}"
-                    )
-
-                    if await self._retry_with_backoff(attempt, max_attempts, backoffs):
-                        continue
-
-                    raise pyfuse3.FUSEError(errno.EACCES) from e
-                elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                    # Preflight catches initial not found errors and attempts to refresh the URL
-                    # if it still happens after a real request, don't refresh again and bail out
-                    raise pyfuse3.FUSEError(errno.ENOENT) from e
-                elif status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE:
-                    # Requested range not satisfiable; treat as EOF
-                    raise pyfuse3.FUSEError(errno.EINVAL) from e
-                elif status_code == HTTPStatus.TOO_MANY_REQUESTS:
-                    # Rate limited - back off exponentially, don't refresh URL
-                    log.warning(
-                        f"HTTP 429 Rate Limited: path={self.path} attempt={attempt + 1}"
-                    )
-
-                    if await self._retry_with_backoff(attempt, max_attempts, backoffs):
-                        continue
-
-                    raise pyfuse3.FUSEError(errno.EAGAIN) from e
-                else:
-                    # Other unexpected status codes
-                    log.warning(f"Unexpected HTTP {status_code}: path={self.path}")
-                    raise pyfuse3.FUSEError(errno.EIO) from e
-            except (
-                httpx.TimeoutException,
-                httpx.ConnectError,
-                httpx.InvalidURL,
-            ) as e:
-                log.debug(
-                    f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): path={self.path} error={type(e).__name__}"
-                )
-
-                if attempt == 0:
-                    # On first exception, try refreshing the URL in case it's a connectivity issue
-                    fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url
-                    )
-
-                    if fresh_url:
-                        log.warning(f"URL refresh after timeout: path={self.path}")
-
-                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
-                    continue
-
-                raise pyfuse3.FUSEError(errno.EIO) from e
-            except httpx.RemoteProtocolError as e:
-                # This can happen if the server closes the connection prematurely
-                log.debug(
-                    f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): path={self.path} error={type(e).__name__}"
-                )
-
-                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
-                    continue
-
-                raise pyfuse3.FUSEError(errno.EIO) from e
-            except pyfuse3.FUSEError:
-                raise
-            except Exception:
-                log.exception(f"Unexpected error fetching data block for {self.path}")
-                raise pyfuse3.FUSEError(errno.EIO) from None
-
-        raise pyfuse3.FUSEError(errno.EIO)
-
-    def _calculate_chunk_size(self) -> int:
-        # Calculate chunk size based on bitrate and target duration
-        # Aim for approximately 2 seconds worth of data per chunk
-        target_chunk_duration_seconds = 2
-
-        if self.bitrate:
-            bytes_per_second = self.bitrate // 8  # Convert bits to bytes
-            calculated_chunk_size = (
-                (bytes_per_second // 1024) * 1024 * target_chunk_duration_seconds
-            )
-
-            # Clamp chunk size between 256kB and 5MiB
-            min_chunk_size = 256 * 1024
-            max_chunk_size = 5 * 1024 * 1024
-
-            return max(min(calculated_chunk_size, max_chunk_size), min_chunk_size)
-        else:
-            # Fallback to default chunk size if bitrate not available
-            return 1024 * 1024  # 1MiB default chunk size
-
-    def _get_chunk_range(self, position: int, size: int = 0) -> ChunkRange:
-        """Get the range of bytes required to fulfill a read at the given position and for the given size, aligned to chunk boundaries."""
-        return ChunkRange(
-            position=position,
-            chunk_size=self.chunk_size,
-            header_size=self.header_size,
-            size=size,
-        )
-
-    async def _cache_chunk(self, start: int, data: bytes) -> None:
-        await trio.to_thread.run_sync(
-            lambda: self.vfs.cache.put(self.original_filename, start, data)
-        )
-
-    def _calculate_header_size(self) -> int:
-        max_header_size = 1024 * 128  # Maximum header size of 128kB
-
-        return min(max_header_size, self.chunk_size)
-
-    def _calculate_footer_size(self) -> int:
-        # Use a percentage-based approach for requesting the footer
-        # using the file size to determine an appropriate range.
-        min_footer_size = 1024 * 16  # Minimum footer size of 16KB
-        max_footer_size = self.chunk_size * 2  # Maximum footer size of 2MB
-        footer_percentage = 0.002  # 0.2% of file size
-
-        percentage_size = int(self.file_size * footer_percentage)
-
-        return min(max(percentage_size, min_footer_size), max_footer_size)
-
-    def _refresh_download_url(self) -> bool:
-        """
-        Refresh download URL by unrestricting from provider.
-
-        Updates the database with the fresh URL.
-
-        Returns:
-            True if successfully refreshed, False otherwise
-        """
-        # Query database by original_filename and force unrestrict
-        entry_info = self.vfs.db.get_entry_by_original_filename(
-            original_filename=self.original_filename,
-            for_http=True,
-            force_resolve=True,
-        )
-
-        if entry_info:
-            fresh_url = entry_info.get("url")
-
-            if fresh_url and fresh_url != self.target_url:
-                log.debug(f"Refreshed URL for {self.original_filename}")
-
-                self.target_url = fresh_url
-
-                return True
-
-        return False
-
-    async def _attempt_range_preflight_checks(
-        self,
-        headers: httpx.Headers,
-    ) -> None:
-        """
-        Attempts to verify that the server will honour range requests by requesting the HEAD of the media URL.
-
-        Sometimes, the request will return a 200 OK with the full content instead of a 206 Partial Content,
-        even when the server *does* support range requests.
-
-        This wastes bandwidth, and is undesirable for streaming large media files.
-
-        Returns:
-            The effective URL that was successfully used (may differ from input if refreshed).
-        """
-
-        max_preflight_attempts = 4
-        backoffs = [0.2, 0.5, 1.0]
-
-        # Get entry info from DB
-        # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
-        # Let the refresh logic handle re-unrestricting on failures
-        entry_info = await trio.to_thread.run_sync(
-            lambda: self.vfs.db.get_entry_by_original_filename(
-                self.original_filename,
-                True,  # for_http (use unrestricted URL if available)
-                False,  # force_resolve (don't unrestrict if already have unrestricted URL)
-            )
-        )
-
-        if not entry_info:
-            log.error(f"No entry info for {self.original_filename}")
-            raise pyfuse3.FUSEError(errno.ENOENT)
-
-        self.target_url = entry_info["url"]
-
-        if not self.target_url:
-            log.error(f"No URL for {self.original_filename}")
-            raise pyfuse3.FUSEError(errno.ENOENT)
-
-        for preflight_attempt in range(max_preflight_attempts):
-            try:
-                preflight_response = await self.async_client.head(
-                    url=self.target_url,
-                    headers=headers,
-                    follow_redirects=True,
-                )
-                preflight_response.raise_for_status()
-
-                preflight_status_code = preflight_response.status_code
-
-                if preflight_status_code == HTTPStatus.PARTIAL_CONTENT:
-                    # Preflight passed, proceed to actual request
-                    return
-                elif preflight_status_code == HTTPStatus.OK:
-                    # Server refused range request. Serving this request would return the full media file,
-                    # which eats downloader bandwidth usage unnecessarily. Wait and retry.
-                    log.warning(
-                        f"Server doesn't support range requests yet: path={self.path}"
-                    )
-
-                    if await self._retry_with_backoff(
-                        preflight_attempt, max_preflight_attempts, backoffs
-                    ):
-                        continue
-
-                    # Unable to get range support after retries
-                    raise pyfuse3.FUSEError(errno.EIO)
-            except httpx.RemoteProtocolError as e:
-                log.debug(
-                    f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={self.path} error={type(e).__name__}"
-                )
-
-                if await self._retry_with_backoff(
-                    preflight_attempt,
-                    max_preflight_attempts,
-                    backoffs,
-                ):
-                    continue
-
-                raise pyfuse3.FUSEError(errno.EIO) from e
-            except httpx.HTTPStatusError as e:
-                preflight_status_code = e.response.status_code
-
-                log.debug(
-                    f"Preflight HTTP error {preflight_status_code}: path={self.path}"
-                )
-
-                if preflight_status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                    # File can't be found at this URL; try refreshing the URL once
-                    if preflight_attempt == 0:
-                        fresh_url = await trio.to_thread.run_sync(
-                            self._refresh_download_url
-                        )
-
-                        if fresh_url:
-                            log.warning(
-                                f"URL refresh after HTTP {preflight_status_code}: path={self.path}"
-                            )
-
-                            if await self._retry_with_backoff(
-                                preflight_attempt, max_preflight_attempts, backoffs
-                            ):
-                                continue
-                    # No fresh URL or still erroring after refresh
-                    raise pyfuse3.FUSEError(errno.ENOENT) from e
-                else:
-                    # Other unexpected status codes
-                    log.warning(
-                        f"Unexpected preflight HTTP {preflight_status_code}: path={self.path}"
-                    )
-                    raise pyfuse3.FUSEError(errno.EIO) from e
-            except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
-                log.debug(
-                    f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={self.path} error={type(e).__name__}"
-                )
-
-                if preflight_attempt == 0:
-                    # On first exception, try refreshing the URL in case it's a connectivity issue
-                    fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url
-                    )
-
-                    if fresh_url:
-                        log.warning(f"URL refresh after timeout: path={self.path}")
-
-                if await self._retry_with_backoff(
-                    preflight_attempt, max_preflight_attempts, backoffs
-                ):
-                    continue
-
-                raise pyfuse3.FUSEError(errno.EIO) from e
-            except pyfuse3.FUSEError:
-                raise
-            except Exception:
-                log.exception(
-                    f"Unexpected error during preflight checks for {self.path}"
-                )
-
-                if await self._retry_with_backoff(
-                    preflight_attempt, max_preflight_attempts, backoffs
-                ):
-                    continue
-
-                raise pyfuse3.FUSEError(errno.EIO) from None
-        raise pyfuse3.FUSEError(errno.EIO)
-
-    async def _retry_with_backoff(
-        self,
-        attempt: int,
-        max_attempts: int,
-        backoffs: list[float],
-    ) -> bool:
-        """
-        Common retry logic
-
-        Returns:
-            True if should retry, False if max attempts reached
-        """
-        if attempt < max_attempts - 1:
-            await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
-            return True
-
-        return False
 
 
 class RivenVFS(pyfuse3.Operations):
@@ -2250,13 +1625,16 @@ class RivenVFS(pyfuse3.Operations):
                     returned_data = cached_bytes
                 else:
                     is_header_scan = (
-                        handle_info["last_read_start"] == 0
-                        and 0 <= off <= stream.header_size
+                        handle_info["last_read_end"] == 0
+                        and 0 <= request_start <= stream.header_size
                     )
 
                     is_footer_scan = (
-                        handle_info["last_read_start"] <= stream.chunk_size
-                        and file_size - (stream.footer_size) <= off <= file_size
+                        (
+                            handle_info["last_read_end"]
+                            < request_start - stream.sequential_read_tolerance
+                        )
+                        and file_size - stream.footer_size <= request_start <= file_size
                     )
 
                     if is_header_scan:
@@ -2270,7 +1648,7 @@ class RivenVFS(pyfuse3.Operations):
                             size=request_size,
                         )
                     else:
-                        if not hasattr(stream, "response"):
+                        if not stream.response:
                             await stream.connect(request_start)
 
                         returned_data = await stream.read_bytes(
@@ -2278,20 +1656,11 @@ class RivenVFS(pyfuse3.Operations):
                             end=request_end,
                         )
 
-                if len(returned_data) != request_size:
-                    log.error(
-                        f"Data length mismatch for {request_start}-{request_end}: got {len(returned_data)} bytes, expected {request_size}"
-                    )
-                    return b""
-
-                # Reads don't always *technically* come in exactly sequentially.
-                # They may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4), so allow for some tolerance.
-                sequential_read_tolerance = 1024 * 128 * 10
                 is_sequential_read = (
                     off > 0
-                    and handle_info["last_read_end"] - sequential_read_tolerance
+                    and handle_info["last_read_end"] - stream.sequential_read_tolerance
                     <= off
-                    <= handle_info["last_read_end"] + sequential_read_tolerance
+                    <= handle_info["last_read_end"] + stream.sequential_read_tolerance
                 )
 
                 handle_info["sequential_reads"] = (
@@ -2301,6 +1670,11 @@ class RivenVFS(pyfuse3.Operations):
                 handle_info["last_read_end"] = off + len(returned_data)
 
                 return returned_data
+        except MediaStreamException as e:
+            log.error(
+                f"MediaStream error reading {stream.path} fh={fh} off={off} size={size}: {e}"
+            )
+            return b""
         except pyfuse3.FUSEError:
             raise
         except Exception:
@@ -2339,7 +1713,7 @@ class RivenVFS(pyfuse3.Operations):
                             await active_stream.close()
             log.trace(f"release: fh={fh} path={path}")
         except Exception:
-            log.exception(f"release error fh={fh}")
+            log.error(f"release error fh={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def flush(self, fh: int) -> None:
