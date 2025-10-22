@@ -65,5 +65,7 @@ class ReadPositionMismatchError(MediaStreamException):
 class EmptyDataError(MediaStreamException):
     """Raised when no data is returned from a stream read operation."""
 
-    def __init__(self) -> None:
-        super().__init__("No data returned from stream read operation.")
+    def __init__(self, *, range: tuple[int, int]) -> None:
+        super().__init__(
+            f"No data returned from stream read operation for range {range}."
+        )

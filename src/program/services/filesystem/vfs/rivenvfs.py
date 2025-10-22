@@ -1672,7 +1672,7 @@ class RivenVFS(pyfuse3.Operations):
                 return returned_data
         except MediaStreamException as e:
             log.error(
-                f"MediaStream error reading {stream.path} fh={fh} off={off} size={size}: {e}"
+                f"{e.__class__.__name__} error reading {stream.path} fh={fh} off={off} size={size}: {e}"
             )
             return b""
         except pyfuse3.FUSEError:

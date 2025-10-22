@@ -621,11 +621,7 @@ class MediaStream:
         sliced_data = data[chunk_range.chunk_slice]
 
         if sliced_data == b"":
-            logger.error(
-                f"Empty data slice for {self.path} at requested range "
-                f"{chunk_range.request_range}"
-            )
-            raise EmptyDataError
+            raise EmptyDataError(range=chunk_range.request_range)
 
         if len(sliced_data) != chunk_range.size:
             raise ByteLengthMismatchError(

@@ -58,7 +58,7 @@ class ChunkRange:
 
     def __repr__(self) -> str:
         return (
-            "ChunkRange("
+            f"{self.__class__.__name__}("
             f"range={self.request_range}, "
             f"size={self.size}, "
             f"first_chunk={self.first_chunk}, "
