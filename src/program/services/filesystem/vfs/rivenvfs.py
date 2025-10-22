@@ -1538,8 +1538,7 @@ class RivenVFS(pyfuse3.Operations):
                     log.error(f"Malformed subtitle identifier: {original_filename}")
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
-                parent_original_filename = parts[1]
-                language = parts[2]
+                _, parent_original_filename, language = parts
 
                 # Fetch subtitle content from database (subtitles are small, read once)
                 subtitle_content = await trio.to_thread.run_sync(
@@ -1585,6 +1584,7 @@ class RivenVFS(pyfuse3.Operations):
                 original_filename=original_filename,
                 bitrate=handle_info["bitrate"],
                 duration=handle_info["duration"],
+                header_size=header_size,
             )
 
             async with stream.lock:
@@ -1617,17 +1617,45 @@ class RivenVFS(pyfuse3.Operations):
                         and file_size - stream.footer_size <= request_start <= file_size
                     )
 
+                    is_general_scan = (
+                        # This behaviour is seen during scanning
+                        # and captures large jumps in read position
+                        # generally observed when the player is reading the footer
+                        # for cues or metadata after initial playback start.
+                        abs(handle_info["last_read_end"] - request_start)
+                        > stream.scan_tolerance
+                        and request_start != header_size
+                    ) or (
+                        # This behaviour is seen when seeking.
+                        # Playback has already begun, so the header has been served
+                        # for this file, but the scan happens on a new file handle
+                        # and is the first request to be made.
+                        header_size
+                        and handle_info["last_read_end"] == 0
+                    )
+
+                    log.trace(
+                        f"is_header_scan={is_header_scan}, is_footer_scan={is_footer_scan}, is_general_scan={is_general_scan}"
+                    )
+
                     if is_header_scan:
-                        if not header_size:
-                            log.error(f"No header_size for {path}")
-                            raise pyfuse3.FUSEError(errno.EIO)
+                        log.trace("Performing header scan read")
 
                         returned_data = await stream.fetch_header(
                             read_position=request_start,
-                            size=header_size,
+                            size=stream.header_size,
                         )
                     elif is_footer_scan:
+                        log.trace("Performing footer scan read")
+
                         returned_data = await stream.fetch_footer(
+                            read_position=request_start,
+                            size=request_size,
+                        )
+                    elif is_general_scan:
+                        log.trace("Performing general scan read")
+
+                        returned_data = await stream.scan(
                             read_position=request_start,
                             size=request_size,
                         )
@@ -1795,6 +1823,7 @@ class RivenVFS(pyfuse3.Operations):
         fh: pyfuse3.FileHandleT,
         file_size: int,
         original_filename: str,
+        header_size: int | None = None,
         bitrate: int | None = None,
         duration: int | None = None,
     ) -> MediaStream:
@@ -1824,6 +1853,9 @@ class RivenVFS(pyfuse3.Operations):
                     bitrate=bitrate,
                     duration=duration,
                 )
+
+                if header_size:
+                    stream.header_size = header_size
 
                 self._active_streams[stream_key] = stream
 

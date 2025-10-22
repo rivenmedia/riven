@@ -52,6 +52,7 @@ class MediaStream:
         self.path = path
         self.bitrate = bitrate
         self.duration = duration
+        self.scan_tolerance = self._calculate_scan_tolerance()
         self.chunk_size = self._calculate_chunk_size()
         self.footer_size = self._calculate_footer_size()
         self.original_filename = original_filename
@@ -73,6 +74,21 @@ class MediaStream:
             raise RuntimeError(
                 "httpx.AsyncClient not found in dependency injector"
             ) from None
+
+    @property
+    def header_size(self) -> int:
+        if not self._header_size:
+            logger.error(
+                f"Attempting to access header_size before it is set for {self.path}"
+            )
+
+            raise AttributeError("header_size not set") from None
+
+        return self._header_size
+
+    @header_size.setter
+    def header_size(self, value: int) -> None:
+        self._header_size = value
 
     async def connect(self, start: int) -> None:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
@@ -119,6 +135,17 @@ class MediaStream:
         slice_offset = read_position - footer_start
 
         return data[slice_offset : slice_offset + size]
+
+    async def scan(self, read_position: int, size: int) -> bytes:
+        """Fetch extra data for scanning purposes."""
+
+        data = await self._fetch_discrete_byte_range(
+            start=read_position,
+            size=size,
+            should_cache=False,
+        )
+
+        return data[:size]
 
     async def read_bytes(self, start: int, end: int) -> bytes:
         """Read a specific number of bytes from the stream."""
@@ -212,7 +239,13 @@ class MediaStream:
                 f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB"
             )
 
-    async def _fetch_discrete_byte_range(self, start: int, size: int) -> bytes:
+    async def _fetch_discrete_byte_range(
+        self,
+        start: int,
+        size: int,
+        *,
+        should_cache: bool = True,
+    ) -> bytes:
         """Fetch a discrete range of data outside of the main stream. Used for fetching the header/footer."""
 
         if start < 0:
@@ -236,7 +269,10 @@ class MediaStream:
 
         self.bytes_transferred += len(data)
 
-        await self._cache_chunk(start, data[:size])
+        self._verify_scan_integrity((start, start + size), data)
+
+        if should_cache:
+            await self._cache_chunk(start, data[:size])
 
         return data
 
@@ -508,6 +544,12 @@ class MediaStream:
 
         raise pyfuse3.FUSEError(errno.EIO)
 
+    def _calculate_scan_tolerance(self) -> int:
+        percentage_tolerance = self.file_size // 100  # 1% of file size
+        min_tolerance = 1024 * 1024 * 100  # Minimum tolerance of 100MB
+
+        return max(percentage_tolerance, min_tolerance)
+
     def _calculate_chunk_size(self) -> int:
         # Calculate chunk size based on bitrate and target duration
         # Aim for approximately 2 seconds worth of data per chunk
@@ -542,16 +584,11 @@ class MediaStream:
             lambda: self.vfs.cache.put(self.original_filename, start, data)
         )
 
-    def _calculate_header_size(self) -> int:
-        max_header_size = 1024 * 256  # Maximum header size of 256kB
-
-        return min(max_header_size, self.chunk_size)
-
     def _calculate_footer_size(self) -> int:
         # Use a percentage-based approach for requesting the footer
         # using the file size to determine an appropriate range.
         min_footer_size = 1024 * 16  # Minimum footer size of 16KB
-        max_footer_size = self.chunk_size  # Maximum footer size of 1 chunk
+        max_footer_size = self.chunk_size * 2  # Maximum footer size of 1 chunk
         footer_percentage = 0.002  # 0.2% of file size
 
         percentage_size = int(self.file_size * footer_percentage)
@@ -603,6 +640,32 @@ class MediaStream:
             return True
 
         return False
+
+    def _verify_scan_integrity(
+        self,
+        range: tuple[int, int],
+        data: bytes,
+    ) -> None:
+        """
+        Verify the integrity of the data read from the stream for scanning purposes.
+
+        Args:
+            range: The byte range that was requested
+            data: The data read from the stream
+        """
+
+        if data == b"":
+            raise EmptyDataError(range=range)
+
+        start, end = range
+        expected_length = end - start
+
+        if len(data) < expected_length:
+            raise RawByteLengthMismatchException(
+                expected_length=expected_length,
+                actual_length=len(data),
+                range=range,
+            )
 
     def _verify_range_integrity(self, chunk_range: ChunkRange, data: bytes) -> None:
         """
