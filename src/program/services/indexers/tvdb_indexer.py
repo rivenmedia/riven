@@ -457,11 +457,13 @@ class TVDBIndexer(BaseIndexer):
                             if episode_number in existing_episodes:
                                 # Update existing episode with fresh metadata
                                 episode_item = existing_episodes[episode_number]
+                                episode_data.poster_path = season_item.poster_path
                                 self._update_episode_metadata(
                                     episode_item, episode_data
                                 )
                             else:
                                 # Create new episode
+                                episode_data.poster_path = season_item.poster_path
                                 episode_item = self._create_episode_from_data(
                                     episode_data, season_item
                                 )
@@ -566,6 +568,7 @@ class TVDBIndexer(BaseIndexer):
             # Update episode attributes
             episode.tvdb_id = str(episode_data.id)
             episode.title = episode_data.name or f"Episode {episode_data.number}"
+            episode.poster_path = episode_data.poster_path
             episode.aired_at = aired_at
             episode.year = year
             episode.absolute_number = episode_data.absoluteNumber
@@ -598,6 +601,7 @@ class TVDBIndexer(BaseIndexer):
                 "number": episode_number,
                 "tvdb_id": str(episode_data.id),
                 "title": episode_data.name or f"Episode {episode_number}",
+                "poster_path": episode_data.poster_path,
                 "aired_at": aired_at,
                 "year": year,
                 "type": "episode",
