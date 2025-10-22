@@ -941,7 +941,7 @@ class Season(MediaItem):
             "is_anime",
             "rating",
             "content_rating",
-            "poster_path"
+            "poster_path",
         }
 
         # Get the value normally first
@@ -1050,11 +1050,11 @@ class Episode(MediaItem):
             "genres",
             "country",
             "network",
-            "language", 
+            "language",
             "is_anime",
             "rating",
             "content_rating",
-            "poster_path"
+            "poster_path",
         }
 
         # Get the value normally first
@@ -1064,14 +1064,8 @@ class Episode(MediaItem):
         if name in inherited_attrs and not value:
             try:
                 parent = object.__getattribute__(self, "parent")
-                if parent:
-                    season_value = getattr(parent, name, None)
-                    if season_value:
-                        return season_value
-                    
-                    if hasattr(parent, "parent") and parent.parent:
-                        return getattr(parent.parent, name, value)
-                        
+                if parent and hasattr(parent, "parent"):
+                    return getattr(parent.parent, name, value)
             except AttributeError:
                 pass
 
