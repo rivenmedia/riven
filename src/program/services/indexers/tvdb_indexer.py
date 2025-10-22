@@ -429,6 +429,8 @@ class TVDBIndexer(BaseIndexer):
                     if season_number in existing_seasons:
                         # Update existing season with fresh metadata
                         season_item = existing_seasons[season_number]
+                        if season_item.poster_path is None:
+                            season_item.poster_path = show.poster_path
                         self._update_season_metadata(season_item, extended_data)
                     else:
                         # Create new season
@@ -492,7 +494,7 @@ class TVDBIndexer(BaseIndexer):
             poster_path = None
             if hasattr(season_data, "image") and season_data.image:
                 poster_path = season_data.image
-
+                
             # Update season attributes
             season.tvdb_id = str(season_data.id)
             season.title = f"Season {season_data.number}"
@@ -525,6 +527,8 @@ class TVDBIndexer(BaseIndexer):
             poster_path = None
             if hasattr(season_data, "image") and season_data.image:
                 poster_path = season_data.image
+            else:
+                poster_path = show.poster_path
 
             year = None
             if hasattr(season_data, "year") and season_data.year:
