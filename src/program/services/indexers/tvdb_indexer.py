@@ -487,9 +487,14 @@ class TVDBIndexer(BaseIndexer):
             if hasattr(season_data, "year") and season_data.year:
                 year = int(season_data.year)
 
+            poster_path = None
+            if hasattr(season_data, "image") and season_data.image:
+                poster_path = season_data.image
+
             # Update season attributes
             season.tvdb_id = str(season_data.id)
             season.title = f"Season {season_data.number}"
+            season.poster_path = poster_path
             season.aired_at = aired_at
             season.year = year
             # Note: is_anime and other attributes are inherited from show via __getattribute__
@@ -515,6 +520,10 @@ class TVDBIndexer(BaseIndexer):
             except (ValueError, TypeError):
                 pass
 
+            poster_path = None
+            if hasattr(season_data, "image") and season_data.image:
+                poster_path = season_data.image
+
             year = None
             if hasattr(season_data, "year") and season_data.year:
                 year = int(season_data.year)
@@ -523,6 +532,7 @@ class TVDBIndexer(BaseIndexer):
                 "number": season_number,
                 "tvdb_id": str(season_data.id),
                 "title": f"Season {season_number}",
+                "poster_path": poster_path,
                 "aired_at": aired_at,
                 "year": year,
                 "type": "season",

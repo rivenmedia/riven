@@ -941,6 +941,7 @@ class Season(MediaItem):
             "is_anime",
             "rating",
             "content_rating",
+            "poster_path"
         }
 
         # Get the value normally first
@@ -1049,10 +1050,11 @@ class Episode(MediaItem):
             "genres",
             "country",
             "network",
-            "language",
+            "language", 
             "is_anime",
             "rating",
             "content_rating",
+            "poster_path"
         }
 
         # Get the value normally first
