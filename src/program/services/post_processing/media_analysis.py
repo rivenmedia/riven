@@ -137,7 +137,7 @@ class MediaAnalysisService:
         except Exception as e:
             logger.error(f"Failed to analyze media file for {item.log_string}: {e}")
 
-    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> Dict[str, Any]:
+    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> dict[str, Any]:
         """
         Analyze media file with ffprobe.
 
@@ -156,8 +156,11 @@ class MediaAnalysisService:
             media_metadata = parse_media_file(file_path)
             if media_metadata:
                 ffprobe_dict = media_metadata.model_dump(mode="json")
+
                 # Store ffprobe data in filesystem_entry.probed_data
-                item.filesystem_entry.probed_data = ffprobe_dict
+                if item.filesystem_entry:
+                    item.filesystem_entry.probed_data = ffprobe_dict
+
                 logger.debug(f"ffprobe analysis successful for {item.log_string}")
                 return ffprobe_dict
 

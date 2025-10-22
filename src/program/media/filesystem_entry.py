@@ -1,7 +1,7 @@
 """Model for filesystem entries"""
 
 from datetime import datetime, timezone
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 
 import sqlalchemy
@@ -51,14 +51,14 @@ class FilesystemEntry(db.Model):
     )
 
     # Foreign key to MediaItem (many FilesystemEntries can belong to one MediaItem)
-    media_item_id: Mapped[Optional[int]] = mapped_column(
+    media_item_id: Mapped[int | None] = mapped_column(
         sqlalchemy.Integer,
         sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"),
         nullable=True,
     )
 
     # Many-to-one relationship: many FilesystemEntries belong to one MediaItem
-    media_item: Mapped[Optional["MediaItem"]] = relationship(
+    media_item: Mapped["MediaItem | None"] = relationship(
         "MediaItem", back_populates="filesystem_entries", lazy="selectin"
     )
 

@@ -11,10 +11,10 @@ from collections.abc import AsyncIterator
 
 from src.program.services.streaming.chunk_range import ChunkRange
 from src.program.services.streaming.exceptions import (
-    ByteLengthMismatchError,
+    ByteLengthMismatchException,
     EmptyDataError,
-    RawByteLengthMismatchError,
-    ReadPositionMismatchError,
+    RawByteLengthMismatchException,
+    ReadPositionMismatchException,
 )
 
 if TYPE_CHECKING:
@@ -35,6 +35,7 @@ class MediaStream:
 
     def __init__(
         self,
+        *,
         vfs: "RivenVFS",
         fh: pyfuse3.FileHandleT,
         file_size: int,
@@ -52,7 +53,6 @@ class MediaStream:
         self.bitrate = bitrate
         self.duration = duration
         self.chunk_size = self._calculate_chunk_size()
-        self.header_size = self._calculate_header_size()
         self.footer_size = self._calculate_footer_size()
         self.original_filename = original_filename
         self.cache_key = original_filename
@@ -82,7 +82,7 @@ class MediaStream:
         self.response = await self._prepare_response(start=chunk_aligned_start)
         self.iterator = self.response.aiter_bytes(chunk_size=self.chunk_size)
         self.is_connected = True
-        self.current_read_position = chunk_aligned_start
+        self.current_read_position = min(start, chunk_aligned_start)
 
         logger.debug(
             f"Stream connection established for {self.path} from byte {chunk_aligned_start}"
@@ -92,17 +92,16 @@ class MediaStream:
         """Seek to a specific byte position in the stream."""
 
         await self.close()
-
-        chunk_aligned_start, _ = self._get_chunk_range(position=position).first_chunk
-
-        await self.connect(start=chunk_aligned_start)
+        await self.connect(start=position)
 
     async def fetch_header(self, read_position: int, size: int) -> bytes:
         """Fetch header data for media files that store metadata at the beginning."""
 
+        self.header_size = size
+
         data = await self._fetch_discrete_byte_range(
             start=0,
-            size=self.header_size,
+            size=size,
         )
 
         return data[read_position : read_position + size]
@@ -136,18 +135,29 @@ class MediaStream:
         # When a stream is connected, it is automatically aligned to the nearest chunk start.
         is_cross_chunk_request = chunk_range.chunks_required > 1
 
-        # Check to see if a previous request contains cached bytes
-        cached_data = (
-            await trio.to_thread.run_sync(
+        is_within_header = start < self.header_size
+
+        if is_within_header:
+            cached_data = await trio.to_thread.run_sync(
                 lambda: self.vfs.cache.get(
                     cache_key=self.original_filename,
-                    start=chunk_range.first_chunk[0],
-                    end=chunk_range.first_chunk[1],
+                    start=start,
+                    end=self.header_size - 1,
                 )
             )
-            if is_cross_chunk_request
-            else b""
-        )
+        elif is_cross_chunk_request:
+            first_chunk_start, first_chunk_end = chunk_range.first_chunk
+
+            # Check to see if a previous request contains cached bytes
+            cached_data = await trio.to_thread.run_sync(
+                lambda: self.vfs.cache.get(
+                    cache_key=self.original_filename,
+                    start=first_chunk_start,
+                    end=first_chunk_end,
+                )
+            )
+        else:
+            cached_data = b""
 
         if cached_data:
             logger.trace(
@@ -604,7 +614,7 @@ class MediaStream:
         """
 
         if chunk_range.bytes_required != len(data):
-            raise RawByteLengthMismatchError(
+            raise RawByteLengthMismatchException(
                 expected_length=chunk_range.bytes_required,
                 actual_length=len(data),
                 range=chunk_range.request_range,
@@ -613,7 +623,7 @@ class MediaStream:
         _, last_chunk_end = chunk_range.last_chunk
 
         if self.current_read_position != last_chunk_end + 1:
-            raise ReadPositionMismatchError(
+            raise ReadPositionMismatchException(
                 expected_position=last_chunk_end + 1,
                 actual_position=self.current_read_position,
             )
@@ -624,7 +634,7 @@ class MediaStream:
             raise EmptyDataError(range=chunk_range.request_range)
 
         if len(sliced_data) != chunk_range.size:
-            raise ByteLengthMismatchError(
+            raise ByteLengthMismatchException(
                 expected_length=chunk_range.size,
                 actual_length=len(sliced_data),
                 range=chunk_range.request_range,

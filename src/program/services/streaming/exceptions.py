@@ -4,7 +4,7 @@ class MediaStreamException(Exception):
     pass
 
 
-class RawByteLengthMismatchError(MediaStreamException):
+class RawByteLengthMismatchException(MediaStreamException):
     """Raised when the unsliced byte length of a stream does not match the expected length."""
 
     def __init__(
@@ -23,7 +23,7 @@ class RawByteLengthMismatchError(MediaStreamException):
         self.range = range
 
 
-class ByteLengthMismatchError(MediaStreamException):
+class ByteLengthMismatchException(MediaStreamException):
     """Raised when the byte length of a stream does not match the expected length."""
 
     def __init__(
@@ -45,7 +45,7 @@ class ByteLengthMismatchError(MediaStreamException):
         self.slice_range = slice_range
 
 
-class ReadPositionMismatchError(MediaStreamException):
+class ReadPositionMismatchException(MediaStreamException):
     """Raised when the read position in a stream does not match the expected position."""
 
     def __init__(

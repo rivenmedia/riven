@@ -23,7 +23,10 @@ class ChunkRange:
         # Calculate first chunk range based on content position
         first_chunk_index = content_position // chunk_size
 
-        first_chunk_start = header_size + (first_chunk_index * chunk_size)
+        first_chunk_start = min(
+            position,
+            header_size + (first_chunk_index * chunk_size),
+        )
         first_chunk_end = first_chunk_start + chunk_size - 1
 
         self.first_chunk = (first_chunk_start, first_chunk_end)

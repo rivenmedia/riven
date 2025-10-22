@@ -35,13 +35,10 @@ from __future__ import annotations
 import os
 import shutil
 import errno
-from dataclasses import dataclass
 import subprocess
 from typing import (
     TYPE_CHECKING,
-    Dict,
-    List,
-    Optional,
+    Literal,
     TypedDict,
 )
 
@@ -53,6 +50,12 @@ import pyfuse3
 import trio
 
 from program.settings.models import FilesystemModel
+from program.services.filesystem.vfs.vfs_node import (
+    VFSDirectory,
+    VFSFile,
+    VFSNode,
+    VFSRoot,
+)
 from src.program.services.streaming.exceptions import MediaStreamException
 from src.program.services.streaming.media_stream import MediaStream
 from .db import VFSDatabase
@@ -66,98 +69,6 @@ if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
 
 
-@dataclass
-class VFSNode:
-    """
-    Represents a node (file or directory) in the VFS tree.
-
-    This is the core data structure for the in-memory VFS tree, providing
-    O(1) lookups and eliminating the need for path resolution.
-
-    Attributes:
-        name: Name of this node (e.g., "Frozen.mkv" or "movies")
-        is_directory: True if this is a directory, False if it's a file
-        original_filename: Original filename from debrid provider (for files only)
-                          This is used to look up the MediaEntry in the database.
-                          For directories, this is None.
-        inode: FUSE inode number assigned to this node
-        children: Dict of child name -> VFSNode (only for directories)
-        parent: Reference to parent VFSNode (None for root)
-
-        # Cached file metadata (for files only, eliminates DB queries in getattr)
-        file_size: File size in bytes (None for directories)
-        created_at: Creation timestamp as ISO string (None for directories)
-        updated_at: Modification timestamp as ISO string (None for directories)
-        entry_type: Entry type ("media" or "subtitle", None for directories)
-    """
-
-    name: str
-    is_directory: bool
-    original_filename: str | None = None
-    inode: pyfuse3.InodeT | None = None
-    parent: "VFSNode | None" = None
-
-    # Cached metadata for files (eliminates database queries)
-    file_size: int | None = None
-    created_at: str | None = None
-    updated_at: str | None = None
-    entry_type: str | None = None
-    probed_data: dict | None = None
-    parsed_data: dict | None = None
-    bitrate: int | None = None
-    duration: int | None = None
-
-    def __post_init__(self):
-        """Initialize children dict after dataclass init."""
-        if not hasattr(self, "_children"):
-            self._children: dict[str, VFSNode] = {}
-
-    @property
-    def children(self) -> dict[str, "VFSNode"]:
-        """Get children dict."""
-        if not hasattr(self, "_children"):
-            self._children = {}
-        return self._children
-
-    def get_full_path(self) -> str:
-        """Get the full VFS path for this node by walking up to root."""
-        if self.parent is None:
-            return "/"
-
-        parts = []
-        current = self
-        while current.parent is not None:
-            parts.append(current.name)
-            current = current.parent
-
-        if not parts:
-            return "/"
-
-        return "/" + "/".join(reversed(parts))
-
-    def add_child(self, child: "VFSNode") -> None:
-        """Add a child node to this directory."""
-        if not self.is_directory:
-            raise ValueError(f"Cannot add child to non-directory node: {self.name}")
-
-        child.parent = self
-        self.children[child.name] = child
-
-    def remove_child(self, name: str) -> "VFSNode | None":
-        """Remove and return a child node by name."""
-        child = self.children.pop(name, None)
-        if child:
-            child.parent = None
-        return child
-
-    def get_child(self, name: str) -> "VFSNode | None":
-        """Get a child node by name."""
-        return self.children.get(name)
-
-    def __repr__(self) -> str:
-        return f"VFSNode(name={self.name!r}, is_dir={self.is_directory}, inode={self.inode}, children={len(self.children)})"
-
-
 class FileHandle(TypedDict):
     inode: pyfuse3.InodeT
     sequential_reads: int
@@ -166,6 +77,7 @@ class FileHandle(TypedDict):
     bitrate: int | None
     duration: int | None
     subtitle_content: bytes | None
+    has_stream_error: bool
 
 
 class RivenVFS(pyfuse3.Operations):
@@ -245,7 +157,7 @@ class RivenVFS(pyfuse3.Operations):
 
         # VFS Tree: In-memory tree structure for O(1) path lookups
         # This replaces _path_to_inode, _path_aliases, and _dir_tree
-        self._root = VFSNode(name="", is_directory=True, inode=pyfuse3.ROOT_INODE)
+        self._root = VFSRoot()
         self._inode_to_node: dict[int, VFSNode] = {pyfuse3.ROOT_INODE: self._root}
         self._next_inode = pyfuse3.InodeT(pyfuse3.ROOT_INODE + 1)
 
@@ -332,7 +244,7 @@ class RivenVFS(pyfuse3.Operations):
 
     # ========== VFS Tree Helper Methods ==========
 
-    def _get_node_by_path(self, path: str) -> Optional[VFSNode]:
+    def _get_node_by_path(self, path: str) -> VFSNode | None:
         """
         Get a VFSNode by walking the tree from root.
 
@@ -353,14 +265,19 @@ class RivenVFS(pyfuse3.Operations):
         current = self._root
 
         for part in parts:
-            current = current.get_child(part)
+            if isinstance(current, VFSDirectory):
+                current = current.get_child(part)
+
             if current is None:
                 return None
 
         return current
 
     def _get_or_create_node(
-        self, path: str, is_directory: bool, original_filename: Optional[str] = None
+        self,
+        path: str,
+        is_directory: bool,
+        original_filename: str | None = None,
     ) -> VFSNode:
         """
         Get or create a node at the given path, creating parent directories as needed.
@@ -381,32 +298,47 @@ class RivenVFS(pyfuse3.Operations):
         current = self._root
 
         for i, part in enumerate(parts):
-            child = current.get_child(part)
+            if isinstance(current, VFSDirectory):
+                child = current.get_child(part)
 
-            if child is None:
-                # Create the node
-                is_last = i == len(parts) - 1
+                if child is None:
+                    # Create the node
+                    is_last = i == len(parts) - 1
 
-                if is_last:
-                    # This is the target node
-                    child = VFSNode(
-                        name=part,
-                        is_directory=is_directory,
-                        original_filename=original_filename,
-                        inode=self._assign_inode(),
-                    )
-                else:
-                    # This is a parent directory
-                    child = VFSNode(
-                        name=part, is_directory=True, inode=self._assign_inode()
-                    )
+                    if is_last:
+                        if not original_filename:
+                            raise ValueError(
+                                "original_filename must be provided for file nodes"
+                            )
 
-                current.add_child(child)
+                        # This is the target node
+                        if is_directory:
+                            child = VFSDirectory(
+                                name=part,
+                                inode=self._assign_inode(),
+                                parent=current,
+                            )
+                        else:
+                            child = VFSFile(
+                                name=part,
+                                original_filename=original_filename,
+                                inode=self._assign_inode(),
+                                parent=current,
+                            )
+                    else:
+                        # This is a parent directory
+                        child = VFSDirectory(
+                            name=part,
+                            inode=self._assign_inode(),
+                            parent=current,
+                        )
 
-                if child.inode is not None:
-                    self._inode_to_node[child.inode] = child
+                    current.add_child(child)
 
-            current = child
+                    if child.inode is not None:
+                        self._inode_to_node[child.inode] = child
+
+                current = child
 
         return current
 
@@ -424,11 +356,12 @@ class RivenVFS(pyfuse3.Operations):
             return False  # Can't remove root
 
         node = self._get_node_by_path(path)
-        if node is None:
+
+        if not node:
             return False
 
         # Remove from parent
-        if node.parent:
+        if isinstance(node.parent, VFSDirectory):
             node.parent.remove_child(node.name)
 
         # Remove from inode map
@@ -436,16 +369,19 @@ class RivenVFS(pyfuse3.Operations):
             self._inode_to_node.pop(node.inode, None)
 
         # Recursively remove all children from inode map
-        self._remove_node_recursive(node)
+        if isinstance(node, VFSDirectory):
+            self._remove_node_recursive(node)
 
         return True
 
-    def _remove_node_recursive(self, node: VFSNode) -> None:
+    def _remove_node_recursive(self, node: VFSDirectory) -> None:
         """Recursively remove all children from inode map."""
         for child in list(node.children.values()):
             if child.inode:
                 self._inode_to_node.pop(child.inode, None)
-            self._remove_node_recursive(child)
+
+            if isinstance(child, VFSDirectory):
+                self._remove_node_recursive(child)
 
     def _assign_inode(self) -> pyfuse3.InodeT:
         """Assign a new inode number."""
@@ -453,7 +389,7 @@ class RivenVFS(pyfuse3.Operations):
         self._next_inode = pyfuse3.InodeT(inode + 1)
         return inode
 
-    def _get_parent_inodes(self, node: VFSNode) -> List[pyfuse3.InodeT]:
+    def _get_parent_inodes(self, node: VFSNode) -> list[pyfuse3.InodeT]:
         """
         Get all parent inodes from node up to root.
 
@@ -766,7 +702,7 @@ class RivenVFS(pyfuse3.Operations):
         log.debug("Clearing VFS tree for rebuild")
         with self._tree_lock:
             # Create new root node
-            self._root = VFSNode(name="", is_directory=True, inode=pyfuse3.ROOT_INODE)
+            self._root = VFSRoot()
             self._inode_to_node = {pyfuse3.ROOT_INODE: self._root}
             # Keep inode counter to avoid reusing inodes
             # self._next_inode is preserved
@@ -881,7 +817,9 @@ class RivenVFS(pyfuse3.Operations):
         log.debug(f"Individual sync complete for item {item.id}")
 
     def _register_filesystem_entry(
-        self, entry: FilesystemEntry, video_paths: Optional[list[str]] = None
+        self,
+        entry: FilesystemEntry,
+        video_paths: list[str] | None = None,
     ) -> list[str]:
         """
         Register a FilesystemEntry (MediaEntry or SubtitleEntry) in the VFS.
@@ -907,12 +845,8 @@ class RivenVFS(pyfuse3.Operations):
                     clean_path=path,
                     original_filename=entry.original_filename,
                     file_size=entry.file_size,
-                    created_at=(
-                        entry.created_at.isoformat() if entry.created_at else None
-                    ),
-                    updated_at=(
-                        entry.updated_at.isoformat() if entry.updated_at else None
-                    ),
+                    created_at=(entry.created_at.isoformat()),
+                    updated_at=(entry.updated_at.isoformat()),
                     bitrate=entry.probed_data["bitrate"] if entry.probed_data else None,
                     duration=(
                         entry.probed_data["duration"] if entry.probed_data else None
@@ -945,12 +879,8 @@ class RivenVFS(pyfuse3.Operations):
                     clean_path=subtitle_path,
                     original_filename=f"subtitle:{entry.parent_original_filename}:{language}",
                     file_size=entry.file_size,
-                    created_at=(
-                        entry.created_at.isoformat() if entry.created_at else None
-                    ),
-                    updated_at=(
-                        entry.updated_at.isoformat() if entry.updated_at else None
-                    ),
+                    created_at=(entry.created_at.isoformat()),
+                    updated_at=(entry.updated_at.isoformat()),
                     bitrate=entry.bitrate,
                     duration=entry.duration,
                     entry_type="subtitle",
@@ -1028,11 +958,11 @@ class RivenVFS(pyfuse3.Operations):
         clean_path: str,
         original_filename: str,
         file_size: int,
-        created_at: str | None,
-        updated_at: str | None,
+        created_at: str,
+        updated_at: str,
         bitrate: int | None = None,
         duration: int | None = None,
-        entry_type: str = "media",
+        entry_type: Literal["media", "subtitle"] = "media",
     ) -> bool:
         """
         Register a clean VFS path with original_filename mapping.
@@ -1053,16 +983,19 @@ class RivenVFS(pyfuse3.Operations):
 
             # Create node in tree
             node = self._get_or_create_node(
-                path=clean_path, is_directory=False, original_filename=original_filename
+                path=clean_path,
+                is_directory=False,
+                original_filename=original_filename,
             )
 
-            # Populate metadata in node
-            node.file_size = file_size
-            node.created_at = created_at
-            node.updated_at = updated_at
-            node.entry_type = entry_type
-            node.bitrate = bitrate
-            node.duration = duration
+            if isinstance(node, VFSFile):
+                # Populate metadata in node
+                node.file_size = file_size
+                node.created_at = created_at
+                node.updated_at = updated_at
+                node.entry_type = entry_type
+                node.bitrate = bitrate
+                node.duration = duration
 
             # Get parent inodes for invalidation (collect for batching)
             parent_inodes = self._get_parent_inodes(node)
@@ -1094,10 +1027,12 @@ class RivenVFS(pyfuse3.Operations):
 
             # Remove the file node
             parent = node.parent
-            if not parent:
+
+            if not parent or not isinstance(parent, VFSDirectory):
                 return False
 
             parent.remove_child(node.name)
+
             if node.inode in self._inode_to_node:
                 del self._inode_to_node[node.inode]
 
@@ -1146,7 +1081,7 @@ class RivenVFS(pyfuse3.Operations):
             return "/"
         return "/".join(path.rstrip("/").split("/")[:-1]) or "/"
 
-    def _list_directory_cached(self, path: str) -> list[Dict]:
+    def _list_directory_cached(self, path: str) -> list[dict]:
         """
         List directory contents using VFS tree for O(1) lookups.
 
@@ -1159,13 +1094,18 @@ class RivenVFS(pyfuse3.Operations):
         with self._tree_lock:
             # Get node from tree
             node = self._get_node_by_path(path)
-            if node is None or not node.is_directory:
+            if node is None or not isinstance(node, VFSDirectory):
                 return []
 
             # Build result list from node's children - no database queries!
             children = []
             for name, child in node.children.items():
-                children.append({"name": name, "is_directory": child.is_directory})
+                children.append(
+                    {
+                        "name": name,
+                        "is_directory": isinstance(child, VFSDirectory),
+                    }
+                )
 
             return children
 
@@ -1173,9 +1113,11 @@ class RivenVFS(pyfuse3.Operations):
         """Get path from inode number using the VFS tree."""
         with self._tree_lock:
             node = self._inode_to_node.get(inode)
+
             if node is None:
                 raise pyfuse3.FUSEError(errno.ENOENT)
-            return node.get_full_path()
+
+            return node.path
 
     @staticmethod
     def _current_time_ns() -> int:
@@ -1188,7 +1130,7 @@ class RivenVFS(pyfuse3.Operations):
         self,
         parent_path: str,
         entry_name: str,
-        deleted_inode: Optional[pyfuse3.InodeT] = None,
+        deleted_inode: pyfuse3.InodeT | None = None,
         operation: str = "modify",
     ) -> None:
         """
@@ -1252,7 +1194,9 @@ class RivenVFS(pyfuse3.Operations):
         # Invalidate the immediate parent directory entry
         immediate_parent = self._get_parent_path(file_path)
         self._invalidate_entry(
-            immediate_parent, os.path.basename(file_path), operation="add"
+            immediate_parent,
+            os.path.basename(file_path),
+            operation="add",
         )
 
         # Invalidate any newly created parent directories
@@ -1296,7 +1240,7 @@ class RivenVFS(pyfuse3.Operations):
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
             # Check if it's a directory
-            if node.is_directory:
+            if isinstance(node, VFSDirectory):
                 # This is a virtual directory (e.g., /kids, /anime, /movies)
                 attrs.st_mode = pyfuse3.ModeT(stat.S_IFDIR | 0o755)
                 attrs.st_nlink = 2
@@ -1309,6 +1253,12 @@ class RivenVFS(pyfuse3.Operations):
 
             # It's a file - use cached metadata from node (NO DATABASE QUERY!)
             # Metadata was populated during sync()
+
+            if not isinstance(node, VFSFile):
+                log.error(
+                    f"Node type mismatch for inode={inode} path={path}. Expected VFSFile, got {type(node).__name__}"
+                )
+                raise pyfuse3.FUSEError(errno.ENOENT)
 
             # Parse timestamps from cached metadata
             if node.created_at:
@@ -1356,7 +1306,10 @@ class RivenVFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def lookup(
-        self, parent_inode: pyfuse3.InodeT, name: bytes, ctx=None
+        self,
+        parent_inode: pyfuse3.InodeT,
+        name: bytes,
+        ctx=None,
     ) -> pyfuse3.EntryAttributes:
         """Look up a directory entry using VFS tree."""
         try:
@@ -1365,6 +1318,9 @@ class RivenVFS(pyfuse3.Operations):
                 parent_node = self._inode_to_node.get(parent_inode)
                 if parent_node is None:
                     raise pyfuse3.FUSEError(errno.ENOENT)
+
+                if not isinstance(parent_node, VFSDirectory):
+                    raise pyfuse3.FUSEError(errno.ENOTDIR)
 
                 name_str = name.decode("utf-8")
 
@@ -1403,7 +1359,7 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
                 # Check if it's a directory
-                if not node.is_directory:
+                if not isinstance(node, VFSDirectory):
                     raise pyfuse3.FUSEError(errno.ENOTDIR)
 
             return inode  # Return the inode as file handle for directories
@@ -1432,16 +1388,21 @@ class RivenVFS(pyfuse3.Operations):
 
                 for entry in entries:
                     name_bytes = entry["name"].encode("utf-8")
+
                     # Get child node from tree
-                    child_node = node.get_child(entry["name"]) if node else None
-                    if child_node and child_node.inode:
-                        items.append((name_bytes, child_node.inode))
+                    if isinstance(node, VFSDirectory):
+                        child_node = node.get_child(entry["name"])
+
+                        if child_node and child_node.inode:
+                            items.append((name_bytes, child_node.inode))
 
             # Send directory entries starting from offset
             for idx in range(off, len(items)):
                 name_bytes, child_ino = items[idx]
+
                 if child_ino:
                     attrs = await self.getattr(child_ino)
+
                 if not pyfuse3.readdir_reply(
                     token, pyfuse3.FileNameT(name_bytes), attrs, idx + 1
                 ):
@@ -1458,12 +1419,14 @@ class RivenVFS(pyfuse3.Operations):
             with self._tree_lock:
                 # Get node from tree and verify it's a file
                 node = self._inode_to_node.get(inode)
-                if node is None or node.is_directory:
-                    raise pyfuse3.FUSEError(
-                        errno.EISDIR if node and node.is_directory else errno.ENOENT
-                    )
 
-                path = node.get_full_path()
+                if node is None:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+
+                if not isinstance(node, VFSFile):
+                    raise pyfuse3.FUSEError(errno.EISDIR)
+
+                path = node.path
 
             log.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
@@ -1481,6 +1444,7 @@ class RivenVFS(pyfuse3.Operations):
                 "last_read_start": 0,
                 "last_read_end": 0,
                 "subtitle_content": None,
+                "has_stream_error": False,
                 "bitrate": node.bitrate,
                 "duration": node.duration,
             }
@@ -1517,8 +1481,12 @@ class RivenVFS(pyfuse3.Operations):
                 pass
 
             handle_info = self._file_handles.get(fh)
+
             if not handle_info:
                 raise pyfuse3.FUSEError(errno.EBADF)
+
+            if handle_info["has_stream_error"]:
+                raise pyfuse3.FUSEError(errno.ECONNABORTED)
 
             # Resolve node from inode to get current metadata
             inode = handle_info.get("inode")
@@ -1528,18 +1496,27 @@ class RivenVFS(pyfuse3.Operations):
 
             with self._tree_lock:
                 node = self._inode_to_node.get(inode)
-                if not node or node.is_directory:
-                    raise pyfuse3.FUSEError(
-                        errno.EISDIR if node and node.is_directory else errno.ENOENT
-                    )
 
-                path = node.get_full_path()
+                if not node:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+
+                if not isinstance(node, VFSFile):
+                    raise pyfuse3.FUSEError(errno.EISDIR)
+
                 file_size = node.file_size
-                entry_type = node.entry_type
-                original_filename = node.original_filename
 
                 if file_size is None:
                     raise pyfuse3.FUSEError(errno.EIO)
+
+                path = node.path
+                entry_type = node.entry_type
+                original_filename = node.original_filename
+
+                # Cache the header size for media files from first read
+                if entry_type == "media" and off == 0 and node.header_size is None:
+                    node.header_size = size
+
+                header_size = node.header_size
 
             if size == 0:
                 return b""
@@ -1556,6 +1533,7 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
                 parts = original_filename.split(":", 2)
+
                 if len(parts) != 3:
                     log.error(f"Malformed subtitle identifier: {original_filename}")
                     raise pyfuse3.FUSEError(errno.ENOENT)
@@ -1566,9 +1544,11 @@ class RivenVFS(pyfuse3.Operations):
                 # Fetch subtitle content from database (subtitles are small, read once)
                 subtitle_content = await trio.to_thread.run_sync(
                     lambda: self.db.get_subtitle_content(
-                        parent_original_filename, language
+                        parent_original_filename,
+                        language,
                     )
                 )
+
                 if subtitle_content is None:
                     log.error(
                         f"Subtitle content not found for {parent_original_filename} ({language})"
@@ -1589,9 +1569,10 @@ class RivenVFS(pyfuse3.Operations):
                 log.error(f"No original_filename for {path}")
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
-            # Calculate request and aligned chunk boundaries (use inclusive end)
-            request_start = off
-            request_end = min(off + size - 1, file_size - 1)
+            # Calculate request range
+            request_range = (off, min(off + size - 1, file_size - 1))
+
+            request_start, request_end = request_range
             request_size = request_end - request_start + 1
 
             if request_end < request_start:
@@ -1625,8 +1606,7 @@ class RivenVFS(pyfuse3.Operations):
                     returned_data = cached_bytes
                 else:
                     is_header_scan = (
-                        handle_info["last_read_end"] == 0
-                        and 0 <= request_start <= stream.header_size
+                        handle_info["last_read_end"] == 0 and request_start == 0
                     )
 
                     is_footer_scan = (
@@ -1638,9 +1618,13 @@ class RivenVFS(pyfuse3.Operations):
                     )
 
                     if is_header_scan:
+                        if not header_size:
+                            log.error(f"No header_size for {path}")
+                            raise pyfuse3.FUSEError(errno.EIO)
+
                         returned_data = await stream.fetch_header(
                             read_position=request_start,
-                            size=request_size,
+                            size=header_size,
                         )
                     elif is_footer_scan:
                         returned_data = await stream.fetch_footer(
@@ -1674,6 +1658,17 @@ class RivenVFS(pyfuse3.Operations):
             log.error(
                 f"{e.__class__.__name__} error reading {stream.path} fh={fh} off={off} size={size}: {e}"
             )
+
+            handle_info = self._file_handles.get(fh)
+
+            if handle_info:
+                # On media stream errors, something extremely bad happened during the streaming process
+                # which broke the integrity of the bytes being served to the client.
+                # This usually leads to playback issues, player hangs, and overall glitchiness.
+                #
+                # Mark that this handle has encountered a fatal stream error so that it can be killed.
+                handle_info["has_stream_error"] = True
+
             return b""
         except pyfuse3.FUSEError:
             raise
@@ -1694,7 +1689,7 @@ class RivenVFS(pyfuse3.Operations):
                     with self._tree_lock:
                         node = self._inode_to_node.get(inode)
                         if node:
-                            path = node.get_full_path()
+                            path = node.path
 
                 # Clean up per-path state if no other handles are using this path
                 if path:
