@@ -1064,8 +1064,14 @@ class Episode(MediaItem):
         if name in inherited_attrs and not value:
             try:
                 parent = object.__getattribute__(self, "parent")
-                if parent and hasattr(parent, "parent"):
-                    return getattr(parent.parent, name, value)
+                if parent:
+                    season_value = getattr(parent, name, None)
+                    if season_value:
+                        return season_value
+                    
+                    if hasattr(parent, "parent") and parent.parent:
+                        return getattr(parent.parent, name, value)
+                        
             except AttributeError:
                 pass
 
