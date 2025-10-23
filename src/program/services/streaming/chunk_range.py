@@ -69,9 +69,13 @@ class ChunkRange:
         """The list of chunks needed for the request."""
 
         start, end = self.request_range
+
+        content_request_start = max(0, start - self.header_size)
         content_request_end = max(0, end - self.header_size)
 
-        lower_chunk_index = (start + self.cached_bytes_size) // self.chunk_size
+        lower_chunk_index = (
+            content_request_start + self.cached_bytes_size
+        ) // self.chunk_size
         upper_chunk_index = (
             content_request_end + self.cached_bytes_size
         ) // self.chunk_size

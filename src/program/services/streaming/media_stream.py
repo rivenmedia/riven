@@ -51,7 +51,7 @@ class MediaStream:
         path: str,
         original_filename: str,
         bitrate: int | None = None,
-        duration: int | None = None,
+        duration: float | None = None,
         header_size: int | None = None,
     ) -> None:
         self.bytes_transferred = 0

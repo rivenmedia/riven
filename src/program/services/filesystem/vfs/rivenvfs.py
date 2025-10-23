@@ -75,7 +75,7 @@ class FileHandle(TypedDict):
     last_read_start: int
     last_read_end: int
     bitrate: int | None
-    duration: int | None
+    duration: float | None
     subtitle_content: bytes | None
     has_stream_error: bool
 
@@ -1830,7 +1830,7 @@ class RivenVFS(pyfuse3.Operations):
         original_filename: str,
         header_size: int | None = None,
         bitrate: int | None = None,
-        duration: int | None = None,
+        duration: float | None = None,
     ) -> MediaStream:
         """
         Get the file handle's stream. If no stream exists, initialise it.
