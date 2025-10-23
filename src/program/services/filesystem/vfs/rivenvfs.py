@@ -847,9 +847,15 @@ class RivenVFS(pyfuse3.Operations):
                     file_size=entry.file_size,
                     created_at=(entry.created_at.isoformat()),
                     updated_at=(entry.updated_at.isoformat()),
-                    bitrate=entry.probed_data["bitrate"] if entry.probed_data else None,
+                    bitrate=(
+                        entry.probed_data["bitrate"]
+                        if entry.probed_data and entry.entry_type == "media"
+                        else None
+                    ),
                     duration=(
-                        entry.probed_data["duration"] if entry.probed_data else None
+                        entry.probed_data["duration"]
+                        if entry.probed_data and entry.entry_type == "media"
+                        else None
                     ),
                     entry_type="media",
                 ):
