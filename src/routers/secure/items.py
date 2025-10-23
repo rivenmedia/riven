@@ -49,12 +49,23 @@ router = APIRouter(
 
 
 def handle_ids(ids: str) -> list[int]:
-    id_list = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
-    if not id_list:
+    try:
+        id_list = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+        if not id_list:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided"
+            )
+        return id_list
+    except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid item ID(s) provided",
         )
-    return id_list
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing item ID(s): {str(e)}",
+        ) from e
 
 
 # Convenience helper to mutate an item and update states consistently
