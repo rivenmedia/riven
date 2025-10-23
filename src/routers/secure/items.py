@@ -6,7 +6,7 @@ from typing import Annotated, Callable, List, Literal, Optional, Set, Union
 import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, object_session
 
@@ -164,7 +164,6 @@ async def get_items(
     extended: Annotated[
         bool, Query(description="Include extended item details")
     ] = False,
-    is_anime: Annotated[bool, Query(description="Filter for anime content")] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
 
@@ -186,6 +185,31 @@ async def get_items(
             MediaItem.last_state.in_([s for s in states if isinstance(s, States)])
         )
 
+    # if type:
+    #     media_types: Set[str] = {t.value for t in type}
+
+    #     if MediaTypeEnum.ANIME in type:
+    #         media_types.remove(MediaTypeEnum.ANIME.value)
+
+    #         if not media_types:
+    #             query = query.where(MediaItem.is_anime == True)
+    #         else:
+    #             query = query.where(
+    #                 or_(
+    #                     and_(
+    #                         MediaItem.type.in_(
+    #                             media_types if media_types else ["movie", "show"]
+    #                         ),
+    #                         MediaItem.is_anime == True,
+    #                     ),
+    #                     MediaItem.type.in_(
+    #                         media_types if media_types else ["movie", "show"]
+    #                     ),
+    #                 )
+    #             )
+    #     elif media_types:
+    #         query = query.where(MediaItem.type.in_(media_types))
+
     if type:
         media_types: Set[str] = {t.value for t in type}
 
@@ -196,23 +220,20 @@ async def get_items(
                 query = query.where(MediaItem.is_anime == True)
             else:
                 query = query.where(
-                    or_(
-                        and_(
-                            MediaItem.type.in_(["movie", "show"]),
-                            MediaItem.is_anime == True,
+                    and_(
+                        MediaItem.type.in_(
+                            media_types if media_types else ["movie", "show"]
                         ),
-                        MediaItem.type.in_(media_types),
+                        MediaItem.is_anime == True,
                     )
                 )
+
         elif media_types:
             query = query.where(MediaItem.type.in_(media_types))
 
-    elif is_anime:
-        query = query.where(MediaItem.is_anime == True)
-
-    if sort and not search:
+    if sort:
         # Verify we don't have multiple sorts of the same type
-        sort_types = {}
+        sort_types = set()
         for sort_criterion in sort:
             sort_type = sort_criterion.sort_type
             if sort_type in sort_types:
@@ -220,7 +241,7 @@ async def get_items(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Multiple {sort_type} sort criteria provided. Only one sort per type is allowed.",
                 )
-            sort_types[sort_type] = sort_criterion
+            sort_types.add(sort_type)
 
         for sort_criterion in sort:
             if sort_criterion == SortOrderEnum.TITLE_ASC:
@@ -232,7 +253,7 @@ async def get_items(
             elif sort_criterion == SortOrderEnum.DATE_DESC:
                 query = query.order_by(MediaItem.requested_at.desc())
 
-    elif not search:
+    else:
         query = query.order_by(MediaItem.requested_at.desc())
 
     with db.Session() as session:
