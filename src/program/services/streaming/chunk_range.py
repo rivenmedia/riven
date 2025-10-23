@@ -31,6 +31,8 @@ class ChunkRange:
         self.size = size
         self.chunk_size = chunk_size
         self.header_size = header_size
+        self.request_range = (position, position + size - 1)
+        self.content_position = max(0, position - header_size)
 
     @property
     def cached_bytes_size(self) -> int:
@@ -49,7 +51,6 @@ class ChunkRange:
 
         # Mark cached properties for recalculation
         for attr in [
-            "content_position",
             "bytes_required",
             "first_chunk",
             "last_chunk",
@@ -58,18 +59,6 @@ class ChunkRange:
         ]:
             if hasattr(self, attr):
                 delattr(self, attr)
-
-    @cached_property
-    def request_range(self) -> tuple[int, int]:
-        """The byte range requested from the stream."""
-
-        return (self.position, self.position + self.size - 1)
-
-    @cached_property
-    def content_position(self) -> int:
-        """The position within the content, excluding the header size."""
-
-        return max(0, self.position + self.cached_bytes_size - self.header_size)
 
     @cached_property
     def bytes_required(self) -> int:
@@ -81,11 +70,8 @@ class ChunkRange:
     def first_chunk(self) -> Chunk:
         """The byte range of the first chunk needed for the request."""
 
-        chunk_index = self.content_position // self.chunk_size
-        chunk_start = min(
-            self.position,
-            self.header_size + (chunk_index * self.chunk_size),
-        )
+        chunk_index = self.cache_aware_content_position // self.chunk_size
+        chunk_start = self.header_size + (chunk_index * self.chunk_size)
         chunk_end = chunk_start + self.chunk_size - 1
 
         return Chunk(
@@ -127,11 +113,17 @@ class ChunkRange:
     def chunk_slice(self) -> slice:
         """The slice within the chunk range that corresponds to the requested range."""
 
-        content_offset_in_chunk = self.content_position % self.chunk_size
+        content_offset_in_chunk = self.cache_aware_content_position % self.chunk_size
         slice_left = content_offset_in_chunk
         slice_right = slice_left + self.size
 
         return slice(slice_left, slice_right, 1)
+
+    @property
+    def cache_aware_content_position(self) -> int:
+        """The content position adjusted for cached bytes."""
+
+        return self.content_position + self.cached_bytes_size
 
     @property
     def is_cross_chunk_request(self) -> bool:

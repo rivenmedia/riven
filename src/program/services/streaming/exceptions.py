@@ -14,8 +14,11 @@ class RawByteLengthMismatchException(MediaStreamException):
         actual_length: int,
         range: tuple[int, int],
     ) -> None:
+        difference = expected_length - actual_length
+
         super().__init__(
-            f"Expected raw byte length {expected_length}, but got {actual_length} for request range {range}."
+            f"Expected raw byte length {expected_length}, but got {actual_length} for request range {range}, "
+            f"a difference of {'+' if difference > 0 else '-'}{difference} bytes."
         )
 
         self.expected_length = expected_length
@@ -34,8 +37,11 @@ class ByteLengthMismatchException(MediaStreamException):
         range: tuple[int, int],
         slice_range: slice,
     ) -> None:
+        difference = expected_length - actual_length
+
         super().__init__(
-            f"Expected byte length {expected_length}, but got {actual_length} "
+            f"Expected byte length {expected_length}, but got {actual_length}, "
+            f"a difference of {'+' if difference > 0 else '-'}{difference} bytes."
             f"for request range {range} and slice range ({slice_range.start}, {slice_range.stop})."
         )
 
