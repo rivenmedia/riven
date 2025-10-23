@@ -702,14 +702,15 @@ class MediaStream:
             )
 
         sliced_data = data[chunk_range.chunk_slice]
+        sliced_data_length = len(sliced_data)
 
-        if sliced_data == b"":
+        if sliced_data_length == 0:
             raise EmptyDataError(range=chunk_range.request_range)
 
-        if len(sliced_data) != chunk_range.size:
+        if sliced_data_length != chunk_range.size:
             raise ByteLengthMismatchException(
                 expected_length=chunk_range.size,
-                actual_length=len(sliced_data),
+                actual_length=sliced_data_length,
                 range=chunk_range.request_range,
                 slice_range=chunk_range.chunk_slice,
             )
