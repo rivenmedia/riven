@@ -27,7 +27,7 @@ LABEL name="Riven" \
       url="https://github.com/rivenmedia/riven"
 
 # Install only runtime dependencies
-RUN apk add --no-cache curl libcurl shadow rclone unzip ffmpeg libpq fuse3 libcap libcap-utils
+RUN apk add --no-cache curl libcurl shadow rclone unzip ffmpeg libpq fuse3 libcap libcap-utils postgresql17-client
 
 # Configure FUSE
 RUN sed -i 's/^#\s*user_allow_other/user_allow_other/' /etc/fuse.conf || \
