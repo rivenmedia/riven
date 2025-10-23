@@ -634,7 +634,7 @@ class MediaStream:
     def _get_chunk_range(
         self,
         position: int,
-        size: int = 0,
+        size: int = 1,
     ) -> ChunkRange:
         """Get the range of bytes required to fulfill a read at the given position and for the given size, aligned to chunk boundaries."""
 
