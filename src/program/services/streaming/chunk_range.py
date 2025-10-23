@@ -52,9 +52,7 @@ class ChunkRange:
         # Mark cached properties for recalculation
         for attr in [
             "bytes_required",
-            "first_chunk",
-            "last_chunk",
-            "chunks_required",
+            "chunks",
             "chunk_slice",
         ]:
             if hasattr(self, attr):
@@ -64,50 +62,35 @@ class ChunkRange:
     def bytes_required(self) -> int:
         """The number of bytes required to satisfy this range with chunk-aware boundaries."""
 
-        return self.chunks_required * self.chunk_size
+        return len(self.chunks) * self.chunk_size
 
     @cached_property
-    def first_chunk(self) -> Chunk:
-        """The byte range of the first chunk needed for the request."""
+    def chunks(self) -> list[Chunk]:
+        """The list of chunks needed for the request."""
 
-        chunk_index = self.cache_aware_content_position // self.chunk_size
-        chunk_start = self.header_size + (chunk_index * self.chunk_size)
-        chunk_end = chunk_start + self.chunk_size - 1
+        start, end = self.request_range
+        content_request_end = max(0, end - self.header_size)
 
-        return Chunk(
-            index=chunk_index,
-            start=chunk_start,
-            end=chunk_end,
-        )
+        lower_chunk_index = (start + self.cached_bytes_size) // self.chunk_size
+        upper_chunk_index = (
+            content_request_end + self.cached_bytes_size
+        ) // self.chunk_size
 
-    @cached_property
-    def last_chunk(self) -> Chunk:
-        """The byte range of the last chunk needed for the request."""
+        chunks: list[Chunk] = []
 
-        # Calculate request end position
-        request_end = self.position + self.size - 1
+        for chunk_index in range(lower_chunk_index, upper_chunk_index + 1):
+            chunk_start = self.header_size + (chunk_index * self.chunk_size)
+            chunk_end = chunk_start + self.chunk_size - 1
 
-        # Calculate last chunk range based on content position
-        content_request_end = max(0, request_end - self.header_size)
+            chunks.append(
+                Chunk(
+                    index=chunk_index,
+                    start=chunk_start,
+                    end=chunk_end,
+                )
+            )
 
-        last_chunk_index = content_request_end // self.chunk_size
-        last_chunk_start = self.header_size + (last_chunk_index * self.chunk_size)
-        last_chunk_end = last_chunk_start + self.chunk_size - 1
-
-        return Chunk(
-            index=last_chunk_index,
-            start=last_chunk_start,
-            end=last_chunk_end,
-        )
-
-    @cached_property
-    def chunks_required(self) -> int:
-        """The number of chunks required to satisfy this range."""
-
-        first_chunk_index = self.first_chunk["index"]
-        last_chunk_index = self.last_chunk["index"]
-
-        return last_chunk_index - first_chunk_index + 1
+        return chunks
 
     @cached_property
     def chunk_slice(self) -> slice:
@@ -120,6 +103,18 @@ class ChunkRange:
         return slice(slice_left, slice_right, 1)
 
     @property
+    def first_chunk(self) -> Chunk:
+        """The byte range of the first chunk needed for the request."""
+
+        return self.chunks[0]
+
+    @property
+    def last_chunk(self) -> Chunk:
+        """The byte range of the last chunk needed for the request."""
+
+        return self.chunks[-1]
+
+    @property
     def cache_aware_content_position(self) -> int:
         """The content position adjusted for cached bytes."""
 
@@ -129,7 +124,7 @@ class ChunkRange:
     def is_cross_chunk_request(self) -> bool:
         """Whether the request spans multiple chunks."""
 
-        return self.chunks_required > 1
+        return len(self.chunks) > 1
 
     @property
     def required_new_bytes(self) -> int:
@@ -140,11 +135,10 @@ class ChunkRange:
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
-            f"range={self.request_range}, "
+            f"request_range={self.request_range}, "
             f"size={self.size}, "
-            f"first_chunk={self.first_chunk}, "
-            f"last_chunk={self.last_chunk}, "
-            f"chunks_required={self.chunks_required}, "
+            f"chunks={self.chunks}, "
+            f"chunks_required={len(self.chunks)}, "
             f"bytes_required={self.bytes_required}, "
             f"cached_bytes={self.cached_bytes_size}, "
             f"required_new_bytes={self.required_new_bytes}, "
