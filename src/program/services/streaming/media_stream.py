@@ -285,7 +285,10 @@ class MediaStream:
             )
 
     async def _fetch_discrete_byte_range(
-        self, start: int, size: int, should_cache: bool = True
+        self,
+        start: int,
+        size: int,
+        should_cache: bool = True,
     ) -> bytes:
         """Fetch a discrete range of data outside of the main stream. Used for fetching the header/footer."""
 
@@ -611,7 +614,17 @@ class MediaStream:
             min_chunk_size = 256 * 1024
             max_chunk_size = 5 * 1024 * 1024
 
-            return max(min(calculated_chunk_size, max_chunk_size), min_chunk_size)
+            clamped_chunk_size = max(
+                min(calculated_chunk_size, max_chunk_size),
+                min_chunk_size,
+            )
+
+            # Align chunk size to nearest 128kB boundary, rounded up.
+            # This attempts to avoid cross-chunk reads that require expensive cache lookups.
+            block_size = 1024 * 128
+            aligned_chunk_size = -(clamped_chunk_size // -block_size) * block_size
+
+            return aligned_chunk_size
         else:
             # Fallback to default chunk size if bitrate not available
             return 1024 * 1024  # 1MiB default chunk size

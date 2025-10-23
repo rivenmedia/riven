@@ -1223,7 +1223,7 @@ class RivenVFS(pyfuse3.Operations):
             attrs.attr_timeout = 300
             attrs.st_uid = os.getuid() if hasattr(os, "getuid") else 0
             attrs.st_gid = os.getgid() if hasattr(os, "getgid") else 0
-            attrs.st_blksize = 131072  # Hint larger block size to kernel (128 KiB)
+            attrs.st_blksize = 1024 * 128  # Hint larger block size to kernel (128 KiB)
             attrs.st_blocks = 1
 
             import stat
@@ -1296,7 +1296,7 @@ class RivenVFS(pyfuse3.Operations):
                 updated_ns  # Use mtime for atime to avoid constant updates
             )
 
-            # We already know it's a file from node.is_directory check above
+            # We already know it's a file from the VFSDirectory check above
             attrs.st_mode = pyfuse3.ModeT(stat.S_IFREG | 0o644)
             attrs.st_nlink = 1
             size = int(node.file_size or 0)
