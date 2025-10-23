@@ -136,10 +136,6 @@ class MediaStream:
     async def connect(self, chunk_range: ChunkRange) -> None:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
-        logger.debug(
-            f"first_chunk_start={chunk_range.first_chunk['start']} for {self.path}"
-        )
-
         self.response = await self._prepare_response(
             start=chunk_range.first_chunk["start"]
         )
@@ -231,13 +227,6 @@ class MediaStream:
                     f"Cached bytes length: {len(cached_data)} for {self.path} [fh {self.fh}]"
                 )
 
-                logger.trace(
-                    f"after update: chunk_range={chunk_range}, cached_data_length={len(cached_data)} for {self.path}"
-                )
-
-                logger.debug(
-                    f"after update: first_chunk_start={chunk_range.first_chunk['start']} for {self.path}"
-                )
         else:
             cached_data = b""
 
@@ -265,10 +254,6 @@ class MediaStream:
 
             self.current_read_position += len(chunk)
             self.bytes_transferred += len(chunk)
-
-            logger.debug(
-                f"current_read_position={self.current_read_position} for {self.path}"
-            )
 
             if self.current_read_position >= chunk_range.last_chunk["end"] + 1:
                 break
