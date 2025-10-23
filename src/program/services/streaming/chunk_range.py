@@ -11,14 +11,16 @@ class ChunkRange:
         chunk_size: int,
         header_size: int,
         size: int,
+        cached_bytes: int = 0,
     ) -> None:
         self.request_range = (position, position + size - 1)
         self.size = size
         self.chunk_size = chunk_size
         self.header_size = header_size
+        self.cached_bytes = cached_bytes
 
         # Calculate position relative to content start (excluding header)
-        content_position = max(0, position - header_size)
+        content_position = max(0, position + cached_bytes - header_size)
 
         # Calculate first chunk range based on content position
         first_chunk_index = content_position // chunk_size
@@ -32,7 +34,8 @@ class ChunkRange:
         self.first_chunk = (first_chunk_start, first_chunk_end)
 
         # Calculate request end position
-        request_end = position + size - 1 if size else self.first_chunk[1]
+        _, first_chunk_end = self.first_chunk
+        request_end = position + size - 1 if size else first_chunk_end
 
         # Calculate last chunk range based on content position
         content_request_end = max(0, request_end - header_size)
@@ -59,7 +62,28 @@ class ChunkRange:
 
         self.chunk_slice = slice(slice_left, slice_right, 1)
 
+    def update_cached_bytes(self, cached_bytes: int) -> None:
+        """
+        Update the number of cached bytes and recalculate properties.
+        """
+        self.cached_bytes = cached_bytes
+        self._recalculate()
+
+    def _recalculate(self) -> None:
+        """
+        Recalculate all properties of the ChunkRange.
+        """
+        self.__init__(
+            position=self.request_range[0],
+            chunk_size=self.chunk_size,
+            header_size=self.header_size,
+            size=self.size,
+            cached_bytes=self.cached_bytes,
+        )
+
     def __repr__(self) -> str:
+        required_new_bytes = self.size - self.cached_bytes
+
         return (
             f"{self.__class__.__name__}("
             f"range={self.request_range}, "
@@ -68,6 +92,8 @@ class ChunkRange:
             f"last_chunk={self.last_chunk}, "
             f"chunks_required={self.chunks_required}, "
             f"bytes_required={self.bytes_required}, "
+            f"cached_bytes={self.cached_bytes}, "
+            f"required_new_bytes={required_new_bytes}, "
             f"chunk_slice={self.chunk_slice}, "
             f"header_size={self.header_size}, "
             f"chunk_size={self.chunk_size}"

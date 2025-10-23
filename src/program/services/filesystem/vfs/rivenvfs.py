@@ -1635,20 +1635,22 @@ class RivenVFS(pyfuse3.Operations):
                     )
 
                     log.trace(
-                        f"is_header_scan={is_header_scan}, is_footer_scan={is_footer_scan}, is_general_scan={is_general_scan}"
+                        f"is_header_scan={is_header_scan}, "
+                        f"is_footer_scan={is_footer_scan}, "
+                        f"is_general_scan={is_general_scan}"
                     )
 
                     if is_header_scan:
                         log.trace("Performing header scan read")
 
-                        returned_data = await stream.fetch_header(
+                        returned_data = await stream.scan_header(
                             read_position=request_start,
                             size=stream.header_size,
                         )
                     elif is_footer_scan:
                         log.trace("Performing footer scan read")
 
-                        returned_data = await stream.fetch_footer(
+                        returned_data = await stream.scan_footer(
                             read_position=request_start,
                             size=request_size,
                         )

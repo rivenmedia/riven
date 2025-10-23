@@ -66,7 +66,11 @@ class MediaStream:
         self.sequential_read_tolerance = 1024 * 128 * 10
 
         logger.trace(
-            f"Initialized MediaStream for {self.path} with chunk size {self.chunk_size / 1024} KB. Bitrate={self.bitrate}, Duration={self.duration}"
+            f"Initialized stream for {self.path} "
+            f"with chunk size {self.chunk_size / (1024 * 1024):.2f} MB. "
+            f"bitrate={self.bitrate}, "
+            f"duration={self.duration}, "
+            f"file_size={self.file_size} bytes"
         )
 
         try:
@@ -94,10 +98,11 @@ class MediaStream:
     async def connect(self, start: int) -> None:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
-        chunk_aligned_start, _ = self._get_chunk_range(position=start).first_chunk
+        chunk_range = self._get_chunk_range(position=start)
+        chunk_aligned_start, _ = chunk_range.first_chunk
 
         self.response = await self._prepare_response(start=chunk_aligned_start)
-        self.iterator = self.response.aiter_bytes(chunk_size=self.chunk_size)
+        self.iterator = self.response.aiter_bytes(chunk_size=chunk_range.chunk_size)
         self.is_connected = True
         self.current_read_position = min(start, chunk_aligned_start)
 
@@ -111,7 +116,7 @@ class MediaStream:
         await self.close()
         await self.connect(start=position)
 
-    async def fetch_header(self, read_position: int, size: int) -> bytes:
+    async def scan_header(self, read_position: int, size: int) -> bytes:
         """Fetch header data for media files that store metadata at the beginning."""
 
         self.header_size = size
@@ -123,7 +128,7 @@ class MediaStream:
 
         return data[read_position : read_position + size]
 
-    async def fetch_footer(self, read_position: int, size: int) -> bytes:
+    async def scan_footer(self, read_position: int, size: int) -> bytes:
         """Fetch footer data for media files that store metadata at the end."""
 
         footer_start = self.file_size - self.footer_size
@@ -163,27 +168,26 @@ class MediaStream:
         # When a stream is connected, it is automatically aligned to the nearest chunk start.
         is_cross_chunk_request = chunk_range.chunks_required > 1
 
-        is_within_header = start < self.header_size
+        logger.trace(f"chunk_range={chunk_range} for {self.path}")
 
-        if is_within_header:
-            cached_data = await trio.to_thread.run_sync(
-                lambda: self.vfs.cache.get(
-                    cache_key=self.original_filename,
-                    start=start,
-                    end=self.header_size - 1,
-                )
-            )
-        elif is_cross_chunk_request:
-            first_chunk_start, first_chunk_end = chunk_range.first_chunk
+        if is_cross_chunk_request:
+            _, first_chunk_end = chunk_range.first_chunk
 
             # Check to see if a previous request contains cached bytes
             cached_data = await trio.to_thread.run_sync(
                 lambda: self.vfs.cache.get(
                     cache_key=self.original_filename,
-                    start=first_chunk_start,
+                    start=start,
                     end=first_chunk_end,
                 )
             )
+
+            if cached_data:
+                chunk_range.update_cached_bytes(len(cached_data))
+
+                logger.trace(
+                    f"after update: chunk_range={chunk_range}, cached_data_length={len(cached_data)} for {self.path}"
+                )
         else:
             cached_data = b""
 
@@ -192,13 +196,12 @@ class MediaStream:
                 f"Cached bytes length: {len(cached_data)} for {self.path} [fh {self.fh}]"
             )
 
-        logger.trace(
-            f"chunk_range={chunk_range}, cached_data_length={len(cached_data)} for {self.path}"
-        )
-
         if start + len(cached_data) < self.current_read_position:
             logger.warning(
-                f"Requested start {start} is before current read position {self.current_read_position} for {self.path}. Seeking to new start position."
+                f"Requested start {start} "
+                f"is before current read position {self.current_read_position} "
+                f"for {self.path}. "
+                "Seeking to new start position."
             )
             await self.seek(start)
 
@@ -212,19 +215,20 @@ class MediaStream:
         async for chunk in self.iterator:
             data += chunk
 
-            if len(data) >= self.chunk_size:
+            if len(data) >= chunk_range.bytes_required:
                 break
-
-        self.bytes_transferred += len(data)
 
         await self._cache_chunk(cache_chunk_start, data)
 
-        self.current_read_position += len(data)
+        data_length = len(data)
+
+        self.current_read_position += data_length
+        self.bytes_transferred += data_length
 
         stitched_data = cached_data + data
 
         # Verify the data that was fetched matches what should be returned
-        self._verify_range_integrity(chunk_range=chunk_range, data=stitched_data)
+        self._verify_read_integrity(chunk_range=chunk_range, data=stitched_data)
 
         return stitched_data[chunk_range.chunk_slice]
 
@@ -242,11 +246,7 @@ class MediaStream:
             )
 
     async def _fetch_discrete_byte_range(
-        self,
-        start: int,
-        size: int,
-        *,
-        should_cache: bool = True,
+        self, start: int, size: int, should_cache: bool = True
     ) -> bytes:
         """Fetch a discrete range of data outside of the main stream. Used for fetching the header/footer."""
 
@@ -585,7 +585,11 @@ class MediaStream:
 
     async def _cache_chunk(self, start: int, data: bytes) -> None:
         await trio.to_thread.run_sync(
-            lambda: self.vfs.cache.put(self.original_filename, start, data)
+            lambda: self.vfs.cache.put(
+                self.original_filename,
+                start,
+                data,
+            )
         )
 
     def _calculate_footer_size(self) -> int:
@@ -671,7 +675,7 @@ class MediaStream:
                 range=range,
             )
 
-    def _verify_range_integrity(self, chunk_range: ChunkRange, data: bytes) -> None:
+    def _verify_read_integrity(self, chunk_range: ChunkRange, data: bytes) -> None:
         """
         Verify the integrity of the data read from the stream against the requested chunk range.
 
@@ -680,9 +684,11 @@ class MediaStream:
             data: The data read from the stream
         """
 
-        if chunk_range.bytes_required != len(data):
+        expected_raw_length = chunk_range.bytes_required + chunk_range.cached_bytes
+
+        if expected_raw_length != len(data):
             raise RawByteLengthMismatchException(
-                expected_length=chunk_range.bytes_required,
+                expected_length=expected_raw_length,
                 actual_length=len(data),
                 range=chunk_range.request_range,
             )
