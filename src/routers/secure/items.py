@@ -185,31 +185,6 @@ async def get_items(
             MediaItem.last_state.in_([s for s in states if isinstance(s, States)])
         )
 
-    # if type:
-    #     media_types: Set[str] = {t.value for t in type}
-
-    #     if MediaTypeEnum.ANIME in type:
-    #         media_types.remove(MediaTypeEnum.ANIME.value)
-
-    #         if not media_types:
-    #             query = query.where(MediaItem.is_anime == True)
-    #         else:
-    #             query = query.where(
-    #                 or_(
-    #                     and_(
-    #                         MediaItem.type.in_(
-    #                             media_types if media_types else ["movie", "show"]
-    #                         ),
-    #                         MediaItem.is_anime == True,
-    #                     ),
-    #                     MediaItem.type.in_(
-    #                         media_types if media_types else ["movie", "show"]
-    #                     ),
-    #                 )
-    #             )
-    #     elif media_types:
-    #         query = query.where(MediaItem.type.in_(media_types))
-
     if type:
         media_types: Set[str] = {t.value for t in type}
 
