@@ -1830,14 +1830,16 @@ class RivenVFS(pyfuse3.Operations):
         duration: int | None = None,
     ) -> MediaStream:
         """
-        Get the file handle's stream. If no stream exists, create and connect it.
+        Get the file handle's stream. If no stream exists, initialise it.
 
         Args:
             path: The path to stream.
-            target_url: The URL to stream from.
-            start: The starting byte offset for the stream.
             fh: The file handle associated with the stream.
-
+            file_size: The size of the file to stream.
+            original_filename: The original filename in the backend.
+            header_size: The size of the media file header (if applicable).
+            bitrate: The bitrate of the media file (if applicable).
+            duration: The duration of the media file in seconds (if applicable).
         Returns:
             The MediaStream for the specified path and file handle.
         """
@@ -1845,20 +1847,15 @@ class RivenVFS(pyfuse3.Operations):
 
         if stream_key not in self._active_streams:
             async with self._active_streams_lock:
-                # If it's a new stream, set and connect
-                stream = MediaStream(
+                self._active_streams[stream_key] = MediaStream(
                     vfs=self,
                     fh=fh,
                     file_size=file_size,
                     path=path,
                     original_filename=original_filename,
+                    header_size=header_size,
                     bitrate=bitrate,
                     duration=duration,
                 )
-
-                if header_size:
-                    stream.header_size = header_size
-
-                self._active_streams[stream_key] = stream
 
         return self._active_streams[stream_key]

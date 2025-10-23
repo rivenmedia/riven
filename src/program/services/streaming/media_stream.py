@@ -43,6 +43,7 @@ class MediaStream:
         original_filename: str,
         bitrate: int | None = None,
         duration: int | None = None,
+        header_size: int | None = None,
     ) -> None:
         self.bytes_transferred = 0
         self.lock = trio.Lock()
@@ -60,6 +61,8 @@ class MediaStream:
         self.is_connected = False
         self.response = None
         self.total_session_connections = 0
+
+        self._header_size = header_size
 
         # Reads don't always *technically* come in exactly sequentially.
         # They may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4), so allow for some tolerance.
@@ -91,15 +94,11 @@ class MediaStream:
 
         return self._header_size
 
-    @header_size.setter
-    def header_size(self, value: int) -> None:
-        self._header_size = value
-
     async def connect(self, start: int) -> None:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
         chunk_range = self._get_chunk_range(position=start)
-        chunk_aligned_start, _ = chunk_range.first_chunk
+        chunk_aligned_start = chunk_range.first_chunk["start"]
 
         self.response = await self._prepare_response(start=chunk_aligned_start)
         self.iterator = self.response.aiter_bytes(chunk_size=chunk_range.chunk_size)
@@ -119,7 +118,7 @@ class MediaStream:
     async def scan_header(self, read_position: int, size: int) -> bytes:
         """Fetch header data for media files that store metadata at the beginning."""
 
-        self.header_size = size
+        self._header_size = size
 
         data = await self._fetch_discrete_byte_range(
             start=0,
@@ -166,24 +165,22 @@ class MediaStream:
         # Usually this means the left chunk will be cached, and the right chunk will be streamed.
         # However, in some cases (e.g. seeks), the previous chunk may not be cached.
         # When a stream is connected, it is automatically aligned to the nearest chunk start.
-        is_cross_chunk_request = chunk_range.chunks_required > 1
-
-        logger.trace(f"chunk_range={chunk_range} for {self.path}")
-
-        if is_cross_chunk_request:
-            _, first_chunk_end = chunk_range.first_chunk
-
+        if chunk_range.is_cross_chunk_request:
             # Check to see if a previous request contains cached bytes
             cached_data = await trio.to_thread.run_sync(
                 lambda: self.vfs.cache.get(
                     cache_key=self.original_filename,
                     start=start,
-                    end=first_chunk_end,
+                    end=chunk_range.first_chunk["end"],
                 )
             )
 
             if cached_data:
-                chunk_range.update_cached_bytes(len(cached_data))
+                chunk_range.cached_bytes_size = len(cached_data)
+
+                logger.trace(
+                    f"Cached bytes length: {len(cached_data)} for {self.path} [fh {self.fh}]"
+                )
 
                 logger.trace(
                     f"after update: chunk_range={chunk_range}, cached_data_length={len(cached_data)} for {self.path}"
@@ -191,12 +188,7 @@ class MediaStream:
         else:
             cached_data = b""
 
-        if cached_data:
-            logger.trace(
-                f"Cached bytes length: {len(cached_data)} for {self.path} [fh {self.fh}]"
-            )
-
-        if start + len(cached_data) < self.current_read_position:
+        if start + chunk_range.cached_bytes_size < self.current_read_position:
             logger.warning(
                 f"Requested start {start} "
                 f"is before current read position {self.current_read_position} "
@@ -208,9 +200,9 @@ class MediaStream:
         data = b""
 
         # Get the chunk-aligned start for caching based on the stream's current read position
-        cache_chunk_start, _ = self._get_chunk_range(
-            position=self.current_read_position
-        ).first_chunk
+        cache_chunk_start = (
+            self._get_chunk_range(position=self.current_read_position)
+        ).first_chunk["start"]
 
         async for chunk in self.iterator:
             data += chunk
@@ -574,8 +566,13 @@ class MediaStream:
             # Fallback to default chunk size if bitrate not available
             return 1024 * 1024  # 1MiB default chunk size
 
-    def _get_chunk_range(self, position: int, size: int = 0) -> ChunkRange:
+    def _get_chunk_range(
+        self,
+        position: int,
+        size: int = 0,
+    ) -> ChunkRange:
         """Get the range of bytes required to fulfill a read at the given position and for the given size, aligned to chunk boundaries."""
+
         return ChunkRange(
             position=position,
             chunk_size=self.chunk_size,
@@ -684,7 +681,7 @@ class MediaStream:
             data: The data read from the stream
         """
 
-        expected_raw_length = chunk_range.bytes_required + chunk_range.cached_bytes
+        expected_raw_length = chunk_range.bytes_required + chunk_range.cached_bytes_size
 
         if expected_raw_length != len(data):
             raise RawByteLengthMismatchException(
@@ -693,7 +690,7 @@ class MediaStream:
                 range=chunk_range.request_range,
             )
 
-        _, last_chunk_end = chunk_range.last_chunk
+        last_chunk_end = chunk_range.last_chunk["end"]
 
         if self.current_read_position != last_chunk_end + 1:
             raise ReadPositionMismatchException(
