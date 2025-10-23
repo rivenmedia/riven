@@ -1587,7 +1587,7 @@ class RivenVFS(pyfuse3.Operations):
                 header_size=header_size,
             )
 
-            async with stream.lock:
+            async with stream.manage_connection():
                 log.debug(
                     f"Read request: path={path} fh={fh} request_start={request_start} request_end={request_end} size={request_size}"
                 )
@@ -1662,9 +1662,6 @@ class RivenVFS(pyfuse3.Operations):
                             size=request_size,
                         )
                     else:
-                        if not stream.response:
-                            await stream.connect(request_start)
-
                         returned_data = await stream.read_bytes(
                             start=request_start,
                             end=request_end,

@@ -3,8 +3,9 @@ import pyfuse3
 import errno
 import httpx
 
+from contextlib import asynccontextmanager
 from loguru import logger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 from http import HTTPStatus
 from kink import di
 from collections.abc import AsyncIterator
@@ -19,6 +20,14 @@ from src.program.services.streaming.exceptions import (
 
 if TYPE_CHECKING:
     from src.program.services.filesystem.vfs.rivenvfs import RivenVFS
+
+
+class ConnectionMetadata(TypedDict):
+    is_connected: bool
+    is_stream_consumed: bool
+    is_closed: bool
+    is_killed: bool
+    http_version: str | None
 
 
 class MediaStream:
@@ -58,7 +67,13 @@ class MediaStream:
         self.footer_size = self._calculate_footer_size()
         self.original_filename = original_filename
         self.cache_key = original_filename
-        self.is_connected = False
+        self.connection_metadata = ConnectionMetadata(
+            is_closed=False,
+            is_stream_consumed=False,
+            is_connected=False,
+            is_killed=False,
+            http_version=None,
+        )
         self.response = None
         self.total_session_connections = 0
 
@@ -94,29 +109,57 @@ class MediaStream:
 
         return self._header_size
 
-    async def connect(self, start: int) -> None:
+    @asynccontextmanager
+    async def manage_connection(self) -> AsyncIterator[None]:
+        """Context manager to handle stream connection lifecycle."""
+
+        async with self.lock:
+            try:
+                if self.response and self.response.is_closed:
+                    logger.warning(
+                        f"Stream connection was closed for {self.path}; attempting to reconnect."
+                    )
+
+                    chunk_range = self._get_chunk_range(
+                        position=self.current_read_position
+                    )
+
+                    await self.connect(chunk_range=chunk_range)
+
+                yield
+            except Exception as e:
+                logger.error(
+                    f"({e.__class__.__name__}) occurred while managing stream connection for {self.path}: {e}"
+                )
+                raise
+
+    async def connect(self, chunk_range: ChunkRange) -> None:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
-        chunk_range = self._get_chunk_range(position=start)
-        chunk_aligned_start = chunk_range.first_chunk["start"]
-
-        self.response = await self._prepare_response(start=chunk_aligned_start)
-        self.iterator = self.response.aiter_bytes(chunk_size=chunk_range.chunk_size)
-        self.is_connected = True
-        self.current_read_position = min(start, chunk_aligned_start)
-
         logger.debug(
-            f"Stream connection established for {self.path} from byte {chunk_aligned_start}"
+            f"first_chunk_start={chunk_range.first_chunk['start']} for {self.path}"
         )
 
-    async def seek(self, position: int) -> None:
+        self.response = await self._prepare_response(
+            start=chunk_range.first_chunk["start"]
+        )
+        self.iterator = self.response.aiter_bytes(chunk_size=chunk_range.chunk_size)
+        self.connection_metadata["is_connected"] = True
+        self.connection_metadata["http_version"] = self.response.http_version
+        self.current_read_position = chunk_range.first_chunk["start"]
+
+        logger.debug(
+            f"{self.response.http_version} stream connection established for {self.path} from byte {chunk_range.first_chunk['start']}"
+        )
+
+    async def seek(self, chunk_range: ChunkRange) -> None:
         """Seek to a specific byte position in the stream."""
 
         await self.close()
-        await self.connect(start=position)
+        await self.connect(chunk_range=chunk_range)
 
     async def scan_header(self, read_position: int, size: int) -> bytes:
-        """Fetch header data for media files that store metadata at the beginning."""
+        """Scan the first N bytes of the media stream, and set the header size, to be used in future chunk calculations."""
 
         self._header_size = size
 
@@ -128,7 +171,13 @@ class MediaStream:
         return data[read_position : read_position + size]
 
     async def scan_footer(self, read_position: int, size: int) -> bytes:
-        """Fetch footer data for media files that store metadata at the end."""
+        """
+        Scans the end of the media file for footer data.
+
+        This "overfetches" for the individual request,
+        but multiple footer requests tend to be made to retrieve more data later,
+        so this is more efficient than making multiple small requests.
+        """
 
         footer_start = self.file_size - self.footer_size
 
@@ -185,8 +234,15 @@ class MediaStream:
                 logger.trace(
                     f"after update: chunk_range={chunk_range}, cached_data_length={len(cached_data)} for {self.path}"
                 )
+
+                logger.debug(
+                    f"after update: first_chunk_start={chunk_range.first_chunk['start']} for {self.path}"
+                )
         else:
             cached_data = b""
+
+        if not self.connection_metadata["is_connected"]:
+            await self.connect(chunk_range=chunk_range)
 
         if start + chunk_range.cached_bytes_size < self.current_read_position:
             logger.warning(
@@ -195,7 +251,7 @@ class MediaStream:
                 f"for {self.path}. "
                 "Seeking to new start position."
             )
-            await self.seek(start)
+            await self.seek(chunk_range=chunk_range)
 
         data = b""
 
@@ -207,15 +263,17 @@ class MediaStream:
         async for chunk in self.iterator:
             data += chunk
 
-            if len(data) >= chunk_range.bytes_required:
+            self.current_read_position += len(chunk)
+            self.bytes_transferred += len(chunk)
+
+            logger.debug(
+                f"current_read_position={self.current_read_position} for {self.path}"
+            )
+
+            if self.current_read_position >= chunk_range.last_chunk["end"] + 1:
                 break
 
         await self._cache_chunk(cache_chunk_start, data)
-
-        data_length = len(data)
-
-        self.current_read_position += data_length
-        self.bytes_transferred += data_length
 
         stitched_data = cached_data + data
 
@@ -230,7 +288,11 @@ class MediaStream:
         if self.response:
             await self.response.aclose()
 
-            self.is_connected = False
+            self.response = None
+
+            self.connection_metadata["http_version"] = None
+            self.connection_metadata["is_connected"] = False
+            self.connection_metadata["is_closed"] = True
 
             logger.debug(
                 f"Ended stream for {self.path} after transferring {self.bytes_transferred / (1024 * 1024):.2f}MB "
@@ -418,7 +480,10 @@ class MediaStream:
         raise pyfuse3.FUSEError(errno.EIO)
 
     async def _prepare_response(
-        self, start: int, *, end: int | None = None
+        self,
+        start: int,
+        *,
+        end: int | None = None,
     ) -> httpx.Response:
         """Establish a streaming connection starting at the given byte offset."""
 

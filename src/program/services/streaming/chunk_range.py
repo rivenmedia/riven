@@ -48,12 +48,16 @@ class ChunkRange:
         self._cached_bytes_size = value
 
         # Mark cached properties for recalculation
-        del self.content_position
-        del self.bytes_required
-        del self.first_chunk
-        del self.last_chunk
-        del self.chunks_required
-        del self.chunk_slice
+        for attr in [
+            "content_position",
+            "bytes_required",
+            "first_chunk",
+            "last_chunk",
+            "chunks_required",
+            "chunk_slice",
+        ]:
+            if hasattr(self, attr):
+                delattr(self, attr)
 
     @cached_property
     def request_range(self) -> tuple[int, int]:
