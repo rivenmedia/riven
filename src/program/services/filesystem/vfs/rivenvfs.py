@@ -1593,100 +1593,97 @@ class RivenVFS(pyfuse3.Operations):
                 header_size=header_size,
             )
 
-            async with stream.manage_connection():
-                log.debug(
-                    f"Read request: path={path} fh={fh} request_start={request_start} request_end={request_end} size={request_size}"
+            log.trace(
+                f"Read request: path={path} fh={fh} request_start={request_start} request_end={request_end} size={request_size}"
+            )
+
+            # Try cache first for the exact request (cache handles chunk lookup and slicing)
+            # Use cache_key to share cache between all paths pointing to same file
+            cached_bytes = await trio.to_thread.run_sync(
+                lambda: self.cache.get(
+                    cache_key=stream.cache_key,
+                    start=request_start,
+                    end=request_end,
+                )
+            )
+
+            if cached_bytes:
+                returned_data = cached_bytes
+            else:
+                is_header_scan = (
+                    handle_info["last_read_end"] == 0 and request_start == 0
                 )
 
-                # Try cache first for the exact request (cache handles chunk lookup and slicing)
-                # Use cache_key to share cache between all paths pointing to same file
-                cached_bytes = await trio.to_thread.run_sync(
-                    lambda: self.cache.get(
-                        cache_key=stream.cache_key,
-                        start=request_start,
-                        end=request_end,
+                is_footer_scan = (
+                    handle_info["last_read_end"]
+                    < request_start - stream.sequential_read_tolerance
+                ) and file_size - stream.footer_size <= request_start <= file_size
+
+                is_general_scan = (
+                    # This behaviour is seen during scanning
+                    # and captures large jumps in read position
+                    # generally observed when the player is reading the footer
+                    # for cues or metadata after initial playback start.
+                    abs(handle_info["last_read_end"] - request_start)
+                    > stream.scan_tolerance
+                    and request_start != header_size
+                ) or (
+                    # This behaviour is seen when seeking.
+                    # Playback has already begun, so the header has been served
+                    # for this file, but the scan happens on a new file handle
+                    # and is the first request to be made.
+                    header_size
+                    and handle_info["last_read_end"] == 0
+                )
+
+                log.trace(
+                    f"is_header_scan={is_header_scan}, "
+                    f"is_footer_scan={is_footer_scan}, "
+                    f"is_general_scan={is_general_scan}"
+                )
+
+                if is_header_scan:
+                    log.trace("Performing header scan read")
+
+                    returned_data = await stream.scan_header(
+                        read_position=request_start,
+                        size=stream.header_size,
                     )
-                )
+                elif is_footer_scan:
+                    log.trace("Performing footer scan read")
 
-                if cached_bytes:
-                    returned_data = cached_bytes
+                    returned_data = await stream.scan_footer(
+                        read_position=request_start,
+                        size=request_size,
+                    )
+                elif is_general_scan:
+                    log.trace("Performing general scan read")
+
+                    returned_data = await stream.scan(
+                        read_position=request_start,
+                        size=request_size,
+                    )
                 else:
-                    is_header_scan = (
-                        handle_info["last_read_end"] == 0 and request_start == 0
-                    )
-
-                    is_footer_scan = (
-                        (
-                            handle_info["last_read_end"]
-                            < request_start - stream.sequential_read_tolerance
-                        )
-                        and file_size - stream.footer_size <= request_start <= file_size
-                    )
-
-                    is_general_scan = (
-                        # This behaviour is seen during scanning
-                        # and captures large jumps in read position
-                        # generally observed when the player is reading the footer
-                        # for cues or metadata after initial playback start.
-                        abs(handle_info["last_read_end"] - request_start)
-                        > stream.scan_tolerance
-                        and request_start != header_size
-                    ) or (
-                        # This behaviour is seen when seeking.
-                        # Playback has already begun, so the header has been served
-                        # for this file, but the scan happens on a new file handle
-                        # and is the first request to be made.
-                        header_size
-                        and handle_info["last_read_end"] == 0
-                    )
-
-                    log.trace(
-                        f"is_header_scan={is_header_scan}, "
-                        f"is_footer_scan={is_footer_scan}, "
-                        f"is_general_scan={is_general_scan}"
-                    )
-
-                    if is_header_scan:
-                        log.trace("Performing header scan read")
-
-                        returned_data = await stream.scan_header(
-                            read_position=request_start,
-                            size=stream.header_size,
-                        )
-                    elif is_footer_scan:
-                        log.trace("Performing footer scan read")
-
-                        returned_data = await stream.scan_footer(
-                            read_position=request_start,
-                            size=request_size,
-                        )
-                    elif is_general_scan:
-                        log.trace("Performing general scan read")
-
-                        returned_data = await stream.scan(
-                            read_position=request_start,
-                            size=request_size,
-                        )
-                    else:
+                    async with stream.manage_connection():
                         returned_data = await stream.read_bytes(
                             start=request_start,
                             end=request_end,
                         )
 
-                is_sequential_read = (
-                    off > 0
-                    and handle_info["last_read_end"] - stream.sequential_read_tolerance
-                    <= off
-                    <= handle_info["last_read_end"] + stream.sequential_read_tolerance
-                )
+            is_sequential_read = (
+                off > 0
+                and handle_info["last_read_end"] - stream.sequential_read_tolerance
+                <= off
+                <= handle_info["last_read_end"] + stream.sequential_read_tolerance
+            )
 
-                handle_info["sequential_reads"] = (
-                    handle_info["sequential_reads"] + 1 if is_sequential_read else 0
-                )
-                handle_info["last_read_start"] = off
-                handle_info["last_read_end"] = off + len(returned_data)
+            handle_info["sequential_reads"] = (
+                handle_info["sequential_reads"] + 1 if is_sequential_read else 0
+            )
+            handle_info["last_read_start"] = off
+            handle_info["last_read_end"] = off + len(returned_data)
 
-                return returned_data
+            return returned_data
         except MediaStreamException as e:
             log.error(
                 f"{e.__class__.__name__} error reading {stream.path} fh={fh} off={off} size={size}: {e}"

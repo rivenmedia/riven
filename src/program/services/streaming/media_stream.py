@@ -115,21 +115,15 @@ class MediaStream:
 
         async with self.lock:
             try:
-                if self.response and self.response.is_closed:
-                    logger.warning(
-                        f"Stream connection was closed for {self.path}; attempting to reconnect."
-                    )
-
-                    chunk_range = self._get_chunk_range(
-                        position=self.current_read_position
-                    )
+                if not self.response:
+                    chunk_range = self._get_chunk_range(self.current_read_position)
 
                     await self.connect(chunk_range=chunk_range)
 
                 yield
             except Exception as e:
                 logger.error(
-                    f"({e.__class__.__name__}) occurred while managing stream connection for {self.path}: {e}"
+                    f"{e.__class__.__name__} occurred while managing stream connection for {self.path}: {e}"
                 )
                 raise
 
@@ -144,8 +138,8 @@ class MediaStream:
         self.connection_metadata["http_version"] = self.response.http_version
         self.current_read_position = chunk_range.first_chunk["start"]
 
-        logger.debug(
-            f"{self.response.http_version} stream connection established for {self.path} from byte {chunk_range.first_chunk['start']}"
+        logger.trace(
+            f"{self.response.http_version} stream connection established for {self.path} from byte {chunk_range.first_chunk['start']} / {self.file_size}"
         )
 
     async def seek(self, chunk_range: ChunkRange) -> None:
