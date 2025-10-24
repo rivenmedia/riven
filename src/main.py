@@ -124,6 +124,9 @@ with server.run_in_thread():
     try:
         app.program.start()
         app.program.run()
+    except SystemExit:
+        # Allow signal handler to exit cleanly
+        pass
     except Exception:
         logger.exception("Error in main thread")
     finally:
