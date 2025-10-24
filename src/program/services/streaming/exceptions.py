@@ -14,11 +14,11 @@ class RawByteLengthMismatchException(MediaStreamException):
         actual_length: int,
         range: tuple[int, int],
     ) -> None:
-        difference = expected_length - actual_length
+        difference = actual_length - expected_length
 
         super().__init__(
             f"Expected raw byte length {expected_length}, but got {actual_length} for request range {range}, "
-            f"a difference of {'+' if difference > 0 else '-'}{difference} bytes."
+            f"a difference of {difference} bytes."
         )
 
         self.expected_length = expected_length
@@ -37,11 +37,11 @@ class ByteLengthMismatchException(MediaStreamException):
         range: tuple[int, int],
         slice_range: slice,
     ) -> None:
-        difference = expected_length - actual_length
+        difference = actual_length - expected_length
 
         super().__init__(
             f"Expected byte length {expected_length}, but got {actual_length}, "
-            f"a difference of {'+' if difference > 0 else '-'}{difference} bytes."
+            f"a difference of {difference} bytes."
             f"for request range {range} and slice range ({slice_range.start}, {slice_range.stop})."
         )
 
@@ -60,10 +60,10 @@ class ReadPositionMismatchException(MediaStreamException):
         expected_position: int,
         actual_position: int,
     ) -> None:
-        difference = expected_position - actual_position
+        difference = actual_position - expected_position
 
         super().__init__(
-            f"Expected read position {expected_position}, but got {actual_position}, a difference of {'+' if difference > 0 else '-'}{difference} bytes."
+            f"Expected read position {expected_position}, but got {actual_position}, a difference of {difference} bytes."
         )
 
         self.expected_position = expected_position

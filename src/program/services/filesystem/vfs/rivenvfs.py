@@ -71,8 +71,6 @@ if TYPE_CHECKING:
 
 class FileHandle(TypedDict):
     inode: pyfuse3.InodeT
-    sequential_reads: int
-    last_read_start: int
     last_read_end: int
     bitrate: int | None
     duration: float | None
@@ -190,7 +188,9 @@ class RivenVFS(pyfuse3.Operations):
 
         # Set of paths currently being streamed
         self._active_streams: dict[str, MediaStream] = {}
-        self._active_streams_lock = trio.Lock()  # Lock for managing active streams dict
+
+        # Lock for managing active streams dict
+        self._active_streams_lock = trio.Lock()
 
         # Open file handles: fh -> handle info
         self._file_handles: dict[pyfuse3.FileHandleT, FileHandle] = {}
@@ -1440,8 +1440,6 @@ class RivenVFS(pyfuse3.Operations):
             self._next_fh = pyfuse3.FileHandleT(self._next_fh + 1)
             self._file_handles[fh] = {
                 "inode": inode,  # Store inode to resolve node/metadata later
-                "sequential_reads": 0,
-                "last_read_start": 0,
                 "last_read_end": 0,
                 "subtitle_content": None,
                 "has_stream_error": False,
@@ -1587,113 +1585,19 @@ class RivenVFS(pyfuse3.Operations):
                 header_size=header_size,
             )
 
-            async with stream.manage_connection():
-                log.trace(
-                    f"Read request: path={path} fh={fh} request_start={request_start} request_end={request_end} size={request_size}"
-                )
-
-                # Try cache first for the exact request (cache handles chunk lookup and slicing)
-                # Use cache_key to share cache between all paths pointing to same file
-                cached_bytes = await trio.to_thread.run_sync(
-                    lambda: self.cache.get(
-                        cache_key=stream.cache_key,
-                        start=request_start,
-                        end=request_end,
-                    )
-                )
-
-                if cached_bytes:
-                    returned_data = cached_bytes
-                else:
-                    is_header_scan = (
-                        handle_info["last_read_end"] == 0 and request_start == 0
-                    )
-
-                    is_footer_scan = (
-                        (
-                            handle_info["last_read_end"]
-                            < request_start - stream.sequential_read_tolerance
-                        )
-                        and file_size - stream.footer_size <= request_start <= file_size
-                    )
-
-                    is_general_scan = (
-                        not is_header_scan
-                        and not is_footer_scan
-                        and (
-                            (
-                                # This behaviour is seen during scanning
-                                # and captures large jumps in read position
-                                # generally observed when the player is reading the footer
-                                # for cues or metadata after initial playback start.
-                                #
-                                # Scans typically read less than a single block (128 kB).
-                                abs(handle_info["last_read_end"] - request_start)
-                                > stream.scan_tolerance
-                                and request_start != header_size
-                                and request_size < 1024 * 128
-                            )
-                            or (
-                                # This behaviour is seen when seeking.
-                                # Playback has already begun, so the header has been served
-                                # for this file, but the scan happens on a new file handle
-                                # and is the first request to be made.
-                                header_size
-                                and handle_info["last_read_end"] == 0
-                            )
-                        )
-                    )
-
-                    log.trace(
-                        f"is_header_scan={is_header_scan}, "
-                        f"is_footer_scan={is_footer_scan}, "
-                        f"is_general_scan={is_general_scan}"
-                    )
-
-                    if is_header_scan:
-                        log.trace("Performing header scan read")
-
-                        returned_data = await stream.scan_header(
-                            read_position=request_start,
-                            size=stream.header_size,
-                        )
-                    elif is_footer_scan:
-                        log.trace("Performing footer scan read")
-
-                        returned_data = await stream.scan_footer(
-                            read_position=request_start,
-                            size=request_size,
-                        )
-                    elif is_general_scan:
-                        log.trace("Performing general scan read")
-
-                        returned_data = await stream.scan(
-                            read_position=request_start,
-                            size=request_size,
-                        )
-                    else:
-                        returned_data = await stream.read_bytes(
-                            start=request_start,
-                            end=request_end,
-                        )
-
-            is_sequential_read = (
-                off > 0
-                and handle_info["last_read_end"] - stream.sequential_read_tolerance
-                <= off
-                <= handle_info["last_read_end"] + stream.sequential_read_tolerance
+            return await stream.read(
+                request_start=request_start,
+                request_end=request_end,
+                request_size=request_size,
             )
-
-            handle_info["sequential_reads"] = (
-                handle_info["sequential_reads"] + 1 if is_sequential_read else 0
-            )
-            handle_info["last_read_start"] = off
-            handle_info["last_read_end"] = off + len(returned_data)
-
-            return returned_data
         except MediaStreamException as e:
             log.error(
-                f"{e.__class__.__name__} error reading {stream.path} fh={fh} off={off} size={size}: {e}"
+                f"{e.__class__.__name__} "
+                f"error reading {stream.file_metadata['path']} "
+                f"fh={fh} "
+                f"off={off} "
+                f"size={size}"
+                f": {e}"
             )
 
             handle_info = self._file_handles.get(fh)

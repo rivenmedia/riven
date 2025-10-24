@@ -7,7 +7,6 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 from bisect import bisect_right, insort
 
 
@@ -32,7 +31,7 @@ class _Metrics:
         self.evictions = 0
         self.lock = threading.Lock()
 
-    def snapshot(self) -> Dict[str, int]:
+    def snapshot(self) -> dict[str, int]:
         with self.lock:
             return dict(
                 hits=self.hits,
@@ -44,7 +43,7 @@ class _Metrics:
 
 
 class CacheBackend:
-    def get(self, path: str, start: int, end: int) -> Optional[bytes]:
+    def get(self, path: str, start: int, end: int) -> bytes | None:
         raise NotImplementedError
 
     def put(self, path: str, start: int, data: bytes) -> None:
@@ -53,7 +52,7 @@ class CacheBackend:
     def trim(self) -> None:
         raise NotImplementedError
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         raise NotImplementedError
 
 
@@ -66,8 +65,8 @@ class Cache:
     def __init__(self, cfg: CacheConfig) -> None:
         self.cfg = cfg
         # key -> (size, last_access, path, start)
-        self._index: "OrderedDict[str, Tuple[int, float, str, int]]" = OrderedDict()
-        self._by_path: Dict[str, list[int]] = {}
+        self._index: "OrderedDict[str, tuple[int, float, str, int]]" = OrderedDict()
+        self._by_path: dict[str, list[int]] = {}
         self._total_bytes = 0
         self._lock = threading.RLock()
         self._metrics = _Metrics()
@@ -372,7 +371,7 @@ class Cache:
         # Fallback: Direct probe for exact key on filesystem and rebuild index
         k = self._key(cache_key, start)
         fp = self._file_for(k)
-        data: Optional[bytes] = None
+        data: bytes | None = None
 
         try:
             with fp.open("rb") as f:
@@ -461,7 +460,7 @@ class Cache:
         except Exception:
             pass
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         s = self._metrics.snapshot()
         with self._lock:
             s["total_bytes"] = self._total_bytes

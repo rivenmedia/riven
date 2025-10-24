@@ -136,6 +136,25 @@ class ChunkRange:
 
         return self.size - self.cached_bytes_size
 
+    def calculate_chunk_difference(self, other: "ChunkRange") -> int:
+        """Calculate the difference in chunk indices between this range and another position.
+
+        Parameters:
+            other (ChunkRange): The other chunk range to compare against.
+        Returns:
+            int: The difference in chunk indices.
+        """
+
+        if self.chunk_size != other.chunk_size:
+            raise ValueError(
+                "Chunk sizes must be the same to calculate chunk difference."
+            )
+
+        current_chunk_index = self.cache_aware_content_position // self.chunk_size
+        other_chunk_index = other.cache_aware_content_position // other.chunk_size
+
+        return abs(current_chunk_index - other_chunk_index)
+
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
