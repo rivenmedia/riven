@@ -115,11 +115,6 @@ class MediaStream:
 
         async with self.lock:
             try:
-                if not self.response:
-                    chunk_range = self._get_chunk_range(self.current_read_position)
-
-                    await self.connect(chunk_range=chunk_range)
-
                 yield
             except Exception as e:
                 logger.error(
@@ -588,10 +583,8 @@ class MediaStream:
         raise pyfuse3.FUSEError(errno.EIO)
 
     def _calculate_scan_tolerance(self) -> int:
-        percentage_tolerance = self.file_size // 100  # 1% of file size
-        min_tolerance = 1024 * 1024 * 100  # Minimum tolerance of 100MB
-
-        return max(percentage_tolerance, min_tolerance)
+        # 25 block tolerance
+        return 1024 * 128 * 25
 
     def _calculate_chunk_size(self) -> int:
         # Calculate chunk size based on bitrate and target duration
