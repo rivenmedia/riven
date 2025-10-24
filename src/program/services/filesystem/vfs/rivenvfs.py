@@ -455,7 +455,7 @@ class RivenVFS(pyfuse3.Operations):
 
         entry = item.filesystem_entry
         if not isinstance(entry, MediaEntry):
-            log.warning(f"Item {item.id} filesystem_entry is not a MediaEntry")
+            log.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
             return False
 
         # Register the MediaEntry (video file)
@@ -496,7 +496,7 @@ class RivenVFS(pyfuse3.Operations):
 
         entry = item.filesystem_entry
         if not isinstance(entry, MediaEntry):
-            log.warning(f"Item {item.id} filesystem_entry is not a MediaEntry")
+            log.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
             return False
 
         log.debug(f"Removing VFS nodes for item {item.id}")
