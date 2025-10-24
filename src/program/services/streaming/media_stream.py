@@ -597,9 +597,9 @@ class MediaStream:
                 (bytes_per_second // 1024) * 1024 * target_chunk_duration_seconds
             )
 
-            # Clamp chunk size between 256kB and 5MiB
+            # Clamp chunk size between 256kB and 10MiB
             min_chunk_size = 256 * 1024
-            max_chunk_size = 5 * 1024 * 1024
+            max_chunk_size = 10 * 1024 * 1024
 
             clamped_chunk_size = max(
                 min(calculated_chunk_size, max_chunk_size),
