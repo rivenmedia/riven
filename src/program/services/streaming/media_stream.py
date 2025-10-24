@@ -85,7 +85,7 @@ class MediaStream:
 
         logger.trace(
             f"Initialized stream for {self.path} "
-            f"with chunk size {self.chunk_size / (1024 * 1024):.2f} MB. "
+            f"with chunk size {self.chunk_size / (1024 * 1024):.2f} MB [{self.chunk_size // (1024 * 128)} blocks]. "
             f"bitrate={self.bitrate}, "
             f"duration={self.duration}, "
             f"file_size={self.file_size} bytes"
@@ -227,7 +227,7 @@ class MediaStream:
                 f"Requested start {start} "
                 f"is before current read position {self.current_read_position} "
                 f"for {self.path}. "
-                "Seeking to new start position."
+                f"Seeking to new start position {chunk_range.first_chunk['start']}/{self.file_size}."
             )
             await self.seek(chunk_range=chunk_range)
 

@@ -1620,20 +1620,30 @@ class RivenVFS(pyfuse3.Operations):
                 ) and file_size - stream.footer_size <= request_start <= file_size
 
                 is_general_scan = (
-                    # This behaviour is seen during scanning
-                    # and captures large jumps in read position
-                    # generally observed when the player is reading the footer
-                    # for cues or metadata after initial playback start.
-                    abs(handle_info["last_read_end"] - request_start)
-                    > stream.scan_tolerance
-                    and request_start != header_size
-                ) or (
-                    # This behaviour is seen when seeking.
-                    # Playback has already begun, so the header has been served
-                    # for this file, but the scan happens on a new file handle
-                    # and is the first request to be made.
-                    header_size
-                    and handle_info["last_read_end"] == 0
+                    not is_header_scan
+                    and not is_footer_scan
+                    and (
+                        (
+                            # This behaviour is seen during scanning
+                            # and captures large jumps in read position
+                            # generally observed when the player is reading the footer
+                            # for cues or metadata after initial playback start.
+                            #
+                            # Scans typically read less than a single block (128 kB).
+                            abs(handle_info["last_read_end"] - request_start)
+                            > stream.scan_tolerance
+                            and request_start != header_size
+                            and request_size < 1024 * 128
+                        )
+                        or (
+                            # This behaviour is seen when seeking.
+                            # Playback has already begun, so the header has been served
+                            # for this file, but the scan happens on a new file handle
+                            # and is the first request to be made.
+                            header_size
+                            and handle_info["last_read_end"] == 0
+                        )
+                    )
                 )
 
                 log.trace(
