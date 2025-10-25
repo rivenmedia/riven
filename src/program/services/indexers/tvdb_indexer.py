@@ -148,6 +148,7 @@ class TVDBIndexer(BaseIndexer):
 
             # Get title (with translation if needed)
             title = show_data.name
+            poster_path = show_data.image
             if (
                 hasattr(show_data, "originalLanguage")
                 and show_data.originalLanguage != "eng"
@@ -202,6 +203,7 @@ class TVDBIndexer(BaseIndexer):
 
             # Update the Show object's attributes
             show.title = title
+            show.poster_path = poster_path
             show.year = (
                 int(show_data.firstAired.split("-")[0])
                 if show_data.firstAired
@@ -313,6 +315,7 @@ class TVDBIndexer(BaseIndexer):
             aliases.setdefault("eng", []).append(slug.title())
 
             title = show_data.name
+            poster_path = show_data.image
             if (
                 hasattr(show_data, "originalLanguage")
                 and show_data.originalLanguage != "eng"
@@ -371,6 +374,7 @@ class TVDBIndexer(BaseIndexer):
 
             show_item = {
                 "title": title,
+                "poster_path": poster_path,
                 "year": (
                     int(show_data.firstAired.split("-")[0])
                     if show_data.firstAired
@@ -425,6 +429,8 @@ class TVDBIndexer(BaseIndexer):
                     if season_number in existing_seasons:
                         # Update existing season with fresh metadata
                         season_item = existing_seasons[season_number]
+                        if season_item.poster_path is None:
+                            season_item.poster_path = show.poster_path
                         self._update_season_metadata(season_item, extended_data)
                     else:
                         # Create new season
@@ -453,11 +459,13 @@ class TVDBIndexer(BaseIndexer):
                             if episode_number in existing_episodes:
                                 # Update existing episode with fresh metadata
                                 episode_item = existing_episodes[episode_number]
+                                episode_data.poster_path = season_item.poster_path
                                 self._update_episode_metadata(
                                     episode_item, episode_data
                                 )
                             else:
                                 # Create new episode
+                                episode_data.poster_path = season_item.poster_path
                                 episode_item = self._create_episode_from_data(
                                     episode_data, season_item
                                 )
@@ -483,9 +491,14 @@ class TVDBIndexer(BaseIndexer):
             if hasattr(season_data, "year") and season_data.year:
                 year = int(season_data.year)
 
+            poster_path = None
+            if hasattr(season_data, "image") and season_data.image:
+                poster_path = season_data.image
+                
             # Update season attributes
             season.tvdb_id = str(season_data.id)
             season.title = f"Season {season_data.number}"
+            season.poster_path = poster_path
             season.aired_at = aired_at
             season.year = year
             # Note: is_anime and other attributes are inherited from show via __getattribute__
@@ -511,6 +524,12 @@ class TVDBIndexer(BaseIndexer):
             except (ValueError, TypeError):
                 pass
 
+            poster_path = None
+            if hasattr(season_data, "image") and season_data.image:
+                poster_path = season_data.image
+            else:
+                poster_path = show.poster_path
+
             year = None
             if hasattr(season_data, "year") and season_data.year:
                 year = int(season_data.year)
@@ -519,6 +538,7 @@ class TVDBIndexer(BaseIndexer):
                 "number": season_number,
                 "tvdb_id": str(season_data.id),
                 "title": f"Season {season_number}",
+                "poster_path": poster_path,
                 "aired_at": aired_at,
                 "year": year,
                 "type": "season",
@@ -552,6 +572,7 @@ class TVDBIndexer(BaseIndexer):
             # Update episode attributes
             episode.tvdb_id = str(episode_data.id)
             episode.title = episode_data.name or f"Episode {episode_data.number}"
+            episode.poster_path = episode_data.poster_path
             episode.aired_at = aired_at
             episode.year = year
             episode.absolute_number = episode_data.absoluteNumber
@@ -584,6 +605,7 @@ class TVDBIndexer(BaseIndexer):
                 "number": episode_number,
                 "tvdb_id": str(episode_data.id),
                 "title": episode_data.name or f"Episode {episode_number}",
+                "poster_path": episode_data.poster_path,
                 "aired_at": aired_at,
                 "year": year,
                 "type": "episode",

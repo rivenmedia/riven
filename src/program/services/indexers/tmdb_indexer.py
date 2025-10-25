@@ -145,8 +145,14 @@ class TMDBIndexer(BaseIndexer):
                                 break
                         break
 
+            poster_path = getattr(movie_details, "poster_path", None)
+            full_poster_url = None
+            if poster_path:
+                full_poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+
             # Update the Movie object's attributes
             movie.title = getattr(movie_details, "title", None)
+            movie.poster_path = full_poster_url
             movie.year = (
                 int(movie_details.release_date[:4])
                 if getattr(movie_details, "release_date", None)
@@ -256,8 +262,14 @@ class TMDBIndexer(BaseIndexer):
                                 break
                         break
 
+            poster_path = getattr(movie_details, "poster_path", None)
+            full_poster_url = None
+            if poster_path:
+                full_poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+
             movie_item = {
                 "title": getattr(movie_details, "title", None),
+                "poster_path": full_poster_url,
                 "year": (
                     int(movie_details.release_date[:4])
                     if getattr(movie_details, "release_date", None)

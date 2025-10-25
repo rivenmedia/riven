@@ -28,6 +28,7 @@ class MediaItem(db.Model):
     tvdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     tmdb_id: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     title: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    poster_path: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
     number: Mapped[Optional[int]] = mapped_column(sqlalchemy.Integer, nullable=True)
     type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
     requested_at: Mapped[Optional[datetime]] = mapped_column(
@@ -115,6 +116,7 @@ class MediaItem(db.Model):
         Index("ix_mediaitem_type", "type"),
         Index("ix_mediaitem_requested_by", "requested_by"),
         Index("ix_mediaitem_title", "title"),
+        Index("ix_mediaitem_poster_path", "poster_path"),
         Index("ix_mediaitem_imdb_id", "imdb_id"),
         Index("ix_mediaitem_tvdb_id", "tvdb_id"),
         Index("ix_mediaitem_tmdb_id", "tmdb_id"),
@@ -146,6 +148,7 @@ class MediaItem(db.Model):
 
         # Media related
         self.title = item.get("title")
+        self.poster_path = item.get("poster_path")
         self.imdb_id = item.get("imdb_id")
         self.tvdb_id = item.get("tvdb_id")
         self.tmdb_id = item.get("tmdb_id")
@@ -432,6 +435,7 @@ class MediaItem(db.Model):
         data = {
             "id": str(self.id),
             "title": self.title,
+            "poster_path": self.poster_path,
             "type": self.__class__.__name__,
             "parent_title": parent_title,
             "season_number": season_number,
@@ -937,6 +941,7 @@ class Season(MediaItem):
             "is_anime",
             "rating",
             "content_rating",
+            "poster_path",
         }
 
         # Get the value normally first
@@ -1049,6 +1054,7 @@ class Episode(MediaItem):
             "is_anime",
             "rating",
             "content_rating",
+            "poster_path",
         }
 
         # Get the value normally first

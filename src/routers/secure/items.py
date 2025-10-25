@@ -1,25 +1,45 @@
 import os
 from datetime import datetime
-from typing import List, Literal, Optional, Callable
+from enum import Enum
+from typing import Annotated, Callable, List, Literal, Optional, Set, Union
 
 import Levenshtein
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, object_session
 
-from program.utils.ffprobe import parse_media_file
 from program.db import db_functions
 from program.db.db import db, get_db
-from program.media.item import MediaItem, Show, Season
+from program.media.item import MediaItem, Season, Show
 from program.media.state import States
 from program.services.content import Overseerr
+from program.services.filesystem.filesystem_service import FilesystemService
 from program.services.updaters import Updater
 from program.types import Event
-from program.services.filesystem.filesystem_service import FilesystemService
 
 from ..models.shared import MessageResponse
+
+
+class MediaTypeEnum(str, Enum):
+    MOVIE = "movie"
+    SHOW = "show"
+    SEASON = "season"
+    EPISODE = "episode"
+    ANIME = "anime"
+
+
+class SortOrderEnum(str, Enum):
+    TITLE_ASC = "title_asc"
+    TITLE_DESC = "title_desc"
+    DATE_ASC = "date_asc"
+    DATE_DESC = "date_desc"
+
+    @property
+    def sort_type(self) -> str:
+        return "title" if self.value.startswith("title") else "date"
+
 
 router = APIRouter(
     prefix="/items",
@@ -29,17 +49,26 @@ router = APIRouter(
 
 
 def handle_ids(ids: str) -> list[int]:
-    ids = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
-    if not ids:
+    try:
+        id_list = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+        if not id_list:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided"
+            )
+        return id_list
+    except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid item ID(s) provided",
         )
-    return ids
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing item ID(s): {str(e)}",
+        ) from e
 
 
 # Convenience helper to mutate an item and update states consistently
-
-
 def apply_item_mutation(
     program,
     session: Session,
@@ -111,107 +140,113 @@ class ItemsResponse(BaseModel):
     total_pages: int
 
 
+class StatesFilter(str, Enum):
+    All = "All"
+
+
 @router.get(
     "",
     summary="Search Media Items",
     description="Fetch media items with optional filters and pagination",
     operation_id="get_items",
+    response_model=ItemsResponse,
 )
 async def get_items(
     _: Request,
-    limit: Optional[int] = 50,
-    page: Optional[int] = 1,
-    type: Optional[str] = None,
-    states: Optional[str] = None,
-    sort: Optional[
-        Literal["date_desc", "date_asc", "title_asc", "title_desc"]
-    ] = "date_desc",
-    search: Optional[str] = None,
-    extended: Optional[bool] = False,
-    is_anime: Optional[bool] = False,
+    limit: Annotated[int, Query(gt=0, description="Number of items per page")] = 50,
+    page: Annotated[int, Query(gt=0, description="Page number")] = 1,
+    type: Annotated[
+        Optional[List[MediaTypeEnum]], Query(description="Filter by media type(s)")
+    ] = None,
+    states: Annotated[
+        Optional[List[Union[States, StatesFilter]]],
+        Query(description="Filter by state(s)"),
+    ] = None,
+    sort: Annotated[
+        Optional[List[SortOrderEnum]],
+        Query(
+            description="Sort order(s). Multiple sorts allowed but only one per type (title or date)"
+        ),
+    ] = None,
+    search: Annotated[
+        Optional[str],
+        Query(min_length=1, description="Search by title or IMDB/TVDB/TMDB ID"),
+    ] = None,
+    extended: Annotated[
+        bool, Query(description="Include extended item details")
+    ] = False,
 ) -> ItemsResponse:
-    if page < 1:
-        raise HTTPException(status_code=400, detail="Page number must be 1 or greater.")
-
-    if limit < 1:
-        raise HTTPException(status_code=400, detail="Limit must be 1 or greater.")
-
     query = select(MediaItem)
 
     if search:
         search_lower = search.lower()
         if search_lower.startswith("tt"):
             query = query.where(MediaItem.imdb_id == search_lower)
+        elif search_lower.startswith("tmdb_"):
+            tmdb_id = search_lower.replace("tmdb_", "")
+            query = query.where(MediaItem.tmdb_id == tmdb_id)
+        elif search_lower.startswith("tvdb_"):
+            tvdb_id = search_lower.replace("tvdb_", "")
+            query = query.where(MediaItem.tvdb_id == tvdb_id)
         else:
             query = query.where(func.lower(MediaItem.title).like(f"%{search_lower}%"))
 
-    if states:
-        states = states.split(",")
-        filter_states = []
-        for state in states:
-            filter_lower = state.lower()
-            for state_enum in States:
-                if Levenshtein.ratio(filter_lower, state_enum.name.lower()) >= 0.82:
-                    filter_states.append(state_enum)
-                    break
-        if "All" not in states:
-            if len(filter_states) == len(states):
-                query = query.where(MediaItem.last_state.in_(filter_states))
-            else:
-                valid_states = [state_enum.name for state_enum in States]
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid filter states: {states}. Valid states are: {valid_states}",
-                )
+    if states and StatesFilter.All not in states:
+        query = query.where(
+            MediaItem.last_state.in_([s for s in states if isinstance(s, States)])
+        )
 
     if type:
-        if "," in type:
-            types = type.split(",")
-            for type in types:
-                if type not in ["movie", "show", "season", "episode", "anime"]:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid type: {type}. Valid types are: ['movie', 'show', 'season', 'episode', 'anime']",
-                    )
-        else:
-            types = [type]
-        if "anime" in types:
-            types = [type for type in types if type != "anime"]
-            query = query.where(
-                or_(
+        media_types: Set[str] = {t.value for t in type}
+
+        if MediaTypeEnum.ANIME in type:
+            media_types.remove(MediaTypeEnum.ANIME.value)
+
+            if not media_types:
+                query = query.where(MediaItem.is_anime == True)
+            else:
+                query = query.where(
                     and_(
-                        MediaItem.type.in_(["movie", "show"]),
+                        MediaItem.type.in_(
+                            media_types if media_types else ["movie", "show"]
+                        ),
                         MediaItem.is_anime == True,
-                    ),
-                    MediaItem.type.in_(types),
+                    )
                 )
-            )
-        else:
-            query = query.where(MediaItem.type.in_(types))
 
-    if is_anime:
-        query = query.where(MediaItem.is_anime is True)
+        elif media_types:
+            query = query.where(MediaItem.type.in_(media_types))
 
-    if sort and not search:
-        sort_lower = sort.lower()
-        if sort_lower == "title_asc":
-            query = query.order_by(MediaItem.title.asc())
-        elif sort_lower == "title_desc":
-            query = query.order_by(MediaItem.title.desc())
-        elif sort_lower == "date_asc":
-            query = query.order_by(MediaItem.requested_at.asc())
-        elif sort_lower == "date_desc":
-            query = query.order_by(MediaItem.requested_at.desc())
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid sort: {sort}. Valid sorts are: ['title_asc', 'title_desc', 'date_asc', 'date_desc']",
-            )
+    if sort:
+        # Verify we don't have multiple sorts of the same type
+        sort_types = set()
+        for sort_criterion in sort:
+            sort_type = sort_criterion.sort_type
+            if sort_type in sort_types:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Multiple {sort_type} sort criteria provided. Only one sort per type is allowed.",
+                )
+            sort_types.add(sort_type)
+
+        for sort_criterion in sort:
+            if sort_criterion == SortOrderEnum.TITLE_ASC:
+                query = query.order_by(MediaItem.title.asc())
+            elif sort_criterion == SortOrderEnum.TITLE_DESC:
+                query = query.order_by(MediaItem.title.desc())
+            elif sort_criterion == SortOrderEnum.DATE_ASC:
+                query = query.order_by(MediaItem.requested_at.asc())
+            elif sort_criterion == SortOrderEnum.DATE_DESC:
+                query = query.order_by(MediaItem.requested_at.desc())
+
+    else:
+        query = query.order_by(MediaItem.requested_at.desc())
 
     with db.Session() as session:
         total_items = session.execute(
             select(func.count()).select_from(query.subquery())
         ).scalar_one()
+
         items = (
             session.execute(query.offset((page - 1) * limit).limit(limit))
             .unique()
@@ -221,17 +256,17 @@ async def get_items(
 
         total_pages = (total_items + limit - 1) // limit
 
-        return {
-            "success": True,
-            "items": [
+        return ItemsResponse(
+            success=True,
+            items=[
                 item.to_extended_dict() if extended else item.to_dict()
                 for item in items
             ],
-            "page": page,
-            "limit": limit,
-            "total_items": total_items,
-            "total_pages": total_pages,
-        }
+            page=page,
+            limit=limit,
+            total_items=total_items,
+            total_pages=total_pages,
+        )
 
 
 @router.post(
