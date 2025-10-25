@@ -50,6 +50,9 @@ class Config:
     # Number of skipped chunks required to trigger a seek
     seek_chunk_tolerance: int
 
+    # Default bitrate to use when no probed information is available.
+    default_bitrate: int
+
     @property
     def sequential_read_tolerance(self) -> int:
         """Tolerance for sequential reads to account for interleaved reads."""
@@ -88,8 +91,7 @@ class PrefetchScheduler:
     """Configuration for prefetching behaviour."""
 
     is_running: bool
-    chunks_to_fetch: int
-    lookahead_chunks: int
+    prefetch_seconds: int
     sequential_chunks_required: int
     lock: trio.Lock
     chunks_spawned: set[int]
@@ -152,6 +154,7 @@ class MediaStream:
             target_chunk_duration_seconds=2,
             seek_chunk_tolerance=2,
             scan_tolerance_blocks=25,
+            default_bitrate=10 * 1000 * 1000,  # 10 Mbps
         )
 
         self.session_statistics = SessionStatistics(
@@ -168,8 +171,7 @@ class MediaStream:
         )
 
         self.prefetch_scheduler = PrefetchScheduler(
-            chunks_to_fetch=5,
-            lookahead_chunks=2,
+            prefetch_seconds=10,
             sequential_chunks_required=3,
             chunks_spawned=set(),
             is_running=False,
@@ -220,12 +222,8 @@ class MediaStream:
         )
 
         # Determine if the current read position is within the prefetch lookahead range.
-        chunk_difference = (
-            self.connection.current_read_position - self._last_read_end
-        ) // self.chunk_size
-
         is_within_prefetch_range = (
-            chunk_difference <= self.prefetch_scheduler.lookahead_chunks
+            self.num_seconds_behind <= self.prefetch_scheduler.prefetch_seconds
         )
 
         return (
@@ -245,38 +243,58 @@ class MediaStream:
 
         return self._header_size
 
+    @property
+    def num_seconds_behind(self) -> float:
+        """Number of seconds the last read end is behind the current read position."""
+
+        raw_seconds = (
+            self.connection.current_read_position - self._last_read_end
+        ) / self.bytes_per_second
+
+        return raw_seconds // 1
+
+    @cached_property
+    def bytes_per_second(self) -> int:
+        """Average bytes per second based on the file's bitrate."""
+
+        bitrate = self.file_metadata["bitrate"]
+
+        if not bitrate:
+            logger.warning(
+                f"No bitrate available for {self.file_metadata['path']}. Falling back to {self.config.default_bitrate // 1000 // 1000} Mbps. "
+                f"Media analysis may have previously failed on this file. If you experience streaming issues, try re-analyzing the file with FFProbe."
+            )
+
+            # Fallback to configured default bitrate if no probed information is available
+            bitrate = self.config.default_bitrate
+
+        return bitrate // 8
+
     @cached_property
     def chunk_size(self) -> int:
         """An optimal chunk size based on the file's bitrate."""
 
         target_chunk_duration_seconds = self.config.target_chunk_duration_seconds
 
-        bitrate = self.file_metadata["bitrate"]
+        calculated_chunk_size = (
+            (self.bytes_per_second // 1024) * 1024 * target_chunk_duration_seconds
+        )
 
-        if bitrate:
-            bytes_per_second = bitrate // 8  # Convert bits to bytes
-            calculated_chunk_size = (
-                (bytes_per_second // 1024) * 1024 * target_chunk_duration_seconds
-            )
+        # Clamp chunk size between 256kB and 5MiB
+        min_chunk_size = self.config.min_chunk_size
+        max_chunk_size = self.config.max_chunk_size
 
-            # Clamp chunk size between 256kB and 5MiB
-            min_chunk_size = self.config.min_chunk_size
-            max_chunk_size = self.config.max_chunk_size
+        clamped_chunk_size = max(
+            min(calculated_chunk_size, max_chunk_size),
+            min_chunk_size,
+        )
 
-            clamped_chunk_size = max(
-                min(calculated_chunk_size, max_chunk_size),
-                min_chunk_size,
-            )
+        # Align chunk size to nearest 128kB boundary, rounded up.
+        # This attempts to avoid cross-chunk reads that require expensive cache lookups.
+        block_size = 1024 * 128
+        aligned_chunk_size = -(clamped_chunk_size // -block_size) * block_size
 
-            # Align chunk size to nearest 128kB boundary, rounded up.
-            # This attempts to avoid cross-chunk reads that require expensive cache lookups.
-            block_size = 1024 * 128
-            aligned_chunk_size = -(clamped_chunk_size // -block_size) * block_size
-
-            return aligned_chunk_size
-        else:
-            # Fallback to default chunk size if bitrate not available
-            return 1024 * 1024  # 1MiB default chunk size
+        return aligned_chunk_size
 
     @cached_property
     def footer_size(self) -> int:
@@ -497,8 +515,6 @@ class MediaStream:
                     f"seq_fetches={self._sequential_chunk_fetches} "
                     f"current_read_position={self.connection.current_read_position} "
                     f"last_read_end={self._last_read_end} "
-                    f"bytediff={self.connection.current_read_position - self._last_read_end} "
-                    f"chunkdiff={(self.connection.current_read_position - self._last_read_end) // self.chunk_size}"
                 )
 
                 self._last_read_end = request_end
@@ -649,7 +665,7 @@ class MediaStream:
         self.prefetch_scheduler.start()
 
         prefetch_readahead_size = (
-            self.prefetch_scheduler.chunks_to_fetch * self.chunk_size
+            self.prefetch_scheduler.prefetch_seconds * self.bytes_per_second
         )
         prefetch_chunk_lock = trio.Lock()
         prefetch_spawn_lock = trio.Lock()
@@ -679,6 +695,10 @@ class MediaStream:
                 while self.prefetch_scheduler.is_running:
                     target_position = self._last_read_end + prefetch_readahead_size
 
+                    if target_position < self.connection.current_read_position:
+                        await trio.sleep(0.1)
+                        continue
+
                     prefetch_chunk_range = self._get_chunk_range(
                         position=max(
                             self._last_read_end,
@@ -690,21 +710,19 @@ class MediaStream:
                         ),
                     )
 
-                    if target_position < self.connection.current_read_position:
-                        await trio.sleep(0.1)
-                        continue
-
                     for chunk in prefetch_chunk_range.chunks:
                         i = chunk["index"]
 
-                        async with prefetch_spawn_lock:
-                            if i not in self.prefetch_scheduler.chunks_spawned:
-                                logger.trace(
-                                    f"Spawning prefetch task for chunk {i} ({chunk['start']}, {chunk['end']})"
-                                )
+                        if i in self.prefetch_scheduler.chunks_spawned:
+                            continue
 
-                                self.prefetch_scheduler.chunks_spawned.add(i)
-                                nursery.start_soon(prefetch_chunk)
+                        async with prefetch_spawn_lock:
+                            logger.trace(
+                                f"Spawning prefetch task for chunk {i} ({chunk['start']}, {chunk['end']})"
+                            )
+
+                            self.prefetch_scheduler.chunks_spawned.add(i)
+                            nursery.start_soon(prefetch_chunk)
 
                     await trio.sleep(0.1)
 
