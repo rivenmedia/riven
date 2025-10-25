@@ -72,16 +72,21 @@ class Connection:
 
 
 @dataclass
-class Prefetcher:
+class PrefetchScheduler:
     """Configuration for prefetching behaviour."""
 
+    is_running: bool
     chunks_to_fetch: int
     lookahead_chunks: int
     sequential_chunks_required: int
-    lock: threading.Lock = threading.Lock()
+    lock: trio.Lock
+    chunks_spawned: set[int]
 
-    def is_prefetch_enabled(self) -> bool:
-        return self.chunks_to_fetch > 0 and self.lookahead_chunks > 0
+    def start(self) -> None:
+        self.is_running = True
+
+    def stop(self) -> None:
+        self.is_running = False
 
 
 @dataclass
@@ -149,10 +154,13 @@ class MediaStream:
             response=None,
         )
 
-        self.prefetcher = Prefetcher(
+        self.prefetch_scheduler = PrefetchScheduler(
             chunks_to_fetch=5,
             lookahead_chunks=2,
             sequential_chunks_required=3,
+            chunks_spawned=set(),
+            is_running=False,
+            lock=trio.Lock(),
         )
 
         self.file_metadata = FileMetadata(
@@ -191,25 +199,26 @@ class MediaStream:
     def is_prefetch_enabled(self) -> bool:
         """Whether prefetching is enabled based on recent chunk access patterns."""
 
-        # Determines whether the prefetch lock is available. If it isn't,
-        # we don't want to start another prefetch operation.
-        is_lock_available = not self.prefetcher.lock.locked()
-
         # Determine if we've had enough sequential chunk fetches to trigger prefetching.
         # This helps to avoid scans from triggering unnecessary prefetches.
-        is_sequential_chunk_fetcher = (
-            self._sequential_chunk_fetches >= self.prefetcher.sequential_chunks_required
+        has_sufficient_sequential_fetches = (
+            self._sequential_chunk_fetches
+            >= self.prefetch_scheduler.sequential_chunks_required
         )
 
         # Determine if the current read position is within the prefetch lookahead range.
-        is_within_prefetch_lookahead = (
+        chunk_difference = (
             self.connection.current_read_position - self._last_read_end
-        ) // self.chunk_size <= self.prefetcher.lookahead_chunks
+        ) // self.chunk_size
+
+        is_within_prefetch_range = (
+            chunk_difference <= self.prefetch_scheduler.lookahead_chunks
+        )
 
         return (
-            is_lock_available
-            and is_sequential_chunk_fetcher
-            and is_within_prefetch_lookahead
+            not self.prefetch_scheduler.is_running
+            and has_sufficient_sequential_fetches
+            and is_within_prefetch_range
         )
 
     @property
@@ -298,6 +307,8 @@ class MediaStream:
                 )
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
+        except httpx.ReadError as e:
+            raise pyfuse3.FUSEError(errno.EIO) from e
         except Exception as e:
             logger.error(
                 f"{e.__class__.__name__} occurred while managing stream connection for {self.file_metadata['path']}: {e}"
@@ -403,8 +414,6 @@ class MediaStream:
 
                 if cached_bytes:
                     returned_data = cached_bytes
-
-                    self._last_read_end = request_end
                 else:
                     is_header_scan = self._last_read_end == 0 and request_start == 0
 
@@ -471,7 +480,6 @@ class MediaStream:
                         )
                     else:
                         logger.trace(f"Performing normal read")
-                        self._last_read_end = request_end
 
                         returned_data = await self.read_bytes(
                             start=request_start,
@@ -486,10 +494,10 @@ class MediaStream:
                     f"chunkdiff={(self.connection.current_read_position - self._last_read_end) // self.chunk_size}"
                 )
 
-                if self.is_prefetch_enabled:
-                    logger.trace(f"Starting prefetch for {self.file_metadata['path']}")
+                self._last_read_end = request_end
 
-                    trio.lowlevel.spawn_system_task(self.prefetch, 5)
+                if self.is_prefetch_enabled:
+                    trio.lowlevel.spawn_system_task(self.main_prefetch_loop)
 
                 return returned_data
 
@@ -628,12 +636,26 @@ class MediaStream:
 
             return stitched_data[request_chunk_range.chunk_slice]
 
-    async def prefetch(self, chunks_to_fetch: int) -> None:
-        with self.prefetcher.lock:
-            for _ in range(chunks_to_fetch):
+    async def main_prefetch_loop(self) -> None:
+        logger.trace(f"Starting prefetcher for {self.file_metadata['path']}")
+
+        self.prefetch_scheduler.start()
+
+        prefetch_readahead_size = (
+            self.prefetch_scheduler.chunks_to_fetch * self.chunk_size
+        )
+        prefetch_chunk_lock = trio.Lock()
+        prefetch_spawn_lock = trio.Lock()
+
+        async def prefetch_chunk() -> None:
+            async with prefetch_chunk_lock:
                 async with self.manage_connection():
                     chunk_range = self._get_chunk_range(
                         self.connection.current_read_position
+                    )
+
+                    logger.trace(
+                        f"Prefetching chunk range: {chunk_range} for {self.file_metadata['path']}"
                     )
 
                     await self.read_bytes(
@@ -645,8 +667,53 @@ class MediaStream:
                         f"Prefetched chunk range: {chunk_range} for {self.file_metadata['path']}"
                     )
 
+        async with self.prefetch_scheduler.lock:
+            async with trio.open_nursery() as nursery:
+                while self.prefetch_scheduler.is_running:
+                    target_position = self._last_read_end + prefetch_readahead_size
+
+                    logger.trace(
+                        f"target_position={target_position}, current_read_position={self.connection.current_read_position}"
+                    )
+
+                    prefetch_chunk_range = self._get_chunk_range(
+                        position=max(
+                            self._last_read_end,
+                            self.connection.current_read_position,
+                        ),
+                        size=max(
+                            0,
+                            target_position - self.connection.current_read_position + 1,
+                        ),
+                    )
+
+                    logger.trace(f"prefetch_chunk_range={prefetch_chunk_range}")
+
+                    if target_position < self.connection.current_read_position:
+                        await trio.sleep(0.5)
+                        continue
+
+                    for chunk in prefetch_chunk_range.chunks:
+                        i = chunk["index"]
+
+                        async with prefetch_spawn_lock:
+                            if i not in self.prefetch_scheduler.chunks_spawned:
+                                logger.trace(
+                                    f"Spawning prefetch task for chunk {i} ({chunk['start']}, {chunk['end']})"
+                                )
+
+                                self.prefetch_scheduler.chunks_spawned.add(i)
+                                prefetch_queue_count += 1
+                                nursery.start_soon(prefetch_chunk)
+
+                    await trio.sleep(0.5)
+
+                logger.trace(f"Prefetcher stopped for {self.file_metadata['path']}")
+
     async def close(self) -> None:
         """Close the active stream."""
+
+        self.prefetch_scheduler.stop()
 
         await self.connection.reset()
 
