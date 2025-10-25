@@ -14,7 +14,7 @@ upgrade decisions.
 import os
 import traceback
 
-from typing import Dict, Any
+from typing import Any
 
 from loguru import logger
 from program.utils.ffprobe import parse_media_file
