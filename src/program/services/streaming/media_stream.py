@@ -7,7 +7,7 @@ import httpx
 
 from contextlib import asynccontextmanager
 from loguru import logger
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 from http import HTTPStatus
 from kink import di
 from collections.abc import AsyncIterator
@@ -392,9 +392,6 @@ class MediaStream:
 
         return data[:size]
 
-    def detect_scan_type(self) -> None:
-        pass
-
     async def read(
         self,
         *,
@@ -424,76 +421,40 @@ class MediaStream:
                 if cached_bytes:
                     returned_data = cached_bytes
                 else:
-                    is_header_scan = request_start < request_end <= self.header_size
-
-                    file_size = self.file_metadata["file_size"]
-
-                    is_footer_scan = (
-                        self._last_read_end
-                        < request_start - self.config.sequential_read_tolerance
-                    ) and file_size - self.footer_size <= request_start <= file_size
-
-                    is_general_scan = (
-                        not is_header_scan
-                        and not is_footer_scan
-                        and (
-                            (
-                                # This behaviour is seen during scanning
-                                # and captures large jumps in read position
-                                # generally observed when the player is reading the footer
-                                # for cues or metadata after initial playback start.
-                                #
-                                # Scans typically read less than a single block (128 kB).
-                                abs(self._last_read_end - request_start)
-                                > self.config.scan_tolerance
-                                and request_start != self.header_size
-                                and request_size < self.config.block_size
-                            )
-                            or (
-                                # This behaviour is seen when seeking.
-                                # Playback has already begun, so the header has been served
-                                # for this file, but the scan happens on a new file handle
-                                # and is the first request to be made.
-                                request_start > self.header_size
-                                and self._last_read_end == 0
-                            )
-                        )
+                    read_type = self._detect_read_type(
+                        start=request_start,
+                        end=request_end,
+                        size=request_size,
                     )
 
                     logger.trace(
-                        f"is_header_scan={is_header_scan}, "
-                        f"is_footer_scan={is_footer_scan}, "
-                        f"is_general_scan={is_general_scan}"
+                        f"Performing {read_type} for {self.file_metadata['path']}"
                     )
 
-                    if is_header_scan:
-                        logger.trace("Performing header scan read")
-
-                        returned_data = await self.scan_header(
-                            read_position=request_start,
-                            size=request_size,
-                        )
-                    elif is_footer_scan:
-                        logger.trace("Performing footer scan read")
-
-                        returned_data = await self.scan_footer(
-                            read_position=request_start,
-                            size=request_size,
-                        )
-                    elif is_general_scan:
-                        logger.trace("Performing general scan read")
-
-                        returned_data = await self.scan(
-                            read_position=request_start,
-                            size=request_size,
-                        )
-                    else:
-                        logger.trace(f"Performing normal read")
-
-                        returned_data = await self.read_bytes(
-                            start=request_start,
-                            end=request_end,
-                        )
+                    match read_type:
+                        case "header_scan":
+                            returned_data = await self.scan_header(
+                                read_position=request_start,
+                                size=request_size,
+                            )
+                        case "footer_scan":
+                            returned_data = await self.scan_footer(
+                                read_position=request_start,
+                                size=request_size,
+                            )
+                        case "general_scan":
+                            returned_data = await self.scan(
+                                read_position=request_start,
+                                size=request_size,
+                            )
+                        case "normal_read":
+                            returned_data = await self.read_bytes(
+                                start=request_start,
+                                end=request_end,
+                            )
+                        case _:
+                            # This should never happen due to prior validation
+                            raise RuntimeError("Unknown read type")
 
                 logger.trace(
                     f"seq_fetches={self._sequential_chunk_fetches} "
@@ -673,6 +634,62 @@ class MediaStream:
             f"after transferring {self.session_statistics['bytes_transferred'] / (1024 * 1024):.2f}MB "
             f"in {self.session_statistics['total_session_connections']} connections."
         )
+
+    def _detect_read_type(
+        self,
+        *,
+        start: int,
+        end: int,
+        size: int,
+    ) -> Literal["header_scan", "footer_scan", "general_scan", "normal_read"]:
+        file_size = self.file_metadata["file_size"]
+
+        is_header_scan = start < end <= self.header_size
+
+        is_footer_scan = (
+            self._last_read_end < start - self.config.sequential_read_tolerance
+        ) and file_size - self.footer_size <= start <= file_size
+
+        is_general_scan = (
+            not is_header_scan
+            and not is_footer_scan
+            and (
+                (
+                    # This behaviour is seen during scanning
+                    # and captures large jumps in read position
+                    # generally observed when the player is reading the footer
+                    # for cues or metadata after initial playback start.
+                    #
+                    # Scans typically read less than a single block (128 kB).
+                    abs(self._last_read_end - start) > self.config.scan_tolerance
+                    and start != self.header_size
+                    and size < self.config.block_size
+                )
+                or (
+                    # This behaviour is seen when seeking.
+                    # Playback has already begun, so the header has been served
+                    # for this file, but the scan happens on a new file handle
+                    # and is the first request to be made.
+                    start > self.header_size
+                    and self._last_read_end == 0
+                )
+            )
+        )
+
+        logger.trace(
+            f"is_header_scan={is_header_scan}, "
+            f"is_footer_scan={is_footer_scan}, "
+            f"is_general_scan={is_general_scan}"
+        )
+
+        if is_header_scan:
+            return "header_scan"
+        elif is_footer_scan:
+            return "footer_scan"
+        elif is_general_scan:
+            return "general_scan"
+        else:
+            return "normal_read"
 
     async def _main_prefetch_loop(self) -> None:
         logger.trace(f"Starting prefetcher for {self.file_metadata['path']}")
