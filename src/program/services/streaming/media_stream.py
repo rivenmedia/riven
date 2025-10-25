@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from functools import cached_property
-import threading
 import trio
 import pyfuse3
 import errno
@@ -26,14 +25,14 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class Config(TypedDict):
+class Config:
     """Configuration for the media stream."""
 
     # Reads don't always come in exactly sequentially;
     # they may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4).
     #
     # This allows for some tolerance during the calculations.
-    sequential_read_tolerance: int
+    sequential_read_tolerance_blocks: int
 
     # Kernel block size; the byte length the OS reads/writes at a time.
     block_size: int
@@ -47,6 +46,10 @@ class Config(TypedDict):
 
     # Number of skipped chunks required to trigger a seek
     seek_chunk_tolerance: int
+
+    @property
+    def sequential_read_tolerance(self) -> int:
+        return self.block_size * self.sequential_read_tolerance_blocks
 
 
 @dataclass
@@ -136,7 +139,7 @@ class MediaStream:
             block_size=1024 * 128,  # 128 kB TODO: try to determine this from stream/OS
             max_chunk_size=10 * 1024 * 1024,  # 5 MiB
             min_chunk_size=256 * 1024,  # 256 kB
-            sequential_read_tolerance=1024 * 128 * 10,  # 10 128kB blocks
+            sequential_read_tolerance_blocks=10,
             target_chunk_duration_seconds=2,
             seek_chunk_tolerance=2,
         )
@@ -242,7 +245,7 @@ class MediaStream:
     def chunk_size(self) -> int:
         """An optimal chunk size based on the file's bitrate."""
 
-        target_chunk_duration_seconds = self.config["target_chunk_duration_seconds"]
+        target_chunk_duration_seconds = self.config.target_chunk_duration_seconds
 
         bitrate = self.file_metadata["bitrate"]
 
@@ -253,8 +256,8 @@ class MediaStream:
             )
 
             # Clamp chunk size between 256kB and 5MiB
-            min_chunk_size = self.config["min_chunk_size"]
-            max_chunk_size = self.config["max_chunk_size"]
+            min_chunk_size = self.config.min_chunk_size
+            max_chunk_size = self.config.max_chunk_size
 
             clamped_chunk_size = max(
                 min(calculated_chunk_size, max_chunk_size),
@@ -421,7 +424,7 @@ class MediaStream:
 
                     is_footer_scan = (
                         self._last_read_end
-                        < request_start - self.config["sequential_read_tolerance"]
+                        < request_start - self.config.sequential_read_tolerance
                     ) and file_size - self.footer_size <= request_start <= file_size
 
                     is_general_scan = (
@@ -580,7 +583,7 @@ class MediaStream:
                     request_chunk_range
                 )
 
-                if chunk_difference >= self.config["seek_chunk_tolerance"]:
+                if chunk_difference >= self.config.seek_chunk_tolerance:
                     logger.trace(
                         f"Requested start {start} "
                         f"is after current read position {self.connection.current_read_position} "
