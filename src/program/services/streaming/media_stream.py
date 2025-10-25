@@ -703,7 +703,6 @@ class MediaStream:
                                 )
 
                                 self.prefetch_scheduler.chunks_spawned.add(i)
-                                prefetch_queue_count += 1
                                 nursery.start_soon(prefetch_chunk)
 
                     await trio.sleep(0.5)
