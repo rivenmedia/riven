@@ -672,10 +672,6 @@ class MediaStream:
                 while self.prefetch_scheduler.is_running:
                     target_position = self._last_read_end + prefetch_readahead_size
 
-                    logger.trace(
-                        f"target_position={target_position}, current_read_position={self.connection.current_read_position}"
-                    )
-
                     prefetch_chunk_range = self._get_chunk_range(
                         position=max(
                             self._last_read_end,
@@ -687,10 +683,8 @@ class MediaStream:
                         ),
                     )
 
-                    logger.trace(f"prefetch_chunk_range={prefetch_chunk_range}")
-
                     if target_position < self.connection.current_read_position:
-                        await trio.sleep(0.5)
+                        await trio.sleep(0.1)
                         continue
 
                     for chunk in prefetch_chunk_range.chunks:
@@ -705,7 +699,7 @@ class MediaStream:
                                 self.prefetch_scheduler.chunks_spawned.add(i)
                                 nursery.start_soon(prefetch_chunk)
 
-                    await trio.sleep(0.5)
+                    await trio.sleep(0.1)
 
                 logger.trace(f"Prefetcher stopped for {self.file_metadata['path']}")
 
