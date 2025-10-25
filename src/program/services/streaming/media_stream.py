@@ -710,6 +710,9 @@ class MediaStream:
 
                 logger.trace(f"Prefetcher stopped for {self.file_metadata['path']}")
 
+                # Cancel any remaining prefetch tasks on exit
+                nursery.cancel_scope.cancel()
+
     async def close(self) -> None:
         """Close the active stream."""
 
