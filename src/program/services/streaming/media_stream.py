@@ -34,6 +34,9 @@ class Config:
     # This allows for some tolerance during the calculations.
     sequential_read_tolerance_blocks: int
 
+    # Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan.
+    scan_tolerance_blocks: int
+
     # Kernel block size; the byte length the OS reads/writes at a time.
     block_size: int
 
@@ -49,7 +52,13 @@ class Config:
 
     @property
     def sequential_read_tolerance(self) -> int:
+        """Tolerance for sequential reads to account for interleaved reads."""
         return self.block_size * self.sequential_read_tolerance_blocks
+
+    @property
+    def scan_tolerance(self) -> int:
+        """Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan."""
+        return self.block_size * self.scan_tolerance_blocks
 
 
 @dataclass
@@ -142,6 +151,7 @@ class MediaStream:
             sequential_read_tolerance_blocks=10,
             target_chunk_duration_seconds=2,
             seek_chunk_tolerance=2,
+            scan_tolerance_blocks=25,
         )
 
         self.session_statistics = SessionStatistics(
@@ -234,12 +244,6 @@ class MediaStream:
             raise AttributeError("header_size not set") from None
 
         return self._header_size
-
-    @property
-    def scan_tolerance(self) -> int:
-        """Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan."""
-
-        return 1024 * 128 * 25  # 25 128kB blocks
 
     @cached_property
     def chunk_size(self) -> int:
@@ -439,7 +443,7 @@ class MediaStream:
                                 #
                                 # Scans typically read less than a single block (128 kB).
                                 abs(self._last_read_end - request_start)
-                                > self.scan_tolerance
+                                > self.config.scan_tolerance
                                 and request_start != self.header_size
                                 and request_size < 1024 * 128
                             )
