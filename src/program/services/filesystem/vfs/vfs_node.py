@@ -29,7 +29,6 @@ class VFSNode:
         entry_type: Entry type ("media" or "subtitle", None for directories)
         bitrate: Bitrate in kbps (None for directories, or when media analysis is absent)
         duration: Duration in seconds (None for directories, or when media analysis is absent)
-        header_size: Header size in bytes (populated once a file is streamed, None otherwise)
     """
 
     name: str
@@ -159,10 +158,6 @@ class VFSFile(VFSNode):
     duration: int | None
     parent: VFSDirectory
 
-    # Caching the header size (i.e. the number of bytes read at position 0 of the stream)
-    # allows us to align the chunks and requests during streaming.
-    header_size: int | None = None
-
     def __init__(
         self,
         *,
@@ -191,6 +186,5 @@ class VFSFile(VFSNode):
             f"entry_type={self.entry_type!r}, "
             f"bitrate={self.bitrate}, "
             f"duration={self.duration}, "
-            f"header_size={self.header_size}"
             ")"
         )

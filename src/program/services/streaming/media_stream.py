@@ -91,6 +91,7 @@ class PrefetchScheduler:
     """Configuration for prefetching behaviour."""
 
     is_running: bool
+    is_closed: bool
     prefetch_seconds: int
     sequential_chunks_required: int
     lock: trio.Lock
@@ -144,7 +145,6 @@ class MediaStream:
         original_filename: str,
         bitrate: int | None = None,
         duration: float | None = None,
-        header_size: int | None = None,
     ) -> None:
         self.config = Config(
             block_size=1024 * 128,  # 128 kB TODO: try to determine this from stream/OS
@@ -175,6 +175,7 @@ class MediaStream:
             sequential_chunks_required=3,
             chunks_spawned=set(),
             is_running=False,
+            is_closed=False,
             lock=trio.Lock(),
         )
 
@@ -186,13 +187,13 @@ class MediaStream:
             original_filename=original_filename,
         )
 
-        self.lock = trio.Lock()
+        self.read_lock = trio.Lock()
         self.vfs = vfs
         self.fh = fh
 
         self._sequential_chunk_fetches = 0
         self._last_read_end = 0
-        self._header_size = header_size
+        self.header_size = 256 * 1024  # Default header size of 256kB
 
         logger.trace(
             f"Initialized stream for {self.file_metadata['path']} "
@@ -231,17 +232,6 @@ class MediaStream:
             and has_sufficient_sequential_fetches
             and is_within_prefetch_range
         )
-
-    @property
-    def header_size(self) -> int:
-        if not self._header_size:
-            logger.error(
-                f"Attempting to access header_size before it is set for {self.file_metadata['path']}"
-            )
-
-            raise AttributeError("header_size not set") from None
-
-        return self._header_size
 
     @property
     def num_seconds_behind(self) -> float:
@@ -363,12 +353,9 @@ class MediaStream:
     async def scan_header(self, read_position: int, size: int) -> bytes:
         """Scan the first N bytes of the media stream, and set the header size, to be used in future chunk calculations."""
 
-        # Header size isn't known until the first fetch has happened
-        self._header_size = size
-
         data = await self._fetch_discrete_byte_range(
             start=0,
-            size=size,
+            size=self.header_size,
         )
 
         return data[read_position : read_position + size]
@@ -418,7 +405,7 @@ class MediaStream:
         """Handles incoming read requests from the VFS."""
 
         async with self.manage_connection():
-            async with self.lock:
+            async with self.read_lock:
                 logger.trace(
                     f"Read request: path={self.file_metadata['path']} "
                     f"fh={self.fh} "
@@ -429,18 +416,15 @@ class MediaStream:
 
                 # Try cache first for the exact request (cache handles chunk lookup and slicing)
                 # Use cache_key to share cache between all paths pointing to same file
-                cached_bytes = await trio.to_thread.run_sync(
-                    lambda: self.vfs.cache.get(
-                        cache_key=self.file_metadata["original_filename"],
-                        start=request_start,
-                        end=request_end,
-                    )
+                cached_bytes = await self._read_cache(
+                    start=request_start,
+                    end=request_end,
                 )
 
                 if cached_bytes:
                     returned_data = cached_bytes
                 else:
-                    is_header_scan = self._last_read_end == 0 and request_start == 0
+                    is_header_scan = request_start < request_end <= self.header_size
 
                     file_size = self.file_metadata["file_size"]
 
@@ -463,14 +447,14 @@ class MediaStream:
                                 abs(self._last_read_end - request_start)
                                 > self.config.scan_tolerance
                                 and request_start != self.header_size
-                                and request_size < 1024 * 128
+                                and request_size < self.config.block_size
                             )
                             or (
                                 # This behaviour is seen when seeking.
                                 # Playback has already begun, so the header has been served
                                 # for this file, but the scan happens on a new file handle
                                 # and is the first request to be made.
-                                self.header_size
+                                request_start > self.header_size
                                 and self._last_read_end == 0
                             )
                         )
@@ -487,7 +471,7 @@ class MediaStream:
 
                         returned_data = await self.scan_header(
                             read_position=request_start,
-                            size=self.header_size,
+                            size=request_size,
                         )
                     elif is_footer_scan:
                         logger.trace("Performing footer scan read")
@@ -520,14 +504,23 @@ class MediaStream:
                 self._last_read_end = request_end
 
                 if self.is_prefetch_enabled:
-                    trio.lowlevel.spawn_system_task(self.main_prefetch_loop)
+                    trio.lowlevel.spawn_system_task(self._main_prefetch_loop)
 
                 return returned_data
 
-    async def read_bytes(self, start: int, end: int) -> bytes:
+    async def read_bytes(
+        self,
+        start: int,
+        end: int,
+        is_prefetch: bool = False,
+    ) -> bytes:
         """Read a specific number of bytes from the stream."""
 
         async with self.connection.lock:
+            logger.debug(
+                f"is_prefetch={is_prefetch} range=({start}-{end}) for {self.file_metadata['path']} [fh {self.fh}]"
+            )
+
             # Chunk boundaries for the request
             request_chunk_range = self._get_chunk_range(
                 position=start,
@@ -535,13 +528,10 @@ class MediaStream:
             )
 
             # Check the entire requested range for cached data again inside the lock,
-            # since other reads may have populated the cache since we last checked.
-            cached_data = await trio.to_thread.run_sync(
-                lambda: self.vfs.cache.get(
-                    cache_key=self.file_metadata["original_filename"],
-                    start=start,
-                    end=end,
-                )
+            # since other reads may have populated the cache since it was last checked.
+            cached_data = await self._read_cache(
+                start=start,
+                end=end,
             )
 
             if cached_data:
@@ -555,14 +545,14 @@ class MediaStream:
             # Usually this means the left chunk will be cached, and the right chunk will be streamed.
             # However, in some cases (e.g. seeks), the previous chunk may not be cached.
             # When a stream is connected, it is automatically aligned to the nearest chunk start.
+            #
+            # This may also happen when the first chunk is a header chunk. These are much smaller than regular chunks,
+            # and we request them differently, to avoid pulling a whole chunk that would mostly go to waste.
             if request_chunk_range.is_cross_chunk_request:
                 # Check to see if a previous request contains cached bytes
-                cached_data = await trio.to_thread.run_sync(
-                    lambda: self.vfs.cache.get(
-                        cache_key=self.file_metadata["original_filename"],
-                        start=start,
-                        end=request_chunk_range.first_chunk["end"],
-                    )
+                cached_data = await self._read_cache(
+                    start=start,
+                    end=request_chunk_range.first_chunk["end"],
                 )
 
                 if cached_data:
@@ -575,7 +565,12 @@ class MediaStream:
                 cached_data = b""
 
             if not self.connection.is_connected:
-                await self.connect(position=request_chunk_range.first_chunk["start"])
+                await self.connect(
+                    position=max(
+                        self.header_size,
+                        request_chunk_range.first_chunk["start"],
+                    )
+                )
 
             if (
                 start + request_chunk_range.cached_bytes_size
@@ -647,19 +642,39 @@ class MediaStream:
                 ):
                     break
 
-            await self._cache_chunk(cache_chunk_start, data)
-
-            stitched_data = cached_data + data
-
-            # Verify the data that was fetched matches what should be returned
-            self._verify_read_integrity(
+            # Verify the data that was provided matches what should be returned
+            verified_data = self._verify_read_integrity(
                 chunk_range=request_chunk_range,
-                data=stitched_data,
+                stream_data=data,
+                cached_data=cached_data,
             )
 
-            return stitched_data[request_chunk_range.chunk_slice]
+            # Cache the chunk after verifying the data to avoid persisting invalid data
+            await self._cache_chunk(cache_chunk_start, data)
 
-    async def main_prefetch_loop(self) -> None:
+            return verified_data
+
+    async def close(self) -> None:
+        """Close the active stream."""
+
+        if self.prefetch_scheduler.is_running:
+            # Wait for the prefetch loop to close before closing the stream
+            # to avoid ReadError exceptions from the prefetch requests
+            with trio.fail_after(5):
+                self.prefetch_scheduler.stop()
+
+                while not self.prefetch_scheduler.is_closed:
+                    await trio.sleep(0.1)
+
+                await self.connection.reset()
+
+        logger.debug(
+            f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
+            f"after transferring {self.session_statistics['bytes_transferred'] / (1024 * 1024):.2f}MB "
+            f"in {self.session_statistics['total_session_connections']} connections."
+        )
+
+    async def _main_prefetch_loop(self) -> None:
         logger.trace(f"Starting prefetcher for {self.file_metadata['path']}")
 
         self.prefetch_scheduler.start()
@@ -684,6 +699,7 @@ class MediaStream:
                     await self.read_bytes(
                         chunk_range.first_chunk["start"],
                         chunk_range.last_chunk["end"],
+                        is_prefetch=True,
                     )
 
                     logger.trace(
@@ -718,7 +734,8 @@ class MediaStream:
 
                         async with prefetch_spawn_lock:
                             logger.trace(
-                                f"Spawning prefetch task for chunk {i} ({chunk['start']}, {chunk['end']})"
+                                f"Spawning prefetch task for chunk {i} ({chunk['start']}, {chunk['end']}). "
+                                f"Currently {self.num_seconds_behind} seconds behind the buffer's end."
                             )
 
                             self.prefetch_scheduler.chunks_spawned.add(i)
@@ -731,18 +748,7 @@ class MediaStream:
                 # Cancel any remaining prefetch tasks on exit
                 nursery.cancel_scope.cancel()
 
-    async def close(self) -> None:
-        """Close the active stream."""
-
-        self.prefetch_scheduler.stop()
-
-        await self.connection.reset()
-
-        logger.debug(
-            f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
-            f"after transferring {self.session_statistics['bytes_transferred'] / (1024 * 1024):.2f}MB "
-            f"in {self.session_statistics['total_session_connections']} connections."
-        )
+                self.prefetch_scheduler.is_closed = True
 
     async def _fetch_discrete_byte_range(
         self,
@@ -750,7 +756,11 @@ class MediaStream:
         size: int,
         should_cache: bool = True,
     ) -> bytes:
-        """Fetch a discrete range of data outside of the main stream. Used for fetching the header/footer."""
+        """
+        Fetch a discrete range of data outside of the main stream.
+
+        Used for fetching the header, footer, and one-off scans.
+        """
 
         if start < 0:
             raise ValueError("Start must be non-negative")
@@ -773,12 +783,12 @@ class MediaStream:
 
         self.session_statistics["bytes_transferred"] += len(data)
 
-        self._verify_scan_integrity((start, start + size), data)
+        verified_data = self._verify_scan_integrity((start, start + size), data)
 
         if should_cache:
-            await self._cache_chunk(start, data[:size])
+            await self._cache_chunk(start, verified_data[:size])
 
-        return data
+        return verified_data
 
     async def _attempt_range_preflight_checks(
         self,
@@ -1075,6 +1085,15 @@ class MediaStream:
             size=size,
         )
 
+    async def _read_cache(self, start: int, end: int) -> bytes:
+        return await trio.to_thread.run_sync(
+            lambda: self.vfs.cache.get(
+                cache_key=self.file_metadata["original_filename"],
+                start=start,
+                end=end,
+            )
+        )
+
     async def _cache_chunk(self, start: int, data: bytes) -> None:
         await trio.to_thread.run_sync(
             lambda: self.vfs.cache.put(
@@ -1136,7 +1155,7 @@ class MediaStream:
         self,
         range: tuple[int, int],
         data: bytes,
-    ) -> None:
+    ) -> bytes:
         """
         Verify the integrity of the data read from the stream for scanning purposes.
 
@@ -1150,41 +1169,52 @@ class MediaStream:
 
         start, end = range
         expected_length = end - start
+        actual_length = len(data)
 
-        if len(data) < expected_length:
+        if actual_length < expected_length:
             raise RawByteLengthMismatchException(
                 expected_length=expected_length,
-                actual_length=len(data),
+                actual_length=actual_length,
                 range=range,
             )
 
-    def _verify_read_integrity(self, chunk_range: ChunkRange, data: bytes) -> None:
+        return data
+
+    def _verify_read_integrity(
+        self,
+        chunk_range: ChunkRange,
+        stream_data: bytes,
+        cached_data: bytes,
+    ) -> bytes:
         """
         Verify the integrity of the data read from the stream against the requested chunk range.
 
         Args:
             chunk_range: The ChunkRange object representing the requested range
-            data: The data read from the stream
+            stream_data: The data read from the stream
+            cached_data: The data read from the cache
         """
 
         expected_raw_length = chunk_range.bytes_required + chunk_range.cached_bytes_size
+        actual_raw_length = len(cached_data + stream_data)
 
-        if expected_raw_length != len(data):
+        if expected_raw_length != actual_raw_length:
             raise RawByteLengthMismatchException(
                 expected_length=expected_raw_length,
-                actual_length=len(data),
+                actual_length=actual_raw_length,
                 range=chunk_range.request_range,
             )
 
-        last_chunk_end = chunk_range.last_chunk["end"]
+        expected_last_chunk_end = chunk_range.last_chunk["end"] + 1
+        actual_last_chunk_end = self.connection.current_read_position
 
-        if self.connection.current_read_position != last_chunk_end + 1:
+        if actual_last_chunk_end != expected_last_chunk_end:
             raise ReadPositionMismatchException(
-                expected_position=last_chunk_end + 1,
-                actual_position=self.connection.current_read_position,
+                expected_position=expected_last_chunk_end,
+                actual_position=actual_last_chunk_end,
             )
 
-        sliced_data = data[chunk_range.chunk_slice]
+        sliced_data = (cached_data + stream_data)[chunk_range.chunk_slice]
         sliced_data_length = len(sliced_data)
 
         if sliced_data_length == 0:
@@ -1197,3 +1227,5 @@ class MediaStream:
                 range=chunk_range.request_range,
                 slice_range=chunk_range.chunk_slice,
             )
+
+        return sliced_data

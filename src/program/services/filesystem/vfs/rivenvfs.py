@@ -1510,12 +1510,6 @@ class RivenVFS(pyfuse3.Operations):
                 entry_type = node.entry_type
                 original_filename = node.original_filename
 
-                # Cache the header size for media files from first read
-                if entry_type == "media" and off == 0 and node.header_size is None:
-                    node.header_size = size
-
-                header_size = node.header_size
-
             if size == 0:
                 return b""
 
@@ -1582,7 +1576,6 @@ class RivenVFS(pyfuse3.Operations):
                 original_filename=original_filename,
                 bitrate=handle_info["bitrate"],
                 duration=handle_info["duration"],
-                header_size=header_size,
             )
 
             return await stream.read(
@@ -1736,7 +1729,6 @@ class RivenVFS(pyfuse3.Operations):
         fh: pyfuse3.FileHandleT,
         file_size: int,
         original_filename: str,
-        header_size: int | None = None,
         bitrate: int | None = None,
         duration: float | None = None,
     ) -> MediaStream:
@@ -1748,7 +1740,6 @@ class RivenVFS(pyfuse3.Operations):
             fh: The file handle associated with the stream.
             file_size: The size of the file to stream.
             original_filename: The original filename in the backend.
-            header_size: The size of the media file header (if applicable).
             bitrate: The bitrate of the media file (if applicable).
             duration: The duration of the media file in seconds (if applicable).
         Returns:
@@ -1764,7 +1755,6 @@ class RivenVFS(pyfuse3.Operations):
                     file_size=file_size,
                     path=path,
                     original_filename=original_filename,
-                    header_size=header_size,
                     bitrate=bitrate,
                     duration=duration,
                 )

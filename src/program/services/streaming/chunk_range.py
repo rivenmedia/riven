@@ -32,7 +32,11 @@ class ChunkRange:
         self.chunk_size = chunk_size
         self.header_size = header_size
         self.request_range = (position, position + size - 1)
-        self.content_position = max(0, position - header_size)
+
+        if position > header_size:
+            self.content_position = max(0, position - header_size)
+        else:
+            self.content_position = position
 
     @property
     def cached_bytes_size(self) -> int:
@@ -62,7 +66,10 @@ class ChunkRange:
     def bytes_required(self) -> int:
         """The number of bytes required to satisfy this range with chunk-aware boundaries."""
 
-        return len(self.chunks) * self.chunk_size
+        if len(self.chunks) == 1:
+            return self.chunk_size
+
+        return self.last_chunk["end"] - self.first_chunk["end"] + 1
 
     @cached_property
     def chunks(self) -> list[Chunk]:
@@ -82,13 +89,18 @@ class ChunkRange:
 
         chunks: list[Chunk] = []
 
+        # If the current request is within the header boundaries, include the header chunk.
+        # This is sized differently to normal chunks, so handle it separately.
+        if self.size and self.cache_aware_content_position < self.header_size:
+            chunks.append(Chunk(index=0, start=0, end=self.header_size - 1))
+
         for chunk_index in range(lower_chunk_index, upper_chunk_index + 1):
             chunk_start = self.header_size + (chunk_index * self.chunk_size)
             chunk_end = chunk_start + self.chunk_size - 1
 
             chunks.append(
                 Chunk(
-                    index=chunk_index,
+                    index=chunk_index + 1,
                     start=chunk_start,
                     end=chunk_end,
                 )
@@ -100,7 +112,10 @@ class ChunkRange:
     def chunk_slice(self) -> slice:
         """The slice within the chunk range that corresponds to the requested range."""
 
-        content_offset_in_chunk = self.cache_aware_content_position % self.chunk_size
+        divisor = (
+            self.chunk_size if self.position >= self.header_size else self.header_size
+        )
+        content_offset_in_chunk = self.cache_aware_content_position % divisor
         slice_left = content_offset_in_chunk
         slice_right = slice_left + self.size
 
@@ -159,6 +174,9 @@ class ChunkRange:
         return (
             f"{self.__class__.__name__}("
             f"request_range={self.request_range}, "
+            f"position={self.position}, "
+            f"content_position={self.content_position}, "
+            f"cache_aware_content_position={self.cache_aware_content_position}, "
             f"size={self.size}, "
             f"chunks={self.chunks}, "
             f"chunks_required={len(self.chunks)}, "
