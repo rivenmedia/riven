@@ -24,19 +24,17 @@ class MediaEntry(FilesystemEntry):
     )
 
     # Debrid service fields
-    download_url: Mapped[Optional[str]] = mapped_column(
+    download_url: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
+    unrestricted_url: Mapped[str | None] = mapped_column(
         sqlalchemy.String, nullable=True
     )
-    unrestricted_url: Mapped[Optional[str]] = mapped_column(
-        sqlalchemy.String, nullable=True
-    )
-    provider: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    provider_download_id: Mapped[Optional[str]] = mapped_column(
+    provider: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
+    provider_download_id: Mapped[str | None] = mapped_column(
         sqlalchemy.String, nullable=True
     )
 
     # Library Profile References (list of profile keys from settings.json)
-    library_profiles: Mapped[Optional[list[str]]] = mapped_column(
+    library_profiles: Mapped[list[str] | None] = mapped_column(
         sqlalchemy.JSON,
         nullable=True,
         default=list,
@@ -45,7 +43,7 @@ class MediaEntry(FilesystemEntry):
 
     # Parsed filename data (cached to avoid re-parsing)
     # Stores PTT parse results: {item_type, season, episodes}
-    parsed_data: Mapped[Optional[dict]] = mapped_column(
+    parsed_data: Mapped[dict | None] = mapped_column(
         sqlalchemy.JSON,
         nullable=True,
         comment="Cached parsed filename data from PTT (item_type, season, episodes)",
@@ -53,7 +51,7 @@ class MediaEntry(FilesystemEntry):
 
     # Probed media data (cached to avoid re-probing)
     # Stores ffprobe results: {video, audio, subtitles, duration, etc.}
-    probed_data: Mapped[Optional[dict]] = mapped_column(
+    probed_data: Mapped[dict | None] = mapped_column(
         sqlalchemy.JSON,
         nullable=True,
         comment="Cached ffprobe media analysis data (video, audio, subtitles, etc.)",
