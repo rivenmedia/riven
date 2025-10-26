@@ -254,7 +254,7 @@ class MediaStream:
         """Whether prefetching should start based on recent chunk access patterns."""
 
         # Determine if we've had enough sequential chunk fetches to trigger prefetching.
-        # This helps to avoid scans from triggering unnecessary prefetches.
+        # This helps to avoid scans from triggering expensive and unnecessary prefetches.
         has_sufficient_sequential_fetches = (
             self.connection.sequential_chunks_fetched
             >= self.prefetch_scheduler.sequential_chunks_required_to_start
@@ -479,7 +479,9 @@ class MediaStream:
                     size=request_size,
                 )
 
-                if read_type == "normal_read" and self.connection.is_connected:
+                if read_type == "normal_read" and (
+                    request_start < self.file_metadata["file_size"] - self.footer_size
+                ):
                     self.connection.last_request_chunk_range = self._get_chunk_range(
                         position=request_start,
                         size=request_size,
@@ -720,6 +722,8 @@ class MediaStream:
 
         sleep_interval = 0.01
 
+        chunks_to_skip = 0
+
         async with trio.open_nursery() as nursery:
             while self.connection.is_running:
                 if not self.connection.current_read_position or (
@@ -750,8 +754,6 @@ class MediaStream:
                         self.connection.current_read_position += len(chunk)
                         self.session_statistics.bytes_transferred += len(chunk)
 
-                        chunks_to_skip = 0
-
                         # Check to see if any subsequent chunks are already cached.
                         #
                         # Streams cannot skip content themselves; they must read all data in sequence.
@@ -759,19 +761,16 @@ class MediaStream:
                         # to reach the next uncached position.
                         #
                         # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
-                        #
-                        # **This is theoretically needed, although untested in practice.**
+
                         while True:
+                            test_chunk_start = self.connection.current_read_position + (
+                                chunks_to_skip * self.chunk_size
+                            )
+
                             cached_chunk = await self._read_cache(
-                                start=self.connection.current_read_position,
+                                start=test_chunk_start,
                                 end=min(
-                                    (
-                                        (
-                                            self.connection.current_read_position
-                                            + (chunks_to_skip + 1) * self.chunk_size
-                                        )
-                                        - 1
-                                    ),
+                                    test_chunk_start + self.chunk_size - 1,
                                     self.file_metadata["file_size"],
                                 ),
                             )
@@ -779,39 +778,23 @@ class MediaStream:
                             # If the next chunk is already cached, skip ahead
                             if cached_chunk:
                                 chunks_to_skip += 1
+
                                 await trio.sleep(sleep_interval)
                                 continue
 
                             break
 
-                        # If cached chunks were found, skip ahead to the next uncached position
-                        # or close the stream if we can skip to the end of the file.
+                        # If cached chunks were found, kill the stream loop.
+                        # This will be picked up after the loop exits.
                         if chunks_to_skip > 0:
-                            skipped_read_position = (
-                                self.connection.current_read_position
-                                + (chunks_to_skip * self.chunk_size)
+                            self.connection.is_running = False
+
+                            logger.log(
+                                "STREAM",
+                                self._build_log_message(
+                                    f"Killing stream loop to skip {chunks_to_skip} cached chunks"
+                                ),
                             )
-
-                            if skipped_read_position >= self.file_metadata["file_size"]:
-                                logger.log(
-                                    "STREAM",
-                                    self._build_log_message(
-                                        f"Reached end of file while skipping cached chunks."
-                                    ),
-                                )
-
-                                await self.close()
-                            else:
-                                logger.log(
-                                    "STREAM",
-                                    self._build_log_message(
-                                        f"Skipped ahead to byte "
-                                        f"{skipped_read_position} "
-                                        f"after finding cached chunks"
-                                    ),
-                                )
-
-                                await self.seek(skipped_read_position)
 
                         # Break early if the stream loop has been stopped.
                         # Otherwise, the loop will continue until the target position is reached,
@@ -820,7 +803,7 @@ class MediaStream:
                             logger.log(
                                 "STREAM",
                                 self._build_log_message(
-                                    f"Stream loop cancellation signal detected with "
+                                    f"Stream loop termination signal detected with "
                                     f"{self.connection.target_position - self.connection.current_read_position} bytes remaining to read"
                                 ),
                             )
@@ -846,9 +829,39 @@ class MediaStream:
 
                 await trio.sleep(sleep_interval)
 
-        nursery.cancel_scope.cancel()
+            nursery.cancel_scope.cancel()
 
         self.connection.is_exited = True
+
+        # If cached chunks were found, seek the stream to the new position
+        #
+        # This **MUST BE CALLED AFTER** the stream loop has exited to avoid deadlocks.
+        # Seeking closes the connection, which attempts to close the loop and wait for is_exited to become true.
+        if self.connection.current_read_position and chunks_to_skip > 0:
+            target_read_position = self.connection.current_read_position + (
+                chunks_to_skip * self.chunk_size
+            )
+
+            if target_read_position >= self.file_metadata["file_size"]:
+                logger.log(
+                    "STREAM",
+                    self._build_log_message(
+                        f"Reached end of file while skipping cached chunks."
+                    ),
+                )
+
+                _ = await self.close()
+            else:
+                logger.log(
+                    "STREAM",
+                    self._build_log_message(
+                        f"Skipped ahead to byte "
+                        f"{target_read_position} "
+                        f"after finding {chunks_to_skip} cached chunks"
+                    ),
+                )
+
+                await self.seek(target_read_position)
 
         logger.log("STREAM", self._build_log_message("Stream loop ended"))
 
