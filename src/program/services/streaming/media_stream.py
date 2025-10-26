@@ -77,6 +77,7 @@ class Connection:
     is_exited: bool = False
     is_running: bool = False
     target_position: int = 0
+    start_position: int = 0
     current_read_position: int | None = None
     last_read_end: int | None = None
     response: httpx.Response | None = None
@@ -125,6 +126,7 @@ class Connection:
             await self.response.aclose()
 
         self.current_read_position = 0
+        self.start_position = 0
         self.last_request_chunk_range = None
         self.last_read_end = None
         self.is_connected = False
@@ -385,7 +387,8 @@ class MediaStream:
             start=chunk_aligned_start
         )
         self.connection.is_connected = True
-        self.connection.current_read_position = position
+        self.connection.start_position = chunk_aligned_start
+        self.connection.current_read_position = chunk_aligned_start
         self.connection.reader = self.connection.response.aiter_bytes(
             chunk_size=self.chunk_size
         )
@@ -408,7 +411,7 @@ class MediaStream:
         await self.connect(position=position)
 
     async def scan_header(self, read_position: int, size: int) -> bytes:
-        """Scan the first N bytes of the media stream, and set the header size, to be used in future chunk calculations."""
+        """Scans the start of the media file for header data."""
 
         data = await self._fetch_discrete_byte_range(
             start=0,
@@ -439,7 +442,7 @@ class MediaStream:
         return data[slice_offset : slice_offset + size]
 
     async def scan(self, read_position: int, size: int) -> bytes:
-        """Fetch extra data for scanning purposes."""
+        """Fetch extra, ephemeral data for scanning purposes."""
 
         data = await self._fetch_discrete_byte_range(
             start=read_position,
@@ -558,34 +561,7 @@ class MediaStream:
     ) -> bytes:
         """Read a specific number of bytes from the stream."""
 
-        if not self.connection.current_read_position:
-            raise httpx.StreamError("Stream is not connected")
-
-        # Check if requested start is after current read position,
-        # and if it exceeds the seek tolerance, move the stream to the new start.
-        if (
-            self.connection.current_read_position
-            and start > self.connection.current_read_position
-        ):
-            request_chunk_range = self._get_chunk_range(position=start)
-
-            read_position_chunk_range = self._get_chunk_range(
-                position=self.connection.current_read_position
-            )
-
-            chunk_difference = read_position_chunk_range.calculate_chunk_difference(
-                request_chunk_range
-            )
-
-            if chunk_difference >= self.config.seek_chunk_tolerance:
-                logger.warning(
-                    f"Requested start {start} "
-                    f"is after current read position {self.connection.current_read_position} "
-                    f"for {self.file_metadata['path']}. "
-                    f"Seeking to new start position {request_chunk_range.first_chunk['start']}/{self.file_metadata['file_size']}."
-                )
-
-                await self.seek(position=request_chunk_range.first_chunk["start"])
+        await self._maybe_seek(position=start)
 
         with trio.fail_after(2):
             while True:
@@ -628,6 +604,58 @@ class MediaStream:
                 f"in {self.session_statistics.total_session_connections} connections."
             ),
         )
+
+    async def _maybe_seek(self, *, position: int) -> None:
+        """Seeks the stream if the read position is outside the current chunk range."""
+
+        if self.connection.current_read_position is None:
+            raise httpx.StreamError("Stream is not connected")
+
+        if position < self.connection.start_position:
+            request_chunk_range = self._get_chunk_range(position=position)
+
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"Requested start {position} "
+                    f"is before current read position {self.connection.current_read_position} "
+                    f"for {self.file_metadata['path']}. "
+                    f"Seeking to new start position {request_chunk_range.first_chunk['start']}/{self.file_metadata['file_size']}."
+                ),
+            )
+
+            # Always seek backwards if the requested start is before the stream's start position.
+            # Streams can only read forwards, so a new connection must be made.
+            await self.seek(position=request_chunk_range.first_chunk["start"])
+
+        # Check if requested start is after current read position,
+        # and if it exceeds the seek tolerance, move the stream to the new start.
+        if (
+            self.connection.current_read_position
+            and position > self.connection.current_read_position
+        ):
+            request_chunk_range = self._get_chunk_range(position=position)
+
+            read_position_chunk_range = self._get_chunk_range(
+                position=self.connection.current_read_position
+            )
+
+            chunk_difference = read_position_chunk_range.calculate_chunk_difference(
+                request_chunk_range
+            )
+
+            if chunk_difference >= self.config.seek_chunk_tolerance:
+                logger.log(
+                    "STREAM",
+                    self._build_log_message(
+                        f"Requested start {position} "
+                        f"is after current read position {self.connection.current_read_position} "
+                        f"for {self.file_metadata['path']}. "
+                        f"Seeking to new start position {request_chunk_range.first_chunk['start']}/{self.file_metadata['file_size']}."
+                    ),
+                )
+
+                await self.seek(position=request_chunk_range.first_chunk["start"])
 
     def _detect_read_type(
         self,
@@ -694,11 +722,11 @@ class MediaStream:
 
         async with trio.open_nursery() as nursery:
             while self.connection.is_running:
-                if (
+                if not self.connection.current_read_position or (
                     self.connection.current_read_position
                     and self.connection.current_read_position
                     >= self.connection.target_position
-                ) or not self.connection.current_read_position:
+                ):
                     await trio.sleep(sleep_interval)
                     continue
 
@@ -721,6 +749,69 @@ class MediaStream:
 
                         self.connection.current_read_position += len(chunk)
                         self.session_statistics.bytes_transferred += len(chunk)
+
+                        chunks_to_skip = 0
+
+                        # Check to see if any subsequent chunks are already cached.
+                        #
+                        # Streams cannot skip content themselves; they must read all data in sequence.
+                        # This means that if future chunks are cached, it would need to re-download them
+                        # to reach the next uncached position.
+                        #
+                        # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
+                        #
+                        # **This is theoretically needed, although untested in practice.**
+                        while True:
+                            cached_chunk = await self._read_cache(
+                                start=self.connection.current_read_position,
+                                end=min(
+                                    (
+                                        (
+                                            self.connection.current_read_position
+                                            + (chunks_to_skip + 1) * self.chunk_size
+                                        )
+                                        - 1
+                                    ),
+                                    self.file_metadata["file_size"],
+                                ),
+                            )
+
+                            # If the next chunk is already cached, skip ahead
+                            if cached_chunk:
+                                chunks_to_skip += 1
+                                await trio.sleep(sleep_interval)
+                                continue
+
+                            break
+
+                        # If cached chunks were found, skip ahead to the next uncached position
+                        # or close the stream if we can skip to the end of the file.
+                        if chunks_to_skip > 0:
+                            skipped_read_position = (
+                                self.connection.current_read_position
+                                + (chunks_to_skip * self.chunk_size)
+                            )
+
+                            if skipped_read_position >= self.file_metadata["file_size"]:
+                                logger.log(
+                                    "STREAM",
+                                    self._build_log_message(
+                                        f"Reached end of file while skipping cached chunks."
+                                    ),
+                                )
+
+                                await self.close()
+                            else:
+                                logger.log(
+                                    "STREAM",
+                                    self._build_log_message(
+                                        f"Skipped ahead to byte "
+                                        f"{skipped_read_position} "
+                                        f"after finding cached chunks"
+                                    ),
+                                )
+
+                                await self.seek(skipped_read_position)
 
                         # Break early if the stream loop has been stopped.
                         # Otherwise, the loop will continue until the target position is reached,
