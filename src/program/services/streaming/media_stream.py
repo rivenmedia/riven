@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 from http import HTTPStatus
 from kink import di
 from collections.abc import AsyncIterator
+from time import time
 
 from src.program.services.streaming.chunk_range import ChunkRange
 from src.program.services.streaming.exceptions import (
@@ -71,7 +72,6 @@ class Connection:
     current_read_position: int
     is_connected: bool
     is_exited: bool
-    is_killed: bool
     is_running: bool
     target_position: int
     sequential_chunks_fetched: int = 0
@@ -90,7 +90,6 @@ class Connection:
         self.sequential_chunks_fetched = 0
         self.is_connected = False
         self.is_exited = False
-        self.is_killed = False
         self.is_running = False
         self.response = None
 
@@ -176,7 +175,6 @@ class MediaStream:
             target_position=0,
             is_exited=False,
             is_connected=False,
-            is_killed=False,
             response=None,
             last_chunk_fetched=None,
             last_read_end=0,
@@ -686,8 +684,6 @@ class MediaStream:
                     continue
 
                 async with self.connection.lock:
-                    from time import time
-
                     now = time()
                     start_read_position = self.connection.current_read_position
 
@@ -740,7 +736,7 @@ class MediaStream:
 
         self.connection.is_exited = True
 
-        logger.log("STREAM", self._build_log_message("Stream loop ended "))
+        logger.log("STREAM", self._build_log_message("Stream loop ended"))
 
     async def _main_prefetch_loop(self) -> None:
         logger.log("STREAM", self._build_log_message("Starting prefetcher"))
