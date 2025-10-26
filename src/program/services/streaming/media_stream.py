@@ -203,13 +203,15 @@ class MediaStream:
         self._last_read_chunk = None
         self.header_size = 256 * 1024  # Default header size of 256kB
 
-        logger.trace(
-            f"Initialized stream for {self.file_metadata['path']} "
-            f"with chunk size {self.chunk_size / (1024 * 1024):.2f} MB "
-            f"[{self.chunk_size // (1024 * 128)} blocks]. "
-            f"bitrate={self.file_metadata['bitrate']}, "
-            f"duration={self.file_metadata['duration']}, "
-            f"file_size={self.file_metadata['file_size']} bytes"
+        logger.log(
+            "STREAM",
+            self._build_log_message(
+                f"Initialized stream with chunk size {self.chunk_size / (1024 * 1024):.2f} MB "
+                f"[{self.chunk_size // (1024 * 128)} blocks]. "
+                f"bitrate={self.file_metadata['bitrate']}, "
+                f"duration={self.file_metadata['duration']}, "
+                f"file_size={self.file_metadata['file_size']} bytes",
+            ),
         )
 
         try:
@@ -258,9 +260,12 @@ class MediaStream:
         bitrate = self.file_metadata["bitrate"]
 
         if not bitrate:
-            logger.warning(
-                f"No bitrate available for {self.file_metadata['path']}. Falling back to {self.config.default_bitrate // 1000 // 1000} Mbps. "
-                f"Media analysis may have previously failed on this file. If you experience streaming issues, try re-analyzing the file with FFProbe."
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"No bitrate available. Falling back to {self.config.default_bitrate // 1000 // 1000} Mbps. "
+                    f"Media analysis may have previously failed on this file. If you experience streaming issues, try re-analyzing the file with FFProbe."
+                ),
             )
 
             # Fallback to configured default bitrate if no probed information is available
@@ -354,9 +359,12 @@ class MediaStream:
         if not self.connection.is_running:
             trio.lowlevel.spawn_system_task(self._main_stream_loop)
 
-        logger.trace(
-            f"{self.connection.response.http_version} stream connection established for {self.file_metadata['path']} "
-            f"from byte {position} / {self.file_metadata['file_size']}."
+        logger.log(
+            "STREAM",
+            self._build_log_message(
+                f"{self.connection.response.http_version} stream connection established "
+                f"from byte {position} / {self.file_metadata['file_size']}."
+            ),
         )
 
     async def seek(self, position: int) -> None:
@@ -418,12 +426,14 @@ class MediaStream:
 
         async with self.manage_connection():
             async with self.read_lock:
-                logger.trace(
-                    f"Read request: path={self.file_metadata['path']} "
-                    f"fh={self.fh} "
-                    f"request_start={request_start} "
-                    f"request_end={request_end} "
-                    f"size={request_size}"
+                logger.log(
+                    "STREAM",
+                    self._build_log_message(
+                        "Read request: "
+                        f"request_start={request_start} "
+                        f"request_end={request_end} "
+                        f"size={request_size}"
+                    ),
                 )
 
                 # Try cache first for the exact request (cache handles chunk lookup and slicing)
@@ -457,8 +467,11 @@ class MediaStream:
                 if cached_bytes:
                     returned_data = cached_bytes
                 else:
-                    logger.trace(
-                        f"Performing {read_type} for {self.file_metadata['path']}"
+                    logger.log(
+                        "STREAM",
+                        self._build_log_message(
+                            f"Performing {read_type} for [{request_start}-{request_end}]"
+                        ),
                     )
 
                     match read_type:
@@ -522,10 +535,13 @@ class MediaStream:
                             # This should never happen due to prior validation
                             raise RuntimeError("Unknown read type")
 
-                logger.trace(
-                    f"seq_fetches={self._sequential_chunk_fetches} "
-                    f"current_read_position={self.connection.current_read_position} "
-                    f"last_read_end={self._last_read_end} "
+                logger.log(
+                    "STREAM",
+                    self._build_log_message(
+                        f"sequential_chunks_streamed={self.connection.sequential_chunks_streamed} "
+                        f"current_read_position={self.connection.current_read_position} "
+                        f"last_read_end={self._last_read_end} "
+                    ),
                 )
 
                 self._last_read_end = request_end
@@ -720,10 +736,13 @@ class MediaStream:
 
         await self.connection.reset()
 
-        logger.debug(
-            f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
-            f"after transferring {self.session_statistics['bytes_transferred'] / (1024 * 1024):.2f}MB "
-            f"in {self.session_statistics['total_session_connections']} connections."
+        logger.log(
+            "STREAM",
+            self._build_log_message(
+                f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
+                f"after transferring {self.session_statistics['bytes_transferred'] / (1024 * 1024):.2f}MB "
+                f"in {self.session_statistics['total_session_connections']} connections."
+            ),
         )
 
     def _detect_read_type(
@@ -767,10 +786,13 @@ class MediaStream:
             )
         )
 
-        logger.trace(
-            f"is_header_scan={is_header_scan}, "
-            f"is_footer_scan={is_footer_scan}, "
-            f"is_general_scan={is_general_scan}"
+        logger.log(
+            "STREAM",
+            self._build_log_message(
+                f"is_header_scan={is_header_scan}, "
+                f"is_footer_scan={is_footer_scan}, "
+                f"is_general_scan={is_general_scan}"
+            ),
         )
 
         if is_header_scan:
@@ -783,7 +805,10 @@ class MediaStream:
             return "normal_read"
 
     async def _main_stream_loop(self) -> None:
-        logger.trace(f"Starting stream loop for {self.file_metadata['path']}")
+        logger.log(
+            "STREAM",
+            self._build_log_message("Starting stream loop"),
+        )
 
         self.connection.is_running = True
 
@@ -807,6 +832,8 @@ class MediaStream:
                     start_read_position = self.connection.current_read_position
 
                     async for chunk in self.iterator:
+                        # Cache the chunk in the background without blocking the iterator.
+                        # This will be picked up by the reads asynchronously.
                         nursery.start_soon(
                             self._cache_chunk,
                             self.connection.current_read_position,
@@ -824,10 +851,13 @@ class MediaStream:
 
                     iteration_duration = time() - now
 
-                    logger.debug(
-                        f"Stream fetched {start_read_position}-{self.connection.current_read_position} "
-                        f"({self.connection.current_read_position - start_read_position} bytes) "
-                        f"in {iteration_duration:.3f}s"
+                    logger.log(
+                        "STREAM",
+                        self._build_log_message(
+                            f"Stream fetched {start_read_position}-{self.connection.current_read_position} "
+                            f"({self.connection.current_read_position - start_read_position} bytes) "
+                            f"in {iteration_duration:.3f}s"
+                        ),
                     )
 
                 await trio.sleep(0.01)
@@ -836,10 +866,10 @@ class MediaStream:
 
         self.connection.is_exited = True
 
-        logger.trace(f"Stream loop ended for {self.file_metadata['path']}")
+        logger.log("STREAM", self._build_log_message("Stream loop ended "))
 
     async def _main_prefetch_loop(self) -> None:
-        logger.trace(f"Starting prefetcher for {self.file_metadata['path']}")
+        logger.log("STREAM", self._build_log_message("Starting prefetcher"))
 
         self.prefetch_scheduler.start()
 
@@ -860,7 +890,7 @@ class MediaStream:
 
                     await trio.sleep(0.1)
 
-                logger.trace(f"Prefetcher stopped for {self.file_metadata['path']}")
+                logger.log("STREAM", self._build_log_message("Prefetcher stopped"))
 
                 # Cancel any remaining prefetch tasks on exit
                 nursery.cancel_scope.cancel()
@@ -1346,3 +1376,6 @@ class MediaStream:
             )
 
         return sliced_data
+
+    def _build_log_message(self, message: str) -> str:
+        return f"{message} [fh: {self.fh} file={self.file_metadata['path'].split('/')[-1]}]"
