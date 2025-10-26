@@ -156,7 +156,7 @@ class PrefetchScheduler:
 
 
 @dataclass
-class SessionStatistics(dict):
+class SessionStatistics:
     """Statistics about the current streaming session."""
 
     bytes_transferred: int = 0
@@ -624,8 +624,8 @@ class MediaStream:
             "STREAM",
             self._build_log_message(
                 f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
-                f"after transferring {self.session_statistics['bytes_transferred'] / (1024 * 1024):.2f}MB "
-                f"in {self.session_statistics['total_session_connections']} connections."
+                f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
+                f"in {self.session_statistics.total_session_connections} connections."
             ),
         )
 
@@ -701,11 +701,12 @@ class MediaStream:
                     continue
 
                 async with self.connection.lock:
-                    now = time()
-                    start_read_position = self.connection.current_read_position
-
                     if not self.connection.reader:
                         raise httpx.StreamError("No stream reader available")
+
+                    start_read_position = self.connection.current_read_position
+
+                    now = time()
 
                     async for chunk in self.connection.reader:
                         # Cache the chunk in the background without blocking the iterator.
@@ -717,7 +718,7 @@ class MediaStream:
                         )
 
                         self.connection.current_read_position += len(chunk)
-                        self.session_statistics["bytes_transferred"] += len(chunk)
+                        self.session_statistics.bytes_transferred += len(chunk)
 
                         # Break early if the stream loop has been stopped.
                         # Otherwise, the loop will continue until the target position is reached,
@@ -792,22 +793,15 @@ class MediaStream:
 
                         break
 
-                    target_position = (
-                        self.connection.last_read_end + prefetch_buffer_size
+                    # Calculate the prefetch target position, clamped to the file size.
+                    target_position = min(
+                        self.connection.last_read_end + prefetch_buffer_size,
+                        self.file_metadata["file_size"],
                     )
 
                     if target_position < self.connection.current_read_position:
                         await trio.sleep(0.1)
                         continue
-
-                    prefetch_chunk_range = self._get_chunk_range(
-                        position=self.connection.current_read_position,
-                        size=target_position - self.connection.current_read_position,
-                    )
-
-                    logger.debug(
-                        f"start={self.connection.current_read_position} target={target_position} prefetch_chunks={prefetch_chunk_range.chunks}"
-                    )
 
                     # Prefetches are quite simple; we just move the target position forward
                     # and let the main stream loop handle the actual fetching in the background.
@@ -856,7 +850,7 @@ class MediaStream:
             if len(data) >= size:
                 break
 
-        self.session_statistics["bytes_transferred"] += len(data)
+        self.session_statistics.bytes_transferred += len(data)
 
         verified_data = self._verify_scan_integrity((start, start + size), data)
 
@@ -1063,7 +1057,7 @@ class MediaStream:
                     )
                     raise pyfuse3.FUSEError(errno.EIO)
 
-                self.session_statistics["total_session_connections"] += 1
+                self.session_statistics.total_session_connections += 1
 
                 return response
             except httpx.HTTPStatusError as e:
