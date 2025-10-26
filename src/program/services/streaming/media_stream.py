@@ -355,7 +355,7 @@ class MediaStream:
 
         try:
             yield
-        except httpx.RemoteProtocolError as e:
+        except* httpx.RemoteProtocolError as e:
             if self.connection.current_read_position is None:
                 logger.exception(
                     self._build_log_message(
@@ -382,7 +382,7 @@ class MediaStream:
                 )
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
-        except httpx.ReadError as e:
+        except* httpx.ReadError as e:
             if self.connection.current_read_position is None:
                 logger.exception(
                     self._build_log_message(
@@ -409,7 +409,7 @@ class MediaStream:
                 )
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
-        except Exception as e:
+        except* Exception as e:
             logger.error(
                 self._build_log_message(
                     f"{e.__class__.__name__} occurred while managing stream connection: {e}"
