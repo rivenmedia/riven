@@ -690,6 +690,8 @@ class MediaStream:
 
         self.connection.is_running = True
 
+        sleep_interval = 0.01
+
         async with trio.open_nursery() as nursery:
             while self.connection.is_running:
                 if (
@@ -697,7 +699,7 @@ class MediaStream:
                     and self.connection.current_read_position
                     >= self.connection.target_position
                 ) or not self.connection.current_read_position:
-                    await trio.sleep(0.01)
+                    await trio.sleep(sleep_interval)
                     continue
 
                 async with self.connection.lock:
@@ -751,7 +753,7 @@ class MediaStream:
                         ),
                     )
 
-                await trio.sleep(0.01)
+                await trio.sleep(sleep_interval)
 
         nursery.cancel_scope.cancel()
 
@@ -767,6 +769,8 @@ class MediaStream:
         prefetch_buffer_size = (
             self.prefetch_scheduler.prefetch_seconds * self.bytes_per_second
         )
+
+        sleep_interval = 0.1
 
         async with self.prefetch_scheduler.lock:
             async with trio.open_nursery() as nursery:
@@ -800,7 +804,7 @@ class MediaStream:
                     )
 
                     if target_position < self.connection.current_read_position:
-                        await trio.sleep(0.1)
+                        await trio.sleep(sleep_interval)
                         continue
 
                     # Prefetches are quite simple; we just move the target position forward
@@ -810,7 +814,7 @@ class MediaStream:
                     # and allows us to avoid complex coordination between the two that tends to result in deadlocks.
                     self.connection.target_position = target_position
 
-                    await trio.sleep(0.1)
+                    await trio.sleep(sleep_interval)
 
                 logger.log("STREAM", self._build_log_message("Prefetcher stopped"))
 
