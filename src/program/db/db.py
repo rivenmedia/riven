@@ -4,6 +4,8 @@ from sqlalchemy import text
 
 from alembic import command
 from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from program.settings.manager import settings_manager
 from program.utils import root_dir
 
@@ -61,13 +63,93 @@ def vacuum_and_analyze_index_maintenance() -> None:
         logger.error(f"Error during VACUUM and ANALYZE: {e}")
 
 
+def reset_database():
+    """Reset the database by dropping and recreating the public schema."""
+    logger.warning("Resetting database - all data will be lost!")
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+            conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+            conn.commit()
+        logger.success("Database reset complete")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to reset database: {e}")
+        return False
+
+
 def run_migrations(database_url=None):
-    """Run any pending migrations on startup"""
+    """Run any pending migrations on startup.
+
+    If a pre-v1 database is detected (revision not in current migration chain),
+    automatically reset the database and create the v1 schema from scratch.
+
+    Special case: Latest dev branch (7e5b5cf430ff) has identical schema to v1_base,
+    so we can migrate it directly without data loss.
+    """
     try:
         alembic_cfg = Config(root_dir / "src" / "alembic.ini")
         if database_url:
             alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+
+        # Get script directory to check migration chain
+        script = ScriptDirectory.from_config(alembic_cfg)
+
+        # Check current database revision
+        with db.engine.connect() as conn:
+            context = MigrationContext.configure(conn)
+            current_rev = context.get_current_revision()
+
+        # Get all revisions in the current migration chain (from base to head)
+        # This includes v1_base and any future migrations built on top of it
+        head_rev = script.get_current_head()
+        current_chain = set()
+        if head_rev:
+            # Walk down from head to base, collecting all revisions
+            for rev in script.walk_revisions(base="base", head=head_rev):
+                current_chain.add(rev.revision)
+
+        # Special case: Latest dev branch has identical schema to v1_base
+        # Migrate it directly without resetting to preserve user data
+        latest_dev_revision = "7e5b5cf430ff"
+        v1_base_revision = "4f327e05c40f"
+
+        if current_rev == latest_dev_revision:
+            logger.info(f"Detected latest dev branch (revision: {current_rev})")
+            logger.info("Migrating to v1 without data loss (schema is identical)")
+            # Update alembic_version to v1_base directly
+            with db.engine.connect() as conn:
+                conn.execute(
+                    text(
+                        f"UPDATE alembic_version SET version_num = '{v1_base_revision}'"
+                    )
+                )
+                conn.commit()
+            logger.success("Migrated from dev branch to v1_base")
+            # Continue with normal upgrade
+            command.upgrade(alembic_cfg, "head")
+            logger.success("Database migrations completed successfully")
+            return
+
+        # If database has a revision that's NOT in the current chain, it's pre-v1
+        # This handles old v0/dev branches while allowing new v1.x migrations
+        if current_rev is not None and current_rev not in current_chain:
+            logger.warning(f"Detected pre-v1 database (revision: {current_rev})")
+            logger.warning(
+                "Upgrading to v1 requires database reset (data cannot be migrated)"
+            )
+            logger.warning(
+                "This affects all pre-v1 databases including v0 releases and dev branches"
+            )
+            if not reset_database():
+                raise Exception("Failed to reset database for v1 upgrade")
+            logger.info("Creating v1 schema from scratch...")
+
+        # Run migrations to head (v1 schema)
         command.upgrade(alembic_cfg, "head")
+        logger.success("Database migrations completed successfully")
+
     except Exception as e:
         logger.error(f"Migration failed: {e}")
         raise
