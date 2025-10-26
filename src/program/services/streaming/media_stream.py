@@ -438,19 +438,23 @@ class MediaStream:
                     size=request_size,
                 )
 
-                if read_type == "normal_read":
-                    request_chunk_range = self._get_chunk_range(position=request_start)
-                    request_chunk_index = request_chunk_range.first_chunk["index"]
+                if read_type == "normal_read" and self.connection.is_connected:
+                    request_chunk_range = self._get_chunk_range(
+                        position=request_start,
+                        size=request_size,
+                    )
 
-                    if (
-                        self._last_read_chunk == request_chunk_index
-                        or self._last_read_chunk == request_chunk_index - 1
-                    ):
-                        self._sequential_chunk_fetches += 1
+                    if not self._last_read_chunk:
+                        self._last_read_chunk = request_chunk_range.first_chunk["index"]
                     else:
-                        self._sequential_chunk_fetches = 0
+                        # Reversing is a minor optimisation that looks at the final chunk first
+                        for chunk in reversed(request_chunk_range.chunks):
+                            chunk_index = chunk["index"]
 
-                    self._last_read_chunk = request_chunk_index
+                            if self._last_read_chunk + 1 == chunk_index:
+                                self._last_read_chunk = chunk_index
+                                self._sequential_chunk_fetches += 1
+                                break
 
                 # Try cache first for the exact request (cache handles chunk lookup and slicing)
                 # Use cache_key to share cache between all paths pointing to same file
