@@ -356,25 +356,64 @@ class MediaStream:
         try:
             yield
         except httpx.RemoteProtocolError as e:
+            if self.connection.current_read_position is None:
+                logger.exception(
+                    self._build_log_message(
+                        f"HTTP protocol error occurred, "
+                        f"but there is no current read position at which we can reconnect. "
+                        f"Killing stream. {e}"
+                    )
+                )
+
+                raise
+
             logger.warning(
-                f"HTTP protocol error occurred while managing stream connection for {self.file_metadata['path']}: "
-                f"{e}. "
-                f"Likely timed out; attempting to reconnect..."
+                self._build_log_message(
+                    f"HTTP protocol error occurred while managing stream connection: {e}. "
+                    "Attempting to reconnect..."
+                )
             )
 
-            await self.connect(self.connection.current_read_position or 0)
+            await self.connect(self.connection.current_read_position)
 
             if not self.connection.is_connected:
                 logger.error(
-                    f"Failed to reconnect stream connection for {self.file_metadata['path']}"
+                    self._build_log_message("Failed to reconnect stream connection.")
                 )
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
         except httpx.ReadError as e:
-            raise pyfuse3.FUSEError(errno.EIO) from e
+            if self.connection.current_read_position is None:
+                logger.exception(
+                    self._build_log_message(
+                        f"Stream read error occurred, "
+                        f"but there is no current read position at which we can reconnect. "
+                        f"Killing stream. {e}"
+                    )
+                )
+
+                raise
+
+            logger.warning(
+                self._build_log_message(
+                    f"Stream read error occurred while managing stream connection: {e}. "
+                    "Attempting to reconnect..."
+                )
+            )
+
+            await self.connect(self.connection.current_read_position)
+
+            if not self.connection.is_connected:
+                logger.error(
+                    self._build_log_message("Failed to reconnect stream connection.")
+                )
+
+                raise pyfuse3.FUSEError(errno.EIO) from e
         except Exception as e:
             logger.error(
-                f"{e.__class__.__name__} occurred while managing stream connection for {self.file_metadata['path']}: {e}"
+                self._build_log_message(
+                    f"{e.__class__.__name__} occurred while managing stream connection: {e}"
+                )
             )
             raise
 
@@ -724,146 +763,148 @@ class MediaStream:
 
         chunks_to_skip = 0
 
-        async with trio.open_nursery() as nursery:
-            while self.connection.is_running:
-                if not self.connection.current_read_position or (
-                    self.connection.current_read_position
-                    and self.connection.current_read_position
-                    >= self.connection.target_position
-                ):
-                    await trio.sleep(sleep_interval)
-                    continue
+        async with self.manage_connection():
+            async with trio.open_nursery() as nursery:
+                while self.connection.is_running:
+                    if not self.connection.current_read_position or (
+                        self.connection.current_read_position
+                        and self.connection.current_read_position
+                        >= self.connection.target_position
+                    ):
+                        await trio.sleep(sleep_interval)
+                        continue
 
-                async with self.connection.lock:
-                    if not self.connection.reader:
-                        raise httpx.StreamError("No stream reader available")
+                    async with self.connection.lock:
+                        if not self.connection.reader:
+                            raise httpx.StreamError("No stream reader available")
 
-                    start_read_position = self.connection.current_read_position
+                        start_read_position = self.connection.current_read_position
 
-                    now = time()
+                        now = time()
 
-                    async for chunk in self.connection.reader:
-                        # Cache the chunk in the background without blocking the iterator.
-                        # This will be picked up by the reads asynchronously.
-                        nursery.start_soon(
-                            self._cache_chunk,
-                            self.connection.current_read_position,
-                            chunk,
+                        async for chunk in self.connection.reader:
+                            # Cache the chunk in the background without blocking the iterator.
+                            # This will be picked up by the reads asynchronously.
+                            nursery.start_soon(
+                                self._cache_chunk,
+                                self.connection.current_read_position,
+                                chunk,
+                            )
+
+                            self.connection.current_read_position += len(chunk)
+                            self.session_statistics.bytes_transferred += len(chunk)
+
+                            # Check to see if any subsequent chunks are already cached.
+                            #
+                            # Streams cannot skip content themselves; they must read all data in sequence.
+                            # This means that if future chunks are cached, it would need to re-download them
+                            # to reach the next uncached position.
+                            #
+                            # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
+
+                            while True:
+                                test_chunk_start = (
+                                    self.connection.current_read_position
+                                    + (chunks_to_skip * self.chunk_size)
+                                )
+
+                                cached_chunk = await self._read_cache(
+                                    start=test_chunk_start,
+                                    end=min(
+                                        test_chunk_start + self.chunk_size - 1,
+                                        self.file_metadata["file_size"],
+                                    ),
+                                )
+
+                                # If the next chunk is already cached, skip ahead
+                                if cached_chunk:
+                                    chunks_to_skip += 1
+
+                                    await trio.sleep(sleep_interval)
+                                    continue
+
+                                break
+
+                            # If cached chunks were found, kill the stream loop.
+                            # This will be picked up after the loop exits.
+                            if chunks_to_skip > 0:
+                                self.connection.is_running = False
+
+                                logger.log(
+                                    "STREAM",
+                                    self._build_log_message(
+                                        f"Killing stream loop to skip {chunks_to_skip} cached chunks"
+                                    ),
+                                )
+
+                            # Break early if the stream loop has been stopped.
+                            # Otherwise, the loop will continue until the target position is reached,
+                            # which can prevent the connection from being closed during large fetch windows.
+                            if not self.connection.is_running:
+                                logger.log(
+                                    "STREAM",
+                                    self._build_log_message(
+                                        f"Stream loop termination signal detected with "
+                                        f"{self.connection.target_position - self.connection.current_read_position} bytes remaining to read"
+                                    ),
+                                )
+
+                                break
+
+                            if (
+                                self.connection.current_read_position
+                                >= self.connection.target_position
+                            ):
+                                break
+
+                        iteration_duration = time() - now
+
+                        logger.log(
+                            "STREAM",
+                            self._build_log_message(
+                                f"Stream fetched {start_read_position}-{self.connection.current_read_position} "
+                                f"({self.connection.current_read_position - start_read_position} bytes) "
+                                f"in {iteration_duration:.3f}s"
+                            ),
                         )
 
-                        self.connection.current_read_position += len(chunk)
-                        self.session_statistics.bytes_transferred += len(chunk)
+                    await trio.sleep(sleep_interval)
 
-                        # Check to see if any subsequent chunks are already cached.
-                        #
-                        # Streams cannot skip content themselves; they must read all data in sequence.
-                        # This means that if future chunks are cached, it would need to re-download them
-                        # to reach the next uncached position.
-                        #
-                        # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
+                nursery.cancel_scope.cancel()
 
-                        while True:
-                            test_chunk_start = self.connection.current_read_position + (
-                                chunks_to_skip * self.chunk_size
-                            )
+            self.connection.is_exited = True
 
-                            cached_chunk = await self._read_cache(
-                                start=test_chunk_start,
-                                end=min(
-                                    test_chunk_start + self.chunk_size - 1,
-                                    self.file_metadata["file_size"],
-                                ),
-                            )
+            # If cached chunks were found, seek the stream to the new position
+            #
+            # This **MUST BE CALLED AFTER** the stream loop has exited to avoid deadlocks.
+            # Seeking closes the connection, which attempts to close the loop and wait for is_exited to become true.
+            if self.connection.current_read_position and chunks_to_skip > 0:
+                target_read_position = self.connection.current_read_position + (
+                    chunks_to_skip * self.chunk_size
+                )
 
-                            # If the next chunk is already cached, skip ahead
-                            if cached_chunk:
-                                chunks_to_skip += 1
-
-                                await trio.sleep(sleep_interval)
-                                continue
-
-                            break
-
-                        # If cached chunks were found, kill the stream loop.
-                        # This will be picked up after the loop exits.
-                        if chunks_to_skip > 0:
-                            self.connection.is_running = False
-
-                            logger.log(
-                                "STREAM",
-                                self._build_log_message(
-                                    f"Killing stream loop to skip {chunks_to_skip} cached chunks"
-                                ),
-                            )
-
-                        # Break early if the stream loop has been stopped.
-                        # Otherwise, the loop will continue until the target position is reached,
-                        # which can prevent the connection from being closed during large fetch windows.
-                        if not self.connection.is_running:
-                            logger.log(
-                                "STREAM",
-                                self._build_log_message(
-                                    f"Stream loop termination signal detected with "
-                                    f"{self.connection.target_position - self.connection.current_read_position} bytes remaining to read"
-                                ),
-                            )
-
-                            break
-
-                        if (
-                            self.connection.current_read_position
-                            >= self.connection.target_position
-                        ):
-                            break
-
-                    iteration_duration = time() - now
-
+                if target_read_position >= self.file_metadata["file_size"]:
                     logger.log(
                         "STREAM",
                         self._build_log_message(
-                            f"Stream fetched {start_read_position}-{self.connection.current_read_position} "
-                            f"({self.connection.current_read_position - start_read_position} bytes) "
-                            f"in {iteration_duration:.3f}s"
+                            f"Reached end of file while skipping cached chunks."
                         ),
                     )
 
-                await trio.sleep(sleep_interval)
+                    _ = await self.close()
+                else:
+                    logger.log(
+                        "STREAM",
+                        self._build_log_message(
+                            f"Skipped ahead to byte "
+                            f"{target_read_position} "
+                            f"after finding {chunks_to_skip} cached chunks"
+                        ),
+                    )
 
-            nursery.cancel_scope.cancel()
+                    await self.seek(target_read_position)
 
-        self.connection.is_exited = True
-
-        # If cached chunks were found, seek the stream to the new position
-        #
-        # This **MUST BE CALLED AFTER** the stream loop has exited to avoid deadlocks.
-        # Seeking closes the connection, which attempts to close the loop and wait for is_exited to become true.
-        if self.connection.current_read_position and chunks_to_skip > 0:
-            target_read_position = self.connection.current_read_position + (
-                chunks_to_skip * self.chunk_size
-            )
-
-            if target_read_position >= self.file_metadata["file_size"]:
-                logger.log(
-                    "STREAM",
-                    self._build_log_message(
-                        f"Reached end of file while skipping cached chunks."
-                    ),
-                )
-
-                _ = await self.close()
-            else:
-                logger.log(
-                    "STREAM",
-                    self._build_log_message(
-                        f"Skipped ahead to byte "
-                        f"{target_read_position} "
-                        f"after finding {chunks_to_skip} cached chunks"
-                    ),
-                )
-
-                await self.seek(target_read_position)
-
-        logger.log("STREAM", self._build_log_message("Stream loop ended"))
+            logger.log("STREAM", self._build_log_message("Stream loop ended"))
 
     async def _main_prefetch_loop(self) -> None:
         logger.log("STREAM", self._build_log_message("Starting prefetcher"))
@@ -998,13 +1039,23 @@ class MediaStream:
         )
 
         if not entry_info:
-            logger.error(f"No entry info for {self.file_metadata['original_filename']}")
+            logger.error(
+                self._build_log_message(
+                    f"No entry info for {self.file_metadata['original_filename']}"
+                )
+            )
+
             raise pyfuse3.FUSEError(errno.ENOENT)
 
         self.target_url = entry_info["url"]
 
         if not self.target_url:
-            logger.error(f"No URL for {self.file_metadata['original_filename']}")
+            logger.error(
+                self._build_log_message(
+                    f"No URL for {self.file_metadata['original_filename']}"
+                )
+            )
+
             raise pyfuse3.FUSEError(errno.ENOENT)
 
         for preflight_attempt in range(max_preflight_attempts):
@@ -1025,7 +1076,9 @@ class MediaStream:
                     # Server refused range request. Serving this request would return the full media file,
                     # which eats downloader bandwidth usage unnecessarily. Wait and retry.
                     logger.warning(
-                        f"Server doesn't support range requests yet: path={self.file_metadata['path']}"
+                        self._build_log_message(
+                            f"Server doesn't support range requests yet."
+                        )
                     )
 
                     if await self._retry_with_backoff(
@@ -1037,7 +1090,9 @@ class MediaStream:
                     raise pyfuse3.FUSEError(errno.EIO)
             except httpx.RemoteProtocolError as e:
                 logger.debug(
-                    f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={self.file_metadata['path']} error={type(e).__name__}"
+                    self._build_log_message(
+                        f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): {e}"
+                    )
                 )
 
                 if await self._retry_with_backoff(
@@ -1052,7 +1107,9 @@ class MediaStream:
                 preflight_status_code = e.response.status_code
 
                 logger.debug(
-                    f"Preflight HTTP error {preflight_status_code}: path={self.file_metadata['path']}"
+                    self._build_log_message(
+                        f"Preflight HTTP error {preflight_status_code}: {e}"
+                    )
                 )
 
                 if preflight_status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
@@ -1064,7 +1121,9 @@ class MediaStream:
 
                         if fresh_url:
                             logger.warning(
-                                f"URL refresh after HTTP {preflight_status_code}: path={self.file_metadata['path']}"
+                                self._build_log_message(
+                                    f"URL refresh after HTTP {preflight_status_code}"
+                                )
                             )
 
                             if await self._retry_with_backoff(
@@ -1076,12 +1135,16 @@ class MediaStream:
                 else:
                     # Other unexpected status codes
                     logger.warning(
-                        f"Unexpected preflight HTTP {preflight_status_code}: path={self.file_metadata['path']}"
+                        self._build_log_message(
+                            f"Unexpected preflight HTTP {preflight_status_code}"
+                        )
                     )
                     raise pyfuse3.FUSEError(errno.EIO) from e
             except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 logger.debug(
-                    f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={self.file_metadata['path']} error={type(e).__name__}"
+                    self._build_log_message(
+                        f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): {e}"
+                    )
                 )
 
                 if preflight_attempt == 0:
@@ -1092,7 +1155,7 @@ class MediaStream:
 
                     if fresh_url:
                         logger.warning(
-                            f"URL refresh after timeout: path={self.file_metadata['path']}"
+                            self._build_log_message("URL refresh after timeout")
                         )
 
                 if await self._retry_with_backoff(
@@ -1105,7 +1168,9 @@ class MediaStream:
                 raise
             except Exception:
                 logger.exception(
-                    f"Unexpected error during preflight checks for {self.file_metadata['path']}"
+                    self._build_log_message(
+                        f"Unexpected error during preflight checks: {e}"
+                    )
                 )
 
                 if await self._retry_with_backoff(
@@ -1135,9 +1200,8 @@ class MediaStream:
         try:
             await self._attempt_range_preflight_checks(headers)
         except Exception as e:
-            logger.error(
-                f"Preflight checks failed for {self.file_metadata['path']}: {e}"
-            )
+            logger.error(self._build_log_message(f"Preflight checks failed: {e}"))
+
             raise
 
         max_attempts = 4
@@ -1161,7 +1225,9 @@ class MediaStream:
                     # Server appears to be ignoring range request and returning full content
                     # This shouldn't happen due to preflight, treat as error
                     logger.warning(
-                        f"Server returned full content instead of range: path={self.file_metadata['path']}"
+                        self._build_log_message(
+                            f"Server returned full content instead of range."
+                        )
                     )
                     raise pyfuse3.FUSEError(errno.EIO)
 
@@ -1174,7 +1240,9 @@ class MediaStream:
                 if status_code == HTTPStatus.FORBIDDEN:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
                     logger.debug(
-                        f"HTTP 403 Forbidden: path={self.file_metadata['path']} attempt={attempt + 1}"
+                        self._build_log_message(
+                            f"HTTP 403 Forbidden - attempt {attempt + 1}"
+                        )
                     )
 
                     if await self._retry_with_backoff(attempt, max_attempts, backoffs):
@@ -1191,7 +1259,9 @@ class MediaStream:
                 elif status_code == HTTPStatus.TOO_MANY_REQUESTS:
                     # Rate limited - back off exponentially, don't refresh URL
                     logger.warning(
-                        f"HTTP 429 Rate Limited: path={self.file_metadata['path']} attempt={attempt + 1}"
+                        self._build_log_message(
+                            f"HTTP 429 Rate Limited - attempt {attempt + 1}"
+                        )
                     )
 
                     if await self._retry_with_backoff(attempt, max_attempts, backoffs):
@@ -1201,7 +1271,7 @@ class MediaStream:
                 else:
                     # Other unexpected status codes
                     logger.warning(
-                        f"Unexpected HTTP {status_code}: path={self.file_metadata['path']}"
+                        self._build_log_message(f"Unexpected HTTP {status_code}")
                     )
                     raise pyfuse3.FUSEError(errno.EIO) from e
             except (
@@ -1210,7 +1280,9 @@ class MediaStream:
                 httpx.InvalidURL,
             ) as e:
                 logger.debug(
-                    f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): path={self.file_metadata['path']} error={type(e).__name__}"
+                    self._build_log_message(
+                        f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): {e}"
+                    )
                 )
 
                 if attempt == 0:
@@ -1221,7 +1293,7 @@ class MediaStream:
 
                     if fresh_url:
                         logger.warning(
-                            f"URL refresh after timeout: path={self.file_metadata['path']}"
+                            self._build_log_message(f"URL refresh after timeout")
                         )
 
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
@@ -1231,7 +1303,9 @@ class MediaStream:
             except httpx.RemoteProtocolError as e:
                 # This can happen if the server closes the connection prematurely
                 logger.debug(
-                    f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): path={self.file_metadata['path']} error={type(e).__name__}"
+                    self._build_log_message(
+                        f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): {e}"
+                    )
                 )
 
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
@@ -1242,7 +1316,7 @@ class MediaStream:
                 raise
             except Exception:
                 logger.exception(
-                    f"Unexpected error fetching data block for {self.file_metadata['path']}"
+                    self._build_log_message(f"Unexpected error connecting to stream")
                 )
                 raise pyfuse3.FUSEError(errno.EIO) from None
 
@@ -1301,7 +1375,9 @@ class MediaStream:
 
             if fresh_url and fresh_url != self.target_url:
                 logger.debug(
-                    f"Refreshed URL for {self.file_metadata['original_filename']}"
+                    self._build_log_message(
+                        f"Refreshed URL for {self.file_metadata['original_filename']}"
+                    )
                 )
 
                 self.target_url = fresh_url
