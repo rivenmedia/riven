@@ -315,11 +315,8 @@ def handle_args():
         exit(0)
 
     if args.snapshot_db:
-        snapshot_dir = Path(args.snapshot_dir) if args.snapshot_dir else None
         snapshot_name = args.snapshot_db if isinstance(args.snapshot_db, str) else None
-        success = snapshot_database(
-            snapshot_dir=snapshot_dir, snapshot_name=snapshot_name
-        )
+        success = snapshot_database(snapshot_name=snapshot_name)
         exit(0 if success else 1)
 
     if args.restore_db:
