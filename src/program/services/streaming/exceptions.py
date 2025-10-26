@@ -58,13 +58,18 @@ class ReadPositionMismatchException(MediaStreamException):
         self,
         *,
         expected_position: int,
-        actual_position: int,
+        actual_position: int | None,
     ) -> None:
-        difference = actual_position - expected_position
+        if actual_position is not None:
+            difference = actual_position - expected_position
 
-        super().__init__(
-            f"Expected read position {expected_position}, but got {actual_position}, a difference of {difference} bytes."
-        )
+            super().__init__(
+                f"Expected read position {expected_position}, but got {actual_position}, a difference of {difference} bytes."
+            )
+        else:
+            super().__init__(
+                f"Expected read position {expected_position}, but got None."
+            )
 
         self.expected_position = expected_position
         self.actual_position = actual_position

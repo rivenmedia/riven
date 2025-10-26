@@ -1,10 +1,10 @@
-from dataclasses import dataclass
-from functools import cached_property
 import trio
 import pyfuse3
 import errno
 import httpx
 
+from dataclasses import dataclass
+from functools import cached_property
 from contextlib import asynccontextmanager
 from loguru import logger
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -41,8 +41,10 @@ class Config:
     # Kernel block size; the byte length the OS reads/writes at a time.
     block_size: int
 
-    # Max and min chunk sizes for adaptive chunk sizing.
+    # Maximum chunk size for adaptive chunk sizing.
     max_chunk_size: int
+
+    # Minimum chunk size for adaptive chunk sizing.
     min_chunk_size: int
 
     # Target playback duration for each chunk in seconds.
@@ -57,11 +59,13 @@ class Config:
     @property
     def sequential_read_tolerance(self) -> int:
         """Tolerance for sequential reads to account for interleaved reads."""
+
         return self.block_size * self.sequential_read_tolerance_blocks
 
     @property
     def scan_tolerance(self) -> int:
         """Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan."""
+
         return self.block_size * self.scan_tolerance_blocks
 
 
@@ -69,25 +73,60 @@ class Config:
 class Connection:
     """Metadata about the current streaming connection."""
 
-    current_read_position: int
-    is_connected: bool
-    is_exited: bool
-    is_running: bool
-    target_position: int
-    sequential_chunks_fetched: int = 0
-    last_chunk_fetched: int | None = None
-    last_read_end: int = 0
+    is_connected: bool = False
+    is_exited: bool = False
+    is_running: bool = False
+    target_position: int = 0
+    current_read_position: int | None = None
+    last_read_end: int | None = None
     response: httpx.Response | None = None
+    reader: AsyncIterator[bytes] | None = None
     lock: trio.Lock = trio.Lock()
+
+    def __init__(self) -> None:
+        self.last_request_chunk_range = None
+
+    @property
+    def last_request_chunk_range(self) -> ChunkRange | None:
+        """The chunk range of the last request, if any."""
+
+        return self._last_request_chunk_range
+
+    @last_request_chunk_range.setter
+    def last_request_chunk_range(self, value: ChunkRange | None) -> None:
+        if not value:
+            self._last_request_chunk_range = None
+            self._sequential_chunks_fetched = 0
+
+            return
+
+        if self.last_request_chunk_range:
+            last_chunk_fetched = self.last_request_chunk_range.last_chunk["index"]
+
+            for chunk in reversed(value.chunks):
+                chunk_index = chunk["index"]
+
+                if last_chunk_fetched + 1 == chunk_index:
+                    self.last_chunk_fetched = chunk_index
+                    self._sequential_chunks_fetched += 1
+
+                    break
+
+        self._last_request_chunk_range = value
+
+    @property
+    def sequential_chunks_fetched(self) -> int:
+        """The number of sequential chunks fetched so far."""
+
+        return self._sequential_chunks_fetched
 
     async def reset(self) -> None:
         if self.response:
             await self.response.aclose()
 
         self.current_read_position = 0
-        self.last_chunk_fetched = None
-        self.last_read_end = 0
-        self.sequential_chunks_fetched = 0
+        self.last_request_chunk_range = None
+        self.last_read_end = None
         self.is_connected = False
         self.is_exited = False
         self.is_running = False
@@ -98,25 +137,30 @@ class Connection:
 class PrefetchScheduler:
     """Configuration for prefetching behaviour."""
 
-    is_running: bool
-    is_exited: bool
     prefetch_seconds: int
-    sequential_chunks_required: int
-    lock: trio.Lock
+    sequential_chunks_required_to_start: int
+
+    lock: trio.Lock = trio.Lock()
+    is_exited: bool = False
+    is_running: bool = False
 
     def start(self) -> None:
+        """Start the prefetch scheduler."""
+
         self.is_running = True
 
     def stop(self) -> None:
+        """Stop the prefetch scheduler."""
+
         self.is_running = False
 
 
 @dataclass
-class SessionStatistics(TypedDict):
+class SessionStatistics(dict):
     """Statistics about the current streaming session."""
 
-    bytes_transferred: int
-    total_session_connections: int
+    bytes_transferred: int = 0
+    total_session_connections: int = 0
 
 
 @dataclass
@@ -138,8 +182,6 @@ class MediaStream:
     connections, fetching data, and managing playback.
     """
 
-    response: httpx.Response | None
-    iterator: AsyncIterator[bytes]
     target_url: str
 
     def __init__(
@@ -159,34 +201,18 @@ class MediaStream:
             min_chunk_size=256 * 1024,  # 256 kB
             sequential_read_tolerance_blocks=10,
             target_chunk_duration_seconds=2,
-            seek_chunk_tolerance=2,
+            seek_chunk_tolerance=5,
             scan_tolerance_blocks=25,
             default_bitrate=10 * 1000 * 1000,  # 10 Mbps
         )
 
-        self.session_statistics = SessionStatistics(
-            bytes_transferred=0,
-            total_session_connections=0,
-        )
+        self.session_statistics = SessionStatistics()
 
-        self.connection = Connection(
-            current_read_position=0,
-            is_running=False,
-            target_position=0,
-            is_exited=False,
-            is_connected=False,
-            response=None,
-            last_chunk_fetched=None,
-            last_read_end=0,
-            sequential_chunks_fetched=0,
-        )
+        self.connection = Connection()
 
         self.prefetch_scheduler = PrefetchScheduler(
             prefetch_seconds=10,
-            sequential_chunks_required=25,
-            is_running=False,
-            is_exited=False,
-            lock=trio.Lock(),
+            sequential_chunks_required_to_start=25,
         )
 
         self.file_metadata = FileMetadata(
@@ -201,7 +227,6 @@ class MediaStream:
         self.vfs = vfs
         self.fh = fh
 
-        self.connection.last_read_end = 0
         self.header_size = 256 * 1024  # Default header size of 256kB
 
         logger.log(
@@ -230,7 +255,7 @@ class MediaStream:
         # This helps to avoid scans from triggering unnecessary prefetches.
         has_sufficient_sequential_fetches = (
             self.connection.sequential_chunks_fetched
-            >= self.prefetch_scheduler.sequential_chunks_required
+            >= self.prefetch_scheduler.sequential_chunks_required_to_start
         )
 
         # Determine if the current read position is within the prefetch lookahead range.
@@ -247,6 +272,13 @@ class MediaStream:
     @property
     def num_seconds_behind(self) -> float:
         """Number of seconds the last read end is behind the current read position."""
+
+        # If no current reads, we're not behind at all.
+        if (
+            self.connection.last_read_end is None
+            or self.connection.current_read_position is None
+        ):
+            return 0
 
         raw_seconds = (
             self.connection.current_read_position - self.connection.last_read_end
@@ -265,7 +297,7 @@ class MediaStream:
                 "STREAM",
                 self._build_log_message(
                     f"No bitrate available. Falling back to {self.config.default_bitrate // 1000 // 1000} Mbps. "
-                    f"Media analysis may have previously failed on this file. If you experience streaming issues, try re-analyzing the file with FFProbe."
+                    f"Media analysis may have previously failed on this file. If you experience streaming issues, try re-analysing the file with FFProbe."
                 ),
             )
 
@@ -328,7 +360,7 @@ class MediaStream:
                 f"Likely timed out; attempting to reconnect..."
             )
 
-            await self.connect(self.connection.current_read_position)
+            await self.connect(self.connection.current_read_position or 0)
 
             if not self.connection.is_connected:
                 logger.error(
@@ -354,8 +386,9 @@ class MediaStream:
         )
         self.connection.is_connected = True
         self.connection.current_read_position = position
-
-        self.iterator = self.connection.response.aiter_bytes(chunk_size=self.chunk_size)
+        self.connection.reader = self.connection.response.aiter_bytes(
+            chunk_size=self.chunk_size
+        )
 
         if not self.connection.is_running:
             trio.lowlevel.spawn_system_task(self._main_stream_loop)
@@ -388,7 +421,7 @@ class MediaStream:
         """
         Scans the end of the media file for footer data.
 
-        This "overfetches" for the individual request,
+        This "over-fetches" for the individual request,
         but multiple footer requests tend to be made to retrieve more data later,
         so this is more efficient than making multiple small requests.
         """
@@ -444,25 +477,10 @@ class MediaStream:
                 )
 
                 if read_type == "normal_read" and self.connection.is_connected:
-                    request_chunk_range = self._get_chunk_range(
+                    self.connection.last_request_chunk_range = self._get_chunk_range(
                         position=request_start,
                         size=request_size,
                     )
-
-                    if not self.connection.last_chunk_fetched:
-                        self.connection.last_chunk_fetched = (
-                            request_chunk_range.last_chunk["index"]
-                        )
-                    else:
-                        # Check to see that one of the chunks indexes in the request match the next expected chunk.
-                        for chunk in reversed(request_chunk_range.chunks):
-                            chunk_index = chunk["index"]
-
-                            if self.connection.last_chunk_fetched + 1 == chunk_index:
-                                self.connection.last_chunk_fetched = chunk_index
-                                self.connection.sequential_chunks_fetched += 1
-
-                                break
 
                 # Try cache first for the exact request (cache handles chunk lookup and slicing)
                 # Use cache_key to share cache between all paths pointing to same file
@@ -540,9 +558,15 @@ class MediaStream:
     ) -> bytes:
         """Read a specific number of bytes from the stream."""
 
+        if not self.connection.current_read_position:
+            raise httpx.StreamError("Stream is not connected")
+
         # Check if requested start is after current read position,
         # and if it exceeds the seek tolerance, move the stream to the new start.
-        if start > self.connection.current_read_position:
+        if (
+            self.connection.current_read_position
+            and start > self.connection.current_read_position
+        ):
             request_chunk_range = self._get_chunk_range(position=start)
 
             read_position_chunk_range = self._get_chunk_range(
@@ -617,7 +641,7 @@ class MediaStream:
         is_header_scan = start < end <= self.header_size
 
         is_footer_scan = (
-            self.connection.last_read_end
+            (self.connection.last_read_end or 0)
             < start - self.config.sequential_read_tolerance
         ) and file_size - self.footer_size <= start <= file_size
 
@@ -625,7 +649,8 @@ class MediaStream:
             not is_header_scan
             and not is_footer_scan
             and (
-                (
+                self.connection.last_read_end
+                and (
                     # This behaviour is seen during scanning
                     # and captures large jumps in read position
                     # generally observed when the player is reading the footer
@@ -646,15 +671,6 @@ class MediaStream:
                     and self.connection.last_read_end == 0
                 )
             )
-        )
-
-        logger.log(
-            "STREAM",
-            self._build_log_message(
-                f"is_header_scan={is_header_scan}, "
-                f"is_footer_scan={is_footer_scan}, "
-                f"is_general_scan={is_general_scan}"
-            ),
         )
 
         if is_header_scan:
@@ -678,8 +694,9 @@ class MediaStream:
             while self.connection.is_running:
                 if (
                     self.connection.current_read_position
+                    and self.connection.current_read_position
                     >= self.connection.target_position
-                ):
+                ) or not self.connection.current_read_position:
                     await trio.sleep(0.01)
                     continue
 
@@ -687,7 +704,10 @@ class MediaStream:
                     now = time()
                     start_read_position = self.connection.current_read_position
 
-                    async for chunk in self.iterator:
+                    if not self.connection.reader:
+                        raise httpx.StreamError("No stream reader available")
+
+                    async for chunk in self.connection.reader:
                         # Cache the chunk in the background without blocking the iterator.
                         # This will be picked up by the reads asynchronously.
                         nursery.start_soon(
@@ -743,20 +763,51 @@ class MediaStream:
 
         self.prefetch_scheduler.start()
 
-        prefetch_readahead_size = (
+        prefetch_buffer_size = (
             self.prefetch_scheduler.prefetch_seconds * self.bytes_per_second
         )
 
         async with self.prefetch_scheduler.lock:
             async with trio.open_nursery() as nursery:
                 while self.prefetch_scheduler.is_running:
+                    if self.connection.last_read_end is None:
+                        # This shouldn't happen; prefetcher should only start after some data has been read.
+                        logger.log(
+                            "STREAM",
+                            self._build_log_message(
+                                "No last read end; stopping prefetcher"
+                            ),
+                        )
+
+                        break
+
+                    if self.connection.current_read_position is None:
+                        # This shouldn't happen; prefetcher should only start after some data has been read.
+                        logger.log(
+                            "STREAM",
+                            self._build_log_message(
+                                "No current read position; stopping prefetcher"
+                            ),
+                        )
+
+                        break
+
                     target_position = (
-                        self.connection.last_read_end + prefetch_readahead_size
+                        self.connection.last_read_end + prefetch_buffer_size
                     )
 
                     if target_position < self.connection.current_read_position:
                         await trio.sleep(0.1)
                         continue
+
+                    prefetch_chunk_range = self._get_chunk_range(
+                        position=self.connection.current_read_position,
+                        size=target_position - self.connection.current_read_position,
+                    )
+
+                    logger.debug(
+                        f"start={self.connection.current_read_position} target={target_position} prefetch_chunks={prefetch_chunk_range.chunks}"
+                    )
 
                     # Prefetches are quite simple; we just move the target position forward
                     # and let the main stream loop handle the actual fetching in the background.
@@ -1100,7 +1151,7 @@ class MediaStream:
         position: int,
         size: int = 1,
     ) -> ChunkRange:
-        """Get the range of bytes required to fulfill a read at the given position and for the given size, aligned to chunk boundaries."""
+        """Get the range of bytes required to fulfil a read at the given position and for the given size, aligned to chunk boundaries."""
 
         return ChunkRange(
             position=position,
