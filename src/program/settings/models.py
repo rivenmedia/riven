@@ -586,6 +586,15 @@ class RarbgConfig(Observable):
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
+class AIOStreamsConfig(Observable):
+    enabled: bool = Field(default=False, description="Enable AIOStreams scraper")
+    manifest_url: EmptyOrUrl = Field(
+        default="",
+        description="AIOStreams manifest.json URL (e.g., https://aiostreams.viren070.me/stremio/.../manifest.json)",
+    )
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+
+
 class ScraperModel(Observable):
     after_2: float = Field(
         default=2, description="Hours to wait after 2 failed scrapes"
@@ -635,6 +644,10 @@ class ScraperModel(Observable):
     )
     rarbg: RarbgConfig = Field(
         default_factory=lambda: RarbgConfig(), description="RARBG configuration"
+    )
+    aiostreams: AIOStreamsConfig = Field(
+        default_factory=lambda: AIOStreamsConfig(),
+        description="AIOStreams configuration",
     )
 
 
