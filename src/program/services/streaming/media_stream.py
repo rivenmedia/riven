@@ -383,6 +383,8 @@ class MediaStream:
         try:
             yield
         except* trio.TooSlowError as e:
+            logger.exception(self._build_log_message(f"Stream operation too slow"))
+
             raise pyfuse3.FUSEError(errno.EBUSY) from e.exceptions[0]
         except* httpx.ReadTimeout as e:
             pass
@@ -615,10 +617,12 @@ class MediaStream:
         if not self.connection.current_request_chunk_range:
             raise httpx.StreamError("No chunk range available for current request")
 
+        required_chunks = self.connection.current_request_chunk_range.chunks
+
         with trio.fail_after(2):
             while True:
-                uncached_chunks = self._check_cache(
-                    chunks=self.connection.current_request_chunk_range.chunks
+                uncached_chunks = await trio.to_thread.run_sync(
+                    lambda: self._check_cache(chunks=required_chunks)
                 )
 
                 if len(uncached_chunks) == 0:
@@ -853,8 +857,8 @@ class MediaStream:
                                     + (chunks_to_skip * self.chunk_size)
                                 )
 
-                                uncached_chunks = self._check_cache(
-                                    chunks=test_chunk.chunks
+                                uncached_chunks = await trio.to_thread.run_sync(
+                                    lambda: self._check_cache(chunks=test_chunk.chunks)
                                 )
 
                                 # If the next chunk is already cached, skip ahead
@@ -1387,20 +1391,20 @@ class MediaStream:
             size=size,
         )
 
-    def _check_cache(self, *, chunks: list[Chunk]) -> set[Chunk]:
+    def _check_cache(self, *, chunks: list[Chunk]) -> list[Chunk]:
         """Check the cache for the given chunks and return the ones that are not cached."""
 
-        found_chunks: set[Chunk] = set(
-            chunk
-            for chunk in chunks
-            if self.vfs.cache.has(
+        uncached_chunks: list[Chunk] = []
+
+        for chunk in chunks:
+            if not self.vfs.cache.has(
                 cache_key=self.file_metadata["original_filename"],
                 start=chunk["start"],
                 end=chunk["end"],
-            )
-        )
+            ):
+                uncached_chunks.append(chunk)
 
-        return found_chunks.difference(set(chunks))
+        return uncached_chunks
 
     async def _read_cache(self, start: int, end: int) -> bytes:
         return await trio.to_thread.run_sync(
