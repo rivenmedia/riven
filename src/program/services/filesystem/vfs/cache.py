@@ -216,7 +216,7 @@ class Cache:
                 bytes_to_read = copy_end - copy_start + 1
 
                 # Optimization: Only read the slice we need, not the entire chunk!
-                # This is much faster for large chunks (128MB) when we only need 131KB
+                # This is much faster for large chunks (128MB) when we only need 128KB
                 with chunk_file.open("rb") as f:
                     f.seek(copy_start)
                     result = f.read(bytes_to_read)
@@ -263,6 +263,8 @@ class Cache:
         # Slow path: multi-chunk stitching for cross-chunk boundary requests
         # Plan the read operations while holding the lock, then release it for I/O
         chunks_to_read = []
+
+        logger.debug(f"Cache miss or cross-chunk read for {cache_key} [{start}-{end}]")
 
         with self._lock:
             s_list = self._by_path.get(cache_key)

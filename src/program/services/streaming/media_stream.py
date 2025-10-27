@@ -600,6 +600,13 @@ class MediaStream:
 
                     return cached_data
 
+                logger.log(
+                    "STREAM",
+                    self._build_log_message(
+                        f"Did not find chunk {start}-{end} from cache. Retrying..."
+                    ),
+                )
+
                 await trio.sleep(0.1)
 
     async def close(self) -> None:
