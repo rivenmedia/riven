@@ -15,10 +15,8 @@ from time import time
 
 from src.program.services.streaming.chunk_range import ChunkRange
 from src.program.services.streaming.exceptions import (
-    ByteLengthMismatchException,
     EmptyDataError,
     RawByteLengthMismatchException,
-    ReadPositionMismatchException,
 )
 
 if TYPE_CHECKING:
@@ -1409,56 +1407,6 @@ class MediaStream:
             )
 
         return data
-
-    def _verify_read_integrity(
-        self,
-        chunk_range: ChunkRange,
-        stream_data: bytes,
-        cached_data: bytes,
-    ) -> bytes:
-        """
-        Verify the integrity of the data read from the stream against the requested chunk range.
-
-        Args:
-            chunk_range: The ChunkRange object representing the requested range
-            stream_data: The data read from the stream
-            cached_data: The data read from the cache
-        """
-
-        expected_raw_length = chunk_range.bytes_required + chunk_range.cached_bytes_size
-        actual_raw_length = len(cached_data + stream_data)
-
-        if expected_raw_length != actual_raw_length:
-            raise RawByteLengthMismatchException(
-                expected_length=expected_raw_length,
-                actual_length=actual_raw_length,
-                range=chunk_range.request_range,
-            )
-
-        expected_last_chunk_end = chunk_range.last_chunk["end"] + 1
-        actual_last_chunk_end = self.connection.current_read_position
-
-        if actual_last_chunk_end != expected_last_chunk_end:
-            raise ReadPositionMismatchException(
-                expected_position=expected_last_chunk_end,
-                actual_position=actual_last_chunk_end,
-            )
-
-        sliced_data = (cached_data + stream_data)[chunk_range.chunk_slice]
-        sliced_data_length = len(sliced_data)
-
-        if sliced_data_length == 0:
-            raise EmptyDataError(range=chunk_range.request_range)
-
-        if sliced_data_length != chunk_range.size:
-            raise ByteLengthMismatchException(
-                expected_length=chunk_range.size,
-                actual_length=sliced_data_length,
-                range=chunk_range.request_range,
-                slice_range=chunk_range.chunk_slice,
-            )
-
-        return sliced_data
 
     def _build_log_message(self, message: str) -> str:
         return f"{message} [fh: {self.fh} file={self.file_metadata['path'].split('/')[-1]}]"
