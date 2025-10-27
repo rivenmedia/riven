@@ -591,6 +591,13 @@ class MediaStream:
                 )
 
                 if cached_data:
+                    logger.log(
+                        "STREAM",
+                        self._build_log_message(
+                            f"Found chunk {start}-{end} ({len(cached_data)} bytes) from cache."
+                        ),
+                    )
+
                     return cached_data
 
                 await trio.sleep(0.1)
