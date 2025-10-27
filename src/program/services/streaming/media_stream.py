@@ -763,6 +763,7 @@ class MediaStream:
                         start_read_position = self.connection.current_read_position
 
                         now = time()
+                        last_iteration_time = now
 
                         async for chunk in self.connection.reader:
                             # Cache the chunk in the background without blocking the iterator.
@@ -783,7 +784,6 @@ class MediaStream:
                             # to reach the next uncached position.
                             #
                             # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
-
                             while True:
                                 test_chunk_start = (
                                     self.connection.current_read_position
@@ -818,6 +818,16 @@ class MediaStream:
                                         f"Killing stream loop to skip {chunks_to_skip} cached chunks"
                                     ),
                                 )
+
+                            iteration_duration = time() - last_iteration_time
+                            last_iteration_time = time()
+
+                            logger.log(
+                                "STREAM",
+                                self._build_log_message(
+                                    f"Iteration fetched {len(chunk)} bytes in {iteration_duration:.3f}s"
+                                ),
+                            )
 
                             # Break early if the stream loop has been stopped.
                             # Otherwise, the loop will continue until the target position is reached,
