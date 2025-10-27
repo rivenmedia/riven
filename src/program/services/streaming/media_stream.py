@@ -247,7 +247,7 @@ class MediaStream:
         self.vfs = vfs
         self.fh = fh
 
-        self.header_size = 256 * 1024  # Default header size of 256kB
+        self.header_size = self.config.block_size * 2  # Default header size of 2 blocks
 
         logger.log(
             "STREAM",
@@ -361,12 +361,17 @@ class MediaStream:
         # using the file size to determine an appropriate range.
 
         min_footer_size = 1024 * 16  # Minimum footer size of 16KB
-        max_footer_size = 10 * 1024 * 1024  # Maximum footer size of 2 chunks
+        max_footer_size = 10 * 1024 * 1024  # Maximum footer size of 10MB
         footer_percentage = 0.002  # 0.2% of file size
 
         percentage_size = int(self.file_metadata["file_size"] * footer_percentage)
 
-        return min(max(percentage_size, min_footer_size), max_footer_size)
+        raw_footer_size = min(max(percentage_size, min_footer_size), max_footer_size)
+        aligned_footer_size = (
+            -(raw_footer_size // -self.config.block_size) * self.config.block_size
+        )
+
+        return aligned_footer_size
 
     @asynccontextmanager
     async def manage_connection(self) -> AsyncIterator[None]:
