@@ -107,10 +107,10 @@ class Connection:
             return
 
         if self.current_request_chunk_range:
-            last_chunk_fetched = self.current_request_chunk_range.last_chunk["index"]
+            last_chunk_fetched = self.current_request_chunk_range.last_chunk.index
 
             for chunk in reversed(value.chunks):
-                chunk_index = chunk["index"]
+                chunk_index = chunk.index
 
                 if last_chunk_fetched + 1 == chunk_index:
                     self.last_chunk_fetched = chunk_index
@@ -430,7 +430,7 @@ class MediaStream:
     async def connect(self, position: int) -> None:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
-        chunk_aligned_start = self._get_chunk_range(position).first_chunk["start"]
+        chunk_aligned_start = self._get_chunk_range(position).first_chunk.start
 
         self.connection.response = await self._prepare_response(
             start=chunk_aligned_start
@@ -622,7 +622,7 @@ class MediaStream:
         with trio.fail_after(2):
             while True:
                 uncached_chunks = await trio.to_thread.run_sync(
-                    lambda: self._check_cache(chunks=required_chunks)
+                    lambda: self._get_uncached_chunks(chunks=required_chunks)
                 )
 
                 if len(uncached_chunks) == 0:
@@ -710,13 +710,13 @@ class MediaStream:
                     f"Requested start {position} "
                     f"is before current read position {self.connection.current_read_position} "
                     f"for {self.file_metadata['path']}. "
-                    f"Seeking to new start position {request_chunk_range.first_chunk['start']}/{self.file_metadata['file_size']}."
+                    f"Seeking to new start position {request_chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
                 ),
             )
 
             # Always seek backwards if the requested start is before the stream's start position (excluding header, which is pre-fetched).
             # Streams can only read forwards, so a new connection must be made.
-            await self.seek(position=request_chunk_range.first_chunk["start"])
+            await self.seek(position=request_chunk_range.first_chunk.start)
 
         # Check if requested start is after current read position,
         # and if it exceeds the seek tolerance, move the stream to the new start.
@@ -741,11 +741,11 @@ class MediaStream:
                         f"Requested start {position} "
                         f"is after current read position {self.connection.current_read_position} "
                         f"for {self.file_metadata['path']}. "
-                        f"Seeking to new start position {request_chunk_range.first_chunk['start']}/{self.file_metadata['file_size']}."
+                        f"Seeking to new start position {request_chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
                     ),
                 )
 
-                await self.seek(position=request_chunk_range.first_chunk["start"])
+                await self.seek(position=request_chunk_range.first_chunk.start)
 
     def _detect_read_type(
         self,
@@ -858,7 +858,9 @@ class MediaStream:
                                 )
 
                                 uncached_chunks = await trio.to_thread.run_sync(
-                                    lambda: self._check_cache(chunks=test_chunk.chunks)
+                                    lambda: self._get_uncached_chunks(
+                                        chunks=test_chunk.chunks
+                                    )
                                 )
 
                                 # If the next chunk is already cached, skip ahead
@@ -1391,20 +1393,27 @@ class MediaStream:
             size=size,
         )
 
-    def _check_cache(self, *, chunks: list[Chunk]) -> list[Chunk]:
+    def _get_uncached_chunks(self, *, chunks: list[Chunk]) -> set[Chunk]:
         """Check the cache for the given chunks and return the ones that are not cached."""
 
-        uncached_chunks: list[Chunk] = []
-
-        for chunk in chunks:
+        return set(
+            chunk
+            for chunk in chunks
             if not self.vfs.cache.has(
                 cache_key=self.file_metadata["original_filename"],
-                start=chunk["start"],
-                end=chunk["end"],
-            ):
-                uncached_chunks.append(chunk)
+                start=chunk.start,
+                end=chunk.end,
+            )
+        )
 
-        return uncached_chunks
+    def _check_cache(self, *, start: int, end: int) -> bool:
+        """Check if the given byte range is fully cached."""
+
+        return self.vfs.cache.has(
+            cache_key=self.file_metadata["original_filename"],
+            start=start,
+            end=end,
+        )
 
     async def _read_cache(self, start: int, end: int) -> bytes:
         return await trio.to_thread.run_sync(

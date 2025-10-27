@@ -1,8 +1,9 @@
+from dataclasses import dataclass
 from functools import cached_property
-from typing import TypedDict
 
 
-class Chunk(TypedDict):
+@dataclass(frozen=True, unsafe_hash=True)
+class Chunk:
     """Represents a single chunk of data within a media stream."""
 
     index: int
@@ -69,7 +70,7 @@ class ChunkRange:
         if len(self.chunks) == 1:
             return self.chunk_size
 
-        return self.last_chunk["end"] - self.first_chunk["end"] + 1
+        return self.last_chunk.end - self.first_chunk.end + 1
 
     @cached_property
     def chunks(self) -> list[Chunk]:
