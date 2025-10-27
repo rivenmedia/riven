@@ -250,7 +250,6 @@ class MediaStream:
 
         # Validate cache size vs buffer_seconds
         # Cache needs to hold: 1x chunk (1MB) + (buffer_seconds * bitrate MB/s)
-        # Minimum: chunk_size * (buffer_seconds + 4 for concurrent reads)
         min_cache_mb = (
             self.chunk_size + (streaming_config.buffer_seconds * self.bytes_per_second)
         ) // (1024 * 1024)
