@@ -355,11 +355,15 @@ class MediaStream:
 
         try:
             yield
-        except* httpx.RemoteProtocolError as e:
+        except* (
+            httpx.ReadError,
+            httpx.RemoteProtocolError,
+            httpx.StreamClosed,
+        ) as e:
             if self.connection.current_read_position is None:
                 logger.exception(
                     self._build_log_message(
-                        f"HTTP protocol error occurred, "
+                        f"Stream error occurred, "
                         f"but there is no current read position at which we can reconnect. "
                         f"Killing stream. {e}"
                     )
@@ -369,34 +373,7 @@ class MediaStream:
 
             logger.warning(
                 self._build_log_message(
-                    f"HTTP protocol error occurred while managing stream connection: {e}. "
-                    "Attempting to reconnect..."
-                )
-            )
-
-            await self.connect(self.connection.current_read_position)
-
-            if not self.connection.is_connected:
-                logger.error(
-                    self._build_log_message("Failed to reconnect stream connection.")
-                )
-
-                raise pyfuse3.FUSEError(errno.EIO) from e
-        except* httpx.ReadError as e:
-            if self.connection.current_read_position is None:
-                logger.exception(
-                    self._build_log_message(
-                        f"Stream read error occurred, "
-                        f"but there is no current read position at which we can reconnect. "
-                        f"Killing stream. {e}"
-                    )
-                )
-
-                raise
-
-            logger.warning(
-                self._build_log_message(
-                    f"Stream read error occurred while managing stream connection: {e}. "
+                    f"Stream error occurred while managing stream connection: {e}. "
                     "Attempting to reconnect..."
                 )
             )
