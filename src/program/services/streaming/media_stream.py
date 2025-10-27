@@ -950,7 +950,7 @@ class MediaStream:
                         ),
                     )
 
-                    _ = await self.close()
+                    await self.close()
                 else:
                     logger.log(
                         "STREAM",
@@ -977,55 +977,43 @@ class MediaStream:
         sleep_interval = 0.1
 
         async with self.prefetch_scheduler.lock:
-            async with trio.open_nursery() as nursery:
-                while self.prefetch_scheduler.is_running:
-                    if self.connection.last_read_end is None:
-                        # This shouldn't happen; prefetcher should only start after some data has been read.
-                        logger.log(
-                            "STREAM",
-                            self._build_log_message(
-                                "No last read end; stopping prefetcher"
-                            ),
-                        )
-
-                        break
-
-                    if self.connection.current_read_position is None:
-                        # This shouldn't happen; prefetcher should only start after some data has been read.
-                        logger.log(
-                            "STREAM",
-                            self._build_log_message(
-                                "No current read position; stopping prefetcher"
-                            ),
-                        )
-
-                        break
-
-                    # Calculate the prefetch target position, clamped to the file size.
-                    target_position = min(
-                        self.connection.last_read_end + prefetch_buffer_size,
-                        self.file_metadata["file_size"],
+            while self.prefetch_scheduler.is_running:
+                if (
+                    self.connection.last_read_end is None
+                    or self.connection.current_read_position is None
+                ):
+                    # This shouldn't happen; prefetcher should only start after some data has been read.
+                    logger.log(
+                        "STREAM",
+                        self._build_log_message(
+                            "Invalid read state; stopping prefetcher"
+                        ),
                     )
 
-                    if target_position < self.connection.current_read_position:
-                        await trio.sleep(sleep_interval)
-                        continue
+                    break
 
-                    # Prefetches are quite simple; we just move the target position forward
-                    # and let the main stream loop handle the actual fetching in the background.
-                    #
-                    # This keeps the prefetch logic decoupled from the main stream logic,
-                    # and allows us to avoid complex coordination between the two that tends to result in deadlocks.
-                    self.connection.target_position = target_position
+                # Calculate the prefetch target position, clamped to the file size.
+                target_position = min(
+                    self.connection.last_read_end + prefetch_buffer_size,
+                    self.file_metadata["file_size"],
+                )
 
+                if target_position < self.connection.current_read_position:
                     await trio.sleep(sleep_interval)
+                    continue
 
-                logger.log("STREAM", self._build_log_message("Prefetcher stopped"))
+                # Prefetches are quite simple; we just move the target position forward
+                # and let the main stream loop handle the actual fetching in the background.
+                #
+                # This keeps the prefetch logic decoupled from the main stream logic,
+                # and allows us to avoid complex coordination between the two that tends to result in deadlocks.
+                self.connection.target_position = target_position
 
-                # Cancel any remaining prefetch tasks on exit
-                nursery.cancel_scope.cancel()
+                await trio.sleep(sleep_interval)
 
-                self.prefetch_scheduler.is_exited = True
+            logger.log("STREAM", self._build_log_message("Prefetcher stopped"))
+
+            self.prefetch_scheduler.is_exited = True
 
     async def _fetch_discrete_byte_range(
         self,
@@ -1401,11 +1389,7 @@ class MediaStream:
         return set(
             chunk
             for chunk in chunks
-            if not self.vfs.cache.has(
-                cache_key=self.file_metadata["original_filename"],
-                start=chunk.start,
-                end=chunk.end,
-            )
+            if not self._check_cache(start=chunk.start, end=chunk.end)
         )
 
     def _check_cache(self, *, start: int, end: int) -> bool:
@@ -1418,21 +1402,17 @@ class MediaStream:
         )
 
     async def _read_cache(self, start: int, end: int) -> bytes:
-        return await trio.to_thread.run_sync(
-            lambda: self.vfs.cache.get(
-                cache_key=self.file_metadata["original_filename"],
-                start=start,
-                end=end,
-            )
+        return await self.vfs.cache.get(
+            cache_key=self.file_metadata["original_filename"],
+            start=start,
+            end=end,
         )
 
     async def _cache_chunk(self, start: int, data: bytes) -> None:
-        await trio.to_thread.run_sync(
-            lambda: self.vfs.cache.put(
-                self.file_metadata["original_filename"],
-                start,
-                data,
-            )
+        await self.vfs.cache.put(
+            self.file_metadata["original_filename"],
+            start,
+            data,
         )
 
     def _refresh_download_url(self) -> bool:

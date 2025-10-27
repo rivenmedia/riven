@@ -1453,7 +1453,7 @@ class RivenVFS(pyfuse3.Operations):
         try:
             # Log cache stats asynchronously (don't block on trim/I/O)
             try:
-                await trio.to_thread.run_sync(self.cache.maybe_log_stats)
+                await self.cache.maybe_log_stats()
             except Exception:
                 pass
 

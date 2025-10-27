@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import trio
 import hashlib
 import os
 import threading
@@ -8,6 +9,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from bisect import bisect_right, insort
+from typing import Literal
 
 
 from loguru import logger
@@ -15,14 +17,14 @@ from loguru import logger
 
 @dataclass
 class CacheConfig:
-    cache_dir: Path = Path("/var/cache/riven")
+    cache_dir: Path
     max_size_bytes: int = 10 * 1024 * 1024 * 1024  # 10 GiB
     ttl_seconds: int = 2 * 60 * 60  # 2 hours
-    eviction: str = "LRU"  # LRU | TTL
+    eviction: Literal["LRU", "TTL"] = "LRU"
     metrics_enabled: bool = True
 
 
-class _Metrics:
+class Metrics:
     def __init__(self) -> None:
         self.hits = 0
         self.misses = 0
@@ -54,9 +56,10 @@ class Cache:
         self._index: "OrderedDict[str, tuple[int, float, str, int]]" = OrderedDict()
         self._by_path: dict[str, list[int]] = {}
         self._total_bytes = 0
-        self._lock = threading.RLock()
-        self._metrics = _Metrics()
+        self._lock = trio.Lock()
+        self._metrics = Metrics()
         self._last_log = 0.0  # Initialize last log timestamp
+
         try:
             os.makedirs(self.cfg.cache_dir, exist_ok=True)
         except Exception as e:
@@ -65,16 +68,20 @@ class Cache:
                 f"Disk cache directory init warning for {self.cfg.cache_dir}: {e}"
             )
 
+        trio.run(self._initialize)
+
+    async def _initialize(self) -> None:
         # Lazy-rebuild index for any pre-existing files so size limits apply after restart
         try:
             if (self.cfg.eviction or "LRU").upper() == "LRU":
-                self._initial_scan()
+                await self._initial_scan()
         except Exception as e:
             logger.debug(f"Disk cache initial scan skipped: {e}")
 
-    def _initial_scan(self) -> None:
+    async def _initial_scan(self) -> None:
         # Build index from on-disk files, ordered by mtime ascending for LRU correctness
         entries: list[tuple[str, int, float]] = []  # (key, size, mtime)
+
         try:
             for sub in self.cfg.cache_dir.iterdir():
                 try:
@@ -83,6 +90,7 @@ class Cache:
                             try:
                                 if not fp.is_file():
                                     continue
+
                                 key = fp.name
                                 st = fp.stat()
                                 entries.append(
@@ -97,16 +105,19 @@ class Cache:
                     continue
         finally:
             entries.sort(key=lambda t: t[2])  # by mtime asc
-            with self._lock:
+
+            async with self._lock:
                 self._index.clear()
                 self._by_path.clear()
                 self._total_bytes = 0
+
                 for key, sz, ts in entries:
                     self._index[key] = (sz, ts, "", 0)
                     self._total_bytes += sz
+
             # If we are over budget, evict oldest until within max_disk_bytes
             try:
-                self._evict_lru(0)
+                await self._evict_lru(0)
             except Exception:
                 pass
 
@@ -121,59 +132,77 @@ class Cache:
         p.mkdir(parents=True, exist_ok=True)
         return p / key
 
-    def _evict_lru(self, need_bytes: int = 0) -> None:
-        with self._lock:
+    async def _evict_lru(self, need_bytes: int = 0) -> None:
+        async with self._lock:
             target = max(0, self._total_bytes + need_bytes - self.cfg.max_size_bytes)
+
             while target > 0 and self._index:
                 k, (sz, _ts, _path, _start) = self._index.popitem(last=False)  # LRU
+
                 # Remove from per-path index
                 lst = self._by_path.get(_path)
+
                 if lst:
                     idx = bisect_right(lst, _start) - 1
+
                     if idx >= 0 and lst[idx] == _start:
                         del lst[idx]
+
                     if not lst:
                         self._by_path.pop(_path, None)
+
                 fp = self._file_for(k)
+
                 try:
                     if fp.exists():
                         fp.unlink()
                 except Exception:
                     pass
+
                 self._total_bytes -= sz
                 target -= sz
                 self._metrics.evictions += 1
 
-    def _evict_ttl(self) -> None:
+    async def _evict_ttl(self) -> None:
         ttl = self.cfg.ttl_seconds
         now = time.time()
         removed = 0
-        with self._lock:
+
+        async with self._lock:
             for k in list(self._index.keys()):
                 info = self._index.get(k, (0, 0.0, "", 0))
                 sz, ts, pth, st = info[0], info[1], info[2], info[3]
+
                 if now - ts > ttl:
                     fp = self._file_for(k)
+
                     try:
                         if fp.exists():
                             fp.unlink()
                     except Exception:
                         pass
+
                     self._index.pop(k, None)
                     lst = self._by_path.get(pth)
+
                     if lst:
                         idx = bisect_right(lst, st) - 1
+
                         if idx >= 0 and lst[idx] == st:
                             del lst[idx]
+
                         if not lst:
                             self._by_path.pop(pth, None)
+
                     self._total_bytes -= sz
                     removed += 1
+
         if removed:
             self._metrics.evictions += removed
 
-    def get(self, cache_key: str, start: int, end: int) -> bytes:
+    async def get(self, cache_key: str, start: int, end: int) -> bytes:
         needed_len = max(0, end - start + 1)
+
         if needed_len == 0:
             return b""
 
@@ -185,14 +214,17 @@ class Cache:
         chunk_file = None
         chunk_start_offset = 0
 
-        with self._lock:
+        async with self._lock:
             s_list = self._by_path.get(cache_key)
+
             if s_list:
                 # Find chunk that might contain start position
                 idx = bisect_right(s_list, start) - 1
+
                 if idx >= 0:
                     chunk_start = s_list[idx]
                     chunk_entry = self._index.get(self._key(cache_key, chunk_start))
+
                     if chunk_entry:
                         chunk_size, _, _, _ = chunk_entry
                         chunk_end = chunk_start + chunk_size - 1
@@ -231,13 +263,15 @@ class Cache:
                 if len(result) == needed_len:
                     # Update LRU (move to end) but only update timestamp periodically
                     # to reduce lock contention and index modifications
-                    with self._lock:
+                    async with self._lock:
                         if chunk_key in self._index:
                             chunk_entry = self._index[chunk_key]
                             self._index.move_to_end(chunk_key, last=True)
+
                             # Only update timestamp if it's been more than 10 seconds
                             # This reduces write pressure on the index
                             now = time.time()
+
                             if now - chunk_entry[1] > 10.0:
                                 self._index[chunk_key] = (
                                     chunk_entry[0],
@@ -250,6 +284,7 @@ class Cache:
                     self._metrics.bytes_from_cache += needed_len
 
                     total_time = time.time() - get_start_time
+
                     if total_time > 0.1:  # Log if cache.get() takes >100ms
                         logger.warning(
                             f"Slow cache.get(): {total_time*1000:.0f}ms for {needed_len/(1024*1024):.2f}MB (read: {read_time*1000:.0f}ms)"
@@ -266,8 +301,9 @@ class Cache:
 
         logger.debug(f"Cache miss or cross-chunk read for {cache_key} [{start}-{end}]")
 
-        with self._lock:
+        async with self._lock:
             s_list = self._by_path.get(cache_key)
+
             if s_list:
                 current_pos = start
 
@@ -337,11 +373,13 @@ class Cache:
                 # All chunks read successfully (no break occurred)
                 if len(result_data) == needed_len:
                     # Update LRU and timestamps while holding the lock
-                    with self._lock:
+                    async with self._lock:
                         now = time.time()
+
                         for chunk_key, chunk_ts in chunks_used:
                             if chunk_key in self._index:  # Verify chunk still exists
                                 self._index.move_to_end(chunk_key, last=True)
+
                                 # Only update timestamp if it's been more than 10 seconds
                                 if now - chunk_ts > 10.0:
                                     chunk_entry = self._index[chunk_key]
@@ -354,6 +392,7 @@ class Cache:
 
                     self._metrics.hits += 1
                     self._metrics.bytes_from_cache += needed_len
+
                     return bytes(result_data)
 
         # Fallback: Direct probe for exact key on filesystem and rebuild index
@@ -368,14 +407,15 @@ class Cache:
             data = None
 
         if data is None:
-            with self._lock:
+            async with self._lock:
                 self._index.pop(k, None)
+
             self._metrics.misses += 1
             # No log for cache misses - reduces noise (misses are expected and normal)
             return b""
 
         # If we got here but entry was missing in index, rebuild it
-        with self._lock:
+        async with self._lock:
             if k not in self._index:
                 sz = len(data)
                 self._index[k] = (sz, time.time(), cache_key, start)
@@ -397,35 +437,43 @@ class Cache:
 
         return b""
 
-    def put(self, cache_key: str, start: int, data: bytes) -> None:
+    async def put(self, cache_key: str, start: int, data: bytes) -> None:
         if not data:
             return
+
         k = self._key(cache_key, start)
         need = len(data)
+
         if self.cfg.eviction == "TTL":
-            # TTL pruning plus size enforcement
-            self._evict_ttl()
-            self._evict_lru(need)
+            await self._evict_ttl()
         else:
-            self._evict_lru(need)
+            await self._evict_lru(need)
+
         fp = self._file_for(k)
+
         try:
             with fp.open("wb") as f:
                 f.write(data)
         except Exception as e:
             logger.warning(f"Disk cache write failed: {e}")
             return
-        with self._lock:
+
+        async with self._lock:
             prev = self._index.pop(k, None)
+
             if prev:
                 self._total_bytes -= prev[0]
                 lst_prev = self._by_path.get(cache_key)
+
                 if lst_prev:
                     idx_prev = bisect_right(lst_prev, start) - 1
+
                     if idx_prev >= 0 and lst_prev[idx_prev] == start:
                         del lst_prev[idx_prev]
+
                     if not lst_prev:
                         self._by_path.pop(cache_key, None)
+
             self._index[k] = (need, time.time(), cache_key, start)
             lst = self._by_path.setdefault(cache_key, [])
             insort(lst, start)
@@ -455,40 +503,47 @@ class Cache:
 
         return fp.exists()
 
-    def trim(self) -> None:
+    async def trim(self) -> None:
         # Primary policy-based trimming
         if self.cfg.eviction == "TTL":
-            self._evict_ttl()
-            self._evict_lru(0)
+            await self._evict_ttl()
         else:
-            self._evict_lru(0)
+            await self._evict_lru(0)
+
         # Hard safety net: if our accounting drifted (e.g., external files), rebuild and prune
         try:
-            with self._lock:
+            async with self._lock:
                 over = self._total_bytes > self.cfg.max_size_bytes
             if over:
-                self._initial_scan()
+                await self._initial_scan()
         except Exception:
             pass
 
-    def stats(self) -> dict[str, int]:
+    async def stats(self) -> dict[str, int]:
         s = self._metrics.snapshot()
-        with self._lock:
+
+        async with self._lock:
             s["total_bytes"] = self._total_bytes
             s["entries"] = len(self._index)
+
         return s
 
-    def maybe_log_stats(self) -> None:
+    async def maybe_log_stats(self) -> None:
         now = time.time()
+
         if not self.cfg.metrics_enabled:
             return
+
         if now - self._last_log < 30:  # log at most every 30s
             return
+
         # Proactive safe trim before logging to keep within caps
         try:
-            self.trim()
+            await self.trim()
         except Exception:
             pass
+
         self._last_log = now
-        stats = self.stats()
-        logger.bind(component="RivenVFS").log("VFS", f"Cache stats: {stats}")
+        stats = await self.stats()
+
+        logger.log("VFS", f"Cache stats: {stats}")
