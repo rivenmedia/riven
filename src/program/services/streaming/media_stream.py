@@ -350,7 +350,8 @@ class MediaStream:
         block_size = self.config.block_size
         aligned_chunk_size = -(clamped_chunk_size // -block_size) * block_size
 
-        return aligned_chunk_size
+        # Adjust chunk size to scale based on the block size.
+        return aligned_chunk_size * (block_size // (1024 * 128))
 
     @cached_property
     def footer_size(self) -> int:
