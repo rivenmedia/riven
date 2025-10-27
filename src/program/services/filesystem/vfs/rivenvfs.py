@@ -213,6 +213,7 @@ class RivenVFS(pyfuse3.Operations):
         fuse_options |= {
             "fsname=rivenvfs",
             "allow_other",
+            "max_read=131072",  # Set maximum read size to 128KB
         }
 
         pyfuse3.init(self, self._mountpoint, fuse_options)
