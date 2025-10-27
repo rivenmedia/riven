@@ -619,7 +619,7 @@ class MediaStream:
 
         required_chunks = self.connection.current_request_chunk_range.chunks
 
-        with trio.fail_after(2):
+        with trio.fail_after(10):
             while True:
                 uncached_chunks = await trio.to_thread.run_sync(
                     lambda: self._get_uncached_chunks(chunks=required_chunks)
