@@ -197,18 +197,19 @@ class MediaStream:
         duration: float | None = None,
     ) -> None:
         fs = settings_manager.settings.filesystem
+        streaming_config = settings_manager.settings.streaming
 
         # Validate cache size vs buffer_seconds
         # Cache needs to hold: 1x chunk (1MB) + (buffer_seconds * bitrate MB/s)
         # Minimum: chunk_size * (buffer_seconds + 4 for concurrent reads)
         min_cache_mb = self.chunk_size + (
-            (fs.buffer_seconds * self.bytes_per_second) / (1024 * 1024)
+            (streaming_config.buffer_seconds * self.bytes_per_second) / (1024 * 1024)
         )
 
         if fs.cache_max_size_mb < min_cache_mb:
             logger.bind(component="RivenVFS").warning(
                 self._build_log_message(
-                    f"Cache size ({fs.cache_max_size_mb}MB) is too small for buffer_seconds ({fs.buffer_seconds} seconds). "
+                    f"Cache size ({fs.cache_max_size_mb}MB) is too small for buffer_seconds ({streaming_config.buffer_seconds} seconds). "
                     f"Minimum recommended: {min_cache_mb}MB. "
                     f"Cache thrashing may occur with concurrent reads, causing poor performance."
                 )
@@ -230,7 +231,7 @@ class MediaStream:
         self.connection = Connection()
 
         self.prefetch_scheduler = PrefetchScheduler(
-            prefetch_seconds=fs.buffer_seconds,
+            prefetch_seconds=streaming_config.buffer_seconds,
             sequential_chunks_required_to_start=25,
         )
 

@@ -289,12 +289,6 @@ class FilesystemModel(Observable):
         ge=0,
         description="Kernel block size for reading/writing files (128 KiB default)",
     )
-    buffer_seconds: int = Field(
-        default=10,
-        ge=0,
-        le=60,
-        description="Number of seconds to buffer when streaming",
-    )
 
     @field_validator("library_profiles")
     def validate_library_profiles(cls, v):
@@ -310,6 +304,15 @@ class FilesystemModel(Observable):
             if key == "default":
                 raise ValueError("Profile key 'default' is reserved")
         return v
+
+
+class StreamingModel(Observable):
+    buffer_seconds: int = Field(
+        default=10,
+        ge=0,
+        le=60,
+        description="Number of seconds to buffer when streaming",
+    )
 
 
 # Content Services
@@ -749,6 +752,10 @@ class AppModel(Observable):
     filesystem: FilesystemModel = Field(
         default_factory=lambda: FilesystemModel(),
         description="Filesystem configuration",
+    )
+    streaming: StreamingModel = Field(
+        default_factory=lambda: StreamingModel(),
+        description="Streaming configuration",
     )
     updaters: UpdatersModel = Field(
         default_factory=lambda: UpdatersModel(),
