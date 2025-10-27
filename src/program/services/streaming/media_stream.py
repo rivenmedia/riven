@@ -56,6 +56,12 @@ class Config:
     default_bitrate: int
 
     @property
+    def header_size(self) -> int:
+        """Default header size for scanning purposes."""
+
+        return self.block_size * 2
+
+    @property
     def sequential_read_tolerance(self) -> int:
         """Tolerance for sequential reads to account for interleaved reads."""
 
@@ -199,22 +205,6 @@ class MediaStream:
         fs = settings_manager.settings.filesystem
         streaming_config = settings_manager.settings.streaming
 
-        # Validate cache size vs buffer_seconds
-        # Cache needs to hold: 1x chunk (1MB) + (buffer_seconds * bitrate MB/s)
-        # Minimum: chunk_size * (buffer_seconds + 4 for concurrent reads)
-        min_cache_mb = self.chunk_size + (
-            (streaming_config.buffer_seconds * self.bytes_per_second) / (1024 * 1024)
-        )
-
-        if fs.cache_max_size_mb < min_cache_mb:
-            logger.bind(component="RivenVFS").warning(
-                self._build_log_message(
-                    f"Cache size ({fs.cache_max_size_mb}MB) is too small for buffer_seconds ({streaming_config.buffer_seconds} seconds). "
-                    f"Minimum recommended: {min_cache_mb}MB. "
-                    f"Cache thrashing may occur with concurrent reads, causing poor performance."
-                )
-            )
-
         self.config = Config(
             block_size=fs.block_size,
             max_chunk_size=1 * 1024 * 1024,  # 1 MiB
@@ -247,8 +237,6 @@ class MediaStream:
         self.vfs = vfs
         self.fh = fh
 
-        self.header_size = self.config.block_size * 2  # Default header size of 2 blocks
-
         logger.log(
             "STREAM",
             self._build_log_message(
@@ -259,6 +247,22 @@ class MediaStream:
                 f"file_size={self.file_metadata['file_size']} bytes",
             ),
         )
+
+        # Validate cache size vs buffer_seconds
+        # Cache needs to hold: 1x chunk (1MB) + (buffer_seconds * bitrate MB/s)
+        # Minimum: chunk_size * (buffer_seconds + 4 for concurrent reads)
+        min_cache_mb = (
+            self.chunk_size + (streaming_config.buffer_seconds * self.bytes_per_second)
+        ) // (1024 * 1024)
+
+        if fs.cache_max_size_mb < min_cache_mb:
+            logger.bind(component="RivenVFS").warning(
+                self._build_log_message(
+                    f"Cache size ({fs.cache_max_size_mb}MB) is too small for buffer_seconds ({streaming_config.buffer_seconds} seconds). "
+                    f"Minimum recommended: {min_cache_mb}MB. "
+                    f"Cache thrashing may occur with concurrent reads, causing poor performance."
+                )
+            )
 
         try:
             self.async_client = di[httpx.AsyncClient]
@@ -459,7 +463,7 @@ class MediaStream:
 
         data = await self._fetch_discrete_byte_range(
             start=0,
-            size=self.header_size,
+            size=self.config.header_size,
         )
 
         return data[read_position : read_position + size]
@@ -568,7 +572,7 @@ class MediaStream:
                             if not self.connection.is_connected:
                                 await self.connect(
                                     position=max(
-                                        self.header_size,
+                                        self.config.header_size,
                                         request_start,
                                     )
                                 )
@@ -673,7 +677,7 @@ class MediaStream:
 
         if (
             self.connection.current_read_position
-            and self.header_size < position < self.connection.start_position
+            and self.config.header_size < position < self.connection.start_position
         ):
             request_chunk_range = self._get_chunk_range(position=position)
 
@@ -729,7 +733,7 @@ class MediaStream:
     ) -> Literal["header_scan", "footer_scan", "general_scan", "normal_read"]:
         file_size = self.file_metadata["file_size"]
 
-        is_header_scan = start < end <= self.header_size
+        is_header_scan = start < end <= self.config.header_size
 
         is_footer_scan = (
             (self.connection.last_read_end or 0)
@@ -750,7 +754,7 @@ class MediaStream:
                     # Scans typically read less than a single block.
                     abs(self.connection.last_read_end - start)
                     > self.config.scan_tolerance
-                    and start != self.header_size
+                    and start != self.config.header_size
                     and size < self.config.block_size
                 )
                 or (
@@ -758,7 +762,7 @@ class MediaStream:
                     # Playback has already begun, so the header has been served
                     # for this file, but the scan happens on a new file handle
                     # and is the first request to be made.
-                    start > self.header_size
+                    start > self.config.header_size
                     and self.connection.last_read_end == 0
                 )
             )
@@ -1364,7 +1368,7 @@ class MediaStream:
         return ChunkRange(
             position=position,
             chunk_size=self.chunk_size,
-            header_size=self.header_size,
+            header_size=self.config.header_size,
             size=size,
         )
 
