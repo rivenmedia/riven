@@ -432,6 +432,29 @@ class Cache:
             self._total_bytes += need
             self._metrics.bytes_written += need
 
+    def has(self, cache_key: str, start: int, end: int) -> bool:
+        """
+        Check if the cache contains the full range [start, end] for the given cache_key.
+
+        This is done outside of the lock to avoid contention, as it only checks for existence.
+        """
+
+        k = self._key(cache_key, start)
+        chunk_entry = self._index.get(k)
+
+        if not chunk_entry:
+            return False
+
+        chunk_size, _, _, chunk_start = chunk_entry
+        chunk_end = chunk_start + chunk_size - 1
+
+        if end > chunk_end:
+            return False
+
+        fp = self._file_for(k)
+
+        return fp.exists()
+
     def trim(self) -> None:
         # Primary policy-based trimming
         if self.cfg.eviction == "TTL":

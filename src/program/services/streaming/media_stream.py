@@ -13,7 +13,7 @@ from kink import di
 from collections.abc import AsyncIterator
 from time import time
 
-from src.program.services.streaming.chunk_range import ChunkRange
+from src.program.services.streaming.chunk_range import Chunk, ChunkRange
 from src.program.services.streaming.exceptions import (
     EmptyDataError,
     RawByteLengthMismatchException,
@@ -90,24 +90,24 @@ class Connection:
     lock: trio.Lock = trio.Lock()
 
     def __init__(self) -> None:
-        self.last_request_chunk_range = None
+        self.current_request_chunk_range = None
 
     @property
-    def last_request_chunk_range(self) -> ChunkRange | None:
+    def current_request_chunk_range(self) -> ChunkRange | None:
         """The chunk range of the last request, if any."""
 
         return self._last_request_chunk_range
 
-    @last_request_chunk_range.setter
-    def last_request_chunk_range(self, value: ChunkRange | None) -> None:
+    @current_request_chunk_range.setter
+    def current_request_chunk_range(self, value: ChunkRange | None) -> None:
         if not value:
             self._last_request_chunk_range = None
             self._sequential_chunks_fetched = 0
 
             return
 
-        if self.last_request_chunk_range:
-            last_chunk_fetched = self.last_request_chunk_range.last_chunk["index"]
+        if self.current_request_chunk_range:
+            last_chunk_fetched = self.current_request_chunk_range.last_chunk["index"]
 
             for chunk in reversed(value.chunks):
                 chunk_index = chunk["index"]
@@ -132,7 +132,7 @@ class Connection:
 
         self.current_read_position = 0
         self.start_position = 0
-        self.last_request_chunk_range = None
+        self.current_request_chunk_range = None
         self.last_read_end = None
         self.is_connected = False
         self.is_exited = False
@@ -255,7 +255,7 @@ class MediaStream:
         ) // (1024 * 1024)
 
         if fs.cache_max_size_mb < min_cache_mb:
-            logger.bind(component="RivenVFS").warning(
+            logger.warning(
                 self._build_log_message(
                     f"Cache size ({fs.cache_max_size_mb}MB) is too small for buffer_seconds ({streaming_config.buffer_seconds} seconds). "
                     f"Minimum recommended: {min_cache_mb}MB. "
@@ -529,7 +529,7 @@ class MediaStream:
                 if read_type == "normal_read" and (
                     request_start < self.file_metadata["file_size"] - self.footer_size
                 ):
-                    self.connection.last_request_chunk_range = self._get_chunk_range(
+                    self.connection.current_request_chunk_range = self._get_chunk_range(
                         position=request_start,
                         size=request_size,
                     )
@@ -612,31 +612,51 @@ class MediaStream:
 
         await self._maybe_seek(position=start)
 
+        if not self.connection.current_request_chunk_range:
+            raise httpx.StreamError("No chunk range available for current request")
+
         with trio.fail_after(2):
             while True:
-                cached_data = await self._read_cache(
-                    start=start,
-                    end=end,
+                uncached_chunks = self._check_cache(
+                    chunks=self.connection.current_request_chunk_range.chunks
                 )
 
-                if cached_data:
+                if len(uncached_chunks) == 0:
                     logger.log(
                         "STREAM",
                         self._build_log_message(
-                            f"Found chunk {start}-{end} ({len(cached_data)} bytes) from cache."
+                            f"Found cache, attempting to read {start}-{end}"
                         ),
                     )
-
-                    return cached_data
+                    break
 
                 logger.log(
                     "STREAM",
                     self._build_log_message(
-                        f"Did not find chunk {start}-{end} from cache. Retrying..."
+                        f"Waiting for chunks {uncached_chunks} to be cached for read {start}-{end}..."
                     ),
                 )
 
                 await trio.sleep(0.1)
+
+        cached_data = await self._read_cache(
+            start=start,
+            end=end,
+        )
+
+        if cached_data:
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"Found chunk {start}-{end} ({len(cached_data)} bytes) from cache."
+                ),
+            )
+
+            return cached_data
+
+        raise httpx.StreamError(
+            "Failed to read requested bytes from cache after waiting."
+        )
 
     async def close(self) -> None:
         """Close the active stream."""
@@ -828,21 +848,17 @@ class MediaStream:
                             #
                             # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
                             while True:
-                                test_chunk_start = (
-                                    self.connection.current_read_position
+                                test_chunk = self._get_chunk_range(
+                                    position=self.connection.current_read_position
                                     + (chunks_to_skip * self.chunk_size)
                                 )
 
-                                cached_chunk = await self._read_cache(
-                                    start=test_chunk_start,
-                                    end=min(
-                                        test_chunk_start + self.chunk_size - 1,
-                                        self.file_metadata["file_size"],
-                                    ),
+                                uncached_chunks = self._check_cache(
+                                    chunks=test_chunk.chunks
                                 )
 
                                 # If the next chunk is already cached, skip ahead
-                                if cached_chunk:
+                                if len(uncached_chunks) == 0:
                                     chunks_to_skip += 1
 
                                     await trio.sleep(sleep_interval)
@@ -1370,6 +1386,21 @@ class MediaStream:
             header_size=self.config.header_size,
             size=size,
         )
+
+    def _check_cache(self, *, chunks: list[Chunk]) -> set[Chunk]:
+        """Check the cache for the given chunks and return the ones that are not cached."""
+
+        found_chunks: set[Chunk] = set(
+            chunk
+            for chunk in chunks
+            if self.vfs.cache.has(
+                cache_key=self.file_metadata["original_filename"],
+                start=chunk["start"],
+                end=chunk["end"],
+            )
+        )
+
+        return found_chunks.difference(set(chunks))
 
     async def _read_cache(self, start: int, end: int) -> bytes:
         return await trio.to_thread.run_sync(
