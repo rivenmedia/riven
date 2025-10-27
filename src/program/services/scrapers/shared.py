@@ -3,16 +3,23 @@
 from typing import Dict, Set
 
 from loguru import logger
-from RTN import RTN, ParsedData, Torrent, sort_torrents
+from RTN import (
+    RTN,
+    ParsedData,
+    Torrent,
+    sort_torrents,
+    BaseRankingModel,
+    DefaultRanking,
+)
 
 from program.media.item import MediaItem
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
-from program.settings.versions import models
+from program.settings.models import RTNSettingsModel, ScraperModel
 
-scraping_settings = settings_manager.settings.scraping
-ranking_settings = settings_manager.settings.ranking
-ranking_model = models.get(ranking_settings.profile)
+scraping_settings: ScraperModel = settings_manager.settings.scraping
+ranking_settings: RTNSettingsModel = settings_manager.settings.ranking
+ranking_model: BaseRankingModel = DefaultRanking()
 rtn = RTN(ranking_settings, ranking_model)
 
 
