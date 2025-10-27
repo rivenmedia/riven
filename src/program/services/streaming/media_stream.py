@@ -829,10 +829,22 @@ class MediaStream:
 
                         start_read_position = self.connection.current_read_position
 
-                        now = time()
-                        last_iteration_time = now
+                        iteration_start_time = time()
+                        last_iteration_time = iteration_start_time
 
                         async for chunk in self.connection.reader:
+                            time_before_processing = time()
+                            iteration_duration = time() - last_iteration_time
+
+                            logger.log(
+                                "STREAM",
+                                self._build_log_message(
+                                    f"Fetched {len(chunk)} bytes "
+                                    f"[{self.connection.current_read_position - len(chunk)}-{self.connection.current_read_position - 1}] "
+                                    f"in {iteration_duration:.3f}s"
+                                ),
+                            )
+
                             # Cache the chunk in the background without blocking the iterator.
                             # This will be picked up by the reads asynchronously.
                             nursery.start_soon(
@@ -884,17 +896,16 @@ class MediaStream:
                                     ),
                                 )
 
-                            iteration_duration = time() - last_iteration_time
-                            last_iteration_time = time()
-
                             logger.log(
                                 "STREAM",
                                 self._build_log_message(
-                                    f"Fetched {len(chunk)} bytes "
+                                    f"Processed {len(chunk)} bytes "
                                     f"[{self.connection.current_read_position - len(chunk)}-{self.connection.current_read_position - 1}] "
-                                    f"in {iteration_duration:.3f}s"
+                                    f"in {time() - time_before_processing:.3f}s"
                                 ),
                             )
+
+                            last_iteration_time = time()
 
                             # Break early if the stream loop has been stopped.
                             # Otherwise, the loop will continue until the target position is reached,
@@ -916,7 +927,7 @@ class MediaStream:
                             ):
                                 break
 
-                        iteration_duration = time() - now
+                        iteration_duration = time() - iteration_start_time
 
                         logger.log(
                             "STREAM",

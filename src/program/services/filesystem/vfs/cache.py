@@ -73,7 +73,7 @@ class Cache:
     async def _initialize(self) -> None:
         # Lazy-rebuild index for any pre-existing files so size limits apply after restart
         try:
-            if (self.cfg.eviction or "LRU").upper() == "LRU":
+            if self.cfg.eviction == "LRU":
                 await self._initial_scan()
         except Exception as e:
             logger.debug(f"Disk cache initial scan skipped: {e}")
@@ -287,7 +287,7 @@ class Cache:
 
                     if total_time > 0.1:  # Log if cache.get() takes >100ms
                         logger.warning(
-                            f"Slow cache.get(): {total_time*1000:.0f}ms for {needed_len/(1024*1024):.2f}MB (read: {read_time*1000:.0f}ms)"
+                            f"Slow cache.get(): {total_time * 1000:.0f}ms for {needed_len / (1024 * 1024):.2f}MB (read: {read_time * 1000:.0f}ms)"
                         )
 
                     return result
@@ -298,8 +298,6 @@ class Cache:
         # Slow path: multi-chunk stitching for cross-chunk boundary requests
         # Plan the read operations while holding the lock, then release it for I/O
         chunks_to_read = []
-
-        logger.debug(f"Cache miss or cross-chunk read for {cache_key} [{start}-{end}]")
 
         async with self._lock:
             s_list = self._by_path.get(cache_key)
