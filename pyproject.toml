@@ -53,7 +53,7 @@ dev = [
     "pytest-mock>=3.14.0,<4",
     "responses==0.25.3",
     "pyfakefs>=5.4.1,<6",
-    "ruff>=0.13.3,<0.14",
+    "ruff>=0.13.3,<0.15",
     "isort>=5.10.1,<6",
     "codecov>=2.1.13,<3",
     "testcontainers>=4.8.0,<5",
