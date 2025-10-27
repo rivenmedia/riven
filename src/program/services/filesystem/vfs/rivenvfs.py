@@ -49,7 +49,6 @@ from program.services.downloaders import Downloader
 import pyfuse3
 import trio
 
-from program.settings.models import FilesystemModel
 from program.services.filesystem.vfs.vfs_node import (
     VFSDirectory,
     VFSFile,
@@ -110,10 +109,7 @@ class RivenVFS(pyfuse3.Operations):
         super().__init__()
 
         # Initialize VFS cache from settings
-        try:
-            fs = settings_manager.settings.filesystem
-        except Exception:
-            fs = FilesystemModel()
+        fs = settings_manager.settings.filesystem
 
         cache_dir = fs.cache_dir
         size_mb = fs.cache_max_size_mb
@@ -150,7 +146,6 @@ class RivenVFS(pyfuse3.Operations):
             )
         )
 
-        self.downloader = downloader
         self.db = VFSDatabase(downloader=downloader)
 
         # VFS Tree: In-memory tree structure for O(1) path lookups
@@ -168,23 +163,6 @@ class RivenVFS(pyfuse3.Operations):
 
         # Profile hash for detecting changes (optimization: skip re-matching if unchanged)
         self._last_profile_hash: int | None = None
-
-        # Prefetch window size (number of chunks to prefetch ahead of current read position)
-        # This determines how many chunks ahead we prefetch for smooth streaming
-        # Will be wired to FilesystemModel configuration separately
-        self.fetch_ahead_chunks = fs.fetch_ahead_chunks
-
-        # Validate cache size vs chunk size + prefetch
-        # Cache needs to hold: current chunk + prefetch chunks + buffer for concurrent reads
-        # Minimum: chunk_size * (fetch_ahead_chunks + 4 for concurrent reads)
-        min_cache_mb = fs.chunk_size_mb * (self.fetch_ahead_chunks + 4)
-        if size_mb < min_cache_mb:
-            log.bind(component="RivenVFS").warning(
-                f"Cache size ({size_mb}MB) is too small for chunk_size ({fs.chunk_size_mb}MB) "
-                f"and fetch_ahead_chunks ({self.fetch_ahead_chunks}). "
-                f"Minimum recommended: {min_cache_mb}MB. "
-                f"Cache thrashing may occur with concurrent reads, causing poor performance."
-            )
 
         # Set of paths currently being streamed
         self._active_streams: dict[str, MediaStream] = {}

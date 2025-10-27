@@ -284,11 +284,16 @@ class FilesystemModel(Observable):
     cache_metrics: bool = Field(
         default=True, description="Enable cache metrics logging"
     )
-    chunk_size_mb: int = Field(
-        default=8, ge=1, description="Size of a single fetch chunk in MB"
+    block_size: int = Field(
+        default=128 * 1024,
+        ge=0,
+        description="Kernel block size for reading/writing files (128 KiB default)",
     )
-    fetch_ahead_chunks: int = Field(
-        default=4, ge=0, description="Number of chunks to fetch ahead when streaming"
+    buffer_seconds: int = Field(
+        default=10,
+        ge=0,
+        le=60,
+        description="Number of seconds to buffer when streaming",
     )
 
     @field_validator("library_profiles")

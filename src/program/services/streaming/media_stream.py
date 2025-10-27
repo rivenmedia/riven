@@ -18,6 +18,7 @@ from src.program.services.streaming.exceptions import (
     EmptyDataError,
     RawByteLengthMismatchException,
 )
+from program.settings.manager import settings_manager
 
 if TYPE_CHECKING:
     from src.program.services.filesystem.vfs.rivenvfs import RivenVFS
@@ -195,8 +196,26 @@ class MediaStream:
         bitrate: int | None = None,
         duration: float | None = None,
     ) -> None:
+        fs = settings_manager.settings.filesystem
+
+        # Validate cache size vs buffer_seconds
+        # Cache needs to hold: 1x chunk (1MB) + (buffer_seconds * bitrate MB/s)
+        # Minimum: chunk_size * (buffer_seconds + 4 for concurrent reads)
+        min_cache_mb = self.chunk_size + (
+            (fs.buffer_seconds * self.bytes_per_second) / (1024 * 1024)
+        )
+
+        if fs.cache_max_size_mb < min_cache_mb:
+            logger.bind(component="RivenVFS").warning(
+                self._build_log_message(
+                    f"Cache size ({fs.cache_max_size_mb}MB) is too small for buffer_seconds ({fs.buffer_seconds} seconds). "
+                    f"Minimum recommended: {min_cache_mb}MB. "
+                    f"Cache thrashing may occur with concurrent reads, causing poor performance."
+                )
+            )
+
         self.config = Config(
-            block_size=1024 * 128,  # 128 kB TODO: try to determine this from OS?
+            block_size=fs.block_size,
             max_chunk_size=1 * 1024 * 1024,  # 1 MiB
             min_chunk_size=256 * 1024,  # 256 kB
             sequential_read_tolerance_blocks=10,
@@ -211,7 +230,7 @@ class MediaStream:
         self.connection = Connection()
 
         self.prefetch_scheduler = PrefetchScheduler(
-            prefetch_seconds=10,
+            prefetch_seconds=fs.buffer_seconds,
             sequential_chunks_required_to_start=25,
         )
 
@@ -233,7 +252,7 @@ class MediaStream:
             "STREAM",
             self._build_log_message(
                 f"Initialized stream with chunk size {self.chunk_size / (1024 * 1024):.2f} MB "
-                f"[{self.chunk_size // (1024 * 128)} blocks]. "
+                f"[{self.chunk_size // self.config.block_size} blocks]. "
                 f"bitrate={self.file_metadata['bitrate']}, "
                 f"duration={self.file_metadata['duration']}, "
                 f"file_size={self.file_metadata['file_size']} bytes",
@@ -252,7 +271,7 @@ class MediaStream:
         """Whether prefetching should start based on recent chunk access patterns."""
 
         # Determine if we've had enough sequential chunk fetches to trigger prefetching.
-        # This helps to avoid scans from triggering expensive and unnecessary prefetches.
+        # This helps to avoid scans triggering expensive and unnecessary prefetches.
         has_sufficient_sequential_fetches = (
             self.connection.sequential_chunks_fetched
             >= self.prefetch_scheduler.sequential_chunks_required_to_start
@@ -316,7 +335,7 @@ class MediaStream:
             (self.bytes_per_second // 1024) * 1024 * target_chunk_duration_seconds
         )
 
-        # Clamp chunk size between 256kB and 5MiB
+        # Clamp chunk size to min/max values
         min_chunk_size = self.config.min_chunk_size
         max_chunk_size = self.config.max_chunk_size
 
@@ -325,9 +344,9 @@ class MediaStream:
             min_chunk_size,
         )
 
-        # Align chunk size to nearest 128kB boundary, rounded up.
+        # Align chunk size to nearest block size boundary, rounded up.
         # This attempts to avoid cross-chunk reads that require expensive cache lookups.
-        block_size = 1024 * 128
+        block_size = self.config.block_size
         aligned_chunk_size = -(clamped_chunk_size // -block_size) * block_size
 
         return aligned_chunk_size
@@ -721,7 +740,7 @@ class MediaStream:
                     # generally observed when the player is reading the footer
                     # for cues or metadata after initial playback start.
                     #
-                    # Scans typically read less than a single block (128 kB).
+                    # Scans typically read less than a single block.
                     abs(self.connection.last_read_end - start)
                     > self.config.scan_tolerance
                     and start != self.header_size
