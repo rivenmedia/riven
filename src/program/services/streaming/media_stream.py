@@ -353,6 +353,10 @@ class MediaStream:
 
         try:
             yield
+        except* trio.TooSlowError as e:
+            raise pyfuse3.FUSEError(errno.EBUSY) from e.exceptions[0]
+        except* httpx.ReadTimeout as e:
+            pass
         except* (
             httpx.ReadError,
             httpx.RemoteProtocolError,
@@ -363,7 +367,7 @@ class MediaStream:
                     self._build_log_message(
                         f"Stream error occurred, "
                         f"but there is no current read position at which we can reconnect. "
-                        f"Killing stream. {e}"
+                        f"Killing stream. {e.exceptions[0]}"
                     )
                 )
 
@@ -371,7 +375,7 @@ class MediaStream:
 
             logger.warning(
                 self._build_log_message(
-                    f"Stream error occurred while managing stream connection: {e}. "
+                    f"Stream error occurred while managing stream connection: {e.exceptions[0]}. "
                     "Attempting to reconnect..."
                 )
             )
@@ -383,7 +387,7 @@ class MediaStream:
                     self._build_log_message("Failed to reconnect stream connection.")
                 )
 
-                raise pyfuse3.FUSEError(errno.EIO) from e
+                raise pyfuse3.FUSEError(errno.EIO) from e.exceptions[0]
         except* Exception as e:
             logger.error(
                 self._build_log_message(
@@ -414,7 +418,7 @@ class MediaStream:
             "STREAM",
             self._build_log_message(
                 f"{self.connection.response.http_version} stream connection established "
-                f"from byte {position} / {self.file_metadata['file_size']}."
+                f"from byte {chunk_aligned_start} / {self.file_metadata['file_size']}."
             ),
         )
 
@@ -627,7 +631,10 @@ class MediaStream:
         if self.connection.current_read_position is None:
             raise httpx.StreamError("Stream is not connected")
 
-        if position < self.connection.start_position:
+        if (
+            self.connection.current_read_position
+            and self.header_size < position < self.connection.start_position
+        ):
             request_chunk_range = self._get_chunk_range(position=position)
 
             logger.log(
@@ -640,7 +647,7 @@ class MediaStream:
                 ),
             )
 
-            # Always seek backwards if the requested start is before the stream's start position.
+            # Always seek backwards if the requested start is before the stream's start position (excluding header, which is pre-fetched).
             # Streams can only read forwards, so a new connection must be made.
             await self.seek(position=request_chunk_range.first_chunk["start"])
 

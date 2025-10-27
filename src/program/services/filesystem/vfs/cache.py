@@ -42,20 +42,6 @@ class _Metrics:
             )
 
 
-class CacheBackend:
-    def get(self, path: str, start: int, end: int) -> bytes | None:
-        raise NotImplementedError
-
-    def put(self, path: str, start: int, data: bytes) -> None:
-        raise NotImplementedError
-
-    def trim(self) -> None:
-        raise NotImplementedError
-
-    def stats(self) -> dict[str, int]:
-        raise NotImplementedError
-
-
 class Cache:
     """
     Simple file-based block cache on disk with cross-chunk boundary support.
