@@ -880,7 +880,7 @@ class MediaStream:
                                 logger.log(
                                     "STREAM",
                                     self._build_log_message(
-                                        f"Killing stream loop to skip {chunks_to_skip} cached chunks"
+                                        f"Exiting stream loop to skip {chunks_to_skip} cached chunks"
                                     ),
                                 )
 
@@ -890,7 +890,9 @@ class MediaStream:
                             logger.log(
                                 "STREAM",
                                 self._build_log_message(
-                                    f"Iteration fetched {len(chunk)} bytes in {iteration_duration:.3f}s"
+                                    f"Fetched {len(chunk)} bytes "
+                                    f"[{self.connection.current_read_position - len(chunk)}-{self.connection.current_read_position - 1}] "
+                                    f"in {iteration_duration:.3f}s"
                                 ),
                             )
 
