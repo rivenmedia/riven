@@ -109,10 +109,10 @@ class RivenVFS(pyfuse3.Operations):
         super().__init__()
 
         # Initialize VFS cache from settings
-        fs = settings_manager.settings.filesystem
+        self.fs = settings_manager.settings.filesystem
 
-        cache_dir = fs.cache_dir
-        size_mb = fs.cache_max_size_mb
+        cache_dir = self.fs.cache_dir
+        size_mb = self.fs.cache_max_size_mb
 
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -140,9 +140,9 @@ class RivenVFS(pyfuse3.Operations):
             cfg=CacheConfig(
                 cache_dir=cache_dir,
                 max_size_bytes=effective_max_bytes,
-                ttl_seconds=int(getattr(fs, "cache_ttl_seconds", 2 * 60 * 60)),
-                eviction=(getattr(fs, "cache_eviction", "LRU") or "LRU"),
-                metrics_enabled=bool(getattr(fs, "cache_metrics", True)),
+                ttl_seconds=int(getattr(self.fs, "cache_ttl_seconds", 2 * 60 * 60)),
+                eviction=(getattr(self.fs, "cache_eviction", "LRU") or "LRU"),
+                metrics_enabled=bool(getattr(self.fs, "cache_metrics", True)),
             )
         )
 
@@ -1195,7 +1195,8 @@ class RivenVFS(pyfuse3.Operations):
             attrs.attr_timeout = 300
             attrs.st_uid = os.getuid() if hasattr(os, "getuid") else 0
             attrs.st_gid = os.getgid() if hasattr(os, "getgid") else 0
-            attrs.st_blksize = 1024 * 128  # Hint larger block size to kernel (128 KiB)
+            # Hint larger block size to kernel
+            attrs.st_blksize = self.fs.block_size
             attrs.st_blocks = 1
 
             import stat
