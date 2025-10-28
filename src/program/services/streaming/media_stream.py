@@ -484,7 +484,7 @@ class MediaStream:
             )
 
             if not self.connection.is_running:
-                trio.lowlevel.spawn_system_task(self._main_stream_loop)
+                trio.lowlevel.spawn_system_task(self.main_stream_loop)
 
             logger.log(
                 "STREAM",
@@ -583,9 +583,11 @@ class MediaStream:
 
         # Try cache first for the exact request (cache handles chunk lookup and slicing)
         # Use cache_key to share cache between all paths pointing to same file
-        is_request_fully_cached = self._check_cache(
-            start=read_range.first_chunk.start,  # Align to start of chunk for cache check
-            end=request_end,
+        is_request_fully_cached = await trio.to_thread.run_sync(
+            lambda: self._check_cache(
+                start=read_range.first_chunk.start,  # Align to start of chunk for cache check
+                end=request_end,
+            )
         )
 
         cached_bytes = (
@@ -633,12 +635,7 @@ class MediaStream:
                                 )
                             )
 
-                        returned_data = await self.read_bytes(
-                            chunk_range=self._get_chunk_range(
-                                position=request_start,
-                                size=request_size,
-                            )
-                        )
+                        returned_data = await self.read_bytes(chunk_range=read_range)
                     case _:
                         # This should never happen due to prior validation
                         raise RuntimeError("Unknown read type")
@@ -816,7 +813,7 @@ class MediaStream:
         else:
             return "normal_read"
 
-    async def _main_stream_loop(self) -> None:
+    async def main_stream_loop(self) -> None:
         if self.connection.is_running:
             logger.error(
                 "STREAM",
@@ -832,13 +829,13 @@ class MediaStream:
 
         self.connection.is_running = True
 
-        sleep_interval = 0.01
+        sleep_interval = 0.2
 
         chunks_to_skip = 0
 
-        while self.connection.is_running:
-            async with self.manage_connection():
-                async with trio.open_nursery() as nursery:
+        async with trio.open_nursery() as nursery:
+            while self.connection.is_running:
+                async with self.manage_connection():
                     if (
                         self.connection.current_read_position
                         >= self.connection.target_position
@@ -901,7 +898,8 @@ class MediaStream:
                             if len(uncached_chunks) == 0:
                                 chunks_to_skip += 1
 
-                                await trio.sleep(sleep_interval)
+                                await trio.sleep(0)  # Yield to event loop
+
                                 continue
 
                             break
@@ -949,6 +947,8 @@ class MediaStream:
                         ):
                             break
 
+                        await trio.sleep(sleep_interval)
+
                     iteration_duration = time() - iteration_start_time
 
                     logger.log(
@@ -960,7 +960,8 @@ class MediaStream:
                         ),
                     )
 
-                    await trio.sleep(sleep_interval)
+            # Force cancel any cache operations in progress
+            nursery.cancel_scope.cancel()
 
         self.connection.is_exited = True
 
