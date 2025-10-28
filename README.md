@@ -12,7 +12,7 @@
   <a href="https://github.com/rivenmedia/riven/issues"><img alt="Issues" src="https://img.shields.io/github/issues/rivenmedia/riven" /></a>
   <a href="https://github.com/rivenmedia/riven/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/rivenmedia/riven"></a>
   <a href="https://github.com/rivenmedia/riven/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/rivenmedia/riven" /></a>
-  <a href="https://discord.gg/rivenmedia"><img alt="Discord" src="https://img.shields.io/badge/Join%20discord-8A2BE2" /></a>
+  <a href="https://discord.riven.tv"><img alt="Discord" src="https://img.shields.io/badge/Join%20discord-8A2BE2" /></a>
 </div>
 
 <div align="center">
@@ -259,7 +259,7 @@ We welcome contributions from the community! For development setup, dependency m
 
 - Contributing Guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Issues: https://github.com/rivenmedia/riven/issues
-- Discord: https://discord.gg/rivenmedia
+- Discord: https://discord.riven.tv
 
 Commits should follow the [conventional-commits](https://www.conventionalcommits.org/) specification.
 <a href="https://github.com/rivenmedia/riven/graphs/contributors">
