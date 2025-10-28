@@ -32,7 +32,7 @@ and more to come!
 
 Check out out [Project Board](https://github.com/users/dreulavelle/projects/2) to stay informed!
 
-Please add feature requests and issues over on our [Issue Tracker](https://github.com/rivenmedia/riven/issues) or join our [Discord](https://discord.gg/rivenmedia) to chat with us!
+Please add feature requests and issues over on our [Issue Tracker](https://github.com/rivenmedia/riven/issues) or join our [Discord](https://discord.riven.tv) to chat with us!
 
 We are constantly adding features and improvements as we go along and squashing bugs as they arise.
 
