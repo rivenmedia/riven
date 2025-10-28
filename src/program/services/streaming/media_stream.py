@@ -812,9 +812,9 @@ class MediaStream:
 
         chunks_to_skip = 0
 
-        async with self.manage_connection():
-            async with trio.open_nursery() as nursery:
-                while self.connection.is_running:
+        while self.connection.is_running:
+            async with self.manage_connection():
+                async with trio.open_nursery() as nursery:
                     if not self.connection.current_read_position or (
                         self.connection.current_read_position
                         and self.connection.current_read_position
@@ -987,8 +987,8 @@ class MediaStream:
 
         sleep_interval = 1.0
 
-        async with self.prefetch_scheduler.lock:
-            while self.prefetch_scheduler.is_running:
+        while self.prefetch_scheduler.is_running:
+            async with self.prefetch_scheduler.lock:
                 if (
                     self.connection.last_read_end is None
                     or self.connection.current_read_position is None
