@@ -898,7 +898,7 @@ class MediaStream:
                             if len(uncached_chunks) == 0:
                                 chunks_to_skip += 1
 
-                                await trio.sleep(0)  # Yield to event loop
+                                await trio.sleep(0)
 
                                 continue
 
@@ -925,8 +925,6 @@ class MediaStream:
                             ),
                         )
 
-                        last_iteration_time = time()
-
                         # Break early if the stream loop has been stopped.
                         # Otherwise, the loop will continue until the target position is reached,
                         # which can prevent the connection from being closed during large fetch windows.
@@ -947,7 +945,7 @@ class MediaStream:
                         ):
                             break
 
-                        await trio.sleep(sleep_interval)
+                        last_iteration_time = time()
 
                     iteration_duration = time() - iteration_start_time
 
