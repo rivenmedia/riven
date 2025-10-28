@@ -200,6 +200,7 @@ class RivenVFS(pyfuse3.Operations):
             async def _async_main():
                 # capture Trio token so we can call into the loop from other threads
                 self._trio_token = trio.lowlevel.current_trio_token()
+
                 await pyfuse3.main()
 
             try:

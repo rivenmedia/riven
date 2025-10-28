@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from functools import cached_property
 
+from loguru import logger
+
 
 @dataclass(frozen=True, unsafe_hash=True)
 class Chunk:
@@ -26,16 +28,26 @@ class ChunkRange:
         position: int,
         chunk_size: int,
         header_size: int,
+        footer_size: int,
+        file_size: int,
         size: int,
     ) -> None:
         self.position = position
         self.size = size
         self.chunk_size = chunk_size
         self.header_size = header_size
+        self.file_size = file_size
+        self.footer_size = footer_size
+        self.footer_start = file_size - footer_size
         self.request_range = (position, position + size - 1)
+        self.total_chunks_excluding_header_footer = (
+            self.file_size - self.footer_size - self.header_size
+        ) // self.chunk_size
 
-        if position > header_size:
+        if header_size < position < self.footer_start:
             self.content_position = max(0, position - header_size)
+        elif self.footer_start <= position:
+            self.content_position = min(self.footer_start, position)
         else:
             self.content_position = position
 
@@ -81,12 +93,14 @@ class ChunkRange:
         content_request_start = max(0, start - self.header_size)
         content_request_end = max(0, end - self.header_size)
 
-        lower_chunk_index = (
-            content_request_start + self.cached_bytes_size
-        ) // self.chunk_size
-        upper_chunk_index = (
-            content_request_end + self.cached_bytes_size
-        ) // self.chunk_size
+        lower_chunk_index = min(
+            (content_request_start + self.cached_bytes_size) // self.chunk_size,
+            self.total_chunks_excluding_header_footer + 1,
+        )
+        upper_chunk_index = min(
+            (content_request_end + self.cached_bytes_size) // self.chunk_size,
+            self.total_chunks_excluding_header_footer + 1,
+        )
 
         chunks: list[Chunk] = []
 
@@ -96,8 +110,14 @@ class ChunkRange:
             chunks.append(Chunk(index=0, start=0, end=self.header_size - 1))
 
         for chunk_index in range(lower_chunk_index, upper_chunk_index + 1):
-            chunk_start = self.header_size + (chunk_index * self.chunk_size)
-            chunk_end = chunk_start + self.chunk_size - 1
+            chunk_start = min(
+                self.header_size + (chunk_index * self.chunk_size),
+                self.footer_start,
+            )
+            chunk_end = min(
+                chunk_start + self.chunk_size - 1,
+                self.file_size - 1,
+            )
 
             chunks.append(
                 Chunk(

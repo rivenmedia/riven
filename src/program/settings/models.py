@@ -313,6 +313,15 @@ class StreamingModel(Observable):
         le=60,
         description="Number of seconds to buffer when streaming",
     )
+    sequential_chunks_required_for_prefetch: int = Field(
+        default=25,
+        gt=0,
+        description=(
+            "Number of sequential chunks required to start prefetching. "
+            "If this is too low, it may lead to excessive data usage during scans, "
+            "and if too high, it may result in stream stutters."
+        ),
+    )
 
 
 # Content Services
