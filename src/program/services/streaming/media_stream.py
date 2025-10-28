@@ -985,7 +985,7 @@ class MediaStream:
             self.prefetch_scheduler.prefetch_seconds * self.bytes_per_second
         )
 
-        sleep_interval = 0.1
+        sleep_interval = 1.0
 
         async with self.prefetch_scheduler.lock:
             while self.prefetch_scheduler.is_running:
@@ -1010,6 +1010,7 @@ class MediaStream:
                 )
 
                 if target_position < self.connection.current_read_position:
+                    logger.debug(f"Prefetcher waiting...")
                     await trio.sleep(sleep_interval)
                     continue
 
@@ -1019,6 +1020,8 @@ class MediaStream:
                 # This keeps the prefetch logic decoupled from the main stream logic,
                 # and allows us to avoid complex coordination between the two that tends to result in deadlocks.
                 self.connection.target_position = target_position
+
+                logger.debug(f"Prefetcher set target position to {target_position}")
 
                 await trio.sleep(sleep_interval)
 
