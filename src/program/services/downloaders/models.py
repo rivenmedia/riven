@@ -202,7 +202,7 @@ class DownloadedTorrent(BaseModel):
 class UserInfo(BaseModel):
     """Normalized user information across different debrid services"""
 
-    service: Literal["realdebrid", "torbox"]
+    service: Literal["realdebrid", "torbox", "debridlink"]
     username: Optional[str] = None
     email: Optional[str] = None
     user_id: Union[int, str]

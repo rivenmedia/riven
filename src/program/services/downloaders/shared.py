@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional, Union
 
@@ -106,7 +106,15 @@ def parse_filename(filename: str) -> ParsedData:
 
 def premium_days_left(expiration: datetime) -> str:
     """Convert an expiration date into a message showing days remaining on the user's premium account"""
-    time_left = expiration - datetime.utcnow()
+    # Handle both timezone-aware and naive datetimes
+    if expiration.tzinfo is not None:
+        # Timezone-aware: compare with timezone-aware now
+        now = datetime.now(tz=timezone.utc)
+    else:
+        # Naive: compare with naive now (UTC)
+        now = datetime.utcnow()
+
+    time_left = expiration - now
     days_left = time_left.days
     hours_left, minutes_left = divmod(time_left.seconds // 3600, 60)
     expiration_message = ""

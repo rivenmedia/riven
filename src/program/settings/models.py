@@ -76,6 +76,11 @@ class TorBoxModel(Observable):
     api_key: str = Field(default="", description="TorBox API key")
 
 
+class DebridLinkModel(Observable):
+    enabled: bool = Field(default=False, description="Enable Debrid-Link")
+    api_key: str = Field(default="", description="Debrid-Link API key")
+
+
 class DownloadersModel(Observable):
     video_extensions: List[str] = Field(
         default_factory=lambda: ["mp4", "mkv", "avi"],
@@ -107,6 +112,10 @@ class DownloadersModel(Observable):
     torbox: TorBoxModel = Field(
         default_factory=lambda: TorBoxModel(),
         description="TorBox downloader configuration",
+    )
+    debrid_link: DebridLinkModel = Field(
+        default_factory=lambda: DebridLinkModel(),
+        description="Debrid-Link downloader configuration",
     )
 
 
