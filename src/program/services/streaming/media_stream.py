@@ -283,6 +283,11 @@ class MediaStream:
         fs = settings_manager.settings.filesystem
         streaming_config = settings_manager.settings.streaming
 
+        self.fh = fh
+        self.read_lock = trio.Lock()
+        self.connect_lock = trio.Lock()
+        self.vfs = vfs
+
         self.config = Config(
             block_size=fs.block_size,
             max_chunk_size=1 * 1024 * 1024,  # 1 MiB
@@ -305,11 +310,6 @@ class MediaStream:
         )
 
         self.connection = Connection(bytes_per_second=self.bytes_per_second)
-
-        self.read_lock = trio.Lock()
-        self.connect_lock = trio.Lock()
-        self.vfs = vfs
-        self.fh = fh
 
         logger.log(
             "STREAM",
