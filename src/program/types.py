@@ -17,6 +17,7 @@ from program.services.downloaders import (
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.services.filesystem import FilesystemService
+from program.services.aiostreams_service import AIOStreamsService
 
 # Typehint classes
 Scraper = Union[Scraping]
@@ -26,7 +27,9 @@ Downloader = Union[
     TorBoxDownloader,
 ]
 
-Service = Union[Content, Scraper, Downloader, FilesystemService, Updater]
+Service = Union[
+    Content, Scraper, Downloader, FilesystemService, Updater, AIOStreamsService
+]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 
 

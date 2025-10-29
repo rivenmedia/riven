@@ -30,10 +30,10 @@ class VFSDatabase:
         """
         Initialize VFS Database.
 
-        Args:
-            downloader: Downloader instance with initialized services for URL resolution
+        Note: downloader parameter is kept for backward compatibility but is no longer used.
+        AIOStreams provides direct URLs that don't need unrestricting.
         """
-        self.downloader = downloader
+        self.downloader = downloader  # Kept for backward compatibility
         self.SessionLocal = db.Session
         self._ensure_default_directories()
 
@@ -301,15 +301,13 @@ class VFSDatabase:
         """
         Get entry metadata and download URL by original filename.
 
-        This is the NEW API that replaces path-based lookups.
-
         Args:
-            original_filename: Original filename from debrid provider
-            for_http: If True, return URL for HTTP requests (uses unrestricted URL)
-            force_resolve: If True, force refresh of unrestricted URL from provider
+            original_filename: Original filename
+            for_http: Kept for backward compatibility (ignored - always returns download_url)
+            force_resolve: Kept for backward compatibility (ignored - no unrestricting needed)
 
         Returns:
-            Dictionary with entry metadata and URLs, or None if not found
+            Dictionary with entry metadata and URL, or None if not found
         """
         try:
             with self.SessionLocal() as s:
@@ -322,51 +320,15 @@ class VFSDatabase:
                 if not entry:
                     return None
 
-                # Get download URL (with optional unrestricting)
-                download_url = entry.download_url
-                unrestricted_url = entry.unrestricted_url
-
-                # If force_resolve or no unrestricted URL, try to unrestrict
-                if force_resolve or (for_http and not unrestricted_url):
-                    if self.downloader and entry.provider:
-                        # Find service by matching the key attribute (services dict uses class as key)
-                        service = next(
-                            (
-                                svc
-                                for svc in self.downloader.services.values()
-                                if svc.key == entry.provider
-                            ),
-                            None,
-                        )
-                        if service and hasattr(service, "unrestrict_link"):
-                            try:
-                                new_unrestricted = service.unrestrict_link(download_url)
-                                if (
-                                    new_unrestricted
-                                    and new_unrestricted.download != unrestricted_url
-                                ):
-                                    entry.unrestricted_url = new_unrestricted.download
-                                    unrestricted_url = new_unrestricted.download
-                                    s.commit()
-                                    log.debug(
-                                        f"Refreshed unrestricted URL for {original_filename}"
-                                    )
-                            except Exception as e:
-                                log.warning(
-                                    f"Failed to unrestrict URL for {original_filename}: {e}"
-                                )
-
-                # Choose URL based on for_http flag
-                if for_http:
-                    chosen_url = unrestricted_url or download_url
-                else:
-                    chosen_url = download_url
+                # Prefer unrestricted_url (cached redirect) over download_url
+                # unrestricted_url is the final URL after following AIOStreams redirects
+                url = entry.unrestricted_url or entry.download_url
 
                 return {
                     "original_filename": entry.original_filename,
-                    "download_url": download_url,
-                    "unrestricted_url": unrestricted_url,
-                    "provider": entry.provider,
+                    "download_url": entry.download_url,  # Original AIOStreams URL
+                    "unrestricted_url": entry.unrestricted_url,  # Cached final URL after redirect
+                    "provider": entry.provider,  # Informational: which debrid service AIOStreams used
                     "provider_download_id": entry.provider_download_id,
                     "size": entry.file_size,
                     "created": (
@@ -376,7 +338,7 @@ class VFSDatabase:
                         entry.updated_at.isoformat() if entry.updated_at else None
                     ),
                     "entry_type": "media",
-                    "url": chosen_url,  # The URL to use for this request
+                    "url": url,  # Prefer unrestricted URL if available
                 }
         except Exception as e:
             log.error(
@@ -388,12 +350,12 @@ class VFSDatabase:
         self, path: str, for_http: bool = False, force_resolve: bool = False
     ) -> Optional[str]:
         """
-        Get download URL for a file using database-driven provider lookup.
+        Get download URL for a file.
 
         Args:
             path: Virtual file path
-            for_http: If True, return URL for HTTP requests (uses unrestricted URL)
-            force_resolve: If True, force refresh of unrestricted URL from provider
+            for_http: Kept for backward compatibility (ignored)
+            force_resolve: Kept for backward compatibility (ignored)
 
         Returns:
             URL string or None if not found
@@ -405,80 +367,90 @@ class VFSDatabase:
                 if not fe:
                     return None
 
-                # If no downloader available, return what we have
-                if not self.downloader:
-                    if not for_http:
-                        log.debug(
-                            f"{path} -> using stored download_url (no downloader)"
-                        )
-                        return fe.download_url
-                    chosen = fe.unrestricted_url or fe.download_url
-                    log.debug(
-                        f"{path} -> using {'unrestricted' if fe.unrestricted_url else 'download'} URL (no downloader)"
-                    )
-                    return chosen
-
-                # For non-HTTP reads (persistence), return the stored download_url
-                if not for_http:
-                    log.debug(
-                        f"{path} -> returning stored download_url for persistence"
-                    )
-                    return fe.download_url
-
-                # For HTTP reads: prefer persisted unrestricted URL if present and no forced refresh
-                if fe.unrestricted_url and not force_resolve:
-                    log.debug(f"{path} -> using persisted unrestricted URL")
+                # Prefer unrestricted URL (cached redirect) over download_url
+                if fe.unrestricted_url:
+                    log.debug(f"{path} -> returning cached unrestricted URL")
                     return fe.unrestricted_url
 
-                # Need to resolve/refresh the URL
-                if not fe.download_url:
-                    log.debug(f"{path} -> no download_url available; cannot resolve")
-                    return None
-
-                # Get the provider service from the downloader
-                if not fe.provider:
-                    log.warning(f"{path} -> no provider specified in database")
-                    return fe.download_url
-
-                # Find the matching service
-                service = next(
-                    (
-                        s
-                        for s in self.downloader.initialized_services
-                        if s.key == fe.provider
-                    ),
-                    None,
-                )
-                if not service:
-                    log.warning(f"{path} -> provider '{fe.provider}' not initialized")
-                    return fe.unrestricted_url or fe.download_url
-
-                # Resolve URL using the provider's resolve_link method
-                try:
-                    log.debug(f"{path} -> resolving URL via provider '{fe.provider}'")
-                    result = service.resolve_link(fe.download_url)
-                    if result and result.get("download_url"):
-                        # Update persisted unrestricted URL for future reads
-                        fe.unrestricted_url = result["download_url"]
-                        log.debug(f"{path} -> updated unrestricted_url")
-                        # Update file size if available and not already set
-                        if not fe.file_size and result.get("size"):
-                            fe.file_size = int(result["size"])
-                        return fe.unrestricted_url
-                except Exception as e:
-                    log.warning(
-                        f"{path} -> resolve failed via provider '{fe.provider}': {e}"
-                    )
-
-                # Fallback to what we have
-                log.debug(
-                    f"{path} -> fallback to {'unrestricted' if fe.unrestricted_url else 'download'} URL"
-                )
-                return fe.unrestricted_url or fe.download_url
+                # Fall back to download_url (AIOStreams URL that will redirect)
+                log.debug(f"{path} -> returning AIOStreams direct URL")
+                return fe.download_url
         except StaleDataError:
             # Entry was deleted concurrently during read; treat as missing
             log.debug(f"{path} -> entry disappeared during read; returning None")
             return None
+
+    def update_unrestricted_url(
+        self, original_filename: str, unrestricted_url: str
+    ) -> bool:
+        """
+        Update unrestricted URL for a MediaEntry.
+
+        This caches the final URL after following AIOStreams redirects to avoid
+        hitting rate limits on every read.
+
+        Args:
+            original_filename: Original filename to identify the entry
+            unrestricted_url: Final URL after following redirects
+
+        Returns:
+            True if updated, False if entry not found
+        """
+        try:
+            with self.SessionLocal.begin() as s:
+                entry = (
+                    s.query(MediaEntry)
+                    .filter(MediaEntry.original_filename == original_filename)
+                    .first()
+                )
+
+                if not entry:
+                    log.warning(f"No entry found for {original_filename}")
+                    return False
+
+                entry.unrestricted_url = unrestricted_url
+                log.debug(f"Updated unrestricted URL for {original_filename}")
+                return True
+
+        except Exception as e:
+            log.error(f"Error updating unrestricted URL for {original_filename}: {e}")
+            return False
+
+    def update_file_size(self, original_filename: str, file_size: int) -> bool:
+        """
+        Update file size for a MediaEntry.
+
+        This corrects the file size when the server reports a different size
+        than what AIOStreams provided in behaviorHints.
+
+        Args:
+            original_filename: Original filename to identify the entry
+            file_size: Actual file size in bytes from server
+
+        Returns:
+            True if updated, False if entry not found
+        """
+        try:
+            with self.SessionLocal.begin() as s:
+                entry = (
+                    s.query(MediaEntry)
+                    .filter(MediaEntry.original_filename == original_filename)
+                    .first()
+                )
+
+                if not entry:
+                    log.warning(f"No entry found for {original_filename}")
+                    return False
+
+                entry.file_size = file_size
+                log.debug(
+                    f"Updated file size for {original_filename}: {file_size} bytes"
+                )
+                return True
+
+        except Exception as e:
+            log.error(f"Error updating file size for {original_filename}: {e}")
+            return False
 
     def update_size(self, path: str, size: int) -> None:
         path = self._norm(path)

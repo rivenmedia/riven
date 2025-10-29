@@ -11,7 +11,6 @@ from program.media.stream import Stream
 from program.services.scrapers.shared import _parse_results
 from program.settings.manager import settings_manager
 
-from program.services.scrapers.aiostreams import AIOStreams
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
@@ -31,7 +30,6 @@ class Scraping:
             settings_manager.settings.scraping.max_failed_attempts
         )
         self.services = [
-            AIOStreams(),
             Comet(),
             Jackett(),
             Mediafusion(),

@@ -45,14 +45,22 @@ class EventManager:
         Returns:
             concurrent.futures.ThreadPoolExecutor: The executor for the service class.
         """
+        from program.settings.manager import settings_manager
+
         service_name = service_cls.__name__
         for executor in self._executors:
             if executor["_name_prefix"] == service_name:
                 logger.debug(f"Executor for {service_name} found.")
                 return executor["_executor"]
-        _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=1)
+
+        max_workers = settings_manager.settings.max_workers
+        _executor = ThreadPoolExecutor(
+            thread_name_prefix=service_name, max_workers=max_workers
+        )
         self._executors.append({"_name_prefix": service_name, "_executor": _executor})
-        logger.debug(f"Created executor for {service_name}")
+        logger.debug(
+            f"Created executor for {service_name} with max_workers={max_workers}"
+        )
         return _executor
 
     def _process_future(self, future, service):
@@ -497,3 +505,20 @@ class EventManager:
                 return True
 
         return False
+
+    def shutdown(self, wait: bool = True):
+        """
+        Shutdown all ThreadPoolExecutors managed by this EventManager.
+
+        Args:
+            wait: If True, wait for all running tasks to complete before shutting down.
+                  If False, shutdown immediately (tasks may be interrupted).
+        """
+        logger.debug(f"Shutting down {len(self._executors)} executor(s)...")
+        for executor_dict in self._executors:
+            executor = executor_dict["_executor"]
+            service_name = executor_dict["_name_prefix"]
+            if not executor._shutdown:
+                logger.debug(f"Shutting down executor for {service_name} (wait={wait})")
+                executor.shutdown(wait=wait)
+        logger.debug("All executors shut down.")

@@ -754,6 +754,12 @@ class AppModel(Observable):
     tracemalloc: bool = Field(
         default=False, description="Enable Python memory tracking (debug)"
     )
+    max_workers: int = Field(
+        default=1,
+        ge=1,
+        le=32,
+        description="Maximum concurrent workers per service (1=sequential, higher=parallel processing)",
+    )
     filesystem: FilesystemModel = Field(
         default_factory=lambda: FilesystemModel(),
         description="Filesystem configuration",

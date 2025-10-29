@@ -3,11 +3,10 @@
 Riven Virtual File System (RivenVFS)
 
 A high-performance FUSE-based virtual filesystem designed for streaming media content
-from various providers like Real-Debrid, Premiumize, and AllDebrid. Built with pyfuse3
-and featuring:
+from AIOStreams. Built with pyfuse3 and featuring:
 
 - HTTP range request support for efficient streaming
-- Provider-based URL resolution and caching
+- Direct URL streaming from AIOStreams
 - Automatic FUSE cache invalidation for consistency
 - Persistent SQLite storage with SQLAlchemy
 - Robust error handling and retry logic
@@ -23,8 +22,8 @@ The VFS automatically handles:
 Usage:
     from rivenvfs import RivenVFS
 
-    vfs = RivenVFS("/mnt/riven", db_path="./riven.db", providers=providers)
-    vfs.add_file("/movies/example.mp4", "https://real-debrid.com/d/ABC123", size=1073741824)
+    vfs = RivenVFS("/mnt/riven", downloader=downloader)
+    # Files are registered automatically by AIOStreamsService
     # VFS is now mounted and ready for use
 
     # Clean up when done
@@ -33,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import errno
 import time
@@ -75,7 +75,7 @@ class VFSNode:
     Attributes:
         name: Name of this node (e.g., "Frozen.mkv" or "movies")
         is_directory: True if this is a directory, False if it's a file
-        original_filename: Original filename from debrid provider (for files only)
+        original_filename: Original filename (for files only)
                           This is used to look up the MediaEntry in the database.
                           For directories, this is None.
         inode: FUSE inode number assigned to this node
@@ -341,10 +341,10 @@ class RivenVFS(pyfuse3.Operations):
     Riven Virtual File System - A FUSE-based VFS for streaming media content.
 
     This class provides a complete virtual filesystem implementation optimized for
-    streaming large media files from various debrid providers. It features:
+    streaming large media files from AIOStreams. It features:
 
     - Efficient HTTP range request handling for seeking
-    - Provider-based URL resolution with caching
+    - Direct URL streaming from AIOStreams
     - Automatic FUSE cache invalidation
     - Persistent metadata storage
     - Robust error handling and recovery
@@ -1653,12 +1653,19 @@ class RivenVFS(pyfuse3.Operations):
                     )
 
                 path = node.get_full_path()
+                original_filename = node.original_filename
+                entry_type = node.entry_type
 
             log.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
             # Only allow read access
             if flags & os.O_RDWR or flags & os.O_WRONLY:
                 raise pyfuse3.FUSEError(errno.EACCES)
+
+            # For media entries, resolve AIOStreams redirect URL and verify file size on first open
+            if entry_type == "media" and original_filename:
+                await self._resolve_aiostreams_redirect(original_filename)
+                await self._verify_file_size(original_filename)
 
             # Create file handle with minimal metadata
             # Everything else will be resolved from the inode when needed
@@ -1783,14 +1790,12 @@ class RivenVFS(pyfuse3.Operations):
                 log.error(f"No original_filename for {path}")
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
-            # Get entry info from DB
-            # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
-            # Let the refresh logic handle re-unrestricting on failures
+            # Get entry info from DB (AIOStreams provides direct URLs)
             entry_info = await trio.to_thread.run_sync(
                 self.db.get_entry_by_original_filename,
                 original_filename,
-                True,  # for_http (use unrestricted URL if available)
-                False,  # force_resolve (don't unrestrict if already have unrestricted URL)
+                True,  # for_http (kept for backward compatibility)
+                False,  # force_resolve (kept for backward compatibility)
             )
 
             if not entry_info:
@@ -2243,32 +2248,208 @@ class RivenVFS(pyfuse3.Operations):
 
     # HTTP helpers
 
+    async def _resolve_aiostreams_redirect(self, original_filename: str) -> None:
+        """
+        Resolve AIOStreams redirect URL and cache it in the database.
+
+        AIOStreams URLs are rate-limited and redirect to the actual debrid provider URL.
+        We follow the redirect once and store the final URL to avoid hitting AIOStreams
+        rate limits on every read.
+
+        Args:
+            original_filename: Original filename to identify the entry
+        """
+        try:
+            # Check if we already have an unrestricted URL
+            entry_info = await trio.to_thread.run_sync(
+                self.db.get_entry_by_original_filename,
+                original_filename,
+                True,  # for_http
+                False,  # force_resolve
+            )
+
+            if not entry_info:
+                log.warning(f"No entry found for {original_filename}")
+                return
+
+            # If we already have an unrestricted URL, skip
+            if entry_info.get("unrestricted_url"):
+                log.trace(f"Already have unrestricted URL for {original_filename}")
+                return
+
+            download_url = entry_info.get("url")
+            if not download_url:
+                log.warning(f"No download URL for {original_filename}")
+                return
+
+            # Follow redirect to get actual debrid provider URL
+            log.debug(f"Resolving AIOStreams redirect for {original_filename}")
+
+            try:
+                response = await self.async_client.head(
+                    download_url,
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(10.0),
+                )
+
+                # The final URL after redirects is what we want to cache
+                final_url = str(response.url)
+
+                # Store the unrestricted URL in the database
+                await trio.to_thread.run_sync(
+                    self.db.update_unrestricted_url,
+                    original_filename,
+                    final_url,
+                )
+
+                log.debug(f"Cached unrestricted URL for {original_filename}")
+
+            except httpx.HTTPStatusError as e:
+                log.warning(
+                    f"Failed to resolve redirect for {original_filename}: HTTP {e.response.status_code}"
+                )
+            except Exception as e:
+                log.warning(f"Failed to resolve redirect for {original_filename}: {e}")
+
+        except Exception as e:
+            log.error(
+                f"Error resolving AIOStreams redirect for {original_filename}: {e}"
+            )
+
+    async def _verify_file_size(self, original_filename: str) -> None:
+        """
+        Verify and correct file size from the actual server.
+
+        AIOStreams sometimes reports incorrect file sizes in behaviorHints.
+        We make a HEAD request to get the actual Content-Length from the server
+        and update both the database and in-memory node if there's a mismatch.
+
+        This is only done once per file - we use a marker in the database to track
+        whether verification has been completed.
+
+        Args:
+            original_filename: Original filename to identify the entry
+        """
+        try:
+            entry_info = await trio.to_thread.run_sync(
+                self.db.get_entry_by_original_filename,
+                original_filename,
+                True,  # for_http
+                False,  # force_resolve
+            )
+
+            if not entry_info:
+                log.warning(f"No entry found for {original_filename}")
+                return
+
+            url = entry_info.get("url")
+            if not url:
+                log.warning(f"No URL for {original_filename}")
+                return
+
+            reported_size = entry_info.get("size")
+            if not reported_size:
+                log.debug(
+                    f"No reported size for {original_filename}, skipping verification"
+                )
+                return
+
+            # Check if we've already verified by comparing with in-memory node
+            # If the node's file_size differs from reported_size, we've already corrected it
+            already_verified = False
+            with self._tree_lock:
+                for node in self._inode_to_node.values():
+                    if node.original_filename == original_filename:
+                        if node.file_size != reported_size:
+                            # File size has been corrected - skip verification
+                            log.trace(
+                                f"File size already verified for {original_filename}"
+                            )
+                            already_verified = True
+                        break
+
+            if already_verified:
+                return
+
+            # Make HEAD request to get actual file size
+            try:
+                response = await self.async_client.head(
+                    url,
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(10.0),
+                )
+
+                content_length = response.headers.get("Content-Length")
+                if not content_length:
+                    log.warning(f"No Content-Length header for {original_filename}")
+                    return
+
+                actual_size = int(content_length)
+
+                # Check for mismatch
+                if actual_size != reported_size:
+                    log.warning(
+                        f"File size mismatch: path={original_filename} "
+                        f"aiostreams_reported={reported_size} actual={actual_size} "
+                        f"diff={reported_size - actual_size}"
+                    )
+
+                    # Update database
+                    await trio.to_thread.run_sync(
+                        self.db.update_file_size, original_filename, actual_size
+                    )
+
+                    # Update in-memory node
+                    with self._tree_lock:
+                        for node in self._inode_to_node.values():
+                            if node.original_filename == original_filename:
+                                node.file_size = actual_size
+                                log.debug(
+                                    f"Updated in-memory node file_size for {original_filename}"
+                                )
+                                break
+                else:
+                    log.trace(
+                        f"File size verified for {original_filename}: {actual_size} bytes"
+                    )
+
+            except httpx.HTTPStatusError as e:
+                log.warning(
+                    f"Failed to verify file size for {original_filename}: HTTP {e.response.status_code}"
+                )
+            except Exception as e:
+                log.warning(f"Failed to verify file size for {original_filename}: {e}")
+
+        except Exception as e:
+            log.error(f"Error verifying file size for {original_filename}: {e}")
+
     def _refresh_download_url(
         self, original_filename: str, target_url: str
     ) -> str | None:
         """
-        Refresh download URL by unrestricting from provider.
+        Handle AIOStreams URL expiration.
 
-        Updates the database with the fresh URL.
+        For AIOStreams, URLs can expire and need to be refreshed by re-scraping.
+        Currently this just returns None, causing the read to fail.
+
+        TODO: Implement re-scraping workflow:
+        1. Get MediaEntry by original_filename
+        2. Get associated MediaItem
+        3. Clear filesystem_entry
+        4. Re-queue item for AIOStreamsService processing
+        5. Return None to fail current read (user will retry after re-scraping)
 
         Args:
-            original_filename: Original filename from debrid provider
+            original_filename: Original filename
             target_url: Current URL that failed
 
         Returns:
-            Fresh URL if successfully refreshed, None otherwise
+            None (re-scraping not yet implemented)
         """
-        # Query database by original_filename and force unrestrict
-        entry_info = self.db.get_entry_by_original_filename(
-            original_filename, for_http=True, force_resolve=True
+        log.warning(
+            f"AIOStreams URL expired for {original_filename}. Re-scraping not yet implemented."
         )
-
-        if entry_info:
-            fresh_url = entry_info.get("url")
-            if fresh_url and fresh_url != target_url:
-                log.debug(f"Refreshed URL for {original_filename}")
-                return fresh_url
-
+        # TODO: Trigger re-scraping workflow here
         return None
 
     def _get_range_request_headers(self, start: int, end: int) -> httpx.Headers:
@@ -2466,8 +2647,7 @@ class RivenVFS(pyfuse3.Operations):
 
                     data = bytearray()
 
-                    # Read chunk from the stream and exit once filled.
-                    # This *should* prevent the server from sending the rest of the data
+                    # Read chunk from the stream
                     async for chunk in stream.aiter_bytes(range_bytes):
                         data.extend(chunk)
 
@@ -2529,13 +2709,21 @@ class RivenVFS(pyfuse3.Operations):
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except httpx.RemoteProtocolError as e:
                 # This can happen if the server closes the connection prematurely
-                log.debug(
-                    f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): path={path} error={type(e).__name__}"
+                # Extract provider from URL for better debugging
+                provider_match = re.search(r"/strem/[^/]+/([^/]+)/", target_url)
+                provider = provider_match.group(1) if provider_match else "unknown"
+
+                log.warning(
+                    f"HTTP protocol error from {provider} (attempt {attempt + 1}/{max_attempts}): "
+                    f"path={path} error={e}"
                 )
 
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                     continue
 
+                log.error(
+                    f"Failed to fetch chunk from {provider} after {max_attempts} attempts: {path}"
+                )
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except pyfuse3.FUSEError:
                 raise

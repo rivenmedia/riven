@@ -1,7 +1,8 @@
 """MediaItem class"""
 
 from datetime import datetime
-from typing import Any, List, Optional, TYPE_CHECKING
+from threading import Lock
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import sqlalchemy
 from loguru import logger
@@ -17,6 +18,20 @@ from .stream import Stream
 
 if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
+
+
+# Global lock manager for MediaItem state updates
+# Maps item_id -> Lock to prevent concurrent state updates on the same item
+_state_locks: Dict[int, Lock] = {}
+_state_locks_mutex = Lock()
+
+
+def _get_state_lock(item_id: int) -> Lock:
+    """Get or create a lock for the given item ID."""
+    with _state_locks_mutex:
+        if item_id not in _state_locks:
+            _state_locks[item_id] = Lock()
+        return _state_locks[item_id]
 
 
 class MediaItem(db.Model):
@@ -174,27 +189,35 @@ class MediaItem(db.Model):
         self.subtitles = item.get("subtitles", [])
 
     def store_state(self, given_state=None) -> tuple[States, States]:
-        """Store the state of the item and notify about state changes."""
-        previous_state = self.last_state
-        new_state = given_state if given_state else self._determine_state()
-        self.last_state = new_state
+        """
+        Store the state of the item and notify about state changes.
 
-        # Notify about state change via NotificationService
-        if previous_state and previous_state != new_state:
-            try:
-                from program.program import riven
-                from program.services.notifications import NotificationService
+        Thread-safe: Uses per-item locking to prevent concurrent state updates
+        on the same MediaItem from multiple threads.
+        """
+        # Acquire lock for this specific item to prevent concurrent updates
+        lock = _get_state_lock(self.id)
+        with lock:
+            previous_state = self.last_state
+            new_state = given_state if given_state else self._determine_state()
+            self.last_state = new_state
 
-                notification_service = riven.all_services.get(NotificationService)
-                if notification_service:
-                    notification_service.run(
-                        self, previous_state=previous_state, new_state=new_state
-                    )
-            except Exception as e:
-                # Fallback: log error but don't break state storage
-                logger.debug(f"Failed to send state change notification: {e}")
+            # Notify about state change via NotificationService
+            if previous_state and previous_state != new_state:
+                try:
+                    from program.program import riven
+                    from program.services.notifications import NotificationService
 
-        return (previous_state, new_state)
+                    notification_service = riven.all_services.get(NotificationService)
+                    if notification_service:
+                        notification_service.run(
+                            self, previous_state=previous_state, new_state=new_state
+                        )
+                except Exception as e:
+                    # Fallback: log error but don't break state storage
+                    logger.debug(f"Failed to send state change notification: {e}")
+
+            return (previous_state, new_state)
 
     def blacklist_active_stream(self) -> bool:
         if not self.active_stream:
@@ -796,8 +819,8 @@ class Show(MediaItem):
             return States.Symlinked
         if any(season.state == States.Downloaded for season in self.seasons):
             return States.Downloaded
-        if self.is_scraped():
-            return States.Scraped
+        # Shows are organizational containers - they don't get scraped
+        # State is purely aggregated from child seasons/episodes
         if any(season.state == States.Indexed for season in self.seasons):
             return States.Indexed
         if all(not season.is_released for season in self.seasons):
@@ -914,8 +937,8 @@ class Season(MediaItem):
                 return States.Symlinked
             if any(episode.state == States.Downloaded for episode in self.episodes):
                 return States.Downloaded
-            if self.is_scraped():
-                return States.Scraped
+            # Seasons are organizational containers - they don't get scraped
+            # State is purely aggregated from child episodes
             if any(episode.state == States.Indexed for episode in self.episodes):
                 return States.Indexed
             if any(episode.state == States.Unreleased for episode in self.episodes):

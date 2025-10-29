@@ -21,6 +21,7 @@ from program.services.notifications import NotificationService
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
+from program.services.aiostreams_service import AIOStreamsService
 from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
@@ -76,7 +77,8 @@ class Program(threading.Thread):
         _downloader = Downloader()
         self.services = {
             IndexerService: IndexerService(),
-            Scraping: Scraping(),
+            # Scraping: Scraping(),
+            AIOStreamsService: AIOStreamsService(),
             Updater: Updater(),
             Downloader: _downloader,
             FilesystemService: FilesystemService(_downloader),
@@ -102,14 +104,16 @@ class Program(threading.Thread):
             logger.warning(
                 "No content services initialized, items need to be added manually."
             )
-        if not self.services[Scraping].initialized:
+
+        # Check if either AIOStreams or traditional Scraping is initialized
+        aiostreams_enabled = self.services[AIOStreamsService].initialized
+        # scraping_enabled = self.services[Scraping].initialized
+
+        if not aiostreams_enabled:
             logger.error(
-                "No Scraping service initialized, you must enable at least one."
+                "No content provider initialized. Enable either AIOStreams or at least one scraper."
             )
-        if not self.services[Downloader].initialized:
-            logger.error(
-                "No Downloader service initialized, you must enable at least one."
-            )
+
         if not self.services[FilesystemService].initialized:
             logger.error(
                 "Filesystem service failed to initialize, check your settings."
@@ -209,7 +213,6 @@ class Program(threading.Thread):
                 "ITEM", f"Total Items: {total_items} (With filesystem: {total_with_fs})"
             )
 
-        self.executors = []
         self.scheduler_manager = ProgramScheduler(self)
         self.scheduler_manager.start()
 
@@ -294,13 +297,15 @@ class Program(threading.Thread):
         if not self.initialized:
             return
 
-        if hasattr(self, "executors"):
-            for executor in self.executors:
-                if not executor["_executor"]._shutdown:
-                    executor["_executor"].shutdown(wait=False)
+        # Shutdown EventManager executors (service thread pools)
+        if hasattr(self, "em"):
+            self.em.shutdown(wait=False)
+
+        # Stop scheduler
         if hasattr(self, "scheduler_manager"):
             self.scheduler_manager.stop()
 
+        # Close filesystem service (VFS)
         self.services[FilesystemService].close()
         logger.log("PROGRAM", "Riven has been stopped.")
 

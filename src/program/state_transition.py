@@ -7,6 +7,8 @@ from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.services.filesystem import FilesystemService
+from program.services.aiostreams_service import AIOStreamsService
+from program.settings.manager import settings_manager
 from program.types import ProcessedEvent, Service
 
 
@@ -57,24 +59,41 @@ def process_event(
                 items_to_submit += sub_items
 
     elif existing_item is not None and existing_item.last_state == States.Indexed:
-        next_service = Scraping
-        if emitted_by != Scraping and Scraping.should_submit(existing_item):
-            items_to_submit = [existing_item]
-        elif existing_item.type == "show":
-            items_to_submit = [
-                s
-                for s in existing_item.seasons
-                if s.last_state
-                in [States.Indexed, States.PartiallyCompleted, States.Unknown]
-                and Scraping.should_submit(s)
-            ]
+        # Check if AIOStreams is enabled - it replaces Scraping+Downloader
+        aiostreams_enabled = settings_manager.settings.scraping.aiostreams.enabled
+
+        if aiostreams_enabled:
+            next_service = AIOStreamsService
+        else:
+            next_service = Scraping
+
+        # Shows and Seasons are organizational containers - queue incomplete children
+        if existing_item.type == "show":
+            # Queue all incomplete episodes from all seasons
+            items_to_submit = []
+            for season in existing_item.seasons:
+                incomplete_episodes = [
+                    e
+                    for e in season.episodes
+                    if e.last_state not in [States.Completed, States.Unreleased]
+                ]
+                items_to_submit.extend(incomplete_episodes)
+
         elif existing_item.type == "season":
+            # Queue all incomplete episodes
             items_to_submit = [
                 e
                 for e in existing_item.episodes
-                if e.last_state in [States.Indexed, States.Unknown]
-                and Scraping.should_submit(e)
+                if e.last_state not in [States.Completed, States.Unreleased]
             ]
+
+        elif existing_item.type in ("movie", "episode"):
+            # Only queue leaf items (movies/episodes) for scraping/aiostreams
+            if aiostreams_enabled:
+                # AIOStreams doesn't need should_submit check - it's a direct provider
+                items_to_submit = [existing_item]
+            elif emitted_by != Scraping and Scraping.should_submit(existing_item):
+                items_to_submit = [existing_item]
 
     elif existing_item is not None and existing_item.last_state == States.Scraped:
         next_service = Downloader

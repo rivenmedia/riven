@@ -23,17 +23,19 @@ class MediaEntry(FilesystemEntry):
         sqlalchemy.String, nullable=False, index=True
     )
 
-    # Debrid service fields
+    # AIOStreams fields
     download_url: Mapped[Optional[str]] = mapped_column(
         sqlalchemy.String, nullable=True
-    )
+    )  # Direct URL from AIOStreams
     unrestricted_url: Mapped[Optional[str]] = mapped_column(
         sqlalchemy.String, nullable=True
-    )
-    provider: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
+    )  # Kept for backward compatibility (same as download_url for AIOStreams)
+    provider: Mapped[Optional[str]] = mapped_column(
+        sqlalchemy.String, nullable=True
+    )  # Which debrid service AIOStreams used (realdebrid, torbox, etc.)
     provider_download_id: Mapped[Optional[str]] = mapped_column(
         sqlalchemy.String, nullable=True
-    )
+    )  # Infohash for re-scraping reference
 
     # Library Profile References (list of profile keys from settings.json)
     library_profiles: Mapped[Optional[list[str]]] = mapped_column(
@@ -160,13 +162,13 @@ class MediaEntry(FilesystemEntry):
         parsed_data: Optional[dict] = None,
     ) -> "MediaEntry":
         """
-        Create a MediaEntry representing a virtual (RivenVFS) media file.
+        Create a MediaEntry representing a virtual (RivenVFS) media file from AIOStreams.
 
         Parameters:
-            original_filename (str): Original filename from debrid provider (source of truth).
-            download_url (str): Provider-restricted URL used to fetch the file.
-            provider (str): Identifier of the provider that supplies the file.
-            provider_download_id (str): Provider-specific download identifier.
+            original_filename (str): Original filename (source of truth).
+            download_url (str): Direct URL from AIOStreams.
+            provider (str): Which debrid service AIOStreams used (realdebrid, torbox, etc.).
+            provider_download_id (str): Infohash for re-scraping reference.
             file_size (int): Size of the file in bytes; defaults to 0.
             parsed_data (dict, optional): Cached parsed filename data from PTT to avoid re-parsing.
 
@@ -199,10 +201,10 @@ class MediaEntry(FilesystemEntry):
                 "is_directory": true if directory, false otherwise,
                 "created_at": ISO 8601 timestamp or None,
                 "updated_at": ISO 8601 timestamp or None,
-                "download_url": restricted download URL or None,
-                "unrestricted_url": persisted direct URL or None,
-                "provider": provider identifier or None,
-                "provider_download_id": provider download id or None,
+                "download_url": direct URL from AIOStreams or None,
+                "unrestricted_url": same as download_url (kept for backward compatibility) or None,
+                "provider": which debrid service AIOStreams used (realdebrid, torbox, etc.) or None,
+                "provider_download_id": infohash for re-scraping reference or None,
                 "available_in_vfs": true if available in VFS, false otherwise,
                 "media_item_id": associated MediaItem ID or None
             }
