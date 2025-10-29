@@ -1,8 +1,8 @@
 import hashlib
 from abc import ABC, abstractmethod
-from base64 import decode, encode
 from typing import Dict, Tuple
 
+import bencodepy
 from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.utils.request import SmartSession
@@ -75,10 +75,10 @@ class ScraperService(ABC):
     def get_infohash_from_torrent_url(url: str) -> str:
         """Get the infohash from a torrent URL"""
         session = SmartSession()
-        with session.get(url, stream=True) as r:
-            r.raise_for_status()
-            torrent_data = r.content
-            torrent_dict = decode(torrent_data)
-            info = torrent_dict[b"info"]
-            infohash = hashlib.sha1(encode(info)).hexdigest()
+        r = session.get(url)
+        r.raise_for_status()
+        torrent_data = r.content
+        torrent_dict = bencodepy.decode(torrent_data)
+        info = torrent_dict[b"info"]
+        infohash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
         return infohash
