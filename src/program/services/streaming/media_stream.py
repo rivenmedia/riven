@@ -926,34 +926,35 @@ class MediaStream:
 
         for preflight_attempt in range(max_preflight_attempts):
             try:
-                preflight_response = await self.async_client.head(
+                async with self.async_client.stream(
+                    method="GET",
                     url=self.target_url,
                     headers=headers,
                     follow_redirects=True,
-                )
-                preflight_response.raise_for_status()
+                ) as preflight_response:
+                    preflight_response.raise_for_status()
 
-                preflight_status_code = preflight_response.status_code
+                    preflight_status_code = preflight_response.status_code
 
-                if preflight_status_code == HTTPStatus.PARTIAL_CONTENT:
-                    # Preflight passed, proceed to actual request
-                    return
-                elif preflight_status_code == HTTPStatus.OK:
-                    # Server refused range request. Serving this request would return the full media file,
-                    # which eats downloader bandwidth usage unnecessarily. Wait and retry.
-                    logger.warning(
-                        self._build_log_message(
-                            f"Server doesn't support range requests yet."
+                    if preflight_status_code == HTTPStatus.PARTIAL_CONTENT:
+                        # Preflight passed, proceed to actual request
+                        return
+                    elif preflight_status_code == HTTPStatus.OK:
+                        # Server refused range request. Serving this request would return the full media file,
+                        # which eats downloader bandwidth usage unnecessarily. Wait and retry.
+                        logger.warning(
+                            self._build_log_message(
+                                f"Server doesn't support range requests yet."
+                            )
                         )
-                    )
 
-                    if await self._retry_with_backoff(
-                        preflight_attempt, max_preflight_attempts, backoffs
-                    ):
-                        continue
+                        if await self._retry_with_backoff(
+                            preflight_attempt, max_preflight_attempts, backoffs
+                        ):
+                            continue
 
-                    # Unable to get range support after retries
-                    raise pyfuse3.FUSEError(errno.EIO)
+                        # Unable to get range support after retries
+                        raise pyfuse3.FUSEError(errno.EIO)
             except httpx.RemoteProtocolError as e:
                 logger.debug(
                     self._build_log_message(
