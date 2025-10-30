@@ -301,8 +301,7 @@ class MediaStream:
 
     async def main_stream_loop(self, position: int) -> None:
         if self.is_streaming:
-            logger.error(
-                "STREAM",
+            logger.warning(
                 self._build_log_message("Stream loop already running; exiting"),
             )
 
