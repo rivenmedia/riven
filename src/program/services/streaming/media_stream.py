@@ -15,6 +15,7 @@ from time import time
 from src.program.services.streaming.chunk_range import Chunk, ChunkRange
 from src.program.services.streaming.config import Config
 from src.program.services.streaming.exceptions import (
+    ChunksTooSlowException,
     EmptyDataError,
     RawByteLengthMismatchException,
 )
@@ -192,6 +193,24 @@ class MediaStream:
 
         return aligned_footer_size
 
+    @contextmanager
+    def stream_lifecycle(self) -> Generator[None]:
+        """Context manager for managing stream lifecycle."""
+
+        try:
+            self.is_streaming = True
+
+            logger.log(
+                "STREAM",
+                self._build_log_message("Starting stream loop"),
+            )
+
+            yield
+        finally:
+            self.is_streaming = False
+
+            logger.log("STREAM", self._build_log_message("Stream loop ended"))
+
     @asynccontextmanager
     async def manage_connection(
         self, *, position: int
@@ -263,294 +282,6 @@ class MediaStream:
             yield target_position
         finally:
             pass
-
-    async def connect(self, position: int) -> StreamConnection:
-        """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
-
-        async with self.connect_lock:
-            if self.connection:
-                return self.connection
-
-            chunk_aligned_start = self._get_chunk_range(position).first_chunk.start
-
-            response = await self._prepare_response(start=chunk_aligned_start)
-
-            self.connection = StreamConnection(
-                bytes_per_second=self.bytes_per_second,
-                response=response,
-                start_position=chunk_aligned_start,
-                current_read_position=chunk_aligned_start,
-                reader=response.aiter_bytes(chunk_size=self.chunk_size),
-            )
-
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"{response.http_version} stream connection established "
-                    f"from byte {chunk_aligned_start} / {self.file_metadata['file_size']}."
-                ),
-            )
-
-            return self.connection
-
-    async def scan_header(self, read_position: int, size: int) -> bytes:
-        """Scans the start of the media file for header data."""
-
-        data = await self._fetch_discrete_byte_range(
-            start=0,
-            size=self.config.header_size,
-        )
-
-        return data[read_position : read_position + size]
-
-    async def scan_footer(self, read_position: int, size: int) -> bytes:
-        """
-        Scans the end of the media file for footer data.
-
-        This "over-fetches" for the individual request,
-        but multiple footer requests tend to be made to retrieve more data later,
-        so this is more efficient than making multiple small requests.
-        """
-
-        file_size = self.file_metadata["file_size"]
-        footer_start = file_size - self.footer_size
-
-        data = await self._fetch_discrete_byte_range(
-            start=footer_start,
-            size=file_size - footer_start,
-        )
-
-        slice_offset = read_position - footer_start
-
-        return data[slice_offset : slice_offset + size]
-
-    async def scan(self, read_position: int, size: int) -> bytes:
-        """Fetch extra, ephemeral data for scanning purposes."""
-
-        data = await self._fetch_discrete_byte_range(
-            start=read_position,
-            size=size,
-            should_cache=False,
-        )
-
-        return data[:size]
-
-    async def read(
-        self,
-        *,
-        request_start: int,
-        request_end: int,
-        request_size: int,
-    ) -> bytes:
-        """Handles incoming read requests from the VFS."""
-
-        read_range = self._get_chunk_range(
-            position=request_start,
-            size=request_size,
-        )
-
-        async with self.read_lifecycle(chunk_range=read_range) as read_type:
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"Performing {read_type} for [{request_start}-{request_end}]"
-                ),
-            )
-
-            match read_type:
-                case "cache_hit":
-                    return await self._read_cache(
-                        start=request_start,
-                        end=request_end,
-                    )
-                case "header_scan":
-                    return await self.scan_header(
-                        read_position=request_start,
-                        size=request_size,
-                    )
-                case "footer_scan":
-                    return await self.scan_footer(
-                        read_position=request_start,
-                        size=request_size,
-                    )
-                case "general_scan":
-                    return await self.scan(
-                        read_position=request_start,
-                        size=request_size,
-                    )
-                case "body_read" | "seek":
-                    # Start the main stream loop if not already running
-                    if not self.is_streaming:
-                        trio.lowlevel.spawn_system_task(
-                            self.main_stream_loop,
-                            max(self.config.header_size, request_start),
-                        )
-
-                    return await self.read_bytes(chunk_range=read_range)
-                case "footer_read":
-                    raise RuntimeError(
-                        "Tried to read footer but should have been cached"
-                    )
-                case _:
-                    # This should never happen due to prior validation
-                    raise RuntimeError("Unknown read type")
-
-    @asynccontextmanager
-    async def read_lifecycle(self, chunk_range: ChunkRange) -> AsyncIterator[ReadType]:
-        """Context manager for managing read lifecycle."""
-
-        try:
-            request_start, request_end = chunk_range.request_range
-            request_size = chunk_range.size
-
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    "Read request: "
-                    f"request_start={request_start} "
-                    f"request_end={request_end} "
-                    f"size={request_size}"
-                ),
-            )
-
-            self.recent_reads.current_read = chunk_range
-
-            read_type = await self._detect_read_type(
-                chunk_range=chunk_range,
-            )
-
-            if read_type == "seek" and self.connection:
-                self.connection.seek_to = request_start
-
-            yield read_type
-        finally:
-            self.recent_reads.previous_read = chunk_range
-
-            try:
-                current_read_position = (
-                    self.connection.current_read_position if self.connection else None
-                )
-            except AttributeError:
-                current_read_position = None
-
-            try:
-                sequential_chunk_fetches = (
-                    self.connection.sequential_chunks_fetched
-                    if self.connection
-                    else None
-                )
-            except AttributeError:
-                sequential_chunk_fetches = None
-
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"sequential_chunk_fetches={sequential_chunk_fetches} "
-                    f"current_read_position={current_read_position} "
-                    f"last_read_end={self.recent_reads.last_read_end} "
-                ),
-            )
-
-    @contextmanager
-    def stream_lifecycle(self) -> Generator[None]:
-        """Context manager for managing stream lifecycle."""
-
-        try:
-            self.is_streaming = True
-
-            logger.log(
-                "STREAM",
-                self._build_log_message("Starting stream loop"),
-            )
-
-            yield
-        finally:
-            self.is_streaming = False
-
-            logger.log("STREAM", self._build_log_message("Stream loop ended"))
-
-    async def read_bytes(
-        self,
-        chunk_range: ChunkRange,
-    ) -> bytes:
-        """Read a specific number of bytes from the stream."""
-
-        start, end = chunk_range.request_range
-
-        await self._wait_until_chunks_ready(chunk_range=chunk_range)
-
-        cached_data = await self._read_cache(
-            start=start,
-            end=end,
-        )
-
-        if cached_data:
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"Found chunk {start}-{end} ({len(cached_data)} bytes) from cache."
-                ),
-            )
-
-            return cached_data
-
-        raise httpx.StreamError(
-            "Failed to read requested bytes from cache after waiting."
-        )
-
-    async def kill(self) -> None:
-        """Immediately terminate the active stream."""
-
-        if not self.connection:
-            return
-
-        if self.is_streaming:
-            # Wait for the stream loop to close before closing the connection
-            with trio.fail_after(5):
-                self.connection.is_active = False
-                self.connection.should_close = True
-
-                while self.is_streaming:
-                    await trio.sleep(0.1)
-
-        await self.close()
-
-    async def close(self) -> None:
-        """Close the active stream."""
-
-        if not self.connection:
-            return
-
-        await self.connection.close()
-
-        self.connection = None
-
-        logger.log(
-            "STREAM",
-            self._build_log_message(
-                f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
-                f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
-                f"in {self.session_statistics.total_session_connections} connections."
-            ),
-        )
-
-    @contextmanager
-    def benchmark(self) -> Iterator[None]:
-        """Context manager for benchmarking code execution time."""
-
-        try:
-            start_time = time()
-
-            yield
-        finally:
-            end_time = time()
-
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"Benchmarking took {end_time - start_time:.3f}s"
-                ),
-            )
 
     async def main_stream_loop(self, position: int) -> None:
         if self.is_streaming:
@@ -742,6 +473,258 @@ class MediaStream:
 
                 # Force cancel any cache operations in progress
                 nursery.cancel_scope.cancel()
+
+    async def connect(self, position: int) -> StreamConnection:
+        """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
+
+        async with self.connect_lock:
+            if self.connection:
+                return self.connection
+
+            chunk_aligned_start = self._get_chunk_range(position).first_chunk.start
+
+            response = await self._prepare_response(start=chunk_aligned_start)
+
+            self.connection = StreamConnection(
+                bytes_per_second=self.bytes_per_second,
+                response=response,
+                start_position=chunk_aligned_start,
+                current_read_position=chunk_aligned_start,
+                reader=response.aiter_bytes(chunk_size=self.chunk_size),
+            )
+
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"{response.http_version} stream connection established "
+                    f"from byte {chunk_aligned_start} / {self.file_metadata['file_size']}."
+                ),
+            )
+
+            return self.connection
+
+    async def close(self) -> None:
+        """Close the active stream."""
+
+        if not self.connection:
+            return
+
+        await self.connection.close()
+
+        self.connection = None
+
+        logger.log(
+            "STREAM",
+            self._build_log_message(
+                f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
+                f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
+                f"in {self.session_statistics.total_session_connections} connections."
+            ),
+        )
+
+    async def kill(self) -> None:
+        """Immediately terminate the active stream."""
+
+        if not self.connection:
+            return
+
+        if self.is_streaming:
+            # Wait for the stream loop to close before closing the connection
+            with trio.fail_after(5):
+                self.connection.is_active = False
+                self.connection.should_close = True
+
+                while self.is_streaming:
+                    await trio.sleep(0.1)
+
+        await self.close()
+
+    async def scan(self, read_position: int, size: int) -> bytes:
+        """Fetch extra, ephemeral data for scanning purposes."""
+
+        data = await self._fetch_discrete_byte_range(
+            start=read_position,
+            size=size,
+            should_cache=False,
+        )
+
+        return data[:size]
+
+    async def scan_header(self, read_position: int, size: int) -> bytes:
+        """Scans the start of the media file for header data."""
+
+        data = await self._fetch_discrete_byte_range(
+            start=0,
+            size=self.config.header_size,
+        )
+
+        return data[read_position : read_position + size]
+
+    async def scan_footer(self, read_position: int, size: int) -> bytes:
+        """
+        Scans the end of the media file for footer data.
+
+        This "over-fetches" for the individual request,
+        but multiple footer requests tend to be made to retrieve more data later,
+        so this is more efficient than making multiple small requests.
+        """
+
+        file_size = self.file_metadata["file_size"]
+        footer_start = file_size - self.footer_size
+
+        data = await self._fetch_discrete_byte_range(
+            start=footer_start,
+            size=file_size - footer_start,
+        )
+
+        slice_offset = read_position - footer_start
+
+        return data[slice_offset : slice_offset + size]
+
+    @asynccontextmanager
+    async def read_lifecycle(self, chunk_range: ChunkRange) -> AsyncIterator[ReadType]:
+        """Context manager for managing read lifecycle."""
+
+        try:
+            request_start, request_end = chunk_range.request_range
+            request_size = chunk_range.size
+
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    "Read request: "
+                    f"request_start={request_start} "
+                    f"request_end={request_end} "
+                    f"size={request_size}"
+                ),
+            )
+
+            self.recent_reads.current_read = chunk_range
+
+            read_type = await self._detect_read_type(
+                chunk_range=chunk_range,
+            )
+
+            if read_type == "seek" and self.connection:
+                self.connection.seek_to = request_start
+
+            yield read_type
+        finally:
+            self.recent_reads.previous_read = chunk_range
+
+            try:
+                current_read_position = (
+                    self.connection.current_read_position if self.connection else None
+                )
+            except AttributeError:
+                current_read_position = None
+
+            try:
+                sequential_chunk_fetches = (
+                    self.connection.sequential_chunks_fetched
+                    if self.connection
+                    else None
+                )
+            except AttributeError:
+                sequential_chunk_fetches = None
+
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"sequential_chunk_fetches={sequential_chunk_fetches} "
+                    f"current_read_position={current_read_position} "
+                    f"last_read_end={self.recent_reads.last_read_end} "
+                ),
+            )
+
+    async def read(
+        self,
+        *,
+        request_start: int,
+        request_end: int,
+        request_size: int,
+    ) -> bytes:
+        """Handles incoming read requests from the VFS."""
+
+        read_range = self._get_chunk_range(
+            position=request_start,
+            size=request_size,
+        )
+
+        async with self.read_lifecycle(chunk_range=read_range) as read_type:
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"Performing {read_type} for [{request_start}-{request_end}]"
+                ),
+            )
+
+            match read_type:
+                case "cache_hit":
+                    return await self._read_cache(
+                        start=request_start,
+                        end=request_end,
+                    )
+                case "header_scan":
+                    return await self.scan_header(
+                        read_position=request_start,
+                        size=request_size,
+                    )
+                case "footer_scan":
+                    return await self.scan_footer(
+                        read_position=request_start,
+                        size=request_size,
+                    )
+                case "general_scan":
+                    return await self.scan(
+                        read_position=request_start,
+                        size=request_size,
+                    )
+                case "body_read" | "seek":
+                    # Start the main stream loop if not already running
+                    if not self.is_streaming:
+                        trio.lowlevel.spawn_system_task(
+                            self.main_stream_loop,
+                            max(self.config.header_size, request_start),
+                        )
+
+                    return await self.read_bytes(chunk_range=read_range)
+                case "footer_read":
+                    raise RuntimeError(
+                        "Tried to read footer but should have been cached"
+                    )
+                case _:
+                    # This should never happen due to prior validation
+                    raise RuntimeError("Unknown read type")
+
+    async def read_bytes(
+        self,
+        chunk_range: ChunkRange,
+    ) -> bytes:
+        """Read a specific number of bytes from the stream."""
+
+        start, end = chunk_range.request_range
+
+        await self._wait_until_chunks_ready(chunk_range=chunk_range)
+
+        cached_data = await self._read_cache(
+            start=start,
+            end=end,
+        )
+
+        if cached_data:
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"Found chunk {start}-{end} ({len(cached_data)} bytes) from cache."
+                ),
+            )
+
+            return cached_data
+
+        raise httpx.StreamError(
+            "Failed to read requested bytes from cache after waiting."
+        )
 
     async def _detect_read_type(
         self,
@@ -1231,30 +1214,36 @@ class MediaStream:
         start, end = chunk_range.request_range
         chunks = chunk_range.chunks
 
-        with trio.fail_after(self.config.chunk_wait_timeout_seconds):
-            while True:
-                uncached_chunks = await trio.to_thread.run_sync(
-                    lambda: self._get_uncached_chunks(chunks=chunks)
-                )
+        try:
+            with trio.fail_after(self.config.chunk_wait_timeout_seconds):
+                while True:
+                    uncached_chunks = await trio.to_thread.run_sync(
+                        lambda: self._get_uncached_chunks(chunks=chunks)
+                    )
 
-                if len(uncached_chunks) == 0:
+                    if len(uncached_chunks) == 0:
+                        logger.log(
+                            "STREAM",
+                            self._build_log_message(
+                                f"Found cache, attempting to read {start}-{end}"
+                            ),
+                        )
+
+                        break
+
                     logger.log(
                         "STREAM",
                         self._build_log_message(
-                            f"Found cache, attempting to read {start}-{end}"
+                            f"Waiting for chunks {uncached_chunks} to be cached for read {start}-{end}..."
                         ),
                     )
 
-                    break
-
-                logger.log(
-                    "STREAM",
-                    self._build_log_message(
-                        f"Waiting for chunks {uncached_chunks} to be cached for read {start}-{end}..."
-                    ),
-                )
-
-                await trio.sleep(0.1)
+                    await trio.sleep(0.1)
+        except trio.TooSlowError:
+            raise ChunksTooSlowException(
+                threshold=self.config.chunk_wait_timeout_seconds,
+                chunk_range=chunk_range,
+            )
 
     def _get_uncached_chunks(self, *, chunks: list[Chunk]) -> set[Chunk]:
         """Check the cache for the given chunks and return the ones that are not cached."""
@@ -1290,9 +1279,9 @@ class MediaStream:
 
     async def _cache_chunk(self, start: int, data: bytes) -> None:
         await self.vfs.cache.put(
-            self.file_metadata["original_filename"],
-            start,
-            data,
+            cache_key=self.file_metadata["original_filename"],
+            start=start,
+            data=data,
         )
 
     def _refresh_download_url(self) -> bool:
@@ -1373,6 +1362,24 @@ class MediaStream:
             )
 
         return data
+
+    @contextmanager
+    def benchmark(self) -> Iterator[None]:
+        """Context manager for benchmarking code execution time."""
+
+        try:
+            start_time = time()
+
+            yield
+        finally:
+            end_time = time()
+
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"Benchmarking took {end_time - start_time:.3f}s"
+                ),
+            )
 
     def _build_log_message(self, message: str) -> str:
         return f"{message} [fh: {self.fh} file={self.file_metadata['path'].split('/')[-1]}]"
