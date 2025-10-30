@@ -142,6 +142,12 @@ class Program(threading.Thread):
 
         This method prepares runtime state and external integrations by registering settings observers, creating the data directory and default settings if missing, initializing APIs and services after database migrations, computing and logging item counts (including filesystem-backed items), configuring executors and the background scheduler, scheduling periodic service and maintenance tasks, starting the thread and scheduler, and marking the program as initialized.
         """
+        if self.is_alive():
+            logger.warning(
+                "Program.start() called but thread is already running; ignoring"
+            )
+            return
+
         latest_version = get_version()
         logger.log("PROGRAM", f"Riven v{latest_version} starting!")
 
@@ -216,6 +222,7 @@ class Program(threading.Thread):
         super().start()
         logger.success("Riven is running!")
         self.initialized = True
+        self.running = True
 
     def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
         import psutil
@@ -291,17 +298,55 @@ class Program(threading.Thread):
                     self.em.submit_job(next_service, self, event)
 
     def stop(self):
-        if not self.initialized:
+        """Stop program thread and services gracefully."""
+        if not self.initialized and not self.is_alive():
             return
 
+        # Signal run() loop to exit and stop scheduler
+        self.initialized = False
+        if hasattr(self, "scheduler_manager"):
+            try:
+                self.scheduler_manager.stop()
+            except Exception:
+                logger.exception("Error stopping scheduler")
+
+        # Wait briefly for the thread to exit if it's running
+        if self.is_alive():
+            try:
+                self.join(timeout=5)
+            except Exception:
+                logger.exception("Error joining program thread")
+
+        # shutdown executors
         if hasattr(self, "executors"):
             for executor in self.executors:
                 if not executor["_executor"]._shutdown:
                     executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler_manager"):
-            self.scheduler_manager.stop()
 
-        self.services[FilesystemService].close()
+        # shutdown schedulers
+        if hasattr(self, "scheduler_manager"):
+            try:
+                self.scheduler_manager.stop()
+            except Exception:
+                logger.exception("Error stopping scheduler")
+
+        # Close filesystem service last
+        try:
+            self.services[FilesystemService].close()
+        except Exception:
+            logger.exception("Error closing FilesystemService")
+
+        # Unregister any settings observers bound to this Program instance
+        try:
+            settings_manager.observers = [
+                obs
+                for obs in settings_manager.observers
+                if getattr(obs, "__self__", None) is not self
+            ]
+        except Exception:
+            logger.debug("Failed to unregister settings observers; continuing")
+
+        self.running = False
         logger.log("PROGRAM", "Riven has been stopped.")
 
 
