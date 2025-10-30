@@ -257,14 +257,14 @@ class MediaStream:
         self,
         *,
         connection: StreamConnection,
-    ) -> AsyncIterator[int]:
+    ) -> AsyncIterator[int | None]:
         """Context manager to handle a stream's target position."""
 
         try:
             while True:
                 if not connection.is_active:
-                    target_position = 0
-                    break
+                    yield None
+                    return
 
                 target_position = connection.calculate_target_position(
                     recent_reads=self.recent_reads
@@ -302,7 +302,7 @@ class MediaStream:
                             async with self.manage_target_position(
                                 connection=connection
                             ) as target_position:
-                                if not target_position:
+                                if target_position is None:
                                     break
 
                                 start_read_position = connection.current_read_position
@@ -466,7 +466,8 @@ class MediaStream:
                         continue
 
                     # Set the new position to try to reconnect from
-                    position = connection.current_read_position
+                    if connection.current_read_position is not None:
+                        position = connection.current_read_position
 
                 # Force cancel any cache operations in progress
                 nursery.cancel_scope.cancel()
