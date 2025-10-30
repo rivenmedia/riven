@@ -12,7 +12,7 @@ from kink import di
 from collections.abc import AsyncIterator, Generator, Iterator
 from time import time
 
-from src.program.services.streaming.chunk_range import Chunk, ChunkRange
+from src.program.services.streaming.chunker import Chunk, ChunkRange, Chunker
 from src.program.services.streaming.config import Config
 from src.program.services.streaming.exceptions import (
     ChunksTooSlowException,
@@ -90,6 +90,13 @@ class MediaStream:
             file_size=file_size,
             path=path,
             original_filename=original_filename,
+        )
+
+        self.chunker = Chunker(
+            chunk_size=self.chunk_size,
+            header_size=self.config.header_size,
+            footer_size=self.footer_size,
+            file_size=file_size,
         )
 
         logger.log(
@@ -346,7 +353,7 @@ class MediaStream:
                                     #
                                     # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
                                     while True:
-                                        test_chunk = self._get_chunk_range(
+                                        test_chunk = self.chunker.get_chunk_range(
                                             position=connection.current_read_position
                                             + (chunks_to_skip * self.chunk_size)
                                         )
@@ -481,7 +488,7 @@ class MediaStream:
 
             chunk_aligned_start = max(
                 self.config.header_size,
-                self._get_chunk_range(position).first_chunk.start,
+                self.chunker.get_chunk_range(position=position).first_chunk.start,
             )
 
             response = await self._prepare_response(start=chunk_aligned_start)
@@ -647,7 +654,7 @@ class MediaStream:
     ) -> bytes:
         """Handles incoming read requests from the VFS."""
 
-        read_range = self._get_chunk_range(
+        read_range = self.chunker.get_chunk_range(
             position=request_start,
             size=request_size,
         )
@@ -788,7 +795,7 @@ class MediaStream:
             and self.connection.current_read_position
             and self.config.header_size < start < self.connection.start_position
         ):
-            request_chunk_range = self._get_chunk_range(position=start)
+            request_chunk_range = self.chunker.get_chunk_range(position=start)
 
             logger.log(
                 "STREAM",
@@ -807,14 +814,15 @@ class MediaStream:
         # Check if requested start is after current read position,
         # and if it exceeds the seek tolerance, move the stream to the new start.
         if self.connection and start > self.connection.current_read_position:
-            request_chunk_range = self._get_chunk_range(position=start)
+            request_chunk_range = self.chunker.get_chunk_range(position=start)
 
-            read_position_chunk_range = self._get_chunk_range(
+            read_position_chunk_range = self.chunker.get_chunk_range(
                 position=self.connection.current_read_position
             )
 
-            chunk_difference = read_position_chunk_range.calculate_chunk_difference(
-                request_chunk_range
+            chunk_difference = self.chunker.calculate_chunk_difference(
+                left=request_chunk_range,
+                right=read_position_chunk_range,
             )
 
             if chunk_difference >= self.config.seek_chunk_tolerance:
@@ -1189,22 +1197,6 @@ class MediaStream:
                 raise pyfuse3.FUSEError(errno.EIO) from None
 
         raise pyfuse3.FUSEError(errno.EIO)
-
-    def _get_chunk_range(
-        self,
-        position: int,
-        size: int = 1,
-    ) -> ChunkRange:
-        """Get the range of bytes required to fulfil a read at the given position and for the given size, aligned to chunk boundaries."""
-
-        return ChunkRange(
-            position=position,
-            chunk_size=self.chunk_size,
-            header_size=self.config.header_size,
-            footer_size=self.footer_size,
-            file_size=self.file_metadata["file_size"],
-            size=size,
-        )
 
     async def _wait_until_chunks_ready(
         self,

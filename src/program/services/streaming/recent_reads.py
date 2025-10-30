@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from src.program.services.streaming.chunk_range import ChunkRange
+from src.program.services.streaming.chunker import ChunkRange
 
 
 @dataclass
