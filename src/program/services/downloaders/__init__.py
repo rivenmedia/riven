@@ -22,6 +22,7 @@ from program.utils.request import CircuitBreakerOpen
 
 from .realdebrid import RealDebridDownloader
 from .torbox import TorBoxDownloader
+from .debridlink import DebridLinkDownloader
 
 
 class Downloader:
@@ -31,6 +32,7 @@ class Downloader:
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             TorBoxDownloader: TorBoxDownloader(),
+            DebridLinkDownloader: DebridLinkDownloader(),
         }
         # Get all initialized services instead of just the first one
         self.initialized_services = [
