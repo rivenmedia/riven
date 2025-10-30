@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
@@ -25,6 +24,7 @@ from program.services.indexers import IndexerService
 from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
+from program.utils.torrent import extract_infohash
 from ..models.shared import MessageResponse
 
 
@@ -313,12 +313,7 @@ async def start_manual_session(
 ) -> StartSessionResponse:
     session_manager.cleanup_expired(background_tasks)
 
-    def get_info_hash(magnet: str) -> str:
-        pattern = r"[A-Fa-f0-9]{40}"
-        match = re.search(pattern, magnet)
-        return match.group(0) if match else None
-
-    info_hash = get_info_hash(magnet)
+    info_hash = extract_infohash(magnet)
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 

@@ -5,7 +5,6 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict
 
-import regex
 from loguru import logger
 from pydantic import BaseModel
 from requests import ReadTimeout, RequestException
@@ -14,6 +13,7 @@ from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
+from program.utils.torrent import extract_infohash, normalize_infohash
 
 
 class SearchParams(BaseModel):
@@ -43,7 +43,6 @@ class Indexer(BaseModel):
 
 
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
-INFOHASH_PATTERN = regex.compile(r"btih:([A-Fa-f0-9]{40})")
 
 
 class Prowlarr(ScraperService):
@@ -366,29 +365,28 @@ class Prowlarr(ScraperService):
 
         for torrent in data:
             title = torrent.title
-            infohash = torrent.infoHash if hasattr(torrent, "infoHash") else None
-            guid = torrent.guid if hasattr(torrent, "guid") else None
+            infohash = None
 
-            if not infohash and not guid:
+            # Priority 1: Use infoHash field directly if available (normalize to handle base32)
+            if hasattr(torrent, "infoHash") and torrent.infoHash:
+                infohash = normalize_infohash(torrent.infoHash)
+
+            # Priority 2: Try to extract from guid (handles magnets and bare hashes)
+            if not infohash and hasattr(torrent, "guid") and torrent.guid:
+                infohash = extract_infohash(torrent.guid)
+
+            # Priority 3: Try downloadUrl as last resort
+            if not infohash and hasattr(torrent, "downloadUrl") and torrent.downloadUrl:
+                try:
+                    infohash = self.get_infohash_from_url(torrent.downloadUrl)
+                except Exception as e:
+                    logger.debug(f"Failed to get infohash from downloadUrl for {title}: {e}")
+
+            # Skip if we couldn't get an infohash
+            if not infohash:
                 continue
 
-            if not infohash and guid and not guid.endswith(".torrent"):
-                infohash = INFOHASH_PATTERN.search(guid)
-                if infohash:
-                    infohash = infohash.group(1).lower()
-                else:
-                    continue
-
-            if not infohash and guid and guid.endswith(".torrent"):
-                try:
-                    infohash = self.get_infohash_from_torrent_url(url=guid)
-                    if not infohash or len(infohash) != 40:
-                        continue
-                    infohash = infohash.lower()
-                except Exception:
-                    continue
-
-            streams[infohash.lower()] = title
+            streams[infohash] = title
 
         logger.debug(
             f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds"
