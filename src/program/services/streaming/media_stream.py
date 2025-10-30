@@ -618,6 +618,7 @@ class MediaStream:
                         size=request_size,
                     )
                 case "body_read" | "seek":
+                    # Start the main stream loop if not already running
                     if not self.is_streaming:
                         trio.lowlevel.spawn_system_task(
                             self.main_stream_loop,
@@ -928,7 +929,8 @@ class MediaStream:
                                     self._build_log_message(
                                         f"Stream fetched {start_read_position}-{connection.current_read_position} "
                                         f"({connection.current_read_position - start_read_position} bytes) "
-                                        f"in {iteration_duration:.3f}s"
+                                        f"in {iteration_duration:.3f}s. "
+                                        f"There are roughly {connection.calculate_num_seconds_behind(recent_reads=self.recent_reads)} seconds of buffer room available."
                                     ),
                                 )
 
@@ -937,6 +939,7 @@ class MediaStream:
                     if connection.should_close:
                         break
 
+                    # If cached chunks were found, skip ahead in the stream.
                     if chunks_to_skip > 0:
                         target_read_position = connection.current_read_position + (
                             chunks_to_skip * self.chunk_size
@@ -952,6 +955,7 @@ class MediaStream:
                                 ),
                             )
 
+                            # Update position to skip cached chunks
                             position = target_read_position
 
                             continue
@@ -963,13 +967,16 @@ class MediaStream:
                                 ),
                             )
 
+                            # Break out of the loop to let the context manager close the connection
                             break
 
+                    # If a seek was requested, update the position accordingly
                     if connection.seek_to is not None:
                         position = connection.seek_to
 
                         continue
 
+                    # Set the new position to try to reconnect from
                     position = connection.current_read_position
 
                 # Force cancel any cache operations in progress
