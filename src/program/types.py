@@ -12,7 +12,6 @@ from program.services.content import (
 )
 from program.services.downloaders import (
     RealDebridDownloader,
-    TorBoxDownloader,
 )
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
@@ -21,10 +20,7 @@ from program.services.filesystem import FilesystemService
 # Typehint classes
 Scraper = Union[Scraping]
 Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
-Downloader = Union[
-    RealDebridDownloader,
-    TorBoxDownloader,
-]
+Downloader = Union[RealDebridDownloader,]
 
 Service = Union[Content, Scraper, Downloader, FilesystemService, Updater]
 MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]

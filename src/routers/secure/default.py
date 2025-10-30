@@ -34,7 +34,7 @@ async def health(request: Request) -> MessageResponse:
 class DownloaderUserInfo(BaseModel):
     """Normalized downloader user information response"""
 
-    service: Literal["realdebrid", "torbox", "alldebrid", "debridlink"]
+    service: Literal["realdebrid", "alldebrid", "debridlink"]
     username: Optional[str] = None
     email: Optional[str] = None
     user_id: int | str
@@ -58,7 +58,7 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
     Get normalized user information from all initialized downloader services.
 
     Returns user info including premium status, expiration, and service-specific details
-    for all active downloader services (Real-Debrid, TorBox, AllDebrid, etc.)
+    for all active downloader services (Real-Debrid, Debrid-Link, AllDebrid, etc.)
     """
     try:
         # Get the downloader service from the program

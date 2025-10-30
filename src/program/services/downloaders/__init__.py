@@ -21,7 +21,6 @@ from program.services.downloaders.shared import _sort_streams_by_quality, parse_
 from program.utils.request import CircuitBreakerOpen
 
 from .realdebrid import RealDebridDownloader
-from .torbox import TorBoxDownloader
 from .debridlink import DebridLinkDownloader
 
 
@@ -31,7 +30,6 @@ class Downloader:
         self.initialized = False
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
-            TorBoxDownloader: TorBoxDownloader(),
             DebridLinkDownloader: DebridLinkDownloader(),
         }
         # Get all initialized services instead of just the first one
@@ -436,7 +434,7 @@ class Downloader:
         """
         Prepare and return a DownloadedTorrent for a stream using the given service.
 
-        Uses values already present on `container` when available (e.g., `torrent_id`, `torrent_info`); otherwise adds the torrent and/or fetches its info from the service. For services with key "torbox" it populates each container file's `download_url`. If `container.file_ids` is set the service will be asked to select those files.
+        Uses values already present on `container` when available (e.g., `torrent_id`, `torrent_info`); otherwise adds the torrent and/or fetches its info from the service.
 
         Returns:
             DownloadedTorrent: An object containing the torrent id, torrent info, the stream's infohash, and the (possibly updated) container.
@@ -447,13 +445,6 @@ class Downloader:
             logger.debug(
                 f"Reusing torrent_id {torrent_id} from validation for {stream.infohash}"
             )
-        else:
-            # Fallback: add torrent if not cached (e.g., TorBox or old flow)
-            torrent_id: int = service.add_torrent(stream.infohash)
-
-        if service.key == "torbox":
-            for file in container.files:
-                file.download_url = service.get_download_url(torrent_id, file.file_id)
 
         # Check if we already have torrent_info from validation (Real-Debrid optimization)
         if container.torrent_info:

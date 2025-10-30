@@ -71,11 +71,6 @@ class RealDebridModel(Observable):
     api_key: str = Field(default="", description="Real-Debrid API key")
 
 
-class TorBoxModel(Observable):
-    enabled: bool = Field(default=False, description="Enable TorBox")
-    api_key: str = Field(default="", description="TorBox API key")
-
-
 class DebridLinkModel(Observable):
     enabled: bool = Field(default=False, description="Enable Debrid-Link")
     api_key: str = Field(default="", description="Debrid-Link API key")
@@ -108,10 +103,6 @@ class DownloadersModel(Observable):
     real_debrid: RealDebridModel = Field(
         default_factory=lambda: RealDebridModel(),
         description="Real-Debrid downloader configuration",
-    )
-    torbox: TorBoxModel = Field(
-        default_factory=lambda: TorBoxModel(),
-        description="TorBox downloader configuration",
     )
     debrid_link: DebridLinkModel = Field(
         default_factory=lambda: DebridLinkModel(),
