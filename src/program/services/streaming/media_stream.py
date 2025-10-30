@@ -240,12 +240,22 @@ class MediaStream:
                 )
             )
         except* httpx.ReadTimeout as e:
-            logger.exception(self._build_log_message(f"Stream operation timed out"))
+            logger.exception(
+                self._build_log_message(f"Stream operation timed out whilst reading")
+            )
 
             if self.connection:
                 logger.debug(f"response details: {self.connection.response}")
 
             pass
+        except* httpx.PoolTimeout as e:
+            logger.exception(
+                self._build_log_message(
+                    f"Stream operation timed out whilst acquiring a connection"
+                )
+            )
+
+            raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e.exceptions[0]
         except* trio.TooSlowError as e:
             logger.exception(self._build_log_message(f"Stream operation too slow"))
         except* Exception as e:
@@ -282,6 +292,8 @@ class MediaStream:
                     continue
 
                 break
+
+            logger.debug(f"target_position: {target_position}")
 
             yield target_position
         finally:
