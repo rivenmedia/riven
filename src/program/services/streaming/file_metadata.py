@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 
-@dataclass
+@dataclass(frozen=True)
 class FileMetadata(TypedDict):
     """Metadata about the file being streamed."""
 
