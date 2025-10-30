@@ -284,11 +284,6 @@ class FilesystemModel(Observable):
     cache_metrics: bool = Field(
         default=True, description="Enable cache metrics logging"
     )
-    block_size: int = Field(
-        default=128 * 1024,
-        ge=0,
-        description="Kernel block size for reading/writing files (128 KiB default)",
-    )
 
     @field_validator("library_profiles")
     def validate_library_profiles(cls, v):

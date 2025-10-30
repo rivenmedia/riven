@@ -1204,7 +1204,7 @@ class RivenVFS(pyfuse3.Operations):
             attrs.st_uid = os.getuid() if hasattr(os, "getuid") else 0
             attrs.st_gid = os.getgid() if hasattr(os, "getgid") else 0
             # Hint larger block size to kernel
-            attrs.st_blksize = self.fs.block_size
+            attrs.st_blksize = 128 * 1024
             attrs.st_blocks = 1
 
             import stat

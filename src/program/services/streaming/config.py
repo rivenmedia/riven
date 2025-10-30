@@ -14,9 +14,6 @@ class Config:
     # Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan.
     scan_tolerance_blocks: int
 
-    # Kernel block size; the byte length the OS reads/writes at a time.
-    block_size: int
-
     # Maximum chunk size for adaptive chunk sizing.
     max_chunk_size: int
 
@@ -34,6 +31,12 @@ class Config:
 
     # Timeout for waiting for a chunk to become available.
     chunk_wait_timeout_seconds: int = 10
+
+    @property
+    def block_size(self) -> int:
+        """Kernel block size; the byte length the OS reads/writes at a time."""
+
+        return 128 * 1024
 
     @property
     def header_size(self) -> int:

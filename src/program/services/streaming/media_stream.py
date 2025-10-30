@@ -73,7 +73,6 @@ class MediaStream:
         self.is_streaming: bool = False
 
         self.config = Config(
-            block_size=fs.block_size,
             max_chunk_size=1 * 1024 * 1024,  # 1 MiB
             min_chunk_size=256 * 1024,  # 256 kB
             sequential_read_tolerance_blocks=10,
@@ -96,8 +95,7 @@ class MediaStream:
         logger.log(
             "STREAM",
             self._build_log_message(
-                f"Initialized stream with chunk size {self.chunk_size / (1024 * 1024):.2f} MB "
-                f"[{self.chunk_size // self.config.block_size} blocks]. "
+                f"Initialized stream with chunk size {self.chunk_size / (1024 * 1024):.2f} MB. "
                 f"bitrate={self.file_metadata['bitrate']}, "
                 f"duration={self.file_metadata['duration']}, "
                 f"file_size={self.file_metadata['file_size']} bytes",
@@ -170,8 +168,7 @@ class MediaStream:
         block_size = self.config.block_size
         aligned_chunk_size = -(clamped_chunk_size // -block_size) * block_size
 
-        # Adjust chunk size to scale based on the block size.
-        return aligned_chunk_size * (block_size // (1024 * 128))
+        return aligned_chunk_size
 
     @cached_property
     def footer_size(self) -> int:
@@ -481,7 +478,10 @@ class MediaStream:
             if self.connection:
                 return self.connection
 
-            chunk_aligned_start = self._get_chunk_range(position).first_chunk.start
+            chunk_aligned_start = max(
+                self.config.header_size,
+                self._get_chunk_range(position).first_chunk.start,
+            )
 
             response = await self._prepare_response(start=chunk_aligned_start)
 
