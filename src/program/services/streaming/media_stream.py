@@ -3,270 +3,29 @@ import pyfuse3
 import errno
 import httpx
 
-from dataclasses import dataclass
 from functools import cached_property
 from contextlib import asynccontextmanager, contextmanager
 from loguru import logger
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal
 from http import HTTPStatus
 from kink import di
 from collections.abc import AsyncIterator, Generator, Iterator
 from time import time
 
 from src.program.services.streaming.chunk_range import Chunk, ChunkRange
+from src.program.services.streaming.config import Config
 from src.program.services.streaming.exceptions import (
     EmptyDataError,
     RawByteLengthMismatchException,
 )
 from program.settings.manager import settings_manager
+from src.program.services.streaming.file_metadata import FileMetadata
+from src.program.services.streaming.recent_reads import RecentReads
+from src.program.services.streaming.session_statistics import SessionStatistics
+from src.program.services.streaming.stream_connection import StreamConnection
 
 if TYPE_CHECKING:
     from src.program.services.filesystem.vfs.rivenvfs import RivenVFS
-
-
-@dataclass
-class Config:
-    """Configuration for the media stream."""
-
-    # Reads don't always come in exactly sequentially;
-    # they may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4).
-    #
-    # This allows for some tolerance during the calculations.
-    sequential_read_tolerance_blocks: int
-
-    # Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan.
-    scan_tolerance_blocks: int
-
-    # Kernel block size; the byte length the OS reads/writes at a time.
-    block_size: int
-
-    # Maximum chunk size for adaptive chunk sizing.
-    max_chunk_size: int
-
-    # Minimum chunk size for adaptive chunk sizing.
-    min_chunk_size: int
-
-    # Target playback duration for each chunk in seconds.
-    target_chunk_duration_seconds: int
-
-    # Number of skipped chunks required to trigger a seek
-    seek_chunk_tolerance: int
-
-    # Default bitrate to use when no probed information is available.
-    default_bitrate: int
-
-    # Timeout for waiting for a chunk to become available.
-    chunk_wait_timeout_seconds: int = 10
-
-    @property
-    def header_size(self) -> int:
-        """Default header size for scanning purposes."""
-
-        return self.block_size * 2
-
-    @property
-    def sequential_read_tolerance(self) -> int:
-        """Tolerance for sequential reads to account for interleaved reads."""
-
-        return self.block_size * self.sequential_read_tolerance_blocks
-
-    @property
-    def scan_tolerance(self) -> int:
-        """Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan."""
-
-        return self.block_size * self.scan_tolerance_blocks
-
-
-@dataclass
-class PrefetchScheduler:
-    """Configuration for prefetching behaviour."""
-
-    buffer_seconds: int
-    bytes_per_second: int
-    sequential_chunks_required_to_start: int
-
-    @property
-    def buffer_size(self) -> int:
-        """The buffer size in bytes for prefetching."""
-
-        return self.buffer_seconds * self.bytes_per_second
-
-
-@dataclass
-class Connection:
-    """Metadata about the current streaming connection."""
-
-    reader: AsyncIterator[bytes]
-    response: httpx.Response
-    is_active: bool = True
-    should_close: bool = False
-    seek_to: int | None = None
-
-    _sequential_chunks_fetched: int = 0
-
-    def __init__(
-        self,
-        *,
-        bytes_per_second: int,
-        response: httpx.Response,
-        start_position: int,
-        current_read_position: int,
-        reader: AsyncIterator[bytes],
-    ) -> None:
-        streaming_config = settings_manager.settings.streaming
-
-        self.bytes_per_second = bytes_per_second
-        self.response = response
-        self.start_position = start_position
-        self.current_read_position = current_read_position
-        self.reader = reader
-        self.prefetch_scheduler = PrefetchScheduler(
-            bytes_per_second=bytes_per_second,
-            buffer_seconds=streaming_config.buffer_seconds,
-            sequential_chunks_required_to_start=streaming_config.sequential_chunks_required_for_prefetch,
-        )
-
-    @property
-    def sequential_chunks_fetched(self) -> int:
-        """The number of sequential chunks fetched so far."""
-
-        return self._sequential_chunks_fetched
-
-    def is_prefetch_unlocked(self, *, recent_reads: "RecentReads") -> bool:
-        """Whether prefetching is currently unlocked."""
-
-        # Determine if we've had enough sequential chunk fetches to trigger prefetching.
-        # This helps to avoid scans triggering expensive and unnecessary prefetches.
-        has_sufficient_sequential_fetches = (
-            self.sequential_chunks_fetched
-            >= self.prefetch_scheduler.sequential_chunks_required_to_start
-        )
-
-        # Calculate how far behind the current read position is from the last read end.
-        num_seconds_behind = self.calculate_num_seconds_behind(
-            recent_reads=recent_reads
-        )
-
-        # Determine if the current read position is within the prefetch lookahead range.
-        is_within_prefetch_range = (
-            num_seconds_behind <= self.prefetch_scheduler.buffer_seconds
-        )
-
-        return has_sufficient_sequential_fetches and is_within_prefetch_range
-
-    @property
-    def current_read_position(self) -> int:
-        """The current read position in the stream."""
-
-        return self._current_read_position
-
-    @current_read_position.setter
-    def current_read_position(self, value: int | None) -> None:
-        """Set the current read position in the stream."""
-
-        if value is None:
-            if hasattr(self, "_current_read_position"):
-                del self._current_read_position
-
-            return
-
-        if value < 0:
-            raise ValueError("Current read position cannot be negative")
-
-        self._current_read_position = value
-
-    @property
-    def start_position(self) -> int:
-        """The start position in the stream."""
-
-        return self._start_position
-
-    @start_position.setter
-    def start_position(self, value: int | None) -> None:
-        """Set the start position in the stream."""
-
-        if value is None:
-            if hasattr(self, "_start_position"):
-                del self._start_position
-
-            return
-
-        if value < 0:
-            raise ValueError("Start position cannot be negative")
-
-        self._start_position = value
-
-    def calculate_num_seconds_behind(self, *, recent_reads: "RecentReads") -> float:
-        """Number of seconds the last read end is behind the current read position."""
-
-        # If no current reads, we're not behind at all.
-        if recent_reads.last_read_end is None:
-            return 0.0
-
-        return (
-            self.current_read_position - recent_reads.last_read_end
-        ) // self.bytes_per_second
-
-    def calculate_target_position(self, recent_reads: "RecentReads") -> int:
-        """Calculate the target position for the current read."""
-
-        if not recent_reads.current_read:
-            return 0
-
-        prefetch_size = (
-            self.prefetch_scheduler.buffer_size
-            if self.is_prefetch_unlocked(recent_reads=recent_reads)
-            else 0
-        )
-
-        return recent_reads.current_read.last_chunk.end + prefetch_size + 1
-
-    def increment_sequential_chunks(
-        self,
-    ) -> None:
-        """Increment the count of sequential chunks fetched."""
-
-        self._sequential_chunks_fetched += 1
-
-    async def close(self) -> None:
-        if self.response:
-            await self.response.aclose()
-
-
-@dataclass
-class SessionStatistics:
-    """Statistics about the current streaming session."""
-
-    bytes_transferred: int = 0
-    total_session_connections: int = 0
-
-
-@dataclass
-class FileMetadata(TypedDict):
-    """Metadata about the file being streamed."""
-
-    bitrate: int | None
-    duration: float | None
-    original_filename: str
-    file_size: int
-    path: str
-
-
-@dataclass
-class RecentReads:
-    """Tracks recent read operations."""
-
-    current_read: ChunkRange | None = None
-    previous_read: ChunkRange | None = None
-
-    @property
-    def last_read_end(self) -> int | None:
-        """The end position of the last read operation."""
-
-        if not self.previous_read:
-            return None
-
-        return self.previous_read.request_range[1]
 
 
 type ReadType = Literal[
@@ -309,7 +68,7 @@ class MediaStream:
         self.connect_lock = trio.Lock()
         self.vfs = vfs
         self.recent_reads: RecentReads = RecentReads()
-        self.connection: Connection | None = None
+        self.connection: StreamConnection | None = None
         self.is_streaming: bool = False
 
         self.config = Config(
@@ -434,7 +193,9 @@ class MediaStream:
         return aligned_footer_size
 
     @asynccontextmanager
-    async def manage_connection(self, *, position: int) -> AsyncIterator[Connection]:
+    async def manage_connection(
+        self, *, position: int
+    ) -> AsyncIterator[StreamConnection]:
         """Context manager to handle connection lifecycle."""
 
         try:
@@ -479,7 +240,7 @@ class MediaStream:
     async def manage_target_position(
         self,
         *,
-        connection: Connection,
+        connection: StreamConnection,
     ) -> AsyncIterator[int]:
         """Context manager to handle a stream's target position."""
 
@@ -503,7 +264,7 @@ class MediaStream:
         finally:
             pass
 
-    async def connect(self, position: int) -> Connection:
+    async def connect(self, position: int) -> StreamConnection:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
         async with self.connect_lock:
@@ -514,7 +275,7 @@ class MediaStream:
 
             response = await self._prepare_response(start=chunk_aligned_start)
 
-            self.connection = Connection(
+            self.connection = StreamConnection(
                 bytes_per_second=self.bytes_per_second,
                 response=response,
                 start_position=chunk_aligned_start,
