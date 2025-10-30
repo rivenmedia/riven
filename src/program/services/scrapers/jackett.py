@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 from typing import Dict, List, Optional
 
-import regex
 from loguru import logger
 from pydantic import BaseModel
 from requests import ReadTimeout
@@ -12,8 +11,7 @@ from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
-
-INFOHASH_PATTERN = regex.compile(r"[A-Fa-f0-9]{40}")
+from program.utils.torrent import extract_infohash, normalize_infohash
 
 
 class JackettIndexer(BaseModel):
@@ -127,13 +125,37 @@ class Jackett(ScraperService):
 
     def _get_infohash_from_result(self, result: SimpleNamespace) -> Optional[str]:
         """Try to get the infohash from the result"""
-        if result.InfoHash:
-            return result.InfoHash.lower()
-
         infohash = None
-        if (infohash := INFOHASH_PATTERN.search(result.Guid)) or (
-            infohash := INFOHASH_PATTERN.search(result.Details)
-        ):
-            infohash = infohash.group().lower()
 
-        return infohash
+        # Priority 1: Use InfoHash field directly if available (normalize to handle base32)
+        if hasattr(result, "InfoHash") and result.InfoHash:
+            return normalize_infohash(result.InfoHash)
+
+        # Priority 2: Check if MagnetUri is available and extract from it
+        if hasattr(result, "MagnetUri") and result.MagnetUri:
+            infohash = extract_infohash(result.MagnetUri)
+            if infohash:
+                return infohash
+
+        # Priority 3: Try to extract from Guid field
+        if hasattr(result, "Guid") and result.Guid:
+            infohash = extract_infohash(result.Guid)
+            if infohash:
+                return infohash
+
+        # Priority 4: Try to extract from Details field
+        if hasattr(result, "Details") and result.Details:
+            infohash = extract_infohash(result.Details)
+            if infohash:
+                return infohash
+
+        # Priority 5: Try Link field as last resort
+        if hasattr(result, "Link") and result.Link:
+            try:
+                infohash = self.get_infohash_from_url(result.Link)
+                if infohash:
+                    return infohash
+            except Exception as e:
+                logger.debug(f"Failed to get infohash from Link: {e}")
+
+        return None
