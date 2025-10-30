@@ -1619,10 +1619,12 @@ class RivenVFS(pyfuse3.Operations):
                         # No other handles for this inode, clean up shared path state
                         active_stream = self._active_streams.pop(stream_key, None)
                         if active_stream:
-                            await active_stream.close()
+                            await active_stream.kill()
             log.trace(f"release: fh={fh} path={path}")
+        except pyfuse3.FUSEError:
+            raise
         except Exception:
-            log.error(f"release error fh={fh}")
+            log.exception(f"release error fh={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def flush(self, fh: int) -> None:
