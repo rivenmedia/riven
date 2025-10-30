@@ -732,10 +732,9 @@ async def remove_item(
                 )
 
         # 4. Remove from VFS
-        if item.filesystem_entry:
-            filesystem_service = request.app.program.services.get(FilesystemService)
-            if filesystem_service and filesystem_service.riven_vfs:
-                filesystem_service.riven_vfs.remove(item)
+        filesystem_service = request.app.program.services.get(FilesystemService)
+        if filesystem_service and filesystem_service.riven_vfs:
+            filesystem_service.riven_vfs.remove(item)
 
         # 5. Delete from database using ORM
         session.delete(item)

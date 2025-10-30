@@ -755,6 +755,13 @@ class RivenVFS(pyfuse3.Operations):
         """
         from program.media.media_entry import MediaEntry
 
+        if item.type == "show":
+            for season in item.seasons:
+                self.remove(season)
+        if item.type == "season":
+            for episode in item.episodes:
+                self.remove(episode)
+
         # Only process if this item has a filesystem entry
         if not item.filesystem_entry:
             log.debug(f"Item {item.id} has no filesystem_entry, skipping VFS remove")
