@@ -308,10 +308,10 @@ class MediaStream:
             logger.debug(self._build_log_message("Stream connection killed"))
 
             cancel_scope.cancel("Connection killed")
-        # except* StopAsyncIteration:
-        #     logger.debug(self._build_log_message("Stream exhausted"))
+        except* StopAsyncIteration:
+            logger.debug(self._build_log_message("Stream exhausted"))
 
-        #     cancel_scope.cancel("Stream exhausted")
+            cancel_scope.cancel("Stream exhausted")
         except* Exception as e:
             logger.error(
                 self._build_log_message(
