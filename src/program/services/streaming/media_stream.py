@@ -287,6 +287,10 @@ class MediaStream:
                     recent_reads=self.recent_reads
                 )
 
+                if target_position >= self.file_metadata["file_size"]:
+                    yield self.file_metadata["file_size"]
+                    return
+
                 if connection.current_read_position >= target_position:
                     await trio.sleep(0.2)
                     continue
