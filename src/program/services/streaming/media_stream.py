@@ -1,16 +1,19 @@
 import trio
+import trio_util
 import pyfuse3
 import errno
 import httpx
 
+from dataclasses import dataclass
 from functools import cached_property
 from contextlib import asynccontextmanager, contextmanager
 from loguru import logger
 from typing import TYPE_CHECKING, Literal
 from http import HTTPStatus
 from kink import di
-from collections.abc import AsyncIterator, Generator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from time import time
+from ordered_set import OrderedSet
 
 from src.program.services.streaming.chunker import Chunk, ChunkRange, Chunker
 from src.program.services.streaming.config import Config
@@ -19,11 +22,16 @@ from src.program.services.streaming.exceptions import (
     EmptyDataError,
     RawByteLengthMismatchException,
 )
-from program.settings.manager import settings_manager
+from src.program.settings.manager import settings_manager
 from src.program.services.streaming.file_metadata import FileMetadata
 from src.program.services.streaming.recent_reads import RecentReads
 from src.program.services.streaming.session_statistics import SessionStatistics
-from src.program.services.streaming.stream_connection import StreamConnection
+from src.program.services.streaming.stream_connection import (
+    ConnectionKilledException,
+    FileConsumedException,
+    SeekRequiredException,
+    StreamConnection,
+)
 
 if TYPE_CHECKING:
     from src.program.services.filesystem.vfs.rivenvfs import RivenVFS
@@ -38,6 +46,12 @@ type ReadType = Literal[
     "seek",
     "cache_hit",
 ]
+
+
+@dataclass(frozen=True, init=True)
+class ReadEvent:
+    type: ReadType
+    chunk_range: ChunkRange
 
 
 class MediaStream:
@@ -66,11 +80,15 @@ class MediaStream:
 
         self.fh = fh
         self.read_lock = trio.Lock()
-        self.connect_lock = trio.Lock()
         self.vfs = vfs
         self.recent_reads: RecentReads = RecentReads()
         self.connection: StreamConnection | None = None
         self.is_streaming: bool = False
+        self.requested_chunks = trio_util.AsyncValue[OrderedSet[Chunk]](OrderedSet([]))
+        self.latest_chunk_range = trio_util.AsyncValue[ChunkRange | None](None)
+        self.cached_chunks: dict[int, trio_util.AsyncBool] = {}
+
+        self.stream_start_event = trio.Event()
 
         self.config = Config(
             max_chunk_size=1 * 1024 * 1024,  # 1 MiB
@@ -131,6 +149,10 @@ class MediaStream:
                 "httpx.AsyncClient not found in dependency injector"
             ) from None
 
+        # Start the main stream loop in the background,
+        # dormant until the stream_start_event is set.
+        trio.lowlevel.spawn_system_task(self.run)
+
     @cached_property
     def bytes_per_second(self) -> int:
         """Average bytes per second based on the file's bitrate."""
@@ -183,7 +205,6 @@ class MediaStream:
 
         # Use a percentage-based approach for requesting the footer
         # using the file size to determine an appropriate range.
-
         min_footer_size = 1024 * 16  # Minimum footer size of 16KB
         max_footer_size = 10 * 1024 * 1024  # Maximum footer size of 10MB
         footer_percentage = 0.002  # 0.2% of file size
@@ -197,8 +218,8 @@ class MediaStream:
 
         return aligned_footer_size
 
-    @contextmanager
-    def stream_lifecycle(self) -> Generator[None]:
+    @asynccontextmanager
+    async def stream_lifecycle(self) -> AsyncGenerator[None]:
         """Context manager for managing stream lifecycle."""
 
         try:
@@ -217,12 +238,25 @@ class MediaStream:
 
     @asynccontextmanager
     async def manage_connection(
-        self, *, position: int
+        self,
+        *,
+        cancel_scope: trio.CancelScope,
     ) -> AsyncIterator[StreamConnection]:
         """Context manager to handle connection lifecycle."""
 
         try:
-            self.connection = await self.connect(position=position)
+            logger.debug(f"manage_connection: starting connection for fh={self.fh}")
+            if not self.recent_reads.current_read:
+                raise RuntimeError(
+                    "Cannot manage connection without a current read position"
+                )
+
+            position = self.recent_reads.current_read.first_chunk.start
+
+            self.connection = await self.connect(
+                position=position,
+                cancel_scope=cancel_scope,
+            )
 
             yield self.connection
         except* (
@@ -230,15 +264,16 @@ class MediaStream:
             httpx.RemoteProtocolError,
             httpx.StreamClosed,
         ) as e:
+            logger.exception(
+                self._build_log_message(
+                    f"{e.exceptions[0].__class__.__name__} error occurred whilst managing stream connection: {e.exceptions[0]}"
+                )
+            )
+
             if not self.connection:
                 raise pyfuse3.FUSEError(errno.EIO) from e.exceptions[0]
 
-            logger.warning(
-                self._build_log_message(
-                    f"Stream error occurred while managing stream connection: {e.exceptions[0]}. "
-                    "Attempting to reconnect..."
-                )
-            )
+            logger.warning(self._build_log_message("Attempting to reconnect..."))
         except* httpx.ReadTimeout as e:
             logger.exception(
                 self._build_log_message(f"Stream operation timed out whilst reading")
@@ -256,8 +291,28 @@ class MediaStream:
             )
 
             raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e.exceptions[0]
+        except* SeekRequiredException as e:
+            for exc in e.exceptions:
+                if isinstance(exc, SeekRequiredException):
+                    logger.debug(
+                        self._build_log_message(
+                            f"Stream seek required: {exc.seek_position}"
+                        )
+                    )
+
+                    pass
+                else:
+                    raise
         except* trio.TooSlowError as e:
             logger.exception(self._build_log_message(f"Stream operation too slow"))
+        except* ConnectionKilledException:
+            logger.debug(self._build_log_message("Stream connection killed"))
+
+            cancel_scope.cancel("Connection killed")
+        # except* StopAsyncIteration:
+        #     logger.debug(self._build_log_message("Stream exhausted"))
+
+        #     cancel_scope.cancel("Stream exhausted")
         except* Exception as e:
             logger.error(
                 self._build_log_message(
@@ -269,95 +324,62 @@ class MediaStream:
         finally:
             await self.close()
 
-    @asynccontextmanager
-    async def manage_target_position(
-        self,
-        *,
-        connection: StreamConnection,
-    ) -> AsyncIterator[int | None]:
-        """Context manager to handle a stream's target position."""
+    async def run(self) -> None:
+        # Wait for the signal before starting the stream loop
+        await self.stream_start_event.wait()
 
-        try:
-            while True:
-                if not connection.is_active:
-                    yield None
-                    return
-
-                target_position = connection.calculate_target_position(
-                    recent_reads=self.recent_reads
-                )
-
-                if target_position >= self.file_metadata["file_size"]:
-                    yield self.file_metadata["file_size"]
-                    return
-
-                if connection.current_read_position >= target_position:
-                    await trio.sleep(0.2)
-                    continue
-
-                break
-
-            logger.debug(f"target_position: {target_position}")
-
-            yield target_position
-        finally:
-            pass
-
-    async def main_stream_loop(self, position: int) -> None:
         if self.is_streaming:
-            logger.warning(
-                self._build_log_message("Stream loop already running; exiting"),
+            logger.error(
+                self._build_log_message("Stream is already running, skipping start")
             )
 
             return
 
-        with self.stream_lifecycle():
+        async with self.stream_lifecycle():
             async with trio.open_nursery() as nursery:
-                while True:
-                    chunks_to_skip = 0
+                while not nursery._closed:
+                    logger.debug(f"nursery_close_check: {nursery._closed}")
+                    async with self.manage_connection(
+                        cancel_scope=nursery.cancel_scope
+                    ) as connection:
+                        chunks_to_skip = 0
+                        previous_fetched_chunk = None
 
-                    async with self.manage_connection(position=position) as connection:
-                        while connection.is_active:
-                            if connection.seek_to is not None:
-                                break
+                        logger.debug(f"new connection established: {connection}")
 
-                            async with self.manage_target_position(
-                                connection=connection
-                            ) as target_position:
-                                if target_position is None:
-                                    break
+                        async for chunks in self.requested_chunks.eventual_values():
+                            for chunk in chunks:
+                                if (
+                                    previous_fetched_chunk
+                                    and previous_fetched_chunk.index
+                                    and abs(chunk.index - previous_fetched_chunk.index)
+                                    > self.config.seek_chunk_tolerance
+                                ):
+                                    connection.seek(position=chunk.start)
 
-                                start_read_position = connection.current_read_position
+                                chunk_label = f"[{chunk.start}-{chunk.end}]"
 
-                                iteration_start_time = time()
-                                last_iteration_time = iteration_start_time
+                                with self.benchmark(f"Fetching bytes {chunk_label}"):
+                                    data = await anext(connection.reader)
 
-                                async for chunk in connection.reader:
+                                previous_fetched_chunk = chunk
+                                self.requested_chunks.value.discard(chunk)
+
+                                with self.benchmark(f"Processing bytes {chunk_label}"):
                                     connection.increment_sequential_chunks()
-
-                                    time_before_processing = time()
-                                    iteration_duration = time() - last_iteration_time
-
-                                    logger.log(
-                                        "STREAM",
-                                        self._build_log_message(
-                                            f"Fetched {len(chunk)} bytes "
-                                            f"[{connection.current_read_position - len(chunk)}-{connection.current_read_position - 1}] "
-                                            f"in {iteration_duration:.3f}s"
-                                        ),
-                                    )
 
                                     # Cache the chunk in the background without blocking the iterator.
                                     # This will be picked up by the reads asynchronously.
                                     nursery.start_soon(
-                                        self._cache_chunk,
-                                        connection.current_read_position,
-                                        chunk,
+                                        lambda: self._cache_chunk(
+                                            start=chunk.start,
+                                            data=data,
+                                        )
                                     )
 
-                                    connection.current_read_position += len(chunk)
+                                    connection.current_read_position += len(data)
                                     self.session_statistics.bytes_transferred += len(
-                                        chunk
+                                        data
                                     )
 
                                     # Check to see if any subsequent chunks are already cached.
@@ -387,144 +409,97 @@ class MediaStream:
 
                                         break
 
-                                    # If cached chunks were found, kill the stream loop.
-                                    # This will be picked up after the loop exits.
                                     if chunks_to_skip > 0:
-                                        connection.is_active = False
-
-                                        logger.log(
-                                            "STREAM",
-                                            self._build_log_message(
-                                                f"Exiting stream loop to skip {chunks_to_skip} cached chunks"
-                                            ),
+                                        target_read_position = (
+                                            connection.current_read_position
+                                            + (chunks_to_skip * self.chunk_size)
                                         )
 
-                                    logger.log(
-                                        "STREAM",
-                                        self._build_log_message(
-                                            f"Processed {len(chunk)} bytes "
-                                            f"[{connection.current_read_position - len(chunk)}-{connection.current_read_position - 1}] "
-                                            f"in {time() - time_before_processing:.3f}s"
-                                        ),
-                                    )
+                                        if (
+                                            target_read_position
+                                            <= self.file_metadata["file_size"]
+                                        ):
+                                            logger.log(
+                                                "STREAM",
+                                                self._build_log_message(
+                                                    f"Skipped ahead to byte "
+                                                    f"{target_read_position} "
+                                                    f"after finding {chunks_to_skip} cached chunks"
+                                                ),
+                                            )
+
+                                            # If cached chunks were found, break out of the stream loop.
+                                            connection.seek(
+                                                position=target_read_position
+                                            )
+                                        else:
+                                            logger.log(
+                                                "STREAM",
+                                                self._build_log_message(
+                                                    f"Reached end of file while skipping cached chunks."
+                                                ),
+                                            )
+
+                                            # Break out of the loop to let the context manager close the connection
+                                            raise FileConsumedException()
 
                                     # Break early if the stream loop has been stopped or seeked.
                                     # Otherwise, the loop will continue until the target position is reached,
                                     # which can prevent the connection from being closed during large fetch windows.
-                                    if (
-                                        not connection.is_active
-                                        or connection.seek_to is not None
-                                    ):
+                                    if not connection.is_active:
                                         logger.log(
                                             "STREAM",
                                             self._build_log_message(
                                                 f"Stream loop termination signal detected with "
-                                                f"{target_position - connection.current_read_position} bytes remaining to read"
+                                                f"{chunks[-1].end - connection.current_read_position} bytes remaining to read"
                                             ),
                                         )
 
-                                        break
+                                        raise ConnectionKilledException()
 
-                                    if (
-                                        connection.current_read_position
-                                        >= target_position
-                                    ):
-                                        break
+                        # logger.log(
+                        #     "STREAM",
+                        #     self._build_log_message(
+                        #         f"Stream fetched {start_read_position}-{connection.current_read_position} "
+                        #         f"({connection.current_read_position - start_read_position} bytes) "
+                        #         f"in {iteration_duration:.3f}s. "
+                        #         f"There are roughly {connection.calculate_num_seconds_behind(recent_reads=self.recent_reads)} seconds of buffer room available."
+                        #     ),
+                        # )
 
-                                    last_iteration_time = time()
-
-                                iteration_duration = time() - iteration_start_time
-
-                                logger.log(
-                                    "STREAM",
-                                    self._build_log_message(
-                                        f"Stream fetched {start_read_position}-{connection.current_read_position} "
-                                        f"({connection.current_read_position - start_read_position} bytes) "
-                                        f"in {iteration_duration:.3f}s. "
-                                        f"There are roughly {connection.calculate_num_seconds_behind(recent_reads=self.recent_reads)} seconds of buffer room available."
-                                    ),
-                                )
-
-                    # Setting should_close will break the outer loop, ending the stream,
-                    # otherwise, it will attempt to reconnect immediately at a new position.
-                    if connection.should_close:
-                        break
-
-                    # If cached chunks were found, skip ahead in the stream.
-                    if chunks_to_skip > 0:
-                        target_read_position = connection.current_read_position + (
-                            chunks_to_skip * self.chunk_size
-                        )
-
-                        if target_read_position <= self.file_metadata["file_size"]:
-                            logger.log(
-                                "STREAM",
-                                self._build_log_message(
-                                    f"Skipped ahead to byte "
-                                    f"{target_read_position} "
-                                    f"after finding {chunks_to_skip} cached chunks"
-                                ),
-                            )
-
-                            # Update position to skip cached chunks
-                            position = target_read_position
-
-                            continue
-                        else:
-                            logger.log(
-                                "STREAM",
-                                self._build_log_message(
-                                    f"Reached end of file while skipping cached chunks."
-                                ),
-                            )
-
-                            # Break out of the loop to let the context manager close the connection
-                            break
-
-                    # If a seek was requested, update the position accordingly
-                    if connection.seek_to is not None:
-                        position = connection.seek_to
-
-                        continue
-
-                    # Set the new position to try to reconnect from
-                    if connection.current_read_position is not None:
-                        position = connection.current_read_position
-
-                # Force cancel any cache operations in progress
-                nursery.cancel_scope.cancel()
-
-    async def connect(self, position: int) -> StreamConnection:
+    async def connect(
+        self,
+        *,
+        position: int,
+        cancel_scope: trio.CancelScope,
+    ) -> StreamConnection:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
-        async with self.connect_lock:
-            if self.connection:
-                return self.connection
+        chunk_aligned_start = max(
+            self.config.header_size,
+            self.chunker.get_chunk_range(position=position).first_chunk.start,
+        )
 
-            chunk_aligned_start = max(
-                self.config.header_size,
-                self.chunker.get_chunk_range(position=position).first_chunk.start,
-            )
+        response = await self._prepare_response(start=chunk_aligned_start)
 
-            response = await self._prepare_response(start=chunk_aligned_start)
+        self.connection = StreamConnection(
+            bytes_per_second=self.bytes_per_second,
+            response=response,
+            start_position=chunk_aligned_start,
+            current_read_position=chunk_aligned_start,
+            reader=response.aiter_bytes(chunk_size=self.chunk_size),
+            nursery_cancel_scope=cancel_scope,
+        )
 
-            self.connection = StreamConnection(
-                bytes_per_second=self.bytes_per_second,
-                response=response,
-                start_position=chunk_aligned_start,
-                current_read_position=chunk_aligned_start,
-                reader=response.aiter_bytes(chunk_size=self.chunk_size),
-            )
+        logger.log(
+            "STREAM",
+            self._build_log_message(
+                f"{response.http_version} stream connection established "
+                f"from byte {chunk_aligned_start} / {self.file_metadata['file_size']}."
+            ),
+        )
 
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"{response.http_version} stream connection established "
-                    f"from byte {chunk_aligned_start} / {self.file_metadata['file_size']}."
-                ),
-            )
-
-            return self.connection
+        return self.connection
 
     async def close(self) -> None:
         """Close the active stream."""
@@ -555,7 +530,6 @@ class MediaStream:
             # Wait for the stream loop to close before closing the connection
             with trio.fail_after(5):
                 self.connection.is_active = False
-                self.connection.should_close = True
 
                 while self.is_streaming:
                     await trio.sleep(0.1)
@@ -627,9 +601,6 @@ class MediaStream:
             read_type = await self._detect_read_type(
                 chunk_range=chunk_range,
             )
-
-            if read_type == "seek" and self.connection:
-                self.connection.seek_to = request_start
 
             yield read_type
         finally:
@@ -704,12 +675,7 @@ class MediaStream:
                         size=request_size,
                     )
                 case "body_read" | "seek":
-                    # Start the main stream loop if not already running
-                    if not self.is_streaming:
-                        trio.lowlevel.spawn_system_task(
-                            self.main_stream_loop,
-                            max(self.config.header_size, request_start),
-                        )
+                    self.stream_start_event.set()
 
                     return await self.read_bytes(chunk_range=read_range)
                 case "footer_read":
@@ -739,7 +705,7 @@ class MediaStream:
             logger.log(
                 "STREAM",
                 self._build_log_message(
-                    f"Found chunk {start}-{end} ({len(cached_data)} bytes) from cache."
+                    f"Found data {start}-{end} ({len(cached_data)} bytes) from cache."
                 ),
             )
 
@@ -805,55 +771,55 @@ class MediaStream:
         ):
             return "general_scan"
 
-        if (
-            self.connection
-            and self.connection.current_read_position
-            and self.config.header_size < start < self.connection.start_position
-        ):
-            request_chunk_range = self.chunker.get_chunk_range(position=start)
+        if start < self.file_metadata["file_size"] - self.footer_size:
+            if (
+                self.connection
+                and self.connection.current_read_position
+                and self.config.header_size < start < self.connection.start_position
+            ):
+                request_chunk_range = self.chunker.get_chunk_range(position=start)
 
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"Requested start {start} "
-                    f"is before current read position {self.connection.current_read_position} "
-                    f"for {self.file_metadata['path']}. "
-                    f"Seeking to new start position {request_chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
-                ),
-            )
-
-            # Always seek backwards if the requested start is before the stream's start position (excluding header, which is pre-fetched).
-            # Streams can only read forwards, so a new connection must be made.
-            return "seek"
-
-        # Check if requested start is after current read position,
-        # and if it exceeds the seek tolerance, move the stream to the new start.
-        if self.connection and start > self.connection.current_read_position:
-            request_chunk_range = self.chunker.get_chunk_range(position=start)
-
-            read_position_chunk_range = self.chunker.get_chunk_range(
-                position=self.connection.current_read_position
-            )
-
-            chunk_difference = self.chunker.calculate_chunk_difference(
-                left=request_chunk_range,
-                right=read_position_chunk_range,
-            )
-
-            if chunk_difference >= self.config.seek_chunk_tolerance:
                 logger.log(
                     "STREAM",
                     self._build_log_message(
                         f"Requested start {start} "
-                        f"is after current read position {self.connection.current_read_position} "
+                        f"is before current read position {self.connection.current_read_position} "
                         f"for {self.file_metadata['path']}. "
                         f"Seeking to new start position {request_chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
                     ),
                 )
 
+                # Always seek backwards if the requested start is before the stream's start position (excluding header, which is pre-fetched).
+                # Streams can only read forwards, so a new connection must be made.
                 return "seek"
 
-        if start < self.file_metadata["file_size"] - self.footer_size:
+            # Check if requested start is after current read position,
+            # and if it exceeds the seek tolerance, move the stream to the new start.
+            if self.connection and start > self.connection.current_read_position:
+                request_chunk_range = self.chunker.get_chunk_range(position=start)
+
+                read_position_chunk_range = self.chunker.get_chunk_range(
+                    position=self.connection.current_read_position
+                )
+
+                chunk_difference = self.chunker.calculate_chunk_difference(
+                    left=request_chunk_range,
+                    right=read_position_chunk_range,
+                )
+
+                if chunk_difference >= self.config.seek_chunk_tolerance:
+                    logger.log(
+                        "STREAM",
+                        self._build_log_message(
+                            f"Requested start {start} "
+                            f"is after current read position {self.connection.current_read_position} "
+                            f"for {self.file_metadata['path']}. "
+                            f"Seeking to new start position {request_chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
+                        ),
+                    )
+
+                    return "seek"
+
             return "body_read"
 
         return "footer_read"
@@ -893,8 +859,15 @@ class MediaStream:
 
         verified_data = self._verify_scan_integrity((start, start + size), data)
 
+        chunk_range = self.chunker.get_chunk_range(position=start, size=size)
+
+        logger.debug(f"chunk_range for discrete fetch: {chunk_range}")
+
         if should_cache:
-            await self._cache_chunk(start, verified_data[:size])
+            await self._cache_chunk(
+                start=start,
+                data=verified_data[:size],
+            )
 
         return verified_data
 
@@ -1223,6 +1196,8 @@ class MediaStream:
         start, end = chunk_range.request_range
         chunks = chunk_range.chunks
 
+        has_requested = False
+
         try:
             with trio.fail_after(self.config.chunk_wait_timeout_seconds):
                 while True:
@@ -1240,24 +1215,31 @@ class MediaStream:
 
                         break
 
-                    logger.log(
-                        "STREAM",
-                        self._build_log_message(
-                            f"Waiting for chunks {uncached_chunks} to be cached for read {start}-{end}..."
-                        ),
-                    )
+                    if not has_requested:
+                        has_requested = True
 
-                    await trio.sleep(0.1)
+                        self.requested_chunks.value = self.requested_chunks.value.union(
+                            uncached_chunks
+                        )
+
+                        logger.log(
+                            "STREAM",
+                            self._build_log_message(
+                                f"Waiting for chunks {uncached_chunks} to be cached for read {start}-{end}..."
+                            ),
+                        )
+
+                    await trio.sleep(0)
         except trio.TooSlowError:
             raise ChunksTooSlowException(
                 threshold=self.config.chunk_wait_timeout_seconds,
                 chunk_range=chunk_range,
             )
 
-    def _get_uncached_chunks(self, *, chunks: list[Chunk]) -> set[Chunk]:
+    def _get_uncached_chunks(self, *, chunks: list[Chunk]) -> OrderedSet[Chunk]:
         """Check the cache for the given chunks and return the ones that are not cached."""
 
-        return set(
+        return OrderedSet(
             chunk
             for chunk in chunks
             if not self._check_cache(start=chunk.start, end=chunk.end)
@@ -1373,7 +1355,7 @@ class MediaStream:
         return data
 
     @contextmanager
-    def benchmark(self) -> Iterator[None]:
+    def benchmark(self, title: str = "Benchmarking") -> Iterator[None]:
         """Context manager for benchmarking code execution time."""
 
         try:
@@ -1385,9 +1367,7 @@ class MediaStream:
 
             logger.log(
                 "STREAM",
-                self._build_log_message(
-                    f"Benchmarking took {end_time - start_time:.3f}s"
-                ),
+                self._build_log_message(f"{title} took {end_time - start_time:.3f}s"),
             )
 
     def _build_log_message(self, message: str) -> str:

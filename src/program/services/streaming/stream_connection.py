@@ -1,11 +1,42 @@
+import httpx
+
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-import httpx
+import trio
 
+from src.program.services.streaming.chunker import ChunkRange
 from src.program.services.streaming.prefetch_scheduler import PrefetchScheduler
 from src.program.services.streaming.recent_reads import RecentReads
 from src.program.settings.manager import settings_manager
+
+
+class StreamConnectionException(Exception):
+    """Base class for stream connection-related exceptions."""
+
+    pass
+
+
+class SeekRequiredException(StreamConnectionException):
+    """Raised when a seek is required in the stream connection."""
+
+    def __init__(self, *, seek_position: int) -> None:
+        super().__init__(f"Seek required to position {seek_position}.")
+        self.seek_position = seek_position
+
+
+class FileConsumedException(StreamConnectionException):
+    """Raised when the end of the file has been reached."""
+
+    def __init__(self) -> None:
+        super().__init__("End of file has been reached.")
+
+
+class ConnectionKilledException(StreamConnectionException):
+    """Raised when the stream connection has been killed."""
+
+    def __init__(self) -> None:
+        super().__init__("Stream connection has been killed.")
 
 
 @dataclass
@@ -15,8 +46,6 @@ class StreamConnection:
     reader: AsyncIterator[bytes]
     response: httpx.Response
     is_active: bool = True
-    should_close: bool = False
-    seek_to: int | None = None
 
     _sequential_chunks_fetched: int = 0
 
@@ -28,9 +57,11 @@ class StreamConnection:
         start_position: int,
         current_read_position: int,
         reader: AsyncIterator[bytes],
+        nursery_cancel_scope: trio.CancelScope,
     ) -> None:
         streaming_config = settings_manager.settings.streaming
 
+        self.nursery_cancel_scope = nursery_cancel_scope
         self.bytes_per_second = bytes_per_second
         self.response = response
         self.start_position = start_position
@@ -41,6 +72,7 @@ class StreamConnection:
             buffer_seconds=streaming_config.buffer_seconds,
             sequential_chunks_required_to_start=streaming_config.sequential_chunks_required_for_prefetch,
         )
+        self.requested_chunks: set[ChunkRange] = set()
 
     @property
     def sequential_chunks_fetched(self) -> int:
@@ -144,6 +176,13 @@ class StreamConnection:
 
         self._sequential_chunks_fetched += 1
 
+    def seek(self, position: int) -> None:
+        """Seek to a new position in the stream."""
+
+        raise SeekRequiredException(seek_position=position)
+
     async def close(self) -> None:
         if self.response:
             await self.response.aclose()
+
+        self.nursery_cancel_scope.cancel()
