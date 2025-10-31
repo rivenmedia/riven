@@ -245,7 +245,6 @@ class MediaStream:
         """Context manager to handle connection lifecycle."""
 
         try:
-            logger.debug(f"manage_connection: starting connection for fh={self.fh}")
             if not self.recent_reads.current_read:
                 raise RuntimeError(
                     "Cannot manage connection without a current read position"
@@ -338,14 +337,11 @@ class MediaStream:
         async with self.stream_lifecycle():
             async with trio.open_nursery() as nursery:
                 while not nursery._closed:
-                    logger.debug(f"nursery_close_check: {nursery._closed}")
                     async with self.manage_connection(
                         cancel_scope=nursery.cancel_scope
                     ) as connection:
                         chunks_to_skip = 0
                         previous_fetched_chunk = None
-
-                        logger.debug(f"new connection established: {connection}")
 
                         async for chunks in self.requested_chunks.eventual_values():
                             for chunk in chunks:
