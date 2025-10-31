@@ -87,6 +87,15 @@ class EmptyDataError(MediaStreamException):
         )
 
 
+class CacheDataNotFoundException(MediaStreamException):
+    """Raised when requested cache data is not found."""
+
+    def __init__(self, *, range: tuple[int, int]) -> None:
+        super().__init__(f"Data with range {range} not found in the cache.")
+
+        self.range = range
+
+
 class ChunkException(Exception):
     """Base class for chunk-related exceptions."""
 

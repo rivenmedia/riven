@@ -179,6 +179,8 @@ class StreamConnection:
     def seek(self, position: int) -> None:
         """Seek to a new position in the stream."""
 
+        self.current_read_position = position
+
         raise SeekRequiredException(seek_position=position)
 
     async def close(self) -> None:

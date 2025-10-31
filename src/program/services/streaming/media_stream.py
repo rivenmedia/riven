@@ -18,6 +18,7 @@ from ordered_set import OrderedSet
 from src.program.services.streaming.chunker import Chunk, ChunkRange, Chunker
 from src.program.services.streaming.config import Config
 from src.program.services.streaming.exceptions import (
+    CacheDataNotFoundException,
     ChunksTooSlowException,
     EmptyDataError,
     RawByteLengthMismatchException,
@@ -241,17 +242,11 @@ class MediaStream:
         self,
         *,
         cancel_scope: trio.CancelScope,
+        position: int,
     ) -> AsyncIterator[StreamConnection]:
         """Context manager to handle connection lifecycle."""
 
         try:
-            if not self.recent_reads.current_read:
-                raise RuntimeError(
-                    "Cannot manage connection without a current read position"
-                )
-
-            position = self.recent_reads.current_read.first_chunk.start
-
             self.connection = await self.connect(
                 position=position,
                 cancel_scope=cancel_scope,
@@ -336,9 +331,17 @@ class MediaStream:
 
         async with self.stream_lifecycle():
             async with trio.open_nursery() as nursery:
+                if not self.recent_reads.current_read:
+                    raise RuntimeError(
+                        "Cannot manage connection without a current read position"
+                    )
+
+                position = self.recent_reads.current_read.first_chunk.start
+
                 while not nursery._closed:
                     async with self.manage_connection(
-                        cancel_scope=nursery.cancel_scope
+                        cancel_scope=nursery.cancel_scope,
+                        position=position,
                     ) as connection:
                         chunks_to_skip = 0
                         previous_fetched_chunk = None
@@ -355,13 +358,17 @@ class MediaStream:
 
                                 chunk_label = f"[{chunk.start}-{chunk.end}]"
 
-                                with self.benchmark(f"Fetching bytes {chunk_label}"):
+                                with self.benchmark(
+                                    title=f"Fetching bytes {chunk_label}"
+                                ):
                                     data = await anext(connection.reader)
 
                                 previous_fetched_chunk = chunk
                                 self.requested_chunks.value.discard(chunk)
 
-                                with self.benchmark(f"Processing bytes {chunk_label}"):
+                                with self.benchmark(
+                                    title=f"Processing bytes {chunk_label}"
+                                ):
                                     connection.increment_sequential_chunks()
 
                                     # Cache the chunk in the background without blocking the iterator.
@@ -406,28 +413,31 @@ class MediaStream:
                                         break
 
                                     if chunks_to_skip > 0:
-                                        target_read_position = (
-                                            connection.current_read_position
-                                            + (chunks_to_skip * self.chunk_size)
+                                        target_chunk_index = (
+                                            chunk.index + chunks_to_skip
                                         )
 
                                         if (
-                                            target_read_position
-                                            <= self.file_metadata["file_size"]
+                                            target_chunk_index
+                                            <= self.chunker.total_chunks_excluding_header_footer
                                         ):
+                                            target_chunk = (
+                                                self.chunker.get_chunk_by_index(
+                                                    index=target_chunk_index
+                                                )
+                                            )
+
                                             logger.log(
                                                 "STREAM",
                                                 self._build_log_message(
                                                     f"Skipped ahead to byte "
-                                                    f"{target_read_position} "
+                                                    f"{target_chunk} "
                                                     f"after finding {chunks_to_skip} cached chunks"
                                                 ),
                                             )
 
                                             # If cached chunks were found, break out of the stream loop.
-                                            connection.seek(
-                                                position=target_read_position
-                                            )
+                                            connection.seek(position=target_chunk.start)
                                         else:
                                             logger.log(
                                                 "STREAM",
@@ -453,15 +463,17 @@ class MediaStream:
 
                                         raise ConnectionKilledException()
 
-                        # logger.log(
-                        #     "STREAM",
-                        #     self._build_log_message(
-                        #         f"Stream fetched {start_read_position}-{connection.current_read_position} "
-                        #         f"({connection.current_read_position - start_read_position} bytes) "
-                        #         f"in {iteration_duration:.3f}s. "
-                        #         f"There are roughly {connection.calculate_num_seconds_behind(recent_reads=self.recent_reads)} seconds of buffer room available."
-                        #     ),
-                        # )
+                    position = connection.current_read_position
+
+                    # logger.log(
+                    #     "STREAM",
+                    #     self._build_log_message(
+                    #         f"Stream fetched {start_read_position}-{connection.current_read_position} "
+                    #         f"({connection.current_read_position - start_read_position} bytes) "
+                    #         f"in {iteration_duration:.3f}s. "
+                    #         f"There are roughly {connection.calculate_num_seconds_behind(recent_reads=self.recent_reads)} seconds of buffer room available."
+                    #     ),
+                    # )
 
     async def connect(
         self,
@@ -707,9 +719,7 @@ class MediaStream:
 
             return cached_data
 
-        raise httpx.StreamError(
-            "Failed to read requested bytes from cache after waiting."
-        )
+        raise CacheDataNotFoundException(range=chunk_range.request_range)
 
     async def _detect_read_type(
         self,
