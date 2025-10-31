@@ -184,5 +184,3 @@ class StreamConnection:
     async def close(self) -> None:
         if self.response:
             await self.response.aclose()
-
-        self.nursery_cancel_scope.cancel()
