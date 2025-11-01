@@ -506,20 +506,19 @@ class MediaItem(db.Model):
         dict["filesystem_entry"] = (
             self.filesystem_entry.to_dict() if self.filesystem_entry else None
         )
-        dict["parsed_data"] = (
-            self.filesystem_entry.parsed_data if self.filesystem_entry else None
-        )
-        dict["probed_data"] = (
-            self.filesystem_entry.probed_data if self.filesystem_entry else None
+        dict["media_metadata"] = (
+            self.filesystem_entry.media_metadata if self.filesystem_entry else None
         )
         dict["subtitles"] = (
             [subtitle.to_dict() for subtitle in self.subtitles]
             if hasattr(self, "subtitles")
             else []
         )
-        # Include embedded subtitles from probed_data
-        if self.filesystem_entry and self.filesystem_entry.probed_data:
-            embedded_subs = self.filesystem_entry.probed_data.get("subtitles", [])
+        # Include embedded subtitles from media_metadata
+        if self.filesystem_entry and self.filesystem_entry.media_metadata:
+            embedded_subs = self.filesystem_entry.media_metadata.get(
+                "subtitle_tracks", []
+            )
             if embedded_subs:
                 dict["subtitles"].append(embedded_subs)
         return dict

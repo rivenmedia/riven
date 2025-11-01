@@ -43,20 +43,12 @@ class MediaEntry(FilesystemEntry):
         comment="List of library profile keys this entry matches (from settings.json)",
     )
 
-    # Parsed filename data (cached to avoid re-parsing)
-    # Stores PTT parse results: {item_type, season, episodes}
-    parsed_data: Mapped[Optional[dict]] = mapped_column(
+    # Unified media metadata (combines parsed and probed data)
+    # Stores MediaMetadata model: {video, audio_tracks, subtitle_tracks, quality_source, etc.}
+    media_metadata: Mapped[Optional[dict]] = mapped_column(
         sqlalchemy.JSON,
         nullable=True,
-        comment="Cached parsed filename data from PTT (item_type, season, episodes)",
-    )
-
-    # Probed media data (cached to avoid re-probing)
-    # Stores ffprobe results: {video, audio, subtitles, duration, etc.}
-    probed_data: Mapped[Optional[dict]] = mapped_column(
-        sqlalchemy.JSON,
-        nullable=True,
-        comment="Cached ffprobe media analysis data (video, audio, subtitles, etc.)",
+        comment="Unified media metadata combining parsed (RTN) and probed (ffprobe) data",
     )
 
     __mapper_args__ = {
@@ -104,12 +96,12 @@ class MediaEntry(FilesystemEntry):
 
         # Generate clean path structure from original_filename
         # This gives us the canonical structure: /movies/Title (Year)/Title.mkv or /shows/...
-        # Pass cached parsed_data to avoid re-parsing
+        # Pass cached media_metadata to avoid re-parsing
         canonical_path = generate_clean_path(
             item=item,
             original_filename=self.original_filename,
             file_size=self.file_size or 0,
-            parsed_data=self.parsed_data,
+            media_metadata=self.media_metadata,
         )
 
         # ALWAYS include the base path (/movies or /shows)
@@ -143,7 +135,7 @@ class MediaEntry(FilesystemEntry):
         provider: str,
         provider_download_id: str,
         file_size: int = 0,
-        parsed_data: Optional[dict] = None,
+        media_metadata: Optional[dict] = None,
     ) -> "MediaEntry":
         """
         Create a MediaEntry representing a virtual (RivenVFS) media file.
@@ -154,7 +146,7 @@ class MediaEntry(FilesystemEntry):
             provider (str): Identifier of the provider that supplies the file.
             provider_download_id (str): Provider-specific download identifier.
             file_size (int): Size of the file in bytes; defaults to 0.
-            parsed_data (dict, optional): Cached parsed filename data from PTT to avoid re-parsing.
+            media_metadata (dict, optional): Cached media metadata to avoid re-parsing/probing.
 
         Returns:
             MediaEntry: A new MediaEntry instance populated with the provided values.
@@ -165,7 +157,7 @@ class MediaEntry(FilesystemEntry):
             provider=provider,
             provider_download_id=provider_download_id,
             file_size=file_size,
-            parsed_data=parsed_data,
+            media_metadata=media_metadata,
         )
 
     def to_dict(self) -> dict:
