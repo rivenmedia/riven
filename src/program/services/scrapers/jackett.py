@@ -1,5 +1,6 @@
 """Jackett scraper module"""
 
+import concurrent.futures
 from types import SimpleNamespace
 from typing import Dict, List, Optional
 
@@ -110,10 +111,58 @@ class Jackett(ScraperService):
             return torrents
 
         if hasattr(response.data, "Results"):
+            urls_to_fetch = []  # List of (result, title) tuples that need URL fetching
+
+            # First pass: extract infohashes from available fields and collect URLs that need fetching
             for result in response.data.Results:
-                infohash = self._get_infohash_from_result(result)
-                if infohash:
+                infohash = None
+
+                # Priority 1: Use InfoHash field directly if available (normalize to handle base32)
+                if hasattr(result, "InfoHash") and result.InfoHash:
+                    infohash = normalize_infohash(result.InfoHash)
+
+                # Priority 2: Check if MagnetUri is available and extract from it
+                if not infohash and hasattr(result, "MagnetUri") and result.MagnetUri:
+                    infohash = extract_infohash(result.MagnetUri)
+
+                # Priority 3: Try to extract from Guid field
+                if not infohash and hasattr(result, "Guid") and result.Guid:
+                    infohash = extract_infohash(result.Guid)
+
+                # Priority 4: Try to extract from Details field
+                if not infohash and hasattr(result, "Details") and result.Details:
+                    infohash = extract_infohash(result.Details)
+
+                # Priority 5: Collect URLs that need fetching
+                if not infohash and hasattr(result, "Link") and result.Link:
+                    urls_to_fetch.append((result, result.Title))
+                elif infohash:
+                    # We already have an infohash, add it directly
                     torrents[infohash] = result.Title
+
+            # Fetch URLs in parallel
+            if urls_to_fetch:
+                with concurrent.futures.ThreadPoolExecutor(
+                    thread_name_prefix="JackettHashExtract", max_workers=10
+                ) as executor:
+                    future_to_result = {
+                        executor.submit(self.get_infohash_from_url, result.Link): (
+                            result,
+                            title,
+                        )
+                        for result, title in urls_to_fetch
+                    }
+
+                    for future in concurrent.futures.as_completed(future_to_result):
+                        result, title = future_to_result[future]
+                        try:
+                            infohash = future.result(timeout=30)
+                            if infohash:
+                                torrents[infohash] = title
+                        except concurrent.futures.TimeoutError:
+                            logger.debug(f"Timeout getting infohash from Link for {title}")
+                        except Exception as e:
+                            logger.debug(f"Failed to get infohash from Link for {title}: {e}")
 
         if torrents:
             logger.log(
@@ -122,40 +171,3 @@ class Jackett(ScraperService):
         else:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
         return torrents
-
-    def _get_infohash_from_result(self, result: SimpleNamespace) -> Optional[str]:
-        """Try to get the infohash from the result"""
-        infohash = None
-
-        # Priority 1: Use InfoHash field directly if available (normalize to handle base32)
-        if hasattr(result, "InfoHash") and result.InfoHash:
-            return normalize_infohash(result.InfoHash)
-
-        # Priority 2: Check if MagnetUri is available and extract from it
-        if hasattr(result, "MagnetUri") and result.MagnetUri:
-            infohash = extract_infohash(result.MagnetUri)
-            if infohash:
-                return infohash
-
-        # Priority 3: Try to extract from Guid field
-        if hasattr(result, "Guid") and result.Guid:
-            infohash = extract_infohash(result.Guid)
-            if infohash:
-                return infohash
-
-        # Priority 4: Try to extract from Details field
-        if hasattr(result, "Details") and result.Details:
-            infohash = extract_infohash(result.Details)
-            if infohash:
-                return infohash
-
-        # Priority 5: Try Link field as last resort
-        if hasattr(result, "Link") and result.Link:
-            try:
-                infohash = self.get_infohash_from_url(result.Link)
-                if infohash:
-                    return infohash
-            except Exception as e:
-                logger.debug(f"Failed to get infohash from Link: {e}")
-
-        return None
