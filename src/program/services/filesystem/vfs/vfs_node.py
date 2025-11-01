@@ -1,3 +1,4 @@
+from functools import cached_property
 import pyfuse3
 
 from dataclasses import dataclass
@@ -35,7 +36,7 @@ class VFSNode:
     inode: pyfuse3.InodeT
     parent: "VFSNode"
 
-    @property
+    @cached_property
     def path(self) -> str:
         """Get the full VFS path for this node by walking up to root."""
         if self.parent is None:

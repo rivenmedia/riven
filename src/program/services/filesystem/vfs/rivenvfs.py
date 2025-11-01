@@ -835,7 +835,7 @@ class RivenVFS(pyfuse3.Operations):
                 if node is None:
                     # Create the directory node
                     self._get_or_create_node(path=base_dir, is_directory=True)
-                    log.debug(f"Created persistent directory: {base_dir}")
+                    logger.debug(f"Created persistent directory: {base_dir}")
 
             # Create /movies and /shows for each enabled library profile
             try:
@@ -843,7 +843,7 @@ class RivenVFS(pyfuse3.Operations):
             except Exception:
                 profiles = {}
 
-            for profile_key, profile in profiles.items():
+            for profile in profiles.values():
                 if not profile.enabled:
                     continue
 
@@ -859,7 +859,7 @@ class RivenVFS(pyfuse3.Operations):
                     if node is None:
                         # Create the directory node
                         self._get_or_create_node(path=profile_dir, is_directory=True)
-                        log.debug(f"Created persistent directory: {profile_dir}")
+                        logger.debug(f"Created persistent directory: {profile_dir}")
 
     def _register_filesystem_entry(
         self,
@@ -1134,7 +1134,7 @@ class RivenVFS(pyfuse3.Operations):
             current = parent
             while current and current.parent:  # Don't remove root
                 # Get the full path for this directory
-                current_path = current.get_full_path()
+                current_path = current.path
 
                 # Check if this is a persistent directory that should never be removed
                 if self._is_persistent_directory(current_path):
