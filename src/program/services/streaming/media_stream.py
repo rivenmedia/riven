@@ -42,7 +42,6 @@ type ReadType = Literal[
     "general_scan",
     "body_read",
     "footer_read",
-    "seek",
     "cache_hit",
 ]
 
@@ -351,6 +350,7 @@ class MediaStream:
                                     and abs(chunk.index - previous_fetched_chunk.index)
                                     > self.config.seek_chunk_tolerance
                                 ):
+                                    position = chunk.start
                                     connection.seek(position=chunk.start)
 
                                 chunk_label = f"[{chunk.start}-{chunk.end}]"
@@ -362,30 +362,30 @@ class MediaStream:
 
                                 previous_fetched_chunk = chunk
 
-                                # if connection.is_prefetch_unlocked(
-                                #     recent_reads=self.recent_reads
-                                # ):
-                                #     target_prefetch_position = (
-                                #         connection.calculate_target_position(
-                                #             recent_reads=self.recent_reads
-                                #         )
-                                #     )
+                                if connection.is_prefetch_unlocked(
+                                    recent_reads=self.recent_reads
+                                ):
+                                    target_prefetch_position = (
+                                        connection.calculate_target_position(
+                                            recent_reads=self.recent_reads
+                                        )
+                                    )
 
-                                #     prefetch_chunk_range = self.chunker.get_chunk_range(
-                                #         position=connection.current_read_position,
-                                #         size=target_prefetch_position
-                                #         - connection.current_read_position,
-                                #     )
+                                    prefetch_chunk_range = self.chunker.get_chunk_range(
+                                        position=connection.current_read_position,
+                                        size=target_prefetch_position
+                                        - connection.current_read_position,
+                                    )
 
-                                #     logger.debug(
-                                #         f"Prefetch is unlocked; target prefetch chunk is {prefetch_chunk_range.last_chunk.index}, current chunk is {chunk.index}"
-                                #     )
+                                    logger.debug(
+                                        f"Prefetch is unlocked; target prefetch chunk is {prefetch_chunk_range.last_chunk.index}, current chunk is {chunk.index}"
+                                    )
 
-                                #     await self._request_chunks(
-                                #         chunks=prefetch_chunk_range.chunks.difference(
-                                #             [chunk]
-                                #         )
-                                #     )
+                                    await self._request_chunks(
+                                        chunks=prefetch_chunk_range.chunks.difference(
+                                            chunks
+                                        )
+                                    )
 
                                 with self.benchmark(
                                     title=f"Processing bytes {chunk_label}"
@@ -398,7 +398,11 @@ class MediaStream:
                                     )
 
                                     async with self.requested_chunks_lock:
-                                        self.requested_chunks.value.discard(chunk)
+                                        self.requested_chunks.value = (
+                                            self.requested_chunks.value.difference(
+                                                [chunk]
+                                            )
+                                        )
 
                                     self.chunk_cache_emitters[chunk.index].value = True
 
@@ -487,6 +491,10 @@ class MediaStream:
                                         )
 
                                         raise ConnectionKilledException()
+
+                    logger.debug(
+                        f"position: {position}, connection: {connection.current_read_position}"
+                    )
 
                     position = connection.current_read_position
 
@@ -707,9 +715,7 @@ class MediaStream:
                         read_position=request_start,
                         size=request_size,
                     )
-                case "body_read" | "seek":
-                    self.stream_start_event.set()
-
+                case "body_read":
                     return await self.read_bytes(chunk_range=read_range)
                 case "footer_read":
                     raise RuntimeError(
@@ -803,54 +809,6 @@ class MediaStream:
             return "general_scan"
 
         if start < self.file_metadata["file_size"] - self.footer_size:
-            if (
-                self.connection
-                and self.connection.current_read_position
-                and self.config.header_size < start < self.connection.start_position
-            ):
-                request_chunk_range = self.chunker.get_chunk_range(position=start)
-
-                logger.log(
-                    "STREAM",
-                    self._build_log_message(
-                        f"Requested start {start} "
-                        f"is before current read position {self.connection.current_read_position} "
-                        f"for {self.file_metadata['path']}. "
-                        f"Seeking to new start position {request_chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
-                    ),
-                )
-
-                # Always seek backwards if the requested start is before the stream's start position (excluding header, which is pre-fetched).
-                # Streams can only read forwards, so a new connection must be made.
-                return "seek"
-
-            # Check if requested start is after current read position,
-            # and if it exceeds the seek tolerance, move the stream to the new start.
-            if self.connection and start > self.connection.current_read_position:
-                request_chunk_range = self.chunker.get_chunk_range(position=start)
-
-                read_position_chunk_range = self.chunker.get_chunk_range(
-                    position=self.connection.current_read_position
-                )
-
-                chunk_difference = self.chunker.calculate_chunk_difference(
-                    left=request_chunk_range,
-                    right=read_position_chunk_range,
-                )
-
-                if chunk_difference >= self.config.seek_chunk_tolerance:
-                    logger.log(
-                        "STREAM",
-                        self._build_log_message(
-                            f"Requested start {start} "
-                            f"is after current read position {self.connection.current_read_position} "
-                            f"for {self.file_metadata['path']}. "
-                            f"Seeking to new start position {request_chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
-                        ),
-                    )
-
-                    return "seek"
-
             return "body_read"
 
         return "footer_read"
@@ -1221,6 +1179,9 @@ class MediaStream:
 
     async def _request_chunks(self, *, chunks: OrderedSet[Chunk]) -> None:
         """Mark the given chunks as requested."""
+
+        if not self.is_streaming:
+            self.stream_start_event.set()
 
         async with self.requested_chunks_lock:
             for chunk in filter(
