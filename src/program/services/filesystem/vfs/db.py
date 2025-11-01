@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from loguru import logger as log
 from sqlalchemy.orm.exc import StaleDataError
@@ -26,7 +26,7 @@ class VFSEntry(TypedDict):
 
 
 class VFSDatabase:
-    def __init__(self, downloader: Optional["Downloader"] = None) -> None:
+    def __init__(self, downloader: "Downloader | None" = None) -> None:
         """
         Initialize VFS Database.
 
@@ -69,7 +69,7 @@ class VFSDatabase:
         pass
 
     # --- Queries ---
-    def get_entry(self, path: str) -> Optional[VFSEntry]:
+    def get_entry(self, path: str) -> VFSEntry | None:
         """
         Retrieve metadata for a virtual filesystem entry or for a virtual directory inferred from stored entries.
 
@@ -136,7 +136,7 @@ class VFSDatabase:
 
             return None
 
-    def list_directory(self, path: str) -> List[VFSEntry]:
+    def list_directory(self, path: str) -> list[VFSEntry]:
         """
         List entries directly under a virtual filesystem path, including synthesized virtual intermediate directories for deeper descendants.
 
@@ -154,7 +154,7 @@ class VFSDatabase:
         """
         path = self._norm(path)
         prefix = "/" if path == "/" else path + "/"
-        out: List[VFSEntry] = []
+        out: list[VFSEntry] = []
         seen_names = set()
 
         with self.SessionLocal() as s:
@@ -222,7 +222,7 @@ class VFSDatabase:
         out.sort(key=lambda d: d["name"])
         return out
 
-    def get_subtitles_for_video(self, parent_original_filename: str) -> list[Dict]:
+    def get_subtitles_for_video(self, parent_original_filename: str) -> list[dict]:
         """
         Get all subtitles for a given video file.
 
@@ -261,7 +261,7 @@ class VFSDatabase:
 
     def get_subtitle_content(
         self, parent_original_filename: str, language: str
-    ) -> Optional[bytes]:
+    ) -> bytes | None:
         """
         Get the subtitle content for a SubtitleEntry.
 
@@ -297,7 +297,7 @@ class VFSDatabase:
         original_filename: str,
         for_http: bool = False,
         force_resolve: bool = False,
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """
         Get entry metadata and download URL by original filename.
 
@@ -356,6 +356,15 @@ class VFSDatabase:
                                     f"Failed to unrestrict URL for {original_filename}: {e}"
                                 )
 
+                                is_download_url_valid = (
+                                    service.unrestrict_check(download_url)
+                                    if hasattr(service, "unrestrict_check")
+                                    else True
+                                )
+
+                                if not is_download_url_valid:
+                                    download_url = None
+
                 # Choose URL based on for_http flag
                 if for_http:
                     chosen_url = unrestricted_url or download_url
@@ -386,7 +395,7 @@ class VFSDatabase:
 
     def get_download_url(
         self, path: str, for_http: bool = False, force_resolve: bool = False
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Get download URL for a file using database-driven provider lookup.
 
@@ -524,10 +533,10 @@ class VFSDatabase:
     def add_file(
         self,
         path: str,
-        url: Optional[str],
+        url: str | None,
         size: int = 0,
-        provider: Optional[str] = None,
-        provider_download_id: Optional[str] = None,
+        provider: str | None = None,
+        provider_download_id: str | None = None,
     ) -> str:
         """
         Create or update a file entry in the virtual filesystem; parent directories are implicit (virtual).
@@ -631,10 +640,10 @@ class VFSDatabase:
         self,
         old_path: str,
         new_path: str,
-        provider: Optional[str] = None,
-        provider_download_id: Optional[str] = None,
-        download_url: Optional[str] = None,
-        size: Optional[int] = None,
+        provider: str | None = None,
+        provider_download_id: str | None = None,
+        download_url: str | None = None,
+        size: int | None = None,
     ) -> bool:
         """
         Rename a filesystem entry and its descendants to a new virtual path, optionally updating provider and download metadata.

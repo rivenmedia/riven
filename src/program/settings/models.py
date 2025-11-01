@@ -284,12 +284,6 @@ class FilesystemModel(Observable):
     cache_metrics: bool = Field(
         default=True, description="Enable cache metrics logging"
     )
-    chunk_size_mb: int = Field(
-        default=8, ge=1, description="Size of a single fetch chunk in MB"
-    )
-    fetch_ahead_chunks: int = Field(
-        default=4, ge=0, description="Number of chunks to fetch ahead when streaming"
-    )
 
     @field_validator("library_profiles")
     def validate_library_profiles(cls, v):
@@ -333,6 +327,24 @@ class FilesystemModel(Observable):
                 enabled_paths[normalized_path] = key
 
         return v
+
+
+class StreamingModel(Observable):
+    buffer_seconds: int = Field(
+        default=10,
+        ge=0,
+        le=60,
+        description="Number of seconds to buffer when streaming",
+    )
+    sequential_chunks_required_for_prefetch: int = Field(
+        default=25,
+        gt=0,
+        description=(
+            "Number of sequential chunks required to start prefetching. "
+            "If this is too low, it may lead to excessive data usage during scans, "
+            "and if too high, it may result in stream stutters."
+        ),
+    )
 
 
 # Content Services
@@ -778,6 +790,10 @@ class AppModel(Observable):
     filesystem: FilesystemModel = Field(
         default_factory=lambda: FilesystemModel(),
         description="Filesystem configuration",
+    )
+    streaming: StreamingModel = Field(
+        default_factory=lambda: StreamingModel(),
+        description="Streaming configuration",
     )
     updaters: UpdatersModel = Field(
         default_factory=lambda: UpdatersModel(),

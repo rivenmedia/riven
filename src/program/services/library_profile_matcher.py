@@ -206,10 +206,10 @@ class LibraryProfileMatcher:
         if exclusions:
             for exclusion in exclusions:
                 if exclusion in item_values_lower:
-                    logger.debug(
-                        f"Item excluded by {filter_name} filter: "
-                        f"item has '{exclusion}' which is in exclusion list"
-                    )
+                    # logger.debug(
+                    #     f"Item excluded by {filter_name} filter: "
+                    #     f"item has '{exclusion}' which is in exclusion list"
+                    # )
                     return False
 
         # Check inclusions (must have at least one match if inclusions exist)
