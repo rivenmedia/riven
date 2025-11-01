@@ -288,10 +288,6 @@ class RivenVFS(pyfuse3.Operations):
                     is_last = i == len(parts) - 1
 
                     if is_last:
-                        if not original_filename:
-                            raise ValueError(
-                                "original_filename must be provided for file nodes"
-                            )
 
                         # This is the target node
                         if is_directory:
@@ -301,6 +297,11 @@ class RivenVFS(pyfuse3.Operations):
                                 parent=current,
                             )
                         else:
+                            if not original_filename:
+                                raise ValueError(
+                                    "original_filename must be provided for file nodes"
+                                )
+
                             child = VFSFile(
                                 name=part,
                                 original_filename=original_filename,
