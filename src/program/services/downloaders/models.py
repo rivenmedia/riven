@@ -212,3 +212,5 @@ class UserInfo(BaseModel):
 
     # Service-specific fields (optional)
     points: Optional[int] = None  # Real-Debrid
+    total_downloaded_bytes: Optional[int] = None
+    cooldown_until: Optional[datetime] = None
