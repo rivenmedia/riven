@@ -88,6 +88,7 @@ class MediaStream:
         self.requested_chunks = trio_util.AsyncValue[OrderedSet[Chunk]](OrderedSet([]))
         self.latest_chunk_range = trio_util.AsyncValue[ChunkRange | None](None)
         self.cached_chunks: dict[int, trio_util.AsyncBool] = {}
+        self.cancel_scope: trio.CancelScope | None = None
 
         self.stream_start_event = trio.Event()
 
@@ -534,15 +535,13 @@ class MediaStream:
         if not self.connection:
             return
 
-        if self.is_streaming:
-            # Wait for the stream loop to close before closing the connection
+        if self.is_streaming and self.cancel_scope:
+            # Wait for the stream loop to close
             with trio.fail_after(5):
-                self.connection.is_active = False
+                self.cancel_scope.cancel("Stream killed")
 
                 while self.is_streaming:
                     await trio.sleep(0.1)
-
-        await self.close()
 
     async def scan(self, read_position: int, size: int) -> bytes:
         """Fetch extra, ephemeral data for scanning purposes."""
