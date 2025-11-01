@@ -71,9 +71,9 @@ class RealDebridModel(Observable):
     api_key: str = Field(default="", description="Real-Debrid API key")
 
 
-class TorBoxModel(Observable):
-    enabled: bool = Field(default=False, description="Enable TorBox")
-    api_key: str = Field(default="", description="TorBox API key")
+class DebridLinkModel(Observable):
+    enabled: bool = Field(default=False, description="Enable Debrid-Link")
+    api_key: str = Field(default="", description="Debrid-Link API key")
 
 
 class DownloadersModel(Observable):
@@ -104,9 +104,9 @@ class DownloadersModel(Observable):
         default_factory=lambda: RealDebridModel(),
         description="Real-Debrid downloader configuration",
     )
-    torbox: TorBoxModel = Field(
-        default_factory=lambda: TorBoxModel(),
-        description="TorBox downloader configuration",
+    debrid_link: DebridLinkModel = Field(
+        default_factory=lambda: DebridLinkModel(),
+        description="Debrid-Link downloader configuration",
     )
 
 
@@ -287,7 +287,7 @@ class FilesystemModel(Observable):
 
     @field_validator("library_profiles")
     def validate_library_profiles(cls, v):
-        """Validate library profile keys"""
+        """Validate library profile keys and paths"""
         import re
 
         for key in v.keys():
@@ -298,6 +298,34 @@ class FilesystemModel(Observable):
                 )
             if key == "default":
                 raise ValueError("Profile key 'default' is reserved")
+
+        # Check for duplicate library_path values among enabled profiles
+        # Disabled profiles are allowed to have duplicate paths since they're not active
+        enabled_paths = {}
+        for key, profile in v.items():
+            if profile.enabled:
+                # Normalize path for comparison (strip trailing slashes, ensure leading slash)
+                normalized_path = profile.library_path.rstrip("/")
+                if not normalized_path.startswith("/"):
+                    normalized_path = f"/{normalized_path}"
+
+                # Check if this path is already used by another enabled profile
+                if normalized_path in enabled_paths:
+                    raise ValueError(
+                        f"Duplicate library_path '{profile.library_path}' found in profiles "
+                        f"'{enabled_paths[normalized_path]}' and '{key}'. "
+                        f"Each enabled library profile must have a unique library_path."
+                    )
+
+                # Check for reserved paths
+                if normalized_path in ["/movies", "/shows"]:
+                    raise ValueError(
+                        f"library_path '{profile.library_path}' in profile '{key}' is reserved. "
+                        f"The paths '/movies' and '/shows' are reserved for base directories."
+                    )
+
+                enabled_paths[normalized_path] = key
+
         return v
 
 

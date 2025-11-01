@@ -124,24 +124,10 @@ class MediaEntry(FilesystemEntry):
 
                 profile = profiles[profile_key]
 
-                # Simplify path if profile only has one content type
-                # e.g., /kids/Movie.mkv instead of /kids/movies/Movie.mkv
-                filter_rules = profile.filter_rules
-                content_types = filter_rules.content_types if filter_rules else None
-
-                if content_types and len(content_types) == 1:
-                    # Single content type - simplify path by removing /movies or /shows
-                    if canonical_path.startswith("/movies/"):
-                        simplified = canonical_path[8:]  # Remove "/movies/"
-                    elif canonical_path.startswith("/shows/"):
-                        simplified = canonical_path[7:]  # Remove "/shows/"
-                    else:
-                        simplified = canonical_path.lstrip("/")
-
-                    profile_path = f"{profile.library_path}/{simplified}"
-                else:
-                    # Multiple content types - keep full path structure
-                    profile_path = f"{profile.library_path}{canonical_path}"
+                # Always use full path structure with /movies or /shows
+                # This ensures consistent directory structure across all library profiles
+                # e.g., /kids/movies/Movie.mkv and /kids/shows/Show.mkv
+                profile_path = f"{profile.library_path}{canonical_path}"
 
                 all_paths.append(profile_path)
 

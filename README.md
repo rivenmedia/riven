@@ -12,7 +12,7 @@
   <a href="https://github.com/rivenmedia/riven/issues"><img alt="Issues" src="https://img.shields.io/github/issues/rivenmedia/riven" /></a>
   <a href="https://github.com/rivenmedia/riven/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/rivenmedia/riven"></a>
   <a href="https://github.com/rivenmedia/riven/graphs/contributors"><img alt="Contributors" src="https://img.shields.io/github/contributors/rivenmedia/riven" /></a>
-  <a href="https://discord.gg/rivenmedia"><img alt="Discord" src="https://img.shields.io/badge/Join%20discord-8A2BE2" /></a>
+  <a href="https://discord.riven.tv"><img alt="Discord" src="https://img.shields.io/badge/Join%20discord-8A2BE2" /></a>
 </div>
 
 <div align="center">
@@ -23,7 +23,7 @@ Services currently supported:
 
 | Type              | Supported                                                                         |
 | ----------------- | --------------------------------------------------------------------------------- |
-| Debrid services   | Real Debrid, All Debrid, TorBox                                                   |
+| Debrid services   | Real Debrid, All Debrid                                                   |
 | Content services  | Plex Watchlist, Overseerr, Mdblist, Listrr, Trakt                                 |
 | Scraping services | Comet, Jackett, Torrentio, Orionoid, Mediafusion, Prowlarr, Zilean, Rarbg         |
 | Media servers     | Plex, Jellyfin, Emby                                                              |
@@ -32,7 +32,7 @@ and more to come!
 
 Check out out [Project Board](https://github.com/users/dreulavelle/projects/2) to stay informed!
 
-Please add feature requests and issues over on our [Issue Tracker](https://github.com/rivenmedia/riven/issues) or join our [Discord](https://discord.gg/rivenmedia) to chat with us!
+Please add feature requests and issues over on our [Issue Tracker](https://github.com/rivenmedia/riven/issues) or join our [Discord](https://discord.riven.tv) to chat with us!
 
 We are constantly adding features and improvements as we go along and squashing bugs as they arise.
 
@@ -259,7 +259,7 @@ We welcome contributions from the community! For development setup, dependency m
 
 - Contributing Guide: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Issues: https://github.com/rivenmedia/riven/issues
-- Discord: https://discord.gg/rivenmedia
+- Discord: https://discord.riven.tv
 
 Commits should follow the [conventional-commits](https://www.conventionalcommits.org/) specification.
 <a href="https://github.com/rivenmedia/riven/graphs/contributors">

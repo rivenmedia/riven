@@ -27,9 +27,7 @@ def _determine_target_filename(item: MediaItem, file_data: ParsedFileData) -> st
     if isinstance(item, Movie):
         return f"{item.title} ({item.aired_at.year}) " + "{tmdb-" + item.tmdb_id + "}"
     elif isinstance(item, Season):
-        showname = item.parent.title
-        showyear = item.parent.aired_at.year
-        return f"{showname} ({showyear}) - Season {str(item.number).zfill(2)}"
+        return f"Season {str(item.number).zfill(2)}"
     elif isinstance(item, Episode):
         # Check if this is a multi-episode file using parsed file data
         if file_data and file_data.episodes and len(file_data.episodes) > 1:
@@ -75,7 +73,13 @@ def create_folder_structure(item: MediaItem, base_path: str) -> str:
     """
     Build the nested folder path for a media item under the given base directory.
 
-    Constructs a folder name for Movie as "Title (Year) {tmdb-<tmdb_id>}". For Show, uses "Title (Year) {tvdb-<tvdb_id>}". For Season and Episode, nests a "Season XX" folder (season number zero-padded to two digits) under the show's folder derived from the parent Show. Any forward slashes in titles are replaced with '-' to avoid creating subdirectories. Returns the base_path unchanged for unrecognized item types.
+    Constructs a folder name for Movie as "Title (Year) {tmdb-<tmdb_id>}".
+    For Show, uses "Title (Year) {tvdb-<tvdb_id>}". For Season and Episode,
+    nests a "Season XX" folder (season number zero-padded to two digits) under the
+    show's folder derived from the parent Show. Any forward slashes in titles are
+    replaced with '-' to avoid creating subdirectories.
+
+    Returns the base_path unchanged for unrecognized item types.
 
     Parameters:
         item: The media item (Movie, Show, Season, or Episode) whose folder structure to build.

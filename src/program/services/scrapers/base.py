@@ -1,11 +1,12 @@
 import hashlib
 from abc import ABC, abstractmethod
-from base64 import decode, encode
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
+import bencodepy
 from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.utils.request import SmartSession
+from program.utils.torrent import extract_infohash
 
 
 class ScraperService(ABC):
@@ -72,13 +73,49 @@ class ScraperService(ABC):
         return identifier, scrape_type, imdb_id
 
     @staticmethod
-    def get_infohash_from_torrent_url(url: str) -> str:
-        """Get the infohash from a torrent URL"""
+    def get_infohash_from_url(url: str) -> Optional[str]:
+        """
+        Get infohash from a URL that could be:
+        1. A direct torrent file download
+        2. A redirect to a magnet link
+        3. A URL containing the infohash
+
+        Returns the infohash or None if it cannot be extracted.
+        """
+        if not url:
+            return None
+
         session = SmartSession()
-        with session.get(url, stream=True) as r:
-            r.raise_for_status()
-            torrent_data = r.content
-            torrent_dict = decode(torrent_data)
-            info = torrent_dict[b"info"]
-            infohash = hashlib.sha1(encode(info)).hexdigest()
-        return infohash
+        try:
+            # Try to download with redirects disabled to check for magnet redirects
+            r = session.get(url, allow_redirects=False)
+
+            # If it's a redirect (3xx status code)
+            if 300 <= r.status_code < 400:
+                location = r.headers.get("Location", "")
+                if location:
+                    # Check if the redirect is a magnet link and extract infohash
+                    infohash = extract_infohash(location)
+                    if infohash:
+                        return infohash
+
+            # If it's a successful response, try to parse as torrent file
+            if r.status_code == 200:
+                try:
+                    torrent_dict = bencodepy.decode(r.content)
+                    info = torrent_dict[b"info"]
+                    infohash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
+                    return infohash.lower()
+                except Exception:
+                    # Not a valid torrent file, try to extract from URL
+                    pass
+
+            # Try to extract infohash from the URL itself (handles magnets and bare hashes)
+            infohash = extract_infohash(url)
+            if infohash:
+                return infohash
+
+        except Exception as e:
+            logger.debug(f"Failed to get infohash from URL {url}: {e}")
+
+        return None

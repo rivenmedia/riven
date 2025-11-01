@@ -232,11 +232,7 @@ class NamingService:
                 season_num = getattr(item, "number", 1) or 1
             else:  # Episode
                 season_num = getattr(getattr(item, "parent", None), "number", 1) or 1
-            folder += f"/{title}"
-            if year:
-                folder += f" ({year})"
-            folder += f" - Season {str(season_num).zfill(2)}"
-
+            folder += f"/Season {str(season_num).zfill(2)}"
         return folder
 
     def _generate_clean_filename(

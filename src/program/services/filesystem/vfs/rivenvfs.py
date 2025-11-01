@@ -471,6 +471,13 @@ class RivenVFS(pyfuse3.Operations):
         """
         from program.media.media_entry import MediaEntry
 
+        if item.type == "show":
+            for season in item.seasons:
+                self.remove(season)
+        if item.type == "season":
+            for episode in item.episodes:
+                self.remove(episode)
+
         # Only process if this item has a filesystem entry
         if not item.filesystem_entry:
             logger.debug(f"Item {item.id} has no filesystem_entry, skipping VFS remove")
@@ -720,7 +727,12 @@ class RivenVFS(pyfuse3.Operations):
 
         logger.log("VFS", f"Full sync complete: re-registered {registered_count} items")
 
-        # Step 4: Batch invalidate all collected inodes
+        # Step 4: Ensure persistent library profile directories exist
+        # This creates /movies, /shows, and /{profile}/movies, /{profile}/shows
+        # These directories are never pruned, even when empty
+        self._ensure_library_profile_directories()
+
+        # Step 5: Batch invalidate all collected inodes
         # This is critical: reduces syscalls from O(n) to O(1)
         if self._pending_invalidations:
             invalidated_count = 0
@@ -799,6 +811,55 @@ class RivenVFS(pyfuse3.Operations):
                 session.commit()
 
         logger.debug(f"Individual sync complete for item {item.id}")
+
+    def _ensure_library_profile_directories(self) -> None:
+        """
+        Ensure persistent /movies and /shows directories exist for each library profile.
+
+        This creates the base directory structure that should always be present,
+        even when no media files are registered. This provides a consistent
+        structure for media players and users.
+
+        Directory structure created:
+        - /movies (always present)
+        - /shows (always present)
+        - /{profile}/movies (for each enabled library profile)
+        - /{profile}/shows (for each enabled library profile)
+
+        These directories are never pruned, even when empty.
+        """
+        with self._tree_lock:
+            # Always create base /movies and /shows directories
+            for base_dir in ["/movies", "/shows"]:
+                node = self._get_node_by_path(base_dir)
+                if node is None:
+                    # Create the directory node
+                    self._get_or_create_node(path=base_dir, is_directory=True)
+                    log.debug(f"Created persistent directory: {base_dir}")
+
+            # Create /movies and /shows for each enabled library profile
+            try:
+                profiles = settings_manager.settings.filesystem.library_profiles or {}
+            except Exception:
+                profiles = {}
+
+            for profile_key, profile in profiles.items():
+                if not profile.enabled:
+                    continue
+
+                # Create profile root directory
+                profile_root = profile.library_path
+                if not profile_root.startswith("/"):
+                    profile_root = f"/{profile_root}"
+
+                # Create /profile/movies and /profile/shows
+                for content_type in ["movies", "shows"]:
+                    profile_dir = f"{profile_root}/{content_type}"
+                    node = self._get_node_by_path(profile_dir)
+                    if node is None:
+                        # Create the directory node
+                        self._get_or_create_node(path=profile_dir, is_directory=True)
+                        log.debug(f"Created persistent directory: {profile_dir}")
 
     def _register_filesystem_entry(
         self,
@@ -992,6 +1053,52 @@ class RivenVFS(pyfuse3.Operations):
 
         return True
 
+    def _is_persistent_directory(self, path: str) -> bool:
+        """
+        Check if a directory is a persistent library profile directory.
+
+        Persistent directories are never pruned, even when empty:
+        - /movies
+        - /shows
+        - /{profile}/movies
+        - /{profile}/shows
+
+        Args:
+            path: NORMALIZED VFS path to check
+
+        Returns:
+            True if this is a persistent directory that should never be removed
+        """
+        # Base directories are always persistent
+        if path in ["/movies", "/shows"]:
+            return True
+
+        # Check if this is a library profile directory
+        # Format: /{profile}/movies or /{profile}/shows
+        parts = [p for p in path.split("/") if p]
+
+        if len(parts) == 2:
+            # Could be /{profile}/movies or /{profile}/shows
+            profile_name = parts[0]
+            content_type = parts[1]
+
+            if content_type in ["movies", "shows"]:
+                # Check if this profile exists and is enabled
+                try:
+                    profiles = (
+                        settings_manager.settings.filesystem.library_profiles or {}
+                    )
+                    for profile in profiles.values():
+                        if (
+                            profile.enabled
+                            and profile.library_path.strip("/") == profile_name
+                        ):
+                            return True
+                except Exception:
+                    pass
+
+        return False
+
     def _unregister_clean_path(self, path: str) -> bool:
         """
         Unregister a VFS path and prune empty parent directories.
@@ -1023,8 +1130,18 @@ class RivenVFS(pyfuse3.Operations):
                 del self._inode_to_node[node.inode]
 
             # Walk up and remove empty parent directories
+            # Skip persistent library profile directories (/movies, /shows, /{profile}/movies, /{profile}/shows)
             current = parent
             while current and current.parent:  # Don't remove root
+                # Get the full path for this directory
+                current_path = current.get_full_path()
+
+                # Check if this is a persistent directory that should never be removed
+                if self._is_persistent_directory(current_path):
+                    # This is a persistent directory - don't remove it, but invalidate cache
+                    inodes_to_invalidate.add(current.inode)
+                    break
+
                 # Check if directory is now empty
                 if len(current.children) == 0:
                     # Remove empty directory
