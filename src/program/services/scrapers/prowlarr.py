@@ -362,7 +362,9 @@ class Prowlarr(ScraperService):
 
         data = response.data
         streams = {}
+        urls_to_fetch = []  # List of (torrent, title) tuples that need URL fetching
 
+        # First pass: extract infohashes from available fields and collect URLs that need fetching
         for torrent in data:
             title = torrent.title
             infohash = None
@@ -375,18 +377,50 @@ class Prowlarr(ScraperService):
             if not infohash and hasattr(torrent, "guid") and torrent.guid:
                 infohash = extract_infohash(torrent.guid)
 
-            # Priority 3: Try downloadUrl as last resort
+            # Priority 3: Collect URLs that need fetching
             if not infohash and hasattr(torrent, "downloadUrl") and torrent.downloadUrl:
-                try:
-                    infohash = self.get_infohash_from_url(torrent.downloadUrl)
-                except Exception as e:
-                    logger.debug(f"Failed to get infohash from downloadUrl for {title}: {e}")
+                urls_to_fetch.append((torrent, title))
+            elif infohash:
+                # We already have an infohash, add it directly
+                streams[infohash] = title
 
-            # Skip if we couldn't get an infohash
-            if not infohash:
-                continue
+        # Fetch URLs in parallel
+        if urls_to_fetch:
+            with concurrent.futures.ThreadPoolExecutor(
+                thread_name_prefix="ProwlarrHashExtract", max_workers=10
+            ) as executor:
+                future_to_torrent = {
+                    executor.submit(self.get_infohash_from_url, torrent.downloadUrl): (
+                        torrent,
+                        title,
+                    )
+                    for torrent, title in urls_to_fetch
+                }
 
-            streams[infohash] = title
+                done, pending = concurrent.futures.wait(
+                    future_to_torrent.keys(),
+                    timeout=self.settings.infohash_fetch_timeout
+                )
+                
+                # Process completed futures
+                for future in done:
+                    torrent, title = future_to_torrent[future]
+                    try:
+                        infohash = future.result()
+                        if infohash:
+                            streams[infohash] = title
+                    except Exception as e:
+                        logger.debug(
+                            f"Failed to get infohash from downloadUrl for {title}: {e}"
+                        )
+                
+                # Cancel and log timeouts for pending futures
+                for future in pending:
+                    torrent, title = future_to_torrent[future]
+                    future.cancel()
+                    logger.debug(
+                        f"Timeout getting infohash from downloadUrl for {title}"
+                    )
 
         logger.debug(
             f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds"
