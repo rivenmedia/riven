@@ -397,19 +397,22 @@ class Prowlarr(ScraperService):
                     for torrent, title in urls_to_fetch
                 }
 
-                for future in concurrent.futures.as_completed(future_to_torrent):
+                for future in future_to_torrent:
                     torrent, title = future_to_torrent[future]
-                    try:
-                        infohash = future.result(timeout=30)
-                        if infohash:
-                            streams[infohash] = title
-                    except concurrent.futures.TimeoutError:
+                    done, pending = concurrent.futures.wait([future], timeout=self.settings.infohash_fetch_timeout)
+                    if future in done:
+                        try:
+                            infohash = future.result()
+                            if infohash:
+                                streams[infohash] = title
+                        except Exception as e:
+                            logger.debug(
+                                f"Failed to get infohash from downloadUrl for {title}: {e}"
+                            )
+                    else:
+                        future.cancel()
                         logger.debug(
                             f"Timeout getting infohash from downloadUrl for {title}"
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            f"Failed to get infohash from downloadUrl for {title}: {e}"
                         )
 
         logger.debug(
