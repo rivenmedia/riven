@@ -300,6 +300,57 @@ class FilesystemModel(Observable):
         default=4, ge=0, description="Number of chunks to fetch ahead when streaming"
     )
 
+    # VFS Naming Templates
+    movie_dir_template: str = Field(
+        default="{title} ({year}) {{tmdb-{tmdb_id}}}",
+        description=(
+            "Template for movie directory names. "
+            "Available variables: title, year, tmdb_id, imdb_id, resolution, codec, hdr, audio, quality, "
+            "is_remux, is_proper, is_repack, is_extended, is_directors_cut, container. "
+            "Example: '{title} ({year})' or '{title} ({year}) [{resolution}]'"
+        ),
+    )
+
+    movie_file_template: str = Field(
+        default="{title} ({year})",
+        description=(
+            "Template for movie file names (without extension). "
+            "Available variables: title, year, tmdb_id, imdb_id, resolution, codec, hdr, audio, quality, "
+            "remux, proper, repack, extended, directors_cut, edition (string flags, empty if false). "
+            "Example: '{title} ({year})' or '{title} ({year}) {edition} [{resolution}] {remux}'"
+        ),
+    )
+
+    show_dir_template: str = Field(
+        default="{title} ({year}) {{tvdb-{tvdb_id}}}",
+        description=(
+            "Template for show directory names. "
+            "Available variables: title, year, tvdb_id, imdb_id. "
+            "Example: '{title} ({year})' or '{title} ({year}) {{tvdb-{tvdb_id}}}'"
+        ),
+    )
+
+    season_dir_template: str = Field(
+        default="Season {season:02d}",
+        description=(
+            "Template for season directory names. "
+            "Available variables: season (number), show (parent show data with [title], [year], [tvdb_id], [imdb_id]). "
+            "Example: 'Season {season:02d}' or 'S{season:02d}' or '{show[title]} - Season {season}'"
+        ),
+    )
+
+    episode_file_template: str = Field(
+        default="{show[title]} - s{season:02d}e{episode:02d}",
+        description=(
+            "Template for episode file names (without extension). "
+            "Available variables: title, season, episode, "
+            "show (parent show data with [title], [year], [tvdb_id], [imdb_id]), "
+            "resolution, codec, hdr, audio, quality, remux, proper, repack, extended, directors_cut, edition. "
+            "Example: '{show[title]} - s{season:02d}e{episode:02d}' or 'S{season:02d}E{episode:02d} - {title}'. "
+            "Multi-episode files automatically use range format (e.g., e01-05) based on episode number formatting."
+        ),
+    )
+
     @field_validator("library_profiles")
     def validate_library_profiles(cls, v):
         """Validate library profile keys and paths"""
@@ -342,6 +393,83 @@ class FilesystemModel(Observable):
                 enabled_paths[normalized_path] = key
 
         return v
+
+    @field_validator(
+        "movie_dir_template",
+        "movie_file_template",
+        "show_dir_template",
+        "season_dir_template",
+        "episode_file_template",
+    )
+    def validate_naming_template(cls, v: str, info) -> str:
+        """Validate that naming template string is syntactically valid."""
+        from string import Formatter
+
+        class SafeFormatter(Formatter):
+            """Formatter that handles missing keys gracefully for validation."""
+
+            def get_value(self, key, args, kwargs):
+                if isinstance(key, str):
+                    # Handle nested access: show[title]
+                    if "[" in key and "]" in key:
+                        parts = key.replace("]", "").split("[")
+                        value = kwargs.get(parts[0], {})
+                        for part in parts[1:]:
+                            if isinstance(value, dict):
+                                value = value.get(part, "")
+                            elif isinstance(value, list):
+                                try:
+                                    # Handle negative indices like [-1]
+                                    value = value[int(part)]
+                                except (ValueError, IndexError):
+                                    value = ""
+                            else:
+                                value = ""
+                        return value or ""
+                    # Simple key access
+                    return kwargs.get(key, "")
+                return super().get_value(key, args, kwargs)
+
+            def format_field(self, value, format_spec):
+                if value is None or value == "":
+                    return ""
+                return super().format_field(value, format_spec)
+
+        try:
+            # Test template with comprehensive dummy data
+            formatter = SafeFormatter()
+            test_data = {
+                "title": "Test Title",
+                "year": 2024,
+                "season": 1,
+                "episode": 1,
+                "show": {
+                    "title": "Test Show",
+                    "year": 2024,
+                    "tvdb_id": "12345",
+                    "imdb_id": "tt1234567",
+                },
+                "season_obj": {"number": 1, "title": "Season 1"},
+                "tmdb_id": "12345",
+                "tvdb_id": "12345",
+                "imdb_id": "tt1234567",
+                "resolution": "1080p",
+                "codec": "h264",
+                "hdr": ["HDR10"],
+                "audio": "aac",
+                "quality": "BluRay",
+                "container": "mkv",
+                "remux": "REMUX",
+                "proper": "PROPER",
+                "repack": "REPACK",
+                "extended": "Extended",
+                "directors_cut": "Director's Cut",
+                "edition": "Extended Director's Cut",
+            }
+            formatter.format(v, **test_data)
+            return v
+        except Exception as e:
+            raise ValueError(f"Invalid naming template syntax: {e}")
 
 
 # Content Services
