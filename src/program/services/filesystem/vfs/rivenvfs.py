@@ -32,6 +32,9 @@ Usage:
 
 from __future__ import annotations
 
+
+import pyfuse3
+import trio
 import os
 import shutil
 import errno
@@ -41,13 +44,11 @@ from typing import (
     Literal,
     TypedDict,
 )
-
 import threading
 
-from program.services.downloaders import Downloader
+from kink import di
 
-import pyfuse3
-import trio
+from program.services.downloaders import Downloader
 
 from program.services.filesystem.vfs.vfs_node import (
     VFSDirectory,
@@ -55,16 +56,18 @@ from program.services.filesystem.vfs.vfs_node import (
     VFSNode,
     VFSRoot,
 )
-from src.program.services.streaming.exceptions import (
-    ChunksTooSlowException,
-    MediaStreamException,
-)
-from src.program.services.streaming.media_stream import MediaStream
-from .db import VFSDatabase
 
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
-from .cache import Cache, CacheConfig
+from src.program.services.filesystem.vfs.db import VFSDatabase
+
+from ...streaming import (
+    Cache,
+    CacheConfig,
+    MediaStream,
+    ChunksTooSlowException,
+    MediaStreamException,
+)
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
@@ -139,7 +142,7 @@ class RivenVFS(pyfuse3.Operations):
                 f"cache_max_size_mb clamped to available space: {effective_max_bytes // (1024*1024)} MB"
             )
 
-        self.cache = Cache(
+        di[Cache] = Cache(
             cfg=CacheConfig(
                 cache_dir=cache_dir,
                 max_size_bytes=effective_max_bytes,
@@ -149,7 +152,7 @@ class RivenVFS(pyfuse3.Operations):
             )
         )
 
-        self.db = VFSDatabase(downloader=downloader)
+        di[VFSDatabase] = self.vfs_db = VFSDatabase(downloader=downloader)
 
         # VFS Tree: In-memory tree structure for O(1) path lookups
         # This replaces _path_to_inode, _path_aliases, and _dir_tree
@@ -1565,10 +1568,12 @@ class RivenVFS(pyfuse3.Operations):
             Bytes read from file (may be less than size at EOF)
         """
 
+        from .db import VFSDatabase
+
         try:
             # Log cache stats asynchronously (don't block on trim/I/O)
             try:
-                await self.cache.maybe_log_stats()
+                await di[Cache].maybe_log_stats()
             except Exception:
                 pass
 
@@ -1628,7 +1633,7 @@ class RivenVFS(pyfuse3.Operations):
 
                 # Fetch subtitle content from database (subtitles are small, read once)
                 subtitle_content = await trio.to_thread.run_sync(
-                    lambda: self.db.get_subtitle_content(
+                    lambda: self.vfs_db.get_subtitle_content(
                         parent_original_filename,
                         language,
                     )
@@ -1852,7 +1857,6 @@ class RivenVFS(pyfuse3.Operations):
         if stream_key not in self._active_streams:
             async with self._active_streams_lock:
                 self._active_streams[stream_key] = MediaStream(
-                    vfs=self,
                     fh=fh,
                     file_size=file_size,
                     path=path,

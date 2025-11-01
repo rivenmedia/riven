@@ -78,7 +78,7 @@ class ReadPositionMismatchException(MediaStreamException):
         self.actual_position = actual_position
 
 
-class EmptyDataError(MediaStreamException):
+class EmptyDataException(MediaStreamException):
     """Raised when no data is returned from a stream read operation."""
 
     def __init__(self, *, range: tuple[int, int]) -> None:
