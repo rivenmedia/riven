@@ -337,6 +337,7 @@ class MediaStream:
                         "Cannot manage connection without a current read position"
                     )
 
+                self.cancel_scope = nursery.cancel_scope
                 position = self.recent_reads.current_read.first_chunk.start
 
                 while not nursery._closed:
@@ -533,6 +534,8 @@ class MediaStream:
         """Immediately terminate the active stream."""
 
         if not self.connection:
+            logger.debug(self._build_log_message("No active connection to kill"))
+
             return
 
         if self.is_streaming and self.cancel_scope:
