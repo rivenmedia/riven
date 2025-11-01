@@ -397,23 +397,30 @@ class Prowlarr(ScraperService):
                     for torrent, title in urls_to_fetch
                 }
 
-                for future in future_to_torrent:
+                done, pending = concurrent.futures.wait(
+                    future_to_torrent.keys(),
+                    timeout=self.settings.infohash_fetch_timeout
+                )
+                
+                # Process completed futures
+                for future in done:
                     torrent, title = future_to_torrent[future]
-                    done, pending = concurrent.futures.wait([future], timeout=self.settings.infohash_fetch_timeout)
-                    if future in done:
-                        try:
-                            infohash = future.result()
-                            if infohash:
-                                streams[infohash] = title
-                        except Exception as e:
-                            logger.debug(
-                                f"Failed to get infohash from downloadUrl for {title}: {e}"
-                            )
-                    else:
-                        future.cancel()
+                    try:
+                        infohash = future.result()
+                        if infohash:
+                            streams[infohash] = title
+                    except Exception as e:
                         logger.debug(
-                            f"Timeout getting infohash from downloadUrl for {title}"
+                            f"Failed to get infohash from downloadUrl for {title}: {e}"
                         )
+                
+                # Cancel and log timeouts for pending futures
+                for future in pending:
+                    torrent, title = future_to_torrent[future]
+                    future.cancel()
+                    logger.debug(
+                        f"Timeout getting infohash from downloadUrl for {title}"
+                    )
 
         logger.debug(
             f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds"
