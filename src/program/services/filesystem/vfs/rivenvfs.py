@@ -287,29 +287,19 @@ class RivenVFS(pyfuse3.Operations):
                     # Create the node
                     is_last = i == len(parts) - 1
 
-                    if is_last:
-
-                        # This is the target node
-                        if is_directory:
-                            child = VFSDirectory(
-                                name=part,
-                                inode=self._assign_inode(),
-                                parent=current,
+                    if is_last and not is_directory:
+                        if not original_filename:
+                            raise ValueError(
+                                "original_filename must be provided for file nodes"
                             )
-                        else:
-                            if not original_filename:
-                                raise ValueError(
-                                    "original_filename must be provided for file nodes"
-                                )
 
-                            child = VFSFile(
-                                name=part,
-                                original_filename=original_filename,
-                                inode=self._assign_inode(),
-                                parent=current,
-                            )
+                        child = VFSFile(
+                            name=part,
+                            original_filename=original_filename,
+                            inode=self._assign_inode(),
+                            parent=current,
+                        )
                     else:
-                        # This is a parent directory
                         child = VFSDirectory(
                             name=part,
                             inode=self._assign_inode(),
@@ -318,8 +308,7 @@ class RivenVFS(pyfuse3.Operations):
 
                     current.add_child(child)
 
-                    if child.inode is not None:
-                        self._inode_to_node[child.inode] = child
+                    self._inode_to_node[child.inode] = child
 
                 current = child
 
