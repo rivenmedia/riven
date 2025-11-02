@@ -79,13 +79,11 @@ class MediaStream:
         self.read_lock = trio.Lock()
         self.recent_reads: RecentReads = RecentReads()
         self.connection: StreamConnection | None = None
-        self.is_streaming: bool = False
+        self.is_streaming: trio_util.AsyncBool = trio_util.AsyncBool(False)
         self.requested_chunks = trio_util.AsyncValue[OrderedSet[Chunk]](OrderedSet([]))
         self.requested_chunks_lock = trio.Lock()
         self.chunk_cache_emitters: dict[int, trio_util.AsyncBool] = {}
         self.cancel_scope: trio.CancelScope | None = None
-
-        self.stream_start_event = trio.Event()
 
         self.config = Config(
             max_chunk_size=1 * 1024 * 1024,  # 1 MiB
@@ -220,16 +218,16 @@ class MediaStream:
         """Context manager for managing stream lifecycle."""
 
         try:
-            self.is_streaming = True
+            self.is_streaming.value = True
 
             logger.log(
                 "STREAM",
-                self._build_log_message("Starting stream loop"),
+                self._build_log_message("Starting stream"),
             )
 
             yield
         finally:
-            self.is_streaming = False
+            self.is_streaming.value = False
 
             logger.log("STREAM", self._build_log_message("Stream loop ended"))
 
@@ -313,25 +311,21 @@ class MediaStream:
             await self.close()
 
     async def run(self) -> None:
-        # Wait for the signal before starting the stream loop
-        await self.stream_start_event.wait()
-
-        if self.is_streaming:
-            logger.error(
-                self._build_log_message("Stream is already running, skipping start")
-            )
-
-            return
+        await self.requested_chunks.wait_value(
+            lambda requested_chunks: len(requested_chunks) > 0
+        )
 
         async with self.stream_lifecycle():
             async with trio.open_nursery() as nursery:
-                if not self.recent_reads.current_read:
+                if not self.recent_reads.current_read.value:
                     raise RuntimeError(
                         "Cannot manage connection without a current read position"
                     )
 
                 self.cancel_scope = nursery.cancel_scope
-                position = self.recent_reads.current_read.chunk_range.first_chunk.start
+                position = (
+                    self.recent_reads.current_read.value.chunk_range.first_chunk.start
+                )
                 nursery_closed = trio_util.AsyncBool(nursery._closed)
 
                 while not nursery_closed.value:
@@ -341,152 +335,168 @@ class MediaStream:
                     ) as connection:
                         previous_fetched_chunk = None
 
-                        async with trio_util.move_on_when(
-                            lambda: trio_util.wait_any(
-                                lambda: connection.seek_required.wait_value(True),
-                                lambda: nursery_closed.wait_value(True),
-                            )
-                        ):
-                            async for chunks in self.requested_chunks.eventual_values():
-                                for chunk in chunks:
-                                    logger.debug(f"processing chunk: {chunk}")
+                        async def prefetch() -> None:
+                            async for (
+                                read
+                            ) in self.recent_reads.previous_read.eventual_values(
+                                lambda r, recent_reads=self.recent_reads: (
+                                    hasattr(r, "read_type")
+                                    and r.read_type == "body_read"
+                                    and connection.is_prefetch_unlocked(
+                                        recent_reads=recent_reads
+                                    )
+                                )
+                            ):
+                                logger.debug(f"prefetching for read: {read}")
 
-                                    if (
-                                        self.recent_reads.current_read.read_type
-                                        == "body_read"
-                                    ):
-                                        if connection.is_prefetch_unlocked(
-                                            recent_reads=self.recent_reads
+                                target_prefetch_position = (
+                                    connection.calculate_target_position(
+                                        recent_reads=self.recent_reads
+                                    )
+                                )
+
+                                prefetch_chunk_range = self.chunker.get_chunk_range(
+                                    position=connection.current_read_position,
+                                    size=target_prefetch_position
+                                    - connection.current_read_position,
+                                )
+
+                                logger.debug(
+                                    f"Prefetch is unlocked; target prefetch chunk is {prefetch_chunk_range.last_chunk.index}, last fetched chunk was {previous_fetched_chunk.index if previous_fetched_chunk else None}"
+                                )
+
+                                logger.debug(
+                                    f"new prefetch chunks: {prefetch_chunk_range.chunks.difference(self.requested_chunks.value)}"
+                                )
+
+                                await self._request_chunks(
+                                    chunks=prefetch_chunk_range.chunks.difference(
+                                        chunks
+                                    )
+                                )
+
+                        async with trio_util.run_and_cancelling(prefetch):
+                            async with trio_util.move_on_when(
+                                lambda: trio_util.wait_any(
+                                    lambda: connection.seek_required.wait_value(True),
+                                    lambda: nursery_closed.wait_value(True),
+                                    lambda: self.is_streaming.wait_value(False),
+                                )
+                            ):
+                                async for (
+                                    chunks
+                                ) in self.requested_chunks.eventual_values():
+                                    logger.debug(f"new requested chunks: {chunks}")
+                                    for chunk in chunks:
+                                        logger.debug(f"processing chunk: {chunk}")
+
+                                        chunk_label = f"[{chunk.start}-{chunk.end}]"
+
+                                        with self.benchmark(
+                                            title=f"Fetching bytes {chunk_label}"
                                         ):
-                                            target_prefetch_position = (
-                                                connection.calculate_target_position(
-                                                    recent_reads=self.recent_reads
-                                                )
+                                            data = await anext(connection.reader)
+
+                                        previous_fetched_chunk = chunk
+
+                                        with self.benchmark(
+                                            title=f"Processing bytes {chunk_label}"
+                                        ):
+                                            connection.increment_sequential_chunks()
+
+                                            await self._cache_chunk(
+                                                start=chunk.start,
+                                                data=data,
                                             )
 
-                                            prefetch_chunk_range = self.chunker.get_chunk_range(
-                                                position=connection.current_read_position,
-                                                size=target_prefetch_position
-                                                - connection.current_read_position,
-                                            )
-
-                                            logger.debug(
-                                                f"Prefetch is unlocked; target prefetch chunk is {prefetch_chunk_range.last_chunk.index}, last fetched chunk was {previous_fetched_chunk.index if previous_fetched_chunk else None}"
-                                            )
-
-                                            await self._request_chunks(
-                                                chunks=prefetch_chunk_range.chunks.difference(
-                                                    chunks
-                                                )
-                                            )
-
-                                    chunk_label = f"[{chunk.start}-{chunk.end}]"
-
-                                    with self.benchmark(
-                                        title=f"Fetching bytes {chunk_label}"
-                                    ):
-                                        data = await anext(connection.reader)
-
-                                    previous_fetched_chunk = chunk
-
-                                    with self.benchmark(
-                                        title=f"Processing bytes {chunk_label}"
-                                    ):
-                                        connection.increment_sequential_chunks()
-
-                                        await self._cache_chunk(
-                                            start=chunk.start,
-                                            data=data,
-                                        )
-
-                                        async with self.requested_chunks_lock:
-                                            self.requested_chunks.value = (
-                                                self.requested_chunks.value.difference(
+                                            async with self.requested_chunks_lock:
+                                                self.requested_chunks.value = self.requested_chunks.value.difference(
                                                     [chunk]
                                                 )
+
+                                            self.chunk_cache_emitters[
+                                                chunk.index
+                                            ].value = True
+
+                                            connection.current_read_position += len(
+                                                data
+                                            )
+                                            self.session_statistics.bytes_transferred += len(
+                                                data
                                             )
 
-                                        self.chunk_cache_emitters[chunk.index].value = (
-                                            True
-                                        )
+                                            # Check to see if any subsequent chunks are already cached.
+                                            #
+                                            # Streams cannot skip content themselves; they must read all data in sequence.
+                                            # This means that if future chunks are cached, it would need to re-download them
+                                            # to reach the next uncached position.
+                                            #
+                                            # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
 
-                                        connection.current_read_position += len(data)
-                                        self.session_statistics.bytes_transferred += (
-                                            len(data)
-                                        )
+                                            chunks_to_skip = 0
 
-                                        # Check to see if any subsequent chunks are already cached.
-                                        #
-                                        # Streams cannot skip content themselves; they must read all data in sequence.
-                                        # This means that if future chunks are cached, it would need to re-download them
-                                        # to reach the next uncached position.
-                                        #
-                                        # To avoid this, we can detect cached chunks ahead of time and manually seek past them.
+                                            # while True:
+                                            #     test_chunk = self.chunker.get_chunk_range(
+                                            #         position=connection.current_read_position
+                                            #         + (chunks_to_skip * self.chunk_size)
+                                            #     )
 
-                                        chunks_to_skip = 0
+                                            #     uncached_chunks = await trio.to_thread.run_sync(
+                                            #         lambda: self._get_uncached_chunks(
+                                            #             chunks=test_chunk.chunks
+                                            #         )
+                                            #     )
 
-                                        # while True:
-                                        #     test_chunk = self.chunker.get_chunk_range(
-                                        #         position=connection.current_read_position
-                                        #         + (chunks_to_skip * self.chunk_size)
-                                        #     )
+                                            #     # If the next chunk is already cached, skip ahead
+                                            #     if len(uncached_chunks) == 0:
+                                            #         chunks_to_skip += 1
+                                            #         await trio.sleep(0)
+                                            #         continue
 
-                                        #     uncached_chunks = await trio.to_thread.run_sync(
-                                        #         lambda: self._get_uncached_chunks(
-                                        #             chunks=test_chunk.chunks
-                                        #         )
-                                        #     )
+                                            #     break
 
-                                        #     # If the next chunk is already cached, skip ahead
-                                        #     if len(uncached_chunks) == 0:
-                                        #         chunks_to_skip += 1
-                                        #         await trio.sleep(0)
-                                        #         continue
+                                            if chunks_to_skip > 0:
+                                                target_chunk_index = (
+                                                    chunk.index + chunks_to_skip
+                                                )
 
-                                        #     break
-
-                                        if chunks_to_skip > 0:
-                                            target_chunk_index = (
-                                                chunk.index + chunks_to_skip
-                                            )
-
-                                            if (
-                                                target_chunk_index
-                                                <= self.chunker.total_chunks_excluding_header_footer
-                                            ):
-                                                target_chunk = (
-                                                    self.chunker.get_chunk_by_index(
-                                                        index=target_chunk_index
+                                                if (
+                                                    target_chunk_index
+                                                    <= self.chunker.total_chunks_excluding_header_footer
+                                                ):
+                                                    target_chunk = (
+                                                        self.chunker.get_chunk_by_index(
+                                                            index=target_chunk_index
+                                                        )
                                                     )
-                                                )
 
-                                                logger.log(
-                                                    "STREAM",
-                                                    self._build_log_message(
-                                                        f"Skipped ahead to byte "
-                                                        f"{target_chunk} "
-                                                        f"after finding {chunks_to_skip} cached chunks"
-                                                    ),
-                                                )
+                                                    logger.log(
+                                                        "STREAM",
+                                                        self._build_log_message(
+                                                            f"Skipped ahead to byte "
+                                                            f"{target_chunk} "
+                                                            f"after finding {chunks_to_skip} cached chunks"
+                                                        ),
+                                                    )
 
-                                                # If cached chunks were found, break out of the stream loop.
-                                                connection.seek(
-                                                    position=target_chunk.start
-                                                )
-                                            else:
-                                                logger.log(
-                                                    "STREAM",
-                                                    self._build_log_message(
-                                                        f"Reached end of file while skipping cached chunks."
-                                                    ),
-                                                )
+                                                    # If cached chunks were found, break out of the stream loop.
+                                                    connection.seek(
+                                                        position=target_chunk.start
+                                                    )
+                                                else:
+                                                    logger.log(
+                                                        "STREAM",
+                                                        self._build_log_message(
+                                                            f"Reached end of file while skipping cached chunks."
+                                                        ),
+                                                    )
 
-                                                # Break out of the loop to let the context manager close the connection
-                                                raise FileConsumedException()
+                                                    # Break out of the loop to let the context manager close the connection
+                                                    raise FileConsumedException()
 
                         async with self.requested_chunks_lock:
                             self.requested_chunks.value = (
-                                self.recent_reads.current_read.uncached_chunks
+                                self.recent_reads.current_read.value.uncached_chunks
                             )
 
                         position = connection.current_read_position
@@ -562,13 +572,12 @@ class MediaStream:
 
             return
 
-        if self.is_streaming and self.cancel_scope:
+        if self.is_streaming.value and self.cancel_scope:
             # Wait for the stream loop to close
             with trio.fail_after(5):
                 self.cancel_scope.cancel("Stream killed")
 
-                while self.is_streaming:
-                    await trio.sleep(0.1)
+                await self.is_streaming.wait_value(False)
 
     async def scan(self, read_position: int, size: int) -> bytes:
         """Fetch extra, ephemeral data for scanning purposes."""
@@ -634,7 +643,7 @@ class MediaStream:
                 chunk_range=chunk_range,
             )
 
-            self.recent_reads.current_read = Read(
+            self.recent_reads.current_read.value = Read(
                 chunk_range=chunk_range,
                 read_type=read_type,
             )
@@ -683,7 +692,7 @@ class MediaStream:
 
             yield read_type
         finally:
-            self.recent_reads.previous_read = Read(
+            self.recent_reads.previous_read.value = Read(
                 chunk_range=chunk_range,
                 read_type=read_type,
             )
@@ -888,10 +897,6 @@ class MediaStream:
         self.session_statistics.bytes_transferred += len(data)
 
         verified_data = self._verify_scan_integrity((start, start + size), data)
-
-        chunk_range = self.chunker.get_chunk_range(position=start, size=size)
-
-        logger.debug(f"chunk_range for discrete fetch: {chunk_range}")
 
         if should_cache:
             await self._cache_chunk(
@@ -1221,19 +1226,12 @@ class MediaStream:
     async def _request_chunks(self, *, chunks: OrderedSet[Chunk]) -> None:
         """Mark the given chunks as requested."""
 
-        if not self.is_streaming:
-            self.stream_start_event.set()
-
         async with self.requested_chunks_lock:
             for chunk in filter(
                 lambda chunk: chunk.index not in self.chunk_cache_emitters,
                 chunks,
             ):
                 self.chunk_cache_emitters[chunk.index] = trio_util.AsyncBool()
-
-            logger.debug(
-                f"current requested_chunks: {self.requested_chunks.value}, chunks: {chunks}"
-            )
 
             self.requested_chunks.value = OrderedSet(
                 [
@@ -1258,8 +1256,10 @@ class MediaStream:
             )
 
             if len(uncached_chunks) > 0:
-                if self.recent_reads.current_read:
-                    self.recent_reads.current_read.uncached_chunks = uncached_chunks
+                if self.recent_reads.current_read.value:
+                    self.recent_reads.current_read.value.uncached_chunks = (
+                        uncached_chunks
+                    )
 
                 await self._request_chunks(chunks=uncached_chunks)
 

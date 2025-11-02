@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ordered_set import OrderedSet
+import trio_util
 
 from src.program.services.streaming.chunker import Chunk, ChunkRange
 
@@ -23,14 +24,18 @@ class Read:
 class RecentReads:
     """Tracks recent read operations."""
 
-    current_read: Read | None = None
-    previous_read: Read | None = None
+    current_read: trio_util.AsyncValue[Read | None] = field(
+        default_factory=lambda: trio_util.AsyncValue(None)
+    )
+    previous_read: trio_util.AsyncValue[Read | None] = field(
+        default_factory=lambda: trio_util.AsyncValue(None)
+    )
 
     @property
     def last_read_end(self) -> int | None:
         """The end position of the last read operation."""
 
-        if not self.previous_read:
+        if not self.previous_read.value:
             return None
 
-        return self.previous_read.chunk_range.request_range[1]
+        return self.previous_read.value.chunk_range.request_range[1]

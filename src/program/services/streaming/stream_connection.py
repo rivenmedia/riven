@@ -159,7 +159,7 @@ class StreamConnection:
     def calculate_target_position(self, recent_reads: "RecentReads") -> int:
         """Calculate the target position for the current read."""
 
-        if not recent_reads.current_read:
+        if not recent_reads.current_read.value:
             return 0
 
         prefetch_size = (
@@ -168,7 +168,11 @@ class StreamConnection:
             else 0
         )
 
-        return recent_reads.current_read.chunk_range.last_chunk.end + prefetch_size + 1
+        return (
+            recent_reads.current_read.value.chunk_range.last_chunk.end
+            + prefetch_size
+            + 1
+        )
 
     def increment_sequential_chunks(
         self,
