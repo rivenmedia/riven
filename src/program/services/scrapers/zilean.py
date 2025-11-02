@@ -27,7 +27,7 @@ class Zilean(ScraperService):
         else:
             rate_limits = None
         self.session = SmartSession(
-            rate_limits=rate_limits, retries=3, backoff_factor=0.3
+            rate_limits=rate_limits, retries=self.settings.retries, backoff_factor=0.3
         )
         self._initialize()
 

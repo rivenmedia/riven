@@ -68,7 +68,7 @@ class Jackett(ScraperService):
                 self.session = SmartSession(
                     base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
                     rate_limits=rate_limits,
-                    retries=3,
+                    retries=self.settings.retries,
                     backoff_factor=0.3,
                 )
 

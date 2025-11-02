@@ -66,7 +66,7 @@ class Prowlarr(ScraperService):
         """Create a session for Prowlarr"""
         return SmartSession(
             base_url=f"{self.settings.url.rstrip('/')}/api/v1",
-            retries=3,
+            retries=self.settings.retries,
             backoff_factor=0.3,
         )
 
