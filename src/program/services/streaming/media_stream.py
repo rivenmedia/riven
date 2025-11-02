@@ -40,6 +40,7 @@ type ReadType = Literal[
     "body_read",
     "footer_read",
     "cache_hit",
+    "unknown",
 ]
 
 
@@ -72,14 +73,9 @@ class MediaStream:
         fs = settings_manager.settings.filesystem
 
         self.fh = fh
-        self.read_lock = trio.Lock()
         self.recent_reads: RecentReads = RecentReads()
         self.connection: StreamConnection | None = None
         self.is_streaming: trio_util.AsyncBool = trio_util.AsyncBool(False)
-        self.requested_chunks = OrderedSet[Chunk]([])
-        self.requested_chunks_lock = trio.Lock()
-        self.requires_new_chunks: trio_util.AsyncBool = trio_util.AsyncBool(False)
-        self.chunk_cache_emitters: dict[int, trio_util.AsyncBool] = {}
         self.cancel_scope: trio.CancelScope | None = None
 
         self.config = Config(
@@ -101,6 +97,7 @@ class MediaStream:
         )
 
         self.chunker = Chunker(
+            file=self.file_metadata["original_filename"],
             chunk_size=self.config.chunk_size,
             header_size=self.config.header_size,
             footer_size=self.footer_size,
@@ -245,12 +242,10 @@ class MediaStream:
             await self.close()
 
     async def run(self) -> None:
-        await self.requires_new_chunks.wait_value(True)
-
         async with self.stream_lifecycle():
             async with trio.open_nursery() as nursery:
                 self.cancel_scope = nursery.cancel_scope
-                position = self.requested_chunks[0].start
+                position = self.config.header_size
                 nursery_closed = trio_util.AsyncBool(nursery._closed)
 
                 while not nursery_closed.value:
@@ -266,10 +261,29 @@ class MediaStream:
                             )
                         ):
                             async for (
-                                requires_chunks
-                            ) in self.requires_new_chunks.eventual_values():
-                                if not requires_chunks:
+                                read
+                            ) in self.recent_reads.current_read.eventual_values(
+                                lambda v: v is not None and v.read_type == "body_read"
+                            ):
+                                if not read:
                                     continue
+
+                                logger.debug(f"received read: {read}")
+
+                                uncached_chunks = OrderedSet(
+                                    [
+                                        chunk
+                                        for chunk in read.chunk_range.chunks
+                                        if not chunk.is_cached.value
+                                    ]
+                                )
+
+                                if len(uncached_chunks) == 0:
+                                    continue
+
+                                logger.debug(
+                                    f"read {read} found missing chunks: {uncached_chunks}"
+                                )
 
                                 start_read_position = connection.current_read_position
 
@@ -283,7 +297,7 @@ class MediaStream:
                                         ),
                                     )
                                 ):
-                                    for chunk in self.requested_chunks:
+                                    for chunk in uncached_chunks:
                                         logger.debug(f"processing chunk: {chunk}")
 
                                         chunk_label = f"[{chunk.start}-{chunk.end}]"
@@ -313,12 +327,7 @@ class MediaStream:
                                                 data=data,
                                             )
 
-                                            async with self.requested_chunks_lock:
-                                                self.requested_chunks.discard(chunk)
-
-                                            self.chunk_cache_emitters[
-                                                chunk.index
-                                            ].value = True
+                                            chunk.is_cached.value = True
 
                                             connection.current_read_position += len(
                                                 data
@@ -327,18 +336,6 @@ class MediaStream:
                                             self.session_statistics.bytes_transferred += len(
                                                 data
                                             )
-
-                                self.requires_new_chunks.value = False
-
-                        async with self.requested_chunks_lock:
-                            if not self.recent_reads.current_read.value:
-                                raise RuntimeError(
-                                    "Cannot manage connection without a current read position"
-                                )
-
-                            self.requested_chunks = (
-                                self.recent_reads.current_read.value.uncached_chunks
-                            )
 
                         position = connection.current_read_position
 
@@ -455,6 +452,8 @@ class MediaStream:
     async def read_lifecycle(self, chunk_range: ChunkRange) -> AsyncIterator[ReadType]:
         """Context manager for managing read lifecycle."""
 
+        read_type: ReadType | None = None
+
         try:
             request_start, request_end = chunk_range.request_range
             request_size = chunk_range.size
@@ -532,7 +531,7 @@ class MediaStream:
         finally:
             self.recent_reads.previous_read.value = Read(
                 chunk_range=chunk_range,
-                read_type=read_type,
+                read_type=read_type or "unknown",
             )
 
             try:
@@ -908,7 +907,7 @@ class MediaStream:
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except pyfuse3.FUSEError:
                 raise
-            except Exception:
+            except Exception as e:
                 logger.exception(
                     self._build_log_message(
                         f"Unexpected error during preflight checks: {e}"
@@ -1064,23 +1063,6 @@ class MediaStream:
 
         raise pyfuse3.FUSEError(errno.EIO)
 
-    async def _request_chunks(self, *, chunks: OrderedSet[Chunk]) -> None:
-        """Mark the given chunks as requested."""
-
-        if len(chunks) == 0:
-            return
-
-        async with self.requested_chunks_lock:
-            for chunk in filter(
-                lambda chunk: chunk.index not in self.chunk_cache_emitters,
-                chunks,
-            ):
-                self.chunk_cache_emitters[chunk.index] = trio_util.AsyncBool()
-
-            self.requested_chunks = self.requested_chunks.union(chunks)
-
-        self.requires_new_chunks.value = True
-
     async def _wait_until_chunks_ready(
         self,
         *,
@@ -1089,37 +1071,15 @@ class MediaStream:
         """Wait until all the given chunks are cached."""
 
         start, end = chunk_range.request_range
-        chunks = chunk_range.chunks
 
         try:
-            uncached_chunks = await trio.to_thread.run_sync(
-                lambda: self._get_uncached_chunks(chunks=chunks)
-            )
-
-            if len(uncached_chunks) > 0:
-                if self.recent_reads.current_read.value:
-                    self.recent_reads.current_read.value.uncached_chunks = (
-                        uncached_chunks
-                    )
-
-                await self._request_chunks(chunks=uncached_chunks)
-
-                logger.log(
-                    "STREAM",
-                    self._build_log_message(
-                        f"Waiting for chunks {uncached_chunks} to be cached for read {start}-{end}..."
-                    ),
+            with trio.fail_after(self.config.chunk_wait_timeout_seconds):
+                await trio_util.wait_all(
+                    *[
+                        lambda: chunk.is_cached.wait_value(True)
+                        for chunk in chunk_range.chunks
+                    ]
                 )
-
-                with trio.fail_after(self.config.chunk_wait_timeout_seconds):
-                    await trio_util.wait_all(
-                        *[
-                            lambda: self.chunk_cache_emitters[chunk.index].wait_value(
-                                True
-                            )
-                            for chunk in uncached_chunks
-                        ]
-                    )
 
             logger.log(
                 "STREAM",
@@ -1132,15 +1092,6 @@ class MediaStream:
                 threshold=self.config.chunk_wait_timeout_seconds,
                 chunk_range=chunk_range,
             )
-
-    def _get_uncached_chunks(self, *, chunks: OrderedSet[Chunk]) -> OrderedSet[Chunk]:
-        """Check the cache for the given chunks and return the ones that are not cached."""
-
-        return OrderedSet(
-            chunk
-            for chunk in chunks
-            if not self._check_cache(start=chunk.start, end=chunk.end)
-        )
 
     def _check_cache(self, *, start: int, end: int) -> bool:
         """Check if the given byte range is fully cached."""

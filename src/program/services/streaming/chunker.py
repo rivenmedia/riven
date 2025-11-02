@@ -2,15 +2,61 @@ from dataclasses import dataclass
 from functools import cached_property
 from kink import di
 from ordered_set import OrderedSet
+import trio_util
+
+
+class ChunkCacheManager:
+    """Manages chunk cache emitters for notifying when chunks have been cached."""
+
+    emitters: dict[int, trio_util.AsyncBool] = {}
+
+    def get_emitter(
+        self,
+        *,
+        file: str,
+        index: int,
+        start: int,
+        end: int,
+    ) -> trio_util.AsyncBool:
+        """Get or create an emitter for the given chunk.
+
+        Parameters:
+            chunk (Chunk): The chunk identifier.
+
+        Returns:
+            trio_util.AsyncBool: The emitter for the chunk.
+        """
+
+        if index not in self.emitters:
+            from .cache import Cache
+
+            is_cached = di[Cache].has(
+                cache_key=file,
+                start=start,
+                end=end,
+            )
+
+            self.emitters[index] = trio_util.AsyncBool(is_cached)
+
+        return self.emitters[index]
 
 
 @dataclass(frozen=True, unsafe_hash=True)
 class Chunk:
     """Represents a single chunk of data within a media stream."""
 
+    file: str
     index: int
     start: int
     end: int
+    is_cached: trio_util.AsyncBool
+
+    def __post_init__(self) -> None:
+        if self.start < 0 or self.end < 0:
+            raise ValueError("Chunk start and end must be non-negative integers.")
+
+        if self.end < self.start:
+            raise ValueError("Chunk end must be greater than or equal to start.")
 
     @property
     def size(self) -> int:
@@ -26,8 +72,10 @@ class Chunk:
         `Chunk #1 [0-1023] (1024 bytes)`
         """
 
+        cached_str = "(cached) " if self.is_cached.value else ""
+
         return (
-            f"{self.__class__.__name__} #{self.index} "
+            f"{self.__class__.__name__} #{self.index} {cached_str}"
             f"[{self.start}-{self.end}] "
             f"({self.size} bytes)"
         )
@@ -42,6 +90,7 @@ class ChunkRange:
     Values are immutable, and cached for the current state.
     """
 
+    file: str
     position: int
     chunk_size: int
     file_size: int
@@ -49,6 +98,7 @@ class ChunkRange:
     max_chunks: int
     header_chunk: Chunk
     footer_chunk: Chunk
+    cache_manager: ChunkCacheManager
 
     @cached_property
     def request_range(self) -> tuple[int, int]:
@@ -58,19 +108,6 @@ class ChunkRange:
         end = start + self.size - 1
 
         return (start, end)
-
-    @cached_property
-    def content_position(self) -> int:
-        """The position within the content, excluding header."""
-
-        start, _ = self.request_range
-
-        if self.header_chunk.size < start < self.footer_chunk.start:
-            return max(0, start - self.header_chunk.size)
-        elif self.footer_chunk.start <= start:
-            return min(self.footer_chunk.start, start)
-        else:
-            return start
 
     @cached_property
     def bytes_required(self) -> int:
@@ -115,7 +152,7 @@ class ChunkRange:
 
         # If the current request is within the header boundaries, include the header chunk.
         # This is sized differently to normal chunks, so handle it separately.
-        if self.size and self.content_position < self.header_chunk.size:
+        if self.size and self.position < self.header_chunk.size:
             chunks.add(self.header_chunk)
 
         for chunk_index in range(lower_chunk_index, upper_chunk_index + 1):
@@ -127,9 +164,16 @@ class ChunkRange:
 
             chunks.add(
                 Chunk(
+                    file=self.file,
                     index=chunk_index + 1,
                     start=chunk_start,
                     end=chunk_end,
+                    is_cached=self.cache_manager.get_emitter(
+                        file=self.file,
+                        index=chunk_index + 1,
+                        start=chunk_start,
+                        end=chunk_end,
+                    ),
                 )
             )
 
@@ -155,7 +199,7 @@ class ChunkRange:
         return (
             f"{self.__class__.__name__}("
             f"request_range={self.request_range}, "
-            f"content_position={self.content_position}, "
+            f"position={self.position}, "
             f"size={self.size}, "
             f"chunks={self.chunks}, "
             f"chunks_required={len(self.chunks)}, "
@@ -173,11 +217,13 @@ class Chunker:
     def __init__(
         self,
         *,
+        file: str,
         chunk_size: int,
         header_size: int,
         footer_size: int,
         file_size: int,
     ) -> None:
+        self.file = file
         self.chunk_size = chunk_size
         self.header_size = header_size
         self.file_size = file_size
@@ -186,6 +232,7 @@ class Chunker:
         self.total_chunks_excluding_header_footer = (
             self.file_size - self.footer_size - self.header_size
         ) // self.chunk_size
+        self.cache_manager = ChunkCacheManager()
 
     @cached_property
     def header_chunk(self) -> Chunk:
@@ -195,10 +242,19 @@ class Chunker:
             Chunk: The header chunk.
         """
 
+        index = 0
+
         return Chunk(
-            index=0,
+            file=self.file,
+            index=index,
             start=0,
             end=self.header_size - 1,
+            is_cached=self.cache_manager.get_emitter(
+                file=self.file,
+                index=index,
+                start=0,
+                end=self.header_size - 1,
+            ),
         )
 
     @cached_property
@@ -209,10 +265,19 @@ class Chunker:
             Chunk: The footer chunk.
         """
 
+        index = self.total_chunks_excluding_header_footer + 1
+
         return Chunk(
-            index=self.total_chunks_excluding_header_footer + 1,
+            file=self.file,
+            index=index,
             start=self.footer_start,
             end=self.file_size - 1,
+            is_cached=self.cache_manager.get_emitter(
+                file=self.file,
+                index=index,
+                start=self.footer_start,
+                end=self.file_size - 1,
+            ),
         )
 
     def get_chunk_range(self, *, position: int, size: int = 1) -> ChunkRange:
@@ -226,6 +291,7 @@ class Chunker:
         """
 
         return ChunkRange(
+            file=self.file,
             position=position,
             size=size,
             chunk_size=self.chunk_size,
@@ -233,55 +299,5 @@ class Chunker:
             footer_chunk=self.footer_chunk,
             file_size=self.file_size,
             max_chunks=self.total_chunks_excluding_header_footer,
+            cache_manager=self.cache_manager,
         )
-
-    def get_chunk_by_index(self, index: int) -> Chunk:
-        """Get a chunk by its index.
-
-        Parameters:
-            index (int): The index of the chunk.
-        Returns:
-            Chunk: The calculated chunk.
-        """
-
-        if index == self.header_chunk.index:
-            return self.header_chunk
-
-        if index == self.footer_chunk.index:
-            return self.footer_chunk
-
-        chunk_start = self.header_size + ((index - 1) * self.chunk_size)
-        chunk_end = min(
-            chunk_start + self.chunk_size - 1,
-            self.footer_chunk.start - 1,
-        )
-
-        return Chunk(
-            index=index,
-            start=chunk_start,
-            end=chunk_end,
-        )
-
-    def calculate_chunk_difference(
-        self,
-        left: "ChunkRange",
-        right: "ChunkRange",
-    ) -> int:
-        """Calculate the difference in chunk indices between two chunk ranges.
-
-        Parameters:
-            left (ChunkRange): The first chunk range to compare.
-            right (ChunkRange): The other chunk range to compare against.
-        Returns:
-            difference (int): The difference in chunk indices.
-        """
-
-        if left.chunk_size != right.chunk_size:
-            raise ValueError(
-                "Chunk sizes must be the same to calculate chunk difference."
-            )
-
-        left_chunk_index = left.content_position // left.chunk_size
-        right_chunk_index = right.content_position // right.chunk_size
-
-        return abs(left_chunk_index - right_chunk_index)
