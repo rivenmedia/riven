@@ -125,15 +125,7 @@ class Jackett(ScraperService):
                 if not infohash and hasattr(result, "MagnetUri") and result.MagnetUri:
                     infohash = extract_infohash(result.MagnetUri)
 
-                # Priority 3: Try to extract from Guid field
-                if not infohash and hasattr(result, "Guid") and result.Guid:
-                    infohash = extract_infohash(result.Guid)
-
-                # Priority 4: Try to extract from Details field
-                if not infohash and hasattr(result, "Details") and result.Details:
-                    infohash = extract_infohash(result.Details)
-
-                # Priority 5: Collect URLs that need fetching
+                # Priority 3: Collect URLs that need fetching
                 if not infohash and hasattr(result, "Link") and result.Link:
                     urls_to_fetch.append((result, result.Title))
                 elif infohash:

@@ -9,12 +9,6 @@ from loguru import logger
 # Pattern to match infohashes in magnet links (supports both 40-char hex and 32-char base32)
 INFOHASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})", re.IGNORECASE)
 
-# Pattern to match bare infohashes (40-char hex only)
-INFOHASH_HEX_PATTERN = re.compile(r"\b[a-fA-F0-9]{40}\b")
-
-# Pattern to match bare base32 infohashes (32-char)
-INFOHASH_BASE32_PATTERN = re.compile(r"\b[a-zA-Z0-9]{32}\b")
-
 
 def normalize_infohash(infohash: str) -> str:
     """
@@ -41,12 +35,8 @@ def normalize_infohash(infohash: str) -> str:
 
 def extract_infohash(text: str) -> Optional[str]:
     """
-    Extract infohash from various text formats (magnet links, URLs, or bare hashes).
-
-    Tries to find infohash in the following order:
-    1. From magnet URI (btih:...)
-    2. From bare hexadecimal hash (40 chars)
-    3. From bare base32 hash (32 chars)
+    Extracts infohash from btih: pattern in strings.
+    Supports both 40-character hex and 32-character base32 formats.
 
     Args:
         text: Text that may contain an infohash
@@ -57,20 +47,9 @@ def extract_infohash(text: str) -> Optional[str]:
     if not text:
         return None
 
-    # First try to extract from magnet URI
-    magnet_match = INFOHASH_PATTERN.search(text)
-    if magnet_match:
-        infohash = magnet_match.group(1)
+    match = INFOHASH_PATTERN.search(text)
+    if match:
+        infohash = match.group(1)
         return normalize_infohash(infohash)
-
-    # Try to find bare hexadecimal infohash (40 chars)
-    hex_match = INFOHASH_HEX_PATTERN.search(text)
-    if hex_match:
-        return hex_match.group(0).lower()
-
-    # Try to find bare base32 infohash (32 chars)
-    base32_match = INFOHASH_BASE32_PATTERN.search(text)
-    if base32_match:
-        return normalize_infohash(base32_match.group(0))
 
     return None
