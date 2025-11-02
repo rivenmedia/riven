@@ -1,9 +1,10 @@
 import httpx
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import trio
+import trio_util
 
 from src.program.services.streaming.chunker import ChunkRange
 from src.program.services.streaming.prefetch_scheduler import PrefetchScheduler
@@ -45,7 +46,6 @@ class StreamConnection:
 
     reader: AsyncIterator[bytes]
     response: httpx.Response
-    is_active: bool = True
 
     _sequential_chunks_fetched: int = 0
 
@@ -73,6 +73,7 @@ class StreamConnection:
             sequential_chunks_required_to_start=streaming_config.sequential_chunks_required_for_prefetch,
         )
         self.requested_chunks: set[ChunkRange] = set()
+        self.seek_required = trio_util.AsyncBool(False)
 
     @property
     def sequential_chunks_fetched(self) -> int:
@@ -167,7 +168,7 @@ class StreamConnection:
             else 0
         )
 
-        return recent_reads.current_read.last_chunk.end + prefetch_size + 1
+        return recent_reads.current_read.chunk_range.last_chunk.end + prefetch_size + 1
 
     def increment_sequential_chunks(
         self,
@@ -180,8 +181,7 @@ class StreamConnection:
         """Seek to a new position in the stream."""
 
         self.current_read_position = position
-
-        raise SeekRequiredException(seek_position=position)
+        self.seek_required.value = True
 
     async def close(self) -> None:
         if self.response:
