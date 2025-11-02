@@ -186,16 +186,19 @@ class MediaStream:
         """Context manager to handle connection lifecycle."""
 
         try:
-            self.connection = await self.connect(
+            connection = await self.connect(
                 position=position,
                 cancel_scope=cancel_scope,
             )
 
-            yield self.connection
+            self.connection = connection
+
+            yield connection
         except* (
             httpx.ReadError,
             httpx.RemoteProtocolError,
             httpx.StreamClosed,
+            httpx.ConnectError,
         ) as e:
             logger.exception(
                 self._build_log_message(
@@ -214,8 +217,6 @@ class MediaStream:
 
             if self.connection:
                 logger.debug(f"response details: {self.connection.response}")
-
-            pass
         except* httpx.PoolTimeout as e:
             logger.exception(
                 self._build_log_message(
