@@ -283,6 +283,52 @@ class MediaStream:
                                 if len(uncached_chunks) == 0:
                                     continue
 
+                                request_start, _ = read.chunk_range.request_range
+
+                                if (
+                                    self.config.header_size
+                                    < uncached_chunks[0].start
+                                    < connection.start_position
+                                ):
+                                    # Backward seek detection:
+                                    #
+                                    # If the requested start is before the start of the stream, we will always need to seek.
+                                    # This is because streams can only read forwards, so a new connection must be made.
+
+                                    logger.log(
+                                        "STREAM",
+                                        self._build_log_message(
+                                            f"Requested start {request_start} "
+                                            f"is before current read position {connection.current_read_position} "
+                                            f"for {self.file_metadata['path']}. "
+                                            f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata['file_size']}."
+                                        ),
+                                    )
+
+                                    connection.seek(position=uncached_chunks[0].start)
+
+                                if (
+                                    connection.current_read_position
+                                    < uncached_chunks[0].start
+                                ):
+                                    # Forward seek detection:
+                                    #
+                                    # If the requested start is after the current read position, we need to seek forward.
+                                    # This is because streams cannot skip chunks of data, so a new connection must be made,
+                                    # to avoid requesting data that will be discarded and using unnecessary bandwidth.
+
+                                    logger.log(
+                                        "STREAM",
+                                        self._build_log_message(
+                                            f"Requested start {request_start} "
+                                            f"is after current read position {connection.current_read_position} "
+                                            f"for {self.file_metadata['path']}. "
+                                            f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata['file_size']}."
+                                        ),
+                                    )
+
+                                    connection.seek(position=uncached_chunks[0].start)
+
                                 logger.debug(
                                     f"read {read} found missing chunks: {uncached_chunks}"
                                 )
@@ -481,56 +527,6 @@ class MediaStream:
                 chunk_range=chunk_range,
                 read_type=read_type,
             )
-
-            if read_type == "body_read":
-                if (
-                    self.connection
-                    and self.connection.current_read_position
-                    and (
-                        self.config.header_size
-                        < request_start
-                        < self.connection.start_position
-                    )
-                ):
-                    # Backward seek detection:
-                    #
-                    # If the requested start is before the start of the stream, we will always need to seek.
-                    # This is because streams can only read forwards, so a new connection must be made.
-
-                    logger.log(
-                        "STREAM",
-                        self._build_log_message(
-                            f"Requested start {request_start} "
-                            f"is before current read position {self.connection.current_read_position} "
-                            f"for {self.file_metadata['path']}. "
-                            f"Seeking to new start position {chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
-                        ),
-                    )
-
-                    self.connection.seek(position=chunk_range.first_chunk.start)
-
-                if (
-                    self.connection
-                    and self.connection.current_read_position
-                    < chunk_range.first_chunk.start
-                ):
-                    # Forward seek detection:
-                    #
-                    # If the requested start is after the current read position, we need to seek forward.
-                    # This is because streams cannot skip chunks of data, so a new connection must be made,
-                    # to avoid requesting data that will be discarded and using unnecessary bandwidth.
-
-                    logger.log(
-                        "STREAM",
-                        self._build_log_message(
-                            f"Requested start {request_start} "
-                            f"is after current read position {self.connection.current_read_position} "
-                            f"for {self.file_metadata['path']}. "
-                            f"Seeking to new start position {chunk_range.first_chunk.start}/{self.file_metadata['file_size']}."
-                        ),
-                    )
-
-                    self.connection.seek(position=chunk_range.first_chunk.start)
 
             yield read_type
         finally:
