@@ -2,10 +2,9 @@ from dataclasses import dataclass, field
 
 from typing import TYPE_CHECKING
 
-from ordered_set import OrderedSet
 import trio_util
 
-from src.program.services.streaming.chunker import Chunk, ChunkRange
+from src.program.services.streaming.chunker import ChunkRange
 
 if TYPE_CHECKING:
     from src.program.services.streaming.media_stream import ReadType
@@ -17,7 +16,6 @@ class Read:
 
     chunk_range: ChunkRange
     read_type: "ReadType"
-    uncached_chunks: OrderedSet[Chunk] = field(default_factory=lambda: OrderedSet([]))
 
 
 @dataclass

@@ -278,6 +278,8 @@ class MediaStream:
                                     ]
                                 )
 
+                                logger.debug(f"uncached_chunks: {uncached_chunks}")
+
                                 if len(uncached_chunks) == 0:
                                     continue
 
@@ -421,9 +423,11 @@ class MediaStream:
         """Scans the start of the media file for header data."""
 
         data = await self._fetch_discrete_byte_range(
-            start=0,
-            size=self.config.header_size,
+            start=self.chunker.header_chunk.start,
+            size=self.chunker.header_chunk.size,
         )
+
+        self.chunker.header_chunk.is_cached.value = True
 
         return data[read_position : read_position + size]
 
@@ -436,15 +440,16 @@ class MediaStream:
         so this is more efficient than making multiple small requests.
         """
 
-        file_size = self.file_metadata["file_size"]
-        footer_start = file_size - self.footer_size
+        footer_chunk = self.chunker.footer_chunk
 
         data = await self._fetch_discrete_byte_range(
-            start=footer_start,
-            size=file_size - footer_start,
+            start=footer_chunk.start,
+            size=footer_chunk.size,
         )
 
-        slice_offset = read_position - footer_start
+        self.chunker.footer_chunk.is_cached.value = True
+
+        slice_offset = read_position - footer_chunk.start
 
         return data[slice_offset : slice_offset + size]
 
