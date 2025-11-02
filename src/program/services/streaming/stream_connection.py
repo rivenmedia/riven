@@ -1,28 +1,12 @@
 import httpx
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import trio
 import trio_util
 
 from src.program.services.streaming.chunker import ChunkRange
-from src.program.services.streaming.prefetch_scheduler import PrefetchScheduler
-from src.program.services.streaming.recent_reads import RecentReads
-from src.program.settings.manager import settings_manager
-
-
-class StreamConnectionException(Exception):
-    """Base class for stream connection-related exceptions."""
-
-    pass
-
-
-class FileConsumedException(StreamConnectionException):
-    """Raised when the end of the file has been reached."""
-
-    def __init__(self) -> None:
-        super().__init__("End of file has been reached.")
 
 
 @dataclass
