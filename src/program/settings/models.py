@@ -605,6 +605,9 @@ class JackettConfig(Observable):
     url: EmptyOrUrl = Field(default="http://localhost:9117", description="Jackett URL")
     api_key: str = Field(default="", description="Jackett API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    infohash_fetch_timeout: int = Field(
+        default=30, ge=1, description="Timeout in seconds for parallel infohash fetching from URLs"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
@@ -613,6 +616,9 @@ class ProwlarrConfig(Observable):
     url: EmptyOrUrl = Field(default="http://localhost:9696", description="Prowlarr URL")
     api_key: str = Field(default="", description="Prowlarr API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    infohash_fetch_timeout: int = Field(
+        default=30, ge=1, description="Timeout in seconds for parallel infohash fetching from URLs"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
     limiter_seconds: int = Field(
         default=60, ge=1, description="Rate limiter cooldown in seconds"
