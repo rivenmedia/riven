@@ -76,6 +76,11 @@ class DebridLinkModel(Observable):
     api_key: str = Field(default="", description="Debrid-Link API key")
 
 
+class AllDebridModel(Observable):
+    enabled: bool = Field(default=False, description="Enable AllDebrid")
+    api_key: str = Field(default="", description="AllDebrid API key")
+
+
 class DownloadersModel(Observable):
     video_extensions: List[str] = Field(
         default_factory=lambda: ["mp4", "mkv", "avi"],
@@ -107,6 +112,10 @@ class DownloadersModel(Observable):
     debrid_link: DebridLinkModel = Field(
         default_factory=lambda: DebridLinkModel(),
         description="Debrid-Link downloader configuration",
+    )
+    all_debrid: AllDebridModel = Field(
+        default_factory=lambda: AllDebridModel(),
+        description="AllDebrid downloader configuration",
     )
 
 
@@ -594,7 +603,9 @@ class JackettConfig(Observable):
     api_key: str = Field(default="", description="Jackett API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     infohash_fetch_timeout: int = Field(
-        default=30, ge=1, description="Timeout in seconds for parallel infohash fetching from URLs"
+        default=30,
+        ge=1,
+        description="Timeout in seconds for parallel infohash fetching from URLs",
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
@@ -605,7 +616,9 @@ class ProwlarrConfig(Observable):
     api_key: str = Field(default="", description="Prowlarr API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     infohash_fetch_timeout: int = Field(
-        default=30, ge=1, description="Timeout in seconds for parallel infohash fetching from URLs"
+        default=30,
+        ge=1,
+        description="Timeout in seconds for parallel infohash fetching from URLs",
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
     limiter_seconds: int = Field(
