@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import requests
 from loguru import logger
@@ -493,25 +493,6 @@ class RealDebridDownloader(DownloaderBase):
                 return None
         except Exception as e:
             logger.debug(f"Direct unrestrict_link failed for {link}: {e}")
-            return None
-
-    def resolve_link(self, link: str) -> Optional[Dict]:
-        """
-        Resolve a link to get download URL, bypassing rate limiting for VFS usage.
-
-        Uses unrestrict_link_direct() to avoid rate limiting issues during Plex scans.
-        """
-        try:
-            resp = self.unrestrict_link(link)
-            if not resp:
-                return None
-            return {
-                "download_url": resp.download,
-                "name": resp.filename or resp.original_filename,
-                "size": int(resp.filesize or 0),
-            }
-        except Exception as e:
-            logger.debug(f"resolve_link failed for {link}: {e}")
             return None
 
     def get_user_info(self) -> Optional[UserInfo]:
