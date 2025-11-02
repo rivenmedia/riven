@@ -7,7 +7,7 @@ from typing import Optional
 from loguru import logger
 
 # Pattern to match infohashes in magnet links (supports both 40-char hex and 32-char base32)
-INFOHASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})")
+INFOHASH_PATTERN = re.compile(r"btih:([a-fA-F0-9]{40}|[a-zA-Z0-9]{32})", re.IGNORECASE)
 
 
 def normalize_infohash(infohash: str) -> str:
