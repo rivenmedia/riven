@@ -194,6 +194,24 @@ class MediaStream:
             self.connection = connection
 
             yield connection
+        except* httpx.HTTPStatusError as e:
+            if isinstance(e.exceptions[0], httpx.HTTPStatusError):
+                status_code = e.exceptions[0].response.status_code
+
+                logger.exception(
+                    self._build_log_message(
+                        f"HTTPStatusError {status_code} occurred whilst managing stream connection: {e.exceptions[0]}"
+                    )
+                )
+
+                if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
+                    raise pyfuse3.FUSEError(errno.ENOENT) from e.exceptions[0]
+                elif status_code == HTTPStatus.FORBIDDEN:
+                    raise pyfuse3.FUSEError(errno.EACCES) from e.exceptions[0]
+                else:
+                    raise pyfuse3.FUSEError(errno.EIO) from e.exceptions[0]
+
+            raise
         except* (
             httpx.ReadError,
             httpx.RemoteProtocolError,
