@@ -67,6 +67,7 @@ from ...streaming import (
     MediaStream,
     ChunksTooSlowException,
     MediaStreamException,
+    ChunkCacheNotifier,
 )
 
 if TYPE_CHECKING:
@@ -153,6 +154,8 @@ class RivenVFS(pyfuse3.Operations):
         )
 
         di[VFSDatabase] = self.vfs_db = VFSDatabase(downloader=downloader)
+
+        di[ChunkCacheNotifier] = ChunkCacheNotifier()
 
         # VFS Tree: In-memory tree structure for O(1) path lookups
         # This replaces _path_to_inode, _path_aliases, and _dir_tree

@@ -1,22 +1,20 @@
-from dataclasses import dataclass
+import cachetools
+from dataclasses import dataclass, field
 from functools import cached_property
 from kink import di
 from ordered_set import OrderedSet
 import trio_util
 
 
-class ChunkCacheManager:
+class ChunkCacheNotifier:
     """Manages chunk cache emitters for notifying when chunks have been cached."""
 
-    emitters: dict[int, trio_util.AsyncBool] = {}
+    emitters = cachetools.LRUCache["Chunk", trio_util.AsyncBool](maxsize=1024)
 
     def get_emitter(
         self,
         *,
-        file: str,
-        index: int,
-        start: int,
-        end: int,
+        chunk: "Chunk",
     ) -> trio_util.AsyncBool:
         """Get or create an emitter for the given chunk.
 
@@ -27,29 +25,48 @@ class ChunkCacheManager:
             trio_util.AsyncBool: The emitter for the chunk.
         """
 
-        if index not in self.emitters:
+        if chunk not in self.emitters:
             from .cache import Cache
 
             is_cached = di[Cache].has(
-                cache_key=file,
-                start=start,
-                end=end,
+                cache_key=chunk.cache_key,
+                start=chunk.start,
+                end=chunk.end,
             )
 
-            self.emitters[index] = trio_util.AsyncBool(is_cached)
+            self.emitters[chunk] = trio_util.AsyncBool(is_cached)
 
-        return self.emitters[index]
+        return self.emitters[chunk]
+
+    def clear_emitter(self, *, chunk: "Chunk") -> None:
+        """Clear the emitter for a specific chunk."""
+
+        if chunk in self.emitters:
+            del self.emitters[chunk]
+
+    def clear_emitters(self, *, cache_key: str) -> None:
+        """Clear all emitters for a specific cache key."""
+
+        self.emitters = {
+            k: v for k, v in self.emitters.items() if k.cache_key != cache_key
+        }
 
 
 @dataclass(frozen=True, unsafe_hash=True)
 class Chunk:
     """Represents a single chunk of data within a media stream."""
 
-    file: str
+    cache_key: str
     index: int
     start: int
     end: int
-    is_cached: trio_util.AsyncBool
+
+    _emitter: trio_util.AsyncBool = field(
+        init=False,
+        hash=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if self.start < 0 or self.end < 0:
@@ -57,6 +74,42 @@ class Chunk:
 
         if self.end < self.start:
             raise ValueError("Chunk end must be greater than or equal to start.")
+
+        # Retrieve an emitter from the chunk cache manager,
+        # which will be used to signal when this chunk has been cached.
+        object.__setattr__(
+            self,
+            "_emitter",
+            di[ChunkCacheNotifier].get_emitter(chunk=self),
+        )
+
+    @property
+    def is_cached(self) -> trio_util.AsyncBool:
+        """An emitter that indicates whether the chunk is cached."""
+
+        if not self._emitter.value:
+            from .cache import Cache
+
+            cache_hit = di[Cache].has(
+                cache_key=self.cache_key,
+                start=self.start,
+                end=self.end,
+            )
+
+            if cache_hit:
+                self._emitter.value = True
+
+        return self._emitter
+
+    def emit_cache_signal(self) -> None:
+        """Emit that the chunk is now cached."""
+
+        # Set the emitter to True to indicate the chunk is cached,
+        # and notify any listeners.
+        self._emitter.value = True
+
+        # Clear the emitter from the manager to free up memory.
+        di[ChunkCacheNotifier].clear_emitter(chunk=self)
 
     @property
     def size(self) -> int:
@@ -90,7 +143,7 @@ class ChunkRange:
     Values are immutable, and cached for the current state.
     """
 
-    file: str
+    cache_key: str
     position: int
     chunk_size: int
     file_size: int
@@ -98,7 +151,6 @@ class ChunkRange:
     max_chunks: int
     header_chunk: Chunk
     footer_chunk: Chunk
-    cache_manager: ChunkCacheManager
 
     @cached_property
     def request_range(self) -> tuple[int, int]:
@@ -164,16 +216,10 @@ class ChunkRange:
 
             chunks.add(
                 Chunk(
-                    file=self.file,
+                    cache_key=self.cache_key,
                     index=chunk_index + 1,
                     start=chunk_start,
                     end=chunk_end,
-                    is_cached=self.cache_manager.get_emitter(
-                        file=self.file,
-                        index=chunk_index + 1,
-                        start=chunk_start,
-                        end=chunk_end,
-                    ),
                 )
             )
 
@@ -217,13 +263,13 @@ class Chunker:
     def __init__(
         self,
         *,
-        file: str,
+        cache_key: str,
         chunk_size: int,
         header_size: int,
         footer_size: int,
         file_size: int,
     ) -> None:
-        self.file = file
+        self.cache_key = cache_key
         self.chunk_size = chunk_size
         self.header_size = header_size
         self.file_size = file_size
@@ -232,7 +278,6 @@ class Chunker:
         self.total_chunks_excluding_header_footer = (
             self.file_size - self.footer_size - self.header_size
         ) // self.chunk_size
-        self.cache_manager = ChunkCacheManager()
 
     @cached_property
     def header_chunk(self) -> Chunk:
@@ -245,16 +290,10 @@ class Chunker:
         index = 0
 
         return Chunk(
-            file=self.file,
+            cache_key=self.cache_key,
             index=index,
             start=0,
             end=self.header_size - 1,
-            is_cached=self.cache_manager.get_emitter(
-                file=self.file,
-                index=index,
-                start=0,
-                end=self.header_size - 1,
-            ),
         )
 
     @cached_property
@@ -268,16 +307,10 @@ class Chunker:
         index = self.total_chunks_excluding_header_footer + 1
 
         return Chunk(
-            file=self.file,
+            cache_key=self.cache_key,
             index=index,
             start=self.footer_start,
             end=self.file_size - 1,
-            is_cached=self.cache_manager.get_emitter(
-                file=self.file,
-                index=index,
-                start=self.footer_start,
-                end=self.file_size - 1,
-            ),
         )
 
     def get_chunk_range(self, *, position: int, size: int = 1) -> ChunkRange:
@@ -291,7 +324,7 @@ class Chunker:
         """
 
         return ChunkRange(
-            file=self.file,
+            cache_key=self.cache_key,
             position=position,
             size=size,
             chunk_size=self.chunk_size,
@@ -299,5 +332,4 @@ class Chunker:
             footer_chunk=self.footer_chunk,
             file_size=self.file_size,
             max_chunks=self.total_chunks_excluding_header_footer,
-            cache_manager=self.cache_manager,
         )

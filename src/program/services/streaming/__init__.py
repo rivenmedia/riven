@@ -10,11 +10,13 @@ from .exceptions import (
     ChunksTooSlowException,
     EmptyDataException,
 )
+from .chunker import ChunkCacheNotifier
 
 __all__ = [
     "MediaStream",
     "Cache",
     "CacheConfig",
+    "ChunkCacheNotifier",
     "MediaStreamException",
     "ByteLengthMismatchException",
     "RawByteLengthMismatchException",

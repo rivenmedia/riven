@@ -17,7 +17,7 @@ from ordered_set import OrderedSet
 from src.program.settings.manager import settings_manager
 from src.program.utils import benchmark
 
-from .chunker import Chunk, ChunkRange, Chunker
+from .chunker import ChunkCacheNotifier, ChunkRange, Chunker
 from .config import Config
 from .exceptions import (
     CacheDataNotFoundException,
@@ -97,7 +97,7 @@ class MediaStream:
         )
 
         self.chunker = Chunker(
-            file=self.file_metadata["original_filename"],
+            cache_key=self.file_metadata["original_filename"],
             chunk_size=self.config.chunk_size,
             header_size=self.config.header_size,
             footer_size=self.footer_size,
@@ -376,7 +376,7 @@ class MediaStream:
                                                 data=data,
                                             )
 
-                                            chunk.is_cached.value = True
+                                            chunk.emit_cache_signal()
 
                                             connection.current_read_position += len(
                                                 data
@@ -449,6 +449,12 @@ class MediaStream:
             return
 
         if self.is_streaming.value and self.cancel_scope:
+            # If the file was streaming,
+            # clear all chunk cache emitters to free up memory.
+            di[ChunkCacheNotifier].clear_emitters(
+                cache_key=self.file_metadata["original_filename"]
+            )
+
             # Wait for the stream loop to close
             with trio.fail_after(5):
                 self.cancel_scope.cancel("Stream killed")
@@ -474,7 +480,7 @@ class MediaStream:
             size=self.chunker.header_chunk.size,
         )
 
-        self.chunker.header_chunk.is_cached.value = True
+        self.chunker.header_chunk.emit_cache_signal()
 
         return data[read_position : read_position + size]
 
@@ -494,7 +500,7 @@ class MediaStream:
             size=footer_chunk.size,
         )
 
-        self.chunker.footer_chunk.is_cached.value = True
+        self.chunker.footer_chunk.emit_cache_signal()
 
         slice_offset = read_position - footer_chunk.start
 
