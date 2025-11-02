@@ -329,24 +329,6 @@ class FilesystemModel(Observable):
         return v
 
 
-class StreamingModel(Observable):
-    buffer_seconds: int = Field(
-        default=10,
-        ge=0,
-        le=60,
-        description="Number of seconds to buffer when streaming",
-    )
-    sequential_chunks_required_for_prefetch: int = Field(
-        default=25,
-        gt=0,
-        description=(
-            "Number of sequential chunks required to start prefetching. "
-            "If this is too low, it may lead to excessive data usage during scans, "
-            "and if too high, it may result in stream stutters."
-        ),
-    )
-
-
 # Content Services
 
 
@@ -606,7 +588,9 @@ class JackettConfig(Observable):
     api_key: str = Field(default="", description="Jackett API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     infohash_fetch_timeout: int = Field(
-        default=30, ge=1, description="Timeout in seconds for parallel infohash fetching from URLs"
+        default=30,
+        ge=1,
+        description="Timeout in seconds for parallel infohash fetching from URLs",
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
@@ -617,7 +601,9 @@ class ProwlarrConfig(Observable):
     api_key: str = Field(default="", description="Prowlarr API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     infohash_fetch_timeout: int = Field(
-        default=30, ge=1, description="Timeout in seconds for parallel infohash fetching from URLs"
+        default=30,
+        ge=1,
+        description="Timeout in seconds for parallel infohash fetching from URLs",
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
     limiter_seconds: int = Field(
@@ -790,10 +776,6 @@ class AppModel(Observable):
     filesystem: FilesystemModel = Field(
         default_factory=lambda: FilesystemModel(),
         description="Filesystem configuration",
-    )
-    streaming: StreamingModel = Field(
-        default_factory=lambda: StreamingModel(),
-        description="Streaming configuration",
     )
     updaters: UpdatersModel = Field(
         default_factory=lambda: UpdatersModel(),

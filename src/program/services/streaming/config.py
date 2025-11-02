@@ -14,12 +14,6 @@ class Config:
     # Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan.
     scan_tolerance_blocks: int
 
-    # Maximum chunk size for adaptive chunk sizing.
-    max_chunk_size: int
-
-    # Minimum chunk size for adaptive chunk sizing.
-    min_chunk_size: int
-
     # Target playback duration for each chunk in seconds.
     target_chunk_duration_seconds: int
 
@@ -31,6 +25,9 @@ class Config:
 
     # Timeout for waiting for a chunk to become available.
     chunk_wait_timeout_seconds: int = 10
+
+    # Chunk size (in bytes) used for streaming calculations.
+    chunk_size: int = 1 * 1024 * 1024  # 1 MiB
 
     @property
     def block_size(self) -> int:

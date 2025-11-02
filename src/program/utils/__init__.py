@@ -2,9 +2,12 @@ import os
 import re
 import secrets
 import string
-from pathlib import Path
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from time import time
 from loguru import logger
+from pathlib import Path
 
 root_dir = Path(__file__).resolve().parents[3]
 
@@ -38,3 +41,26 @@ def generate_api_key():
         api_key = API_KEY
 
     return api_key
+
+
+@contextmanager
+def benchmark(
+    *,
+    log: Callable[[float], None] | None,
+    sig_figs: int = 3,
+) -> Iterator[None]:
+    """Context manager for benchmarking code execution time."""
+
+    try:
+        start_time = time()
+
+        yield
+    finally:
+        end_time = time()
+
+        if log:
+            log(float(f"{end_time - start_time:.{sig_figs}f}"))
+        else:
+            logger.debug(
+                f"Execution time: {end_time - start_time:.{sig_figs}f} seconds"
+            )
