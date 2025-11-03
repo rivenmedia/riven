@@ -139,8 +139,8 @@ class MediaStream:
                 )
                 # Create a dedicated client with proxy for this stream
                 mounts = {
-                    "http://": httpx.HTTPTransport(proxy=proxy_url),
-                    "https://": httpx.HTTPTransport(proxy=proxy_url),
+                    "http://": httpx.AsyncHTTPTransport(proxy=proxy_url),
+                    "https://": httpx.AsyncHTTPTransport(proxy=proxy_url),
                 }
                 self.async_client = httpx.AsyncClient(http2=True, mounts=mounts)
                 self._owns_client = True
@@ -510,10 +510,6 @@ class MediaStream:
 
         self.connection = None
 
-        # Close dedicated httpx client if we own it
-        if hasattr(self, "_owns_client") and self._owns_client:
-            await self.async_client.aclose()
-
         logger.log(
             "STREAM",
             self._build_log_message(
@@ -525,6 +521,9 @@ class MediaStream:
 
     async def kill(self) -> None:
         """Immediately terminate the active stream."""
+
+        if hasattr(self, "_owns_client") and self._owns_client:
+            await self.async_client.aclose()
 
         if not self.connection:
             logger.debug(self._build_log_message("No active connection to kill"))
