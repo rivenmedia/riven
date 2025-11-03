@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # import required here to support SETTINGS_FILENAME
 
-from program.db.db import db # noqa
+from program.db.db import db  # noqa
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

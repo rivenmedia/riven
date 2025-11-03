@@ -146,7 +146,8 @@ class Jackett(ScraperService):
                     }
 
                     done, pending = concurrent.futures.wait(
-                        future_to_result.keys(), timeout=self.settings.infohash_fetch_timeout
+                        future_to_result.keys(),
+                        timeout=self.settings.infohash_fetch_timeout,
                     )
                     # Process completed futures
                     for future in done:
@@ -156,7 +157,9 @@ class Jackett(ScraperService):
                             if infohash:
                                 torrents[infohash] = title
                         except Exception as e:
-                            logger.debug(f"Failed to get infohash from Link for {title}: {e}")
+                            logger.debug(
+                                f"Failed to get infohash from Link for {title}: {e}"
+                            )
                     # Cancel and log timeouts for pending futures
                     for future in pending:
                         result, title = future_to_result[future]

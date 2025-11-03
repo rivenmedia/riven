@@ -60,7 +60,9 @@ class SettingsManager:
                     elif isinstance(value, list) and new_value.startswith("["):
                         checked_settings[key] = json.loads(new_value)
                     elif isinstance(value, list):
-                        logger.error(f"Environment variable {environment_variable} for list type must be a JSON array string. Got {new_value}.")
+                        logger.error(
+                            f"Environment variable {environment_variable} for list type must be a JSON array string. Got {new_value}."
+                        )
                     else:
                         checked_settings[key] = new_value
                 else:
