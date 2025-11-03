@@ -14,8 +14,8 @@ from kink import di
 from collections.abc import AsyncGenerator, AsyncIterator
 from ordered_set import OrderedSet
 
-from src.program.settings.manager import settings_manager
-from src.program.utils import benchmark
+from program.settings.manager import settings_manager
+from program.utils import benchmark
 
 from .chunker import ChunkCacheNotifier, ChunkRange, Chunker
 from .config import Config
@@ -33,6 +33,10 @@ from .session_statistics import SessionStatistics
 from .stream_connection import (
     StreamConnection,
 )
+
+
+# Providers that require proxy connections for streaming
+PROXY_REQUIRED_PROVIDERS = {"alldebrid"}
 
 
 type ReadType = Literal[
@@ -132,34 +136,11 @@ class MediaStream:
                 )
             )
 
-        # Use proxy for AllDebrid if configured
-        if provider == "alldebrid":
-            proxy_url = settings_manager.settings.downloaders.proxy_url
-            if proxy_url:
-                logger.log(
-                    "STREAM",
-                    self._build_log_message(
-                        f"Using proxy {proxy_url} for AllDebrid streaming"
-                    ),
-                )
-                # Create a dedicated client with proxy for this stream
-                mounts = {
-                    "http://": httpx.AsyncHTTPTransport(proxy=proxy_url),
-                    "https://": httpx.AsyncHTTPTransport(proxy=proxy_url),
-                }
-                self.async_client = httpx.AsyncClient(http2=True, mounts=mounts)
-                self._owns_client = True
-            else:
-                self.async_client = di[httpx.AsyncClient]
-                self._owns_client = False
+        # Use proxy client if provider requires it
+        if provider in PROXY_REQUIRED_PROVIDERS and settings_manager.settings.downloaders.proxy_url:
+            self.async_client = di["ProxyClient"]
         else:
-            try:
-                self.async_client = di[httpx.AsyncClient]
-                self._owns_client = False
-            except KeyError:
-                raise RuntimeError(
-                    "httpx.AsyncClient not found in dependency injector"
-                ) from None
+            self.async_client = di[httpx.AsyncClient]
 
     @cached_property
     def footer_size(self) -> int:
@@ -547,21 +528,6 @@ class MediaStream:
                     )
                 )
 
-        # Close dedicated httpx client AFTER stream has stopped
-        # to avoid "another task closed this fd" errors
-        if hasattr(self, "_owns_client") and self._owns_client:
-            try:
-                await self.async_client.aclose()
-                logger.debug(
-                    self._build_log_message("Closed dedicated httpx client")
-                )
-            except Exception as e:
-                logger.debug(
-                    self._build_log_message(
-                        f"Error closing httpx client: {e}"
-                    )
-                )
-
     async def scan(self, read_position: int, size: int) -> bytes:
         """Fetch extra, ephemeral data for scanning purposes."""
 
@@ -900,7 +866,7 @@ class MediaStream:
             The effective URL that was successfully used (may differ from input if refreshed).
         """
 
-        from src.program.services.filesystem.vfs import VFSDatabase
+        from program.services.filesystem.vfs import VFSDatabase
 
         max_preflight_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
@@ -1288,7 +1254,7 @@ class MediaStream:
             True if successfully refreshed, False otherwise
         """
 
-        from src.program.services.filesystem.vfs import VFSDatabase
+        from program.services.filesystem.vfs import VFSDatabase
 
         # Query database by original_filename and force unrestrict
         entry_info = di[VFSDatabase].get_entry_by_original_filename(

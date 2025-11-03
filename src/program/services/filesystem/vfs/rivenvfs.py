@@ -58,8 +58,8 @@ from program.services.filesystem.vfs.vfs_node import (
 
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
-from src.program.services.filesystem.vfs.db import VFSDatabase
-from src.program.services.streaming.exceptions import (
+from program.services.filesystem.vfs.db import VFSDatabase
+from program.services.streaming.exceptions import (
     MediaStreamDataException,
     FatalMediaStreamException,
 )

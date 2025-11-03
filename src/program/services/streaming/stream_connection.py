@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import trio
 import trio_util
 
-from src.program.services.streaming.chunker import ChunkRange
+from program.services.streaming.chunker import ChunkRange
 
 
 @dataclass
