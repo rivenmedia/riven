@@ -183,11 +183,24 @@ class TraktAPI:
         response = self.session.get(url, timeout=30)
         return response.data if response.ok and response.data else {}
 
-    def get_show_aliases(self, imdb_id: str, item_type: str) -> List[dict]:
-        """Wrapper for trakt.tv API show method."""
+    def get_aliases(self, imdb_id: str, item_type: str) -> dict[str, list[str]]:
+        """
+        Wrapper for trakt.tv API show method.
+
+        Returns:
+            Dict[str, list[str]]: A dictionary where keys are country codes and values are lists of alias names.
+
+        Ex:
+        {
+            "us": ["Alias 1", "Alias 2"],
+            "jp": ["エイリアス1", "エイリアス2"]
+        }
+        """
         if not imdb_id:
-            return []
+            return {}
+
         url = f"{self.BASE_URL}/{item_type}/{imdb_id}/aliases"
+
         try:
             response = self.session.get(url, timeout=30)
             if response.ok and response.data:
@@ -203,7 +216,7 @@ class TraktAPI:
                         aliases[country].append(title)
                 return aliases
         except Exception:
-            logger.error(f"Failed to get show aliases for {imdb_id}")
+            logger.debug(f"Failed to get aliases for {imdb_id} with type {item_type}")
         return {}
 
     def create_item_from_imdb_id(
@@ -318,10 +331,10 @@ class TraktAPI:
 
         match item_type:
             case "movie":
-                item["aliases"] = self.get_show_aliases(item["imdb_id"], "movies")
+                item["aliases"] = self.get_aliases(item["imdb_id"], "movies")
                 return Movie(item)
             case "show":
-                item["aliases"] = self.get_show_aliases(item["imdb_id"], "shows")
+                item["aliases"] = self.get_aliases(item["imdb_id"], "shows")
                 return Show(item)
             case "season":
                 item["number"] = data.number
