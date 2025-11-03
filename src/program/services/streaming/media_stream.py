@@ -69,6 +69,7 @@ class MediaStream:
         file_size: int,
         path: str,
         original_filename: str,
+        provider: str | None = None,
     ) -> None:
         fs = settings_manager.settings.filesystem
 
@@ -126,12 +127,34 @@ class MediaStream:
                 )
             )
 
-        try:
-            self.async_client = di[httpx.AsyncClient]
-        except KeyError:
-            raise RuntimeError(
-                "httpx.AsyncClient not found in dependency injector"
-            ) from None
+        # Use proxy for AllDebrid if configured
+        if provider == "alldebrid":
+            proxy_url = settings_manager.settings.downloaders.proxy_url
+            if proxy_url:
+                logger.log(
+                    "STREAM",
+                    self._build_log_message(
+                        f"Using proxy {proxy_url} for AllDebrid streaming"
+                    ),
+                )
+                # Create a dedicated client with proxy for this stream
+                mounts = {
+                    "http://": httpx.HTTPTransport(proxy=proxy_url),
+                    "https://": httpx.HTTPTransport(proxy=proxy_url),
+                }
+                self.async_client = httpx.AsyncClient(http2=True, mounts=mounts)
+                self._owns_client = True
+            else:
+                self.async_client = di[httpx.AsyncClient]
+                self._owns_client = False
+        else:
+            try:
+                self.async_client = di[httpx.AsyncClient]
+                self._owns_client = False
+            except KeyError:
+                raise RuntimeError(
+                    "httpx.AsyncClient not found in dependency injector"
+                ) from None
 
     @cached_property
     def footer_size(self) -> int:
@@ -486,6 +509,10 @@ class MediaStream:
         await self.connection.close()
 
         self.connection = None
+
+        # Close dedicated httpx client if we own it
+        if hasattr(self, "_owns_client") and self._owns_client:
+            await self.async_client.aclose()
 
         logger.log(
             "STREAM",
