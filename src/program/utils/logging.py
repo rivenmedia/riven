@@ -19,7 +19,7 @@ def setup_logger(level):
     def get_log_settings(name, default_color, default_icon):
         color = os.getenv(f"RIVEN_LOGGER_{name}_FG", default_color)
         icon = os.getenv(f"RIVEN_LOGGER_{name}_ICON", default_icon)
-        return f"<fg #{color}>", icon
+        return f"<fg #{color if color != '' else default_color}>", icon if icon != '' else default_icon
 
     # TRACE: 5
     # DEBUG: 10

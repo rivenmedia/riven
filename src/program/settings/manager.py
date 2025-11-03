@@ -37,12 +37,12 @@ class SettingsManager:
         for observer in self.observers:
             observer()
 
-    def check_environment(self, settings, prefix="", seperator="_"):
+    def check_environment(self, settings, prefix="", separator="_"):
         checked_settings = {}
         for key, value in settings.items():
             if isinstance(value, dict):
                 sub_checked_settings = self.check_environment(
-                    value, f"{prefix}{seperator}{key}"
+                    value, f"{prefix}{separator}{key}"
                 )
                 checked_settings[key] = sub_checked_settings
             else:
@@ -57,8 +57,10 @@ class SettingsManager:
                         checked_settings[key] = int(new_value)
                     elif isinstance(value, float):
                         checked_settings[key] = float(new_value)
-                    elif isinstance(value, list):
+                    elif isinstance(value, list) and new_value.startswith("["):
                         checked_settings[key] = json.loads(new_value)
+                    elif isinstance(value, list):
+                        logger.error(f"Environment variable {environment_variable} for list type must be a JSON array string. Got {new_value}.")
                     else:
                         checked_settings[key] = new_value
                 else:
