@@ -42,15 +42,17 @@ class AllDebridAPI:
         # AllDebrid rate limits: 12 req/sec and 600 req/min
         # Using conservative 10 req/sec (600 capacity)
         rate_limits = {"api.alldebrid.com": {"rate": 10, "capacity": 600}}
+        proxies = None
+        if proxy_url:
+            proxies = {"http": proxy_url, "https": proxy_url}
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
+            proxies=proxies,
             retries=2,
             backoff_factor=0.5,
         )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
-        if proxy_url:
-            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 
 class AllDebridDownloader(DownloaderBase):
@@ -79,7 +81,7 @@ class AllDebridDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
-        proxy_url = getattr(self, "PROXY_URL", None) or None
+        proxy_url = self.PROXY_URL or None
         self.api = AllDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
         return self._validate_premium()
 

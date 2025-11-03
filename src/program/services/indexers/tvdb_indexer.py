@@ -174,8 +174,8 @@ class TVDBIndexer(BaseIndexer):
                                 [alias for alias in additional_aliases]
                             )
 
-            # if aliases:
-            #     aliases = {k: list(set(v)) for k, v in aliases.items()}
+            if aliases:
+                aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             # Extract genres and determine if anime
             genres_lower = [
@@ -338,7 +338,8 @@ class TVDBIndexer(BaseIndexer):
                             and translation.data.aliases
                         ):
                             additional_aliases = translation.data.aliases
-                            aliases["eng"].extend(
+
+                            aliases["us"].extend(
                                 [alias for alias in additional_aliases]
                             )
 

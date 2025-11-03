@@ -43,15 +43,17 @@ class RealDebridAPI:
 
         # 250 req/min ~= 4.17 rps with capacity 250
         rate_limits = {"api.real-debrid.com": {"rate": 250 / 60, "capacity": 250}}
+        proxies = None
+        if proxy_url:
+            proxies = {"http": proxy_url, "https": proxy_url}
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
+            proxies=proxies,
             retries=2,
             backoff_factor=0.5,
         )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
-        if proxy_url:
-            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 
 class RealDebridDownloader(DownloaderBase):
@@ -80,7 +82,7 @@ class RealDebridDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
-        proxy_url = getattr(self, "PROXY_URL", None) or None
+        proxy_url = self.PROXY_URL or None
         self.api = RealDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
         return self._validate_premium()
 
