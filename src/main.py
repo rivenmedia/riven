@@ -22,6 +22,8 @@ from starlette.requests import Request
 
 from program.program import riven
 from program.settings.models import get_version
+from program.settings.manager import settings_manager
+from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
 from program.utils.cli import handle_args
 from routers import app_router
 
@@ -49,8 +51,16 @@ args = handle_args()
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
     di[httpx.AsyncClient] = httpx.AsyncClient(http2=True)
+    
+    proxy_url = settings_manager.settings.downloaders.proxy_url
+    if proxy_url and PROXY_REQUIRED_PROVIDERS:
+        di["ProxyClient"] = httpx.AsyncClient(http2=True, proxy=proxy_url)
+    
     yield
+    
     await di[httpx.AsyncClient].aclose()
+    if "ProxyClient" in di:
+        await di["ProxyClient"].aclose()
 
 
 app = FastAPI(

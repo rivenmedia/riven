@@ -14,8 +14,8 @@ from kink import di
 from collections.abc import AsyncGenerator, AsyncIterator
 from ordered_set import OrderedSet
 
-from src.program.settings.manager import settings_manager
-from src.program.utils import benchmark
+from program.settings.manager import settings_manager
+from program.utils import benchmark
 
 from .chunker import ChunkCacheNotifier, ChunkRange, Chunker
 from .config import Config
@@ -33,6 +33,10 @@ from .session_statistics import SessionStatistics
 from .stream_connection import (
     StreamConnection,
 )
+
+
+# Providers that require proxy connections for streaming
+PROXY_REQUIRED_PROVIDERS = {"alldebrid"}
 
 
 type ReadType = Literal[
@@ -69,6 +73,8 @@ class MediaStream:
         file_size: int,
         path: str,
         original_filename: str,
+        provider: str | None = None,
+        initial_url: str | None = None,
     ) -> None:
         fs = settings_manager.settings.filesystem
 
@@ -80,6 +86,10 @@ class MediaStream:
         self._stream_error: trio_util.AsyncValue[Exception | None] = (
             trio_util.AsyncValue(None)
         )
+
+        # Store initial URL if provided to avoid redundant unrestrict calls
+        if initial_url:
+            self.target_url = initial_url
 
         self.config = Config(
             sequential_read_tolerance_blocks=10,
@@ -126,12 +136,11 @@ class MediaStream:
                 )
             )
 
-        try:
+        # Use proxy client if provider requires it
+        if provider in PROXY_REQUIRED_PROVIDERS and settings_manager.settings.downloaders.proxy_url:
+            self.async_client = di["ProxyClient"]
+        else:
             self.async_client = di[httpx.AsyncClient]
-        except KeyError:
-            raise RuntimeError(
-                "httpx.AsyncClient not found in dependency injector"
-            ) from None
 
     @cached_property
     def footer_size(self) -> int:
@@ -499,11 +508,7 @@ class MediaStream:
     async def kill(self) -> None:
         """Immediately terminate the active stream."""
 
-        if not self.connection:
-            logger.debug(self._build_log_message("No active connection to kill"))
-
-            return
-
+        # First wait for the stream to stop, then close the client
         if self.is_streaming.value:
             # If the file was streaming,
             # clear all chunk cache emitters to free up memory.
@@ -512,10 +517,16 @@ class MediaStream:
             )
 
             # Wait for the stream loop to close
-            with trio.fail_after(5):
-                self.is_killed.value = True
-
-                await self.is_streaming.wait_value(False)
+            try:
+                with trio.fail_after(5):
+                    self.is_killed.value = True
+                    await self.is_streaming.wait_value(False)
+            except trio.TooSlowError:
+                logger.warning(
+                    self._build_log_message(
+                        "Stream didn't stop within 5 seconds, forcing close"
+                    )
+                )
 
     async def scan(self, read_position: int, size: int) -> bytes:
         """Fetch extra, ephemeral data for scanning purposes."""
@@ -855,32 +866,34 @@ class MediaStream:
             The effective URL that was successfully used (may differ from input if refreshed).
         """
 
-        from src.program.services.filesystem.vfs import VFSDatabase
+        from program.services.filesystem.vfs import VFSDatabase
 
         max_preflight_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
 
-        # Get entry info from DB
-        # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
-        # Let the refresh logic handle re-unrestricting on failures
-        entry_info = await trio.to_thread.run_sync(
-            lambda: di[VFSDatabase].get_entry_by_original_filename(
-                self.file_metadata["original_filename"],
-                True,  # for_http (use unrestricted URL if available)
-                False,  # force_resolve (don't unrestrict if already have unrestricted URL)
-            )
-        )
-
-        if not entry_info:
-            logger.error(
-                self._build_log_message(
-                    f"No entry info for {self.file_metadata['original_filename']}"
+        # Only fetch URL from DB if not already provided during initialization
+        if not hasattr(self, "target_url") or not self.target_url:
+            # Get entry info from DB
+            # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
+            # Let the refresh logic handle re-unrestricting on failures
+            entry_info = await trio.to_thread.run_sync(
+                lambda: di[VFSDatabase].get_entry_by_original_filename(
+                    self.file_metadata["original_filename"],
+                    True,  # for_http (use unrestricted URL if available)
+                    False,  # force_resolve (don't unrestrict if already have unrestricted URL)
                 )
             )
 
-            raise pyfuse3.FUSEError(errno.ENOENT)
+            if not entry_info:
+                logger.error(
+                    self._build_log_message(
+                        f"No entry info for {self.file_metadata['original_filename']}"
+                    )
+                )
 
-        self.target_url = entry_info["url"]
+                raise pyfuse3.FUSEError(errno.ENOENT)
+
+            self.target_url = entry_info["url"]
 
         if not self.target_url:
             logger.error(
@@ -1241,7 +1254,7 @@ class MediaStream:
             True if successfully refreshed, False otherwise
         """
 
-        from src.program.services.filesystem.vfs import VFSDatabase
+        from program.services.filesystem.vfs import VFSDatabase
 
         # Query database by original_filename and force unrestrict
         entry_info = di[VFSDatabase].get_entry_by_original_filename(

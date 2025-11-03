@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING
 
 import trio_util
 
-from src.program.services.streaming.chunker import ChunkRange
+from program.services.streaming.chunker import ChunkRange
 
 if TYPE_CHECKING:
-    from src.program.services.streaming.media_stream import ReadType
+    from program.services.streaming.media_stream import ReadType
 
 
 @dataclass

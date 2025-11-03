@@ -58,8 +58,8 @@ from program.services.filesystem.vfs.vfs_node import (
 
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
-from src.program.services.filesystem.vfs.db import VFSDatabase
-from src.program.services.streaming.exceptions import (
+from program.services.filesystem.vfs.db import VFSDatabase
+from program.services.streaming.exceptions import (
     MediaStreamDataException,
     FatalMediaStreamException,
 )
@@ -1896,11 +1896,25 @@ class RivenVFS(pyfuse3.Operations):
 
         if stream_key not in self._active_streams:
             async with self._active_streams_lock:
+                # Get provider info and URL from database
+                entry_info = await trio.to_thread.run_sync(
+                    lambda: self.vfs_db.get_entry_by_original_filename(
+                        original_filename,
+                        for_http=True,
+                        force_resolve=False,
+                    )
+                )
+                
+                provider = entry_info.get("provider") if entry_info else None
+                initial_url = entry_info.get("url") if entry_info else None
+                
                 stream = MediaStream(
                     fh=fh,
                     file_size=file_size,
                     path=path,
                     original_filename=original_filename,
+                    provider=provider,
+                    initial_url=initial_url,
                 )
 
                 self._active_streams[stream_key] = stream
