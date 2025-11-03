@@ -1896,16 +1896,17 @@ class RivenVFS(pyfuse3.Operations):
 
         if stream_key not in self._active_streams:
             async with self._active_streams_lock:
-                # Get provider info from database
+                # Get provider info and URL from database
                 entry_info = await trio.to_thread.run_sync(
                     lambda: self.vfs_db.get_entry_by_original_filename(
                         original_filename,
-                        for_http=False,
+                        for_http=True,
                         force_resolve=False,
                     )
                 )
                 
                 provider = entry_info.get("provider") if entry_info else None
+                initial_url = entry_info.get("url") if entry_info else None
                 
                 stream = MediaStream(
                     fh=fh,
@@ -1913,6 +1914,7 @@ class RivenVFS(pyfuse3.Operations):
                     path=path,
                     original_filename=original_filename,
                     provider=provider,
+                    initial_url=initial_url,
                 )
 
                 self._active_streams[stream_key] = stream
