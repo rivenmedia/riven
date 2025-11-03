@@ -25,9 +25,7 @@ class StreamConnection:
         start_position: int,
         current_read_position: int,
         reader: AsyncIterator[bytes],
-        nursery_cancel_scope: trio.CancelScope,
     ) -> None:
-        self.nursery_cancel_scope = nursery_cancel_scope
         self.response = response
         self.start_position = start_position
         self.current_read_position = current_read_position

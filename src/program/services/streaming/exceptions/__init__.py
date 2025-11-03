@@ -1,25 +1,24 @@
-from .media_stream import MediaStream
-from .cache import Cache, CacheConfig
-from .exceptions.chunk_exception import (
+from .chunk_exception import (
     ChunkException,
     ChunksTooSlowException,
 )
-from .exceptions.media_stream_data_exception import (
+from .media_stream_data_exception import (
     MediaStreamDataException,
     ByteLengthMismatchException,
     ReadPositionMismatchException,
     CacheDataNotFoundException,
     EmptyDataException,
 )
-from .exceptions.media_stream_exception import MediaStreamException
-from .chunker import ChunkCacheNotifier
+from .media_stream_exception import (
+    MediaStreamException,
+    FatalMediaStreamException,
+    RecoverableMediaStreamException,
+)
 
 __all__ = [
-    "MediaStream",
-    "Cache",
-    "CacheConfig",
-    "ChunkCacheNotifier",
     "MediaStreamException",
+    "FatalMediaStreamException",
+    "RecoverableMediaStreamException",
     "MediaStreamDataException",
     "ByteLengthMismatchException",
     "ReadPositionMismatchException",

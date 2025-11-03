@@ -17,8 +17,8 @@ class VFSNode:
         name: Name of this node (e.g., "Frozen.mkv" or "movies")
         is_directory: True if this is a directory, False if it's a file
         original_filename: Original filename from debrid provider (for files only)
-                          This is used to look up the MediaEntry in the database.
-                          For directories, this is None.
+                           This is used to look up the MediaEntry in the database.
+                           For directories, this is None.
         inode: FUSE inode number assigned to this node
         children: Dict of child name -> VFSNode (only for directories)
         parent: Reference to parent VFSNode (None for root)
@@ -118,7 +118,7 @@ class VFSRoot(VFSDirectory):
             parent=self,
         )
 
-    @property
+    @cached_property
     def path(self) -> Literal["/"]:
         """
         Skips expensive path calculation for root node.

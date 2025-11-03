@@ -32,7 +32,6 @@ Usage:
 
 from __future__ import annotations
 
-
 import pyfuse3
 import trio
 import os
@@ -60,6 +59,11 @@ from program.services.filesystem.vfs.vfs_node import (
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
 from src.program.services.filesystem.vfs.db import VFSDatabase
+from src.program.services.streaming.exceptions import (
+    MediaStreamDataException,
+    FatalMediaStreamException,
+)
+
 
 from ...streaming import (
     Cache,
@@ -78,8 +82,6 @@ if TYPE_CHECKING:
 class FileHandle(TypedDict):
     inode: pyfuse3.InodeT
     last_read_end: int
-    bitrate: int | None
-    duration: float | None
     subtitle_content: bytes | None
     has_stream_error: bool
 
@@ -190,7 +192,9 @@ class RivenVFS(pyfuse3.Operations):
         self._mountpoint = os.path.abspath(mountpoint)
         self._thread = None
         self._mounted = False
-        self._trio_token = None
+        self._is_unmounting = False
+        self.stream_nursery: trio.Nursery
+        self._trio_token: trio.lowlevel.TrioToken | None = None
 
         # Prepare mountpoint (unmount, create directory)
         self._prepare_mountpoint(self._mountpoint)
@@ -210,13 +214,35 @@ class RivenVFS(pyfuse3.Operations):
                 # capture Trio token so we can call into the loop from other threads
                 self._trio_token = trio.lowlevel.current_trio_token()
 
-                await pyfuse3.main()
+                async with trio.open_nursery() as daemon_nursery:
+                    daemon_nursery.start_soon(pyfuse3.main)
 
-            try:
-                # pyfuse3.main is a coroutine that needs to run in its own trio event loop
-                trio.run(_async_main)
-            except Exception:
-                logger.exception("FUSE main loop error")
+                    try:
+                        # Open stream nursery for handling streaming operations.
+                        # This is separate from the main FUSE loop,
+                        # to prevent stream errors from crashing the entire filesystem.
+                        async with trio.open_nursery() as stream_nursery:
+                            self.stream_nursery = stream_nursery
+
+                            logger.trace(f"Stream nursery ready and waiting for tasks")
+
+                            # Keep the stream nursery alive and ready to spawn tasks
+                            await trio.sleep_forever()
+                    except* Exception:
+                        logger.exception("FUSE main loop nursery error")
+                    finally:
+                        daemon_nursery.cancel_scope.cancel()
+
+            while not self._is_unmounting:
+                logger.trace("Starting FUSE main loop")
+
+                try:
+                    # pyfuse3.main is a coroutine that needs to run in its own trio event loop
+                    trio.run(_async_main)
+                except* Exception:
+                    logger.exception("FUSE main loop error, restarting")
+
+            logger.trace(f"FUSE main loop exited")
 
         self._thread = threading.Thread(target=_fuse_runner, daemon=True)
         self._thread.start()
@@ -508,6 +534,7 @@ class RivenVFS(pyfuse3.Operations):
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
         if self._mounted:
+            self._is_unmounting = True
             logger.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
             self._cleanup_mountpoint(self._mountpoint)
             self._mounted = False
@@ -576,7 +603,7 @@ class RivenVFS(pyfuse3.Operations):
                     trio.from_thread.run(
                         self._terminate_async, trio_token=self._trio_token
                     )
-                except Exception as e:
+                except Exception:
                     logger.exception(f"Error requesting FUSE termination")
             else:
                 logger.warning("No Trio token available; skipping graceful terminate")
@@ -888,12 +915,6 @@ class RivenVFS(pyfuse3.Operations):
                     file_size=entry.file_size,
                     created_at=(entry.created_at.isoformat()),
                     updated_at=(entry.updated_at.isoformat()),
-                    bitrate=(
-                        entry.probed_data["bitrate"] if entry.probed_data else None
-                    ),
-                    duration=(
-                        entry.probed_data["duration"] if entry.probed_data else None
-                    ),
                     entry_type="media",
                 ):
                     registered_paths.append(path)
@@ -1003,8 +1024,6 @@ class RivenVFS(pyfuse3.Operations):
         file_size: int,
         created_at: str,
         updated_at: str,
-        bitrate: int | None = None,
-        duration: int | None = None,
         entry_type: Literal["media", "subtitle"] = "media",
     ) -> bool:
         """
@@ -1037,8 +1056,6 @@ class RivenVFS(pyfuse3.Operations):
                 node.created_at = created_at
                 node.updated_at = updated_at
                 node.entry_type = entry_type
-                node.bitrate = bitrate
-                node.duration = duration
 
             # Get parent inodes for invalidation (collect for batching)
             parent_inodes = self._get_parent_inodes(node)
@@ -1462,7 +1479,8 @@ class RivenVFS(pyfuse3.Operations):
                 if not isinstance(node, VFSDirectory):
                     raise pyfuse3.FUSEError(errno.ENOTDIR)
 
-            return inode  # Return the inode as file handle for directories
+            # Return the inode as file handle for directories
+            return pyfuse3.FileHandleT(inode)
         except pyfuse3.FUSEError:
             raise
         except Exception:
@@ -1470,21 +1488,24 @@ class RivenVFS(pyfuse3.Operations):
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def readdir(
-        self, inode: pyfuse3.InodeT, off: int, token: pyfuse3.ReaddirToken
+        self,
+        fh: pyfuse3.FileHandleT,
+        start_id: int,
+        token: pyfuse3.ReaddirToken,
     ):
         """Read directory entries."""
         try:
-            path = self._get_path_from_inode(inode)
+            path = self._get_path_from_inode(fh)
             entries = self._list_directory_cached(path)
 
             # Build directory listing
             with self._tree_lock:
-                node = self._inode_to_node.get(inode)
+                node = self._inode_to_node.get(fh)
                 parent_inode = (
                     node.parent.inode if node and node.parent else pyfuse3.ROOT_INODE
                 )
 
-                items = [(b".", inode), (b"..", parent_inode)]
+                items = [(b".", pyfuse3.InodeT(fh)), (b"..", parent_inode)]
 
                 for entry in entries:
                     name_bytes = entry["name"].encode("utf-8")
@@ -1497,11 +1518,13 @@ class RivenVFS(pyfuse3.Operations):
                             items.append((name_bytes, child_node.inode))
 
             # Send directory entries starting from offset
-            for idx in range(off, len(items)):
+            for idx in range(start_id, len(items)):
                 name_bytes, child_ino = items[idx]
 
                 if child_ino:
                     attrs = await self.getattr(child_ino)
+                else:
+                    attrs = pyfuse3.EntryAttributes()
 
                 if not pyfuse3.readdir_reply(
                     token, pyfuse3.FileNameT(name_bytes), attrs, idx + 1
@@ -1510,7 +1533,7 @@ class RivenVFS(pyfuse3.Operations):
         except pyfuse3.FUSEError:
             raise
         except Exception:
-            logger.exception(f"readdir error for inode={inode}")
+            logger.exception(f"readdir error for inode={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def open(self, inode: pyfuse3.InodeT, flags: int, ctx) -> pyfuse3.FileInfo:
@@ -1543,8 +1566,6 @@ class RivenVFS(pyfuse3.Operations):
                 "last_read_end": 0,
                 "subtitle_content": None,
                 "has_stream_error": False,
-                "bitrate": node.bitrate,
-                "duration": node.duration,
             }
 
             logger.trace(f"open: path={path} fh={fh}")
@@ -1571,7 +1592,7 @@ class RivenVFS(pyfuse3.Operations):
             Bytes read from file (may be less than size at EOF)
         """
 
-        from .db import VFSDatabase
+        stream = None
 
         try:
             # Log cache stats asynchronously (don't block on trim/I/O)
@@ -1676,8 +1697,6 @@ class RivenVFS(pyfuse3.Operations):
                 fh=fh,
                 file_size=file_size,
                 original_filename=original_filename,
-                bitrate=handle_info["bitrate"],
-                duration=handle_info["duration"],
             )
 
             return await stream.read(
@@ -1686,20 +1705,22 @@ class RivenVFS(pyfuse3.Operations):
                 request_size=request_size,
             )
         except ChunksTooSlowException as e:
-            logger.error(
-                f"Timeout reading {stream.file_metadata['path']} fh={fh} off={off} size={size}: {e}"
-            )
+            if stream:
+                logger.error(
+                    f"Timeout reading {stream.file_metadata['path']} fh={fh} off={off} size={size}: {e}"
+                )
 
             raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
-        except MediaStreamException as e:
-            logger.error(
-                f"{e.__class__.__name__} "
-                f"error reading {stream.file_metadata['path']} "
-                f"fh={fh} "
-                f"off={off} "
-                f"size={size}"
-                f": {e}"
-            )
+        except MediaStreamDataException as e:
+            if stream:
+                logger.error(
+                    f"{e.__class__.__name__} "
+                    f"data error reading {stream.file_metadata['path']} "
+                    f"fh={fh} "
+                    f"off={off} "
+                    f"size={size}"
+                    f": {e}"
+                )
 
             handle_info = self._file_handles.get(fh)
 
@@ -1711,9 +1732,25 @@ class RivenVFS(pyfuse3.Operations):
                 # Mark that this handle has encountered a fatal stream error so that it can be killed.
                 handle_info["has_stream_error"] = True
 
+            raise pyfuse3.FUSEError(errno.EIO) from e
+        except FatalMediaStreamException as e:
+            if stream:
+                logger.error(
+                    f"{e.__class__.__name__} "
+                    f"error reading {stream.file_metadata['path']} "
+                    f"fh={fh} "
+                    f"off={off} "
+                    f"size={size}"
+                    f": {e}"
+                )
+
             return b""
         except pyfuse3.FUSEError:
-            raise
+            logger.debug(f"FUSE error occurred")
+            return b""
+        except ExceptionGroup:
+            logger.exception(f"read(group) error fh={fh}")
+            raise pyfuse3.FUSEError(errno.EIO)
         except Exception:
             logger.exception(f"read(simple) error fh={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
@@ -1723,10 +1760,11 @@ class RivenVFS(pyfuse3.Operations):
 
         try:
             handle_info = self._file_handles.pop(fh, None)
+            path = None
+
             if handle_info:
                 # Resolve path from inode
                 inode = handle_info.get("inode")
-                path = None
                 if inode:
                     with self._tree_lock:
                         node = self._inode_to_node.get(inode)
@@ -1748,6 +1786,7 @@ class RivenVFS(pyfuse3.Operations):
                         active_stream = self._active_streams.pop(stream_key, None)
                         if active_stream:
                             await active_stream.kill()
+
             logger.trace(f"release: fh={fh} path={path}")
         except pyfuse3.FUSEError:
             raise
@@ -1763,7 +1802,7 @@ class RivenVFS(pyfuse3.Operations):
         """Sync file data (no-op for read-only filesystem)."""
         return None
 
-    async def access(self, inode: pyfuse3.InodeT, mode: int, ctx=None) -> None:
+    async def access(self, inode: pyfuse3.InodeT, mode: int, ctx=None) -> bool:
         """Check file access permissions.
         Be permissive for write checks to avoid client false negatives; actual writes still fail with EROFS.
         """
@@ -1773,7 +1812,8 @@ class RivenVFS(pyfuse3.Operations):
                 node = self._inode_to_node.get(inode)
                 if node is None:
                     raise pyfuse3.FUSEError(errno.ENOENT)
-            return None
+
+            return False
         except pyfuse3.FUSEError:
             raise
         except Exception:
@@ -1811,9 +1851,9 @@ class RivenVFS(pyfuse3.Operations):
     async def rename(
         self,
         parent_inode_old: int,
-        name_old: bytes,
+        name_old: str,
         parent_inode_new: int,
-        name_new: bytes,
+        name_new: str,
         flags: int,
         ctx,
     ):
@@ -1839,8 +1879,6 @@ class RivenVFS(pyfuse3.Operations):
         fh: pyfuse3.FileHandleT,
         file_size: int,
         original_filename: str,
-        bitrate: int | None = None,
-        duration: float | None = None,
     ) -> MediaStream:
         """
         Get the file handle's stream. If no stream exists, initialise it.
@@ -1850,22 +1888,25 @@ class RivenVFS(pyfuse3.Operations):
             fh: The file handle associated with the stream.
             file_size: The size of the file to stream.
             original_filename: The original filename in the backend.
-            bitrate: The bitrate of the media file (if applicable).
-            duration: The duration of the media file in seconds (if applicable).
         Returns:
             The MediaStream for the specified path and file handle.
         """
+
         stream_key = self._stream_key(path, fh)
 
         if stream_key not in self._active_streams:
             async with self._active_streams_lock:
-                self._active_streams[stream_key] = MediaStream(
+                stream = MediaStream(
                     fh=fh,
                     file_size=file_size,
                     path=path,
                     original_filename=original_filename,
-                    bitrate=bitrate,
-                    duration=duration,
                 )
+
+                self._active_streams[stream_key] = stream
+
+                # Start the main stream loop in the background,
+                # dormant until the stream_start_event is set.
+                self.stream_nursery.start_soon(stream.run)
 
         return self._active_streams[stream_key]
