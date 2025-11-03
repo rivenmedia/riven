@@ -8,8 +8,10 @@ from kink import di
 from loguru import logger
 
 from program.apis.tvdb_api import TVDBApi
+from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
+from program.settings.manager import settings_manager
 
 
 class TVDBIndexer(BaseIndexer):
@@ -21,6 +23,7 @@ class TVDBIndexer(BaseIndexer):
         super().__init__()
         self.key = "tvdbindexer"
         self.api = di[TVDBApi]
+        self.trakt_api = di[TraktAPI]
 
     def run(
         self, in_item: MediaItem, log_msg: bool = True
@@ -139,12 +142,14 @@ class TVDBIndexer(BaseIndexer):
                 network = show_data.originalNetwork.name
 
             # Get aliases
-            if show_data.aliases:
-                aliases = self.api.get_aliases(show_data)
-            else:
-                aliases = {}
+            aliases = self.trakt_api.get_aliases(imdb_id, "shows") or {}
+            if not aliases:
+                logger.debug(
+                    f"Failed to get aliases from Trakt for imdbid {imdb_id}, using TVDB aliases"
+                )
+                aliases = self.api.get_aliases(show_data) or {}
             slug = (show_data.slug or "").replace("-", " ").title()
-            aliases.setdefault("eng", []).append(slug.title())
+            aliases.setdefault("us", []).append(slug.title())
 
             # Get title (with translation if needed)
             title = show_data.name
@@ -165,12 +170,12 @@ class TVDBIndexer(BaseIndexer):
                             and translation.data.aliases
                         ):
                             additional_aliases = translation.data.aliases
-                            aliases["eng"].extend(
+                            aliases["us"].extend(
                                 [alias for alias in additional_aliases]
                             )
 
-            if aliases:
-                aliases = {k: list(set(v)) for k, v in aliases.items()}
+            # if aliases:
+            #     aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             # Extract genres and determine if anime
             genres_lower = [
@@ -306,13 +311,14 @@ class TVDBIndexer(BaseIndexer):
             elif hasattr(show_data, "originalNetwork") and show_data.originalNetwork:
                 network = show_data.originalNetwork.name
 
-            if show_data.aliases:
-                aliases = self.api.get_aliases(show_data)
-
-            else:
-                aliases = {}
+            aliases = self.trakt_api.get_aliases(imdb_id, "shows") or {}
+            if not aliases:
+                logger.debug(
+                    f"Failed to get aliases from Trakt for imdbid {imdb_id}, using TVDB aliases"
+                )
+                aliases = self.api.get_aliases(show_data) or {}
             slug = (show_data.slug or "").replace("-", " ").title()
-            aliases.setdefault("eng", []).append(slug.title())
+            aliases.setdefault("us", []).append(slug.title())
 
             title = show_data.name
             poster_path = show_data.image
@@ -494,7 +500,7 @@ class TVDBIndexer(BaseIndexer):
             poster_path = None
             if hasattr(season_data, "image") and season_data.image:
                 poster_path = season_data.image
-                
+
             # Update season attributes
             season.tvdb_id = str(season_data.id)
             season.title = f"Season {season_data.number}"
