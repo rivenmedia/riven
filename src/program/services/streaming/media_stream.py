@@ -522,14 +522,7 @@ class MediaStream:
     async def kill(self) -> None:
         """Immediately terminate the active stream."""
 
-        if hasattr(self, "_owns_client") and self._owns_client:
-            await self.async_client.aclose()
-
-        if not self.connection:
-            logger.debug(self._build_log_message("No active connection to kill"))
-
-            return
-
+        # First wait for the stream to stop, then close the client
         if self.is_streaming.value:
             # If the file was streaming,
             # clear all chunk cache emitters to free up memory.
@@ -538,10 +531,31 @@ class MediaStream:
             )
 
             # Wait for the stream loop to close
-            with trio.fail_after(5):
-                self.is_killed.value = True
+            try:
+                with trio.fail_after(5):
+                    self.is_killed.value = True
+                    await self.is_streaming.wait_value(False)
+            except trio.TooSlowError:
+                logger.warning(
+                    self._build_log_message(
+                        "Stream didn't stop within 5 seconds, forcing close"
+                    )
+                )
 
-                await self.is_streaming.wait_value(False)
+        # Close dedicated httpx client AFTER stream has stopped
+        # to avoid "another task closed this fd" errors
+        if hasattr(self, "_owns_client") and self._owns_client:
+            try:
+                await self.async_client.aclose()
+                logger.debug(
+                    self._build_log_message("Closed dedicated httpx client")
+                )
+            except Exception as e:
+                logger.debug(
+                    self._build_log_message(
+                        f"Error closing httpx client: {e}"
+                    )
+                )
 
     async def scan(self, read_position: int, size: int) -> bytes:
         """Fetch extra, ephemeral data for scanning purposes."""
