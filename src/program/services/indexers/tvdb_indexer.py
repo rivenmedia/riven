@@ -338,7 +338,7 @@ class TVDBIndexer(BaseIndexer):
                             and translation.data.aliases
                         ):
                             additional_aliases = translation.data.aliases
-                            aliases.setdefault("eng", []).extend(
+                            aliases["us"].extend(
                                 [alias for alias in additional_aliases]
                             )
 
