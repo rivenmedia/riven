@@ -24,3 +24,10 @@ class RecoverableMediaStreamException(MediaStreamException):
         )
 
         self.original_exception = original_exception
+
+
+class MediaStreamKilledException(MediaStreamException):
+    """Raised when the media stream has been killed."""
+
+    def __init__(self) -> None:
+        super().__init__("The stream has been killed.")

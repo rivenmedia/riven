@@ -72,6 +72,9 @@ from program.services.streaming.exceptions import (
     DebridServiceClosedConnectionException,
     DebridServiceRefusedRangeRequestException,
 )
+from src.program.services.streaming.exceptions.media_stream_exception import (
+    MediaStreamKilledException,
+)
 
 
 from ...streaming import (
@@ -1698,31 +1701,25 @@ class RivenVFS(pyfuse3.Operations):
             )
 
             try:
-                if stream._stream_error.value is not None:
-                    raise stream._stream_error.value
-
                 return await stream.read(
                     request_start=request_start,
                     request_end=request_end,
                     request_size=request_size,
                 )
-            except ChunksTooSlowException as e:
+            except* ChunksTooSlowException as e:
                 if stream:
-                    logger.error(
-                        f"Timeout reading {stream.file_metadata['path']} fh={fh} off={off} size={size}: {e}"
-                    )
+                    for exc in e.exceptions:
+                        logger.error(
+                            stream._build_log_message(f"{e.__class__.__name__}: {exc}")
+                        )
 
                 raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
-            except (MediaStreamDataException, FatalMediaStreamException) as e:
+            except* (MediaStreamDataException, FatalMediaStreamException) as e:
                 if stream:
-                    logger.error(
-                        f"{e.__class__.__name__} "
-                        f"error reading {stream.file_metadata['path']} "
-                        f"fh={fh} "
-                        f"off={off} "
-                        f"size={size}"
-                        f": {e}"
-                    )
+                    for exc in e.exceptions:
+                        logger.error(
+                            stream._build_log_message(f"{e.__class__.__name__}: {exc}")
+                        )
 
                 handle_info = self._file_handles.get(fh)
 
@@ -1734,26 +1731,67 @@ class RivenVFS(pyfuse3.Operations):
                     # Mark that this handle has encountered a fatal stream error so that it can be killed.
                     handle_info["has_stream_error"] = True
 
-                raise pyfuse3.FUSEError(errno.EIO) from e
-            except DebridServiceUnableToConnectException as e:
+                raise pyfuse3.FUSEError(errno.EIO) from e.exceptions[0]
+            except* DebridServiceUnableToConnectException as e:
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
+
                 raise pyfuse3.FUSEError(errno.ENOENT) from e
-            except DebridServiceForbiddenException as e:
+            except* DebridServiceForbiddenException as e:
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
+
                 raise pyfuse3.FUSEError(errno.EACCES) from e
-            except DebridServiceRangeNotSatisfiableException as e:
+            except* DebridServiceRangeNotSatisfiableException as e:
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
+
                 raise pyfuse3.FUSEError(errno.EINVAL) from e
-            except DebridServiceRefusedRangeRequestException as e:
+            except* DebridServiceRefusedRangeRequestException as e:
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
+
                 raise pyfuse3.FUSEError(errno.ERANGE) from e
-            except DebridServiceRateLimitedException as e:
+            except* DebridServiceRateLimitedException as e:
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
+
                 raise pyfuse3.FUSEError(errno.EAGAIN) from e
-            except DebridServiceClosedConnectionException as e:
+            except* (
+                DebridServiceClosedConnectionException,
+                MediaStreamKilledException,
+            ) as e:
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
+
                 raise pyfuse3.FUSEError(errno.ECONNABORTED) from e
-            except DebridServiceException as e:
+            except* DebridServiceException as e:
+                for exc in e.exceptions:
+                    logger.error(f"{exc.__class__.__name__}: {exc}")
+
                 raise pyfuse3.FUSEError(errno.EIO) from e
+            except* Exception as e:
+                for exc in e.exceptions:
+                    logger.error(f"{exc.__class__.__name__}: {exc}")
+
+                raise pyfuse3.FUSEError(errno.EIO)
         except pyfuse3.FUSEError as e:
-            logger.debug(f"FUSEError occurred: {e}")
             raise
         except Exception:
-            logger.exception(f"read(simple) error fh={fh}")
+            logger.exception(f"read error fh={fh} off={off} size={size}")
+
             raise pyfuse3.FUSEError(errno.EIO)
 
     async def release(self, fh: pyfuse3.FileHandleT) -> None:

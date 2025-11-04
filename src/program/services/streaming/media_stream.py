@@ -32,6 +32,7 @@ from .exceptions import (
     DebridServiceUnableToConnectException,
     DebridServiceRateLimitedException,
     DebridServiceRefusedRangeRequestException,
+    MediaStreamKilledException,
 )
 from .file_metadata import FileMetadata
 from .recent_reads import Read, RecentReads
@@ -133,11 +134,9 @@ class MediaStream:
 
         if fs.cache_max_size_mb < min_cache_mb:
             logger.warning(
-                self._build_log_message(
-                    f"Cache size ({fs.cache_max_size_mb}MB) is too small. "
-                    f"Minimum recommended: {min_cache_mb}MB. "
-                    f"Cache thrashing may occur with concurrent reads, causing poor performance."
-                )
+                f"Cache size ({fs.cache_max_size_mb}MB) is too small. "
+                f"Minimum recommended: {min_cache_mb}MB. "
+                f"Cache thrashing may occur with concurrent reads, causing poor performance."
             )
 
         # Use proxy client if provider requires it
@@ -185,7 +184,10 @@ class MediaStream:
         finally:
             self.is_streaming.value = False
 
-            logger.log("STREAM", self._build_log_message("Stream lifecycle ended"))
+            logger.log(
+                "STREAM",
+                self._build_log_message("Stream lifecycle ended"),
+            )
 
     @asynccontextmanager
     async def manage_connection(
@@ -278,18 +280,16 @@ class MediaStream:
                                     and v.read_type == "body_read"
                                 ):
                                     if not read:
-                                        # This shouldn't happen; only needed for type checking
-                                        logger.debug(
-                                            self._build_log_message(
-                                                "No read available, continuing"
-                                            )
-                                        )
-
                                         raise ValueError(
                                             self._build_log_message("No read available")
                                         )
 
-                                    logger.debug(f"received read: {read}")
+                                    logger.log(
+                                        "STREAM",
+                                        self._build_log_message(
+                                            f"Received read: {read}"
+                                        ),
+                                    )
 
                                     uncached_chunks = OrderedSet(
                                         [
@@ -299,7 +299,11 @@ class MediaStream:
                                         ]
                                     )
 
-                                    logger.debug(f"uncached_chunks: {uncached_chunks}")
+                                    chunk_range_label = (
+                                        f"{uncached_chunks[0].index}"
+                                        if len(uncached_chunks) == 1
+                                        else f"{uncached_chunks[0].index}-{uncached_chunks[-1].index}"
+                                    )
 
                                     if len(uncached_chunks) == 0:
                                         continue
@@ -369,8 +373,6 @@ class MediaStream:
                                         )
                                     ):
                                         for chunk in uncached_chunks:
-                                            logger.debug(f"processing chunk: {chunk}")
-
                                             if (
                                                 connection.current_read_position
                                                 != chunk.start
@@ -388,7 +390,7 @@ class MediaStream:
                                                 log=lambda duration: logger.log(
                                                     "STREAM",
                                                     self._build_log_message(
-                                                        f"Fetching bytes {chunk_label} took {duration}s"
+                                                        f"Fetching {chunk} took {duration}s"
                                                     ),
                                                 )
                                             ):
@@ -403,7 +405,7 @@ class MediaStream:
                                                 log=lambda duration: logger.log(
                                                     "STREAM",
                                                     self._build_log_message(
-                                                        f"Processing bytes {chunk_label} took {duration}s"
+                                                        f"Processing chunk(s) {chunk_range_label} {chunk_label} took {duration}s"
                                                     ),
                                                 )
                                             ):
@@ -428,7 +430,7 @@ class MediaStream:
                     except RecoverableMediaStreamException as e:
                         logger.warning(
                             self._build_log_message(
-                                f"Recoverable error in stream loop: {e.original_exception}. Attempting to reconnect..."
+                                f"Recoverable error from stream: {e.original_exception}. Attempting to reconnect..."
                             )
                         )
 
@@ -449,7 +451,7 @@ class MediaStream:
                     except FatalMediaStreamException as e:
                         logger.error(
                             self._build_log_message(
-                                f"Fatal error in stream loop: {e.original_exception}. Terminating stream."
+                                f"Fatal error from stream: {e.original_exception}. Terminating."
                             )
                         )
 
@@ -457,7 +459,12 @@ class MediaStream:
 
                         break
                     except Exception as e:
-                        logger.debug(f"Unexpected error in stream loop: {e}")
+                        # Safely catch any other unexpected exceptions to avoid crashing the FUSE mount
+                        logger.error(
+                            self._build_log_message(
+                                f"Unexpected error from stream: {e}"
+                            )
+                        )
 
                         self._stream_error.value = e
 
@@ -527,13 +534,11 @@ class MediaStream:
                     await self.is_streaming.wait_value(False)
             except trio.TooSlowError:
                 logger.warning(
-                    self._build_log_message(
-                        "Stream didn't stop within 5 seconds, forcing close"
-                    )
+                    self._build_log_message("Stream didn't stop within 5 seconds")
                 )
 
     async def scan(self, read_position: int, size: int) -> bytes:
-        """Fetch extra, ephemeral data for scanning purposes."""
+        """Fetch a one-off range of data for scanning purposes."""
 
         data = await self._fetch_discrete_byte_range(
             start=read_position,
@@ -561,7 +566,7 @@ class MediaStream:
 
         This "over-fetches" for the individual request,
         but multiple footer requests tend to be made to retrieve more data later,
-        so this is more efficient than making multiple small requests.
+        so this ends up being more efficient than making multiple small requests.
         """
 
         footer_chunk = self.chunker.footer_chunk
@@ -581,11 +586,22 @@ class MediaStream:
     async def capture_stream_errors(self) -> AsyncIterator[None]:
         """Context manager to capture and log stream errors."""
 
-        try:
+        # Handle the read request whilst monitoring for stream kill signals, and errors.
+        # This allows us to gracefully handle stream termination and propagate errors,
+        # even during the middle of a read operation.
+        async with trio_util.move_on_when(
+            lambda: trio_util.wait_any(
+                lambda: self.is_killed.wait_value(True),
+                lambda: self._stream_error.wait_value(lambda v: v is not None),
+            )
+        ):
             yield
-        finally:
-            if self._stream_error.value:
-                raise self._stream_error.value from None
+
+        if self.is_killed.value:
+            raise MediaStreamKilledException
+
+        if self._stream_error.value:
+            raise self._stream_error.value from None
 
     @asynccontextmanager
     async def read_lifecycle(self, chunk_range: ChunkRange) -> AsyncIterator[ReadType]:
@@ -594,25 +610,13 @@ class MediaStream:
         read_type: ReadType | None = None
 
         try:
-            request_start, request_end = chunk_range.request_range
-            request_size = chunk_range.size
-
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    "Read request: "
-                    f"request_start={request_start} "
-                    f"request_end={request_end} "
-                    f"size={request_size}"
-                ),
-            )
-
             read_type = await self._detect_read_type(
                 chunk_range=chunk_range,
             )
 
             # Start the stream and wait for a connection before progressing with a body read.
-            # This needs to be done before assigning to current_read, so that it can pick up the value.
+            # This MUST be done before assigning a value to current_read,
+            # or else the stream will not receive the value.
             if read_type == "body_read" and not self.is_streaming.value:
                 with trio.fail_after(10):
                     await self.nursery.start(self.run)
@@ -624,35 +628,7 @@ class MediaStream:
 
             yield read_type
         finally:
-            self.recent_reads.previous_read.value = Read(
-                chunk_range=chunk_range,
-                read_type=read_type or "unknown",
-            )
-
-            try:
-                current_read_position = (
-                    self.connection.current_read_position if self.connection else None
-                )
-            except AttributeError:
-                current_read_position = None
-
-            try:
-                sequential_chunk_fetches = (
-                    self.connection.sequential_chunks_fetched
-                    if self.connection
-                    else None
-                )
-            except AttributeError:
-                sequential_chunk_fetches = None
-
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"sequential_chunk_fetches={sequential_chunk_fetches} "
-                    f"current_read_position={current_read_position} "
-                    f"last_read_end={self.recent_reads.last_read_end} "
-                ),
-            )
+            self.recent_reads.previous_read.value = self.recent_reads.current_read.value
 
     async def read(
         self,
@@ -718,6 +694,11 @@ class MediaStream:
 
         await self._wait_until_chunks_ready(chunk_range=chunk_range)
 
+        logger.log(
+            "STREAM",
+            self._build_log_message(f"Found cache; attempting to read"),
+        )
+
         cached_data = await self._read_cache(
             start=start,
             end=end,
@@ -726,9 +707,7 @@ class MediaStream:
         if cached_data:
             logger.log(
                 "STREAM",
-                self._build_log_message(
-                    f"Found data {start}-{end} ({len(cached_data)} bytes) from cache."
-                ),
+                self._build_log_message(f"Found data from cache"),
             )
 
             return cached_data
@@ -905,14 +884,16 @@ class MediaStream:
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
-                logger.debug(self._build_log_message(f"HTTP error {status_code}: {e}"))
+                logger.log(
+                    "STREAM", self._build_log_message(f"HTTP error {status_code}: {e}")
+                )
 
                 if status_code == HTTPStatus.FORBIDDEN:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
-                    logger.debug(
+                    logger.warning(
                         self._build_log_message(
                             f"HTTP 403 Forbidden - attempt {attempt + 1}"
-                        )
+                        ),
                     )
 
                     if await self._retry_with_backoff(
@@ -984,10 +965,10 @@ class MediaStream:
                 httpx.ConnectError,
                 httpx.InvalidURL,
             ) as e:
-                logger.debug(
+                logger.warning(
                     self._build_log_message(
                         f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): {e}"
-                    )
+                    ),
                 )
 
                 if attempt == 0:
@@ -1013,10 +994,10 @@ class MediaStream:
                 ) from e
             except httpx.RemoteProtocolError as e:
                 # This can happen if the server closes the connection prematurely
-                logger.debug(
+                logger.warning(
                     self._build_log_message(
                         f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): {e}"
-                    )
+                    ),
                 )
 
                 if await self._retry_with_backoff(
@@ -1047,8 +1028,6 @@ class MediaStream:
     ) -> None:
         """Wait until all the given chunks are cached."""
 
-        start, end = chunk_range.request_range
-
         try:
             with trio.fail_after(self.config.chunk_wait_timeout_seconds):
                 await trio_util.wait_all(
@@ -1057,13 +1036,6 @@ class MediaStream:
                         for chunk in chunk_range.chunks
                     ]
                 )
-
-            logger.log(
-                "STREAM",
-                self._build_log_message(
-                    f"Found cache, attempting to read {start}-{end}"
-                ),
-            )
         except* trio.TooSlowError:
             raise ChunksTooSlowException(
                 threshold=self.config.chunk_wait_timeout_seconds,
@@ -1136,10 +1108,11 @@ class MediaStream:
             fresh_url = entry_info.get("url")
 
             if fresh_url and fresh_url != self.target_url.value:
-                logger.debug(
+                logger.log(
+                    "STREAM",
                     self._build_log_message(
                         f"Refreshed URL for {self.file_metadata['original_filename']}"
-                    )
+                    ),
                 )
 
                 self.target_url.value = fresh_url
@@ -1197,4 +1170,14 @@ class MediaStream:
         return data
 
     def _build_log_message(self, message: str) -> str:
-        return f"{message} [fh: {self.fh} file={self.file_metadata['path'].split('/')[-1]}]"
+        current_read_info = (
+            f"["
+            f"read_type: {self.recent_reads.current_read.value.read_type} | "
+            f"range: {self.recent_reads.current_read.value.chunk_range.request_range} | "
+            f"size: {self.recent_reads.current_read.value.chunk_range.size}"
+            f"]"
+            if self.recent_reads.current_read.value
+            else ""
+        )
+
+        return f"{message} [fh: {self.fh} | file={self.file_metadata['path'].split('/')[-1]}] {current_read_info}"

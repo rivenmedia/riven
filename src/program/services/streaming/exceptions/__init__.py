@@ -12,6 +12,7 @@ from .media_stream_exception import (
     MediaStreamException,
     FatalMediaStreamException,
     RecoverableMediaStreamException,
+    MediaStreamKilledException,
 )
 from .debrid_service_exception import (
     DebridServiceException,
@@ -36,6 +37,7 @@ __all__ = [
     "DebridServiceClosedConnectionException",
     "DebridServiceRangeNotSatisfiableException",
     "MediaStreamException",
+    "MediaStreamKilledException",
     "FatalMediaStreamException",
     "RecoverableMediaStreamException",
     "MediaStreamDataException",
