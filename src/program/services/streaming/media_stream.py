@@ -962,6 +962,7 @@ class MediaStream:
                                 preflight_attempt, max_preflight_attempts, backoffs
                             ):
                                 continue
+
                     # No fresh URL or still erroring after refresh
                     raise pyfuse3.FUSEError(errno.ENOENT) from e
                 else:

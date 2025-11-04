@@ -1690,6 +1690,9 @@ class RivenVFS(pyfuse3.Operations):
             )
 
             try:
+                if stream._stream_error.value is not None:
+                    raise stream._stream_error.value
+
                 return await stream.read(
                     request_start=request_start,
                     request_end=request_end,
