@@ -97,9 +97,8 @@ class MediaStream:
             trio_util.AsyncValue(None)
         )
 
-        # Store initial URL if provided to avoid redundant unrestrict calls
-        if initial_url:
-            self.target_url = initial_url
+        # Store initial URL to avoid redundant unrestrict calls
+        self.target_url = initial_url
 
         self.config = Config(
             sequential_read_tolerance_blocks=10,
@@ -448,9 +447,9 @@ class MediaStream:
                         )
 
                         should_retry = await self._retry_with_backoff(
-                            attempt=attempt_count,
-                            max_attempts=max_attempts,
-                            backoffs=[0.2, 0.5, 1.0],
+                            attempt_count,
+                            max_attempts,
+                            [0.2, 0.5, 1.0],
                         )
 
                         if should_retry:
@@ -857,161 +856,6 @@ class MediaStream:
 
         return verified_data
 
-    async def _attempt_range_preflight_checks(
-        self,
-        headers: httpx.Headers,
-    ) -> None:
-        """
-        Attempts to verify that the server will honour range requests by requesting the HEAD of the media URL.
-
-        Sometimes, the request will return a 200 OK with the full content instead of a 206 Partial Content,
-        even when the server *does* support range requests.
-
-        This wastes bandwidth, and is undesirable for streaming large media files.
-
-        Returns:
-            The effective URL that was successfully used (may differ from input if refreshed).
-        """
-
-        max_preflight_attempts = 4
-        backoffs = [0.2, 0.5, 1.0]
-
-        for preflight_attempt in range(max_preflight_attempts):
-            try:
-                async with self.async_client.stream(
-                    method="GET",
-                    url=self.target_url,
-                    headers=headers,
-                    follow_redirects=True,
-                ) as preflight_response:
-                    preflight_response.raise_for_status()
-
-                    preflight_status_code = preflight_response.status_code
-
-                    if preflight_status_code == HTTPStatus.PARTIAL_CONTENT:
-                        # Preflight passed, proceed to actual request
-                        return
-                    elif preflight_status_code == HTTPStatus.OK:
-                        # Server refused range request. Serving this request would return the full media file,
-                        # which eats downloader bandwidth usage unnecessarily. Wait and retry.
-                        logger.warning(
-                            self._build_log_message(
-                                f"Server doesn't support range requests yet."
-                            )
-                        )
-
-                        if await self._retry_with_backoff(
-                            preflight_attempt, max_preflight_attempts, backoffs
-                        ):
-                            continue
-
-                        # Unable to get range support after retries
-                        raise DebridServiceRefusedRangeRequestException(
-                            provider=self.provider
-                        )
-            except httpx.RemoteProtocolError as e:
-                logger.debug(
-                    self._build_log_message(
-                        f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): {e}"
-                    )
-                )
-
-                if await self._retry_with_backoff(
-                    attempt=preflight_attempt,
-                    max_attempts=max_preflight_attempts,
-                    backoffs=backoffs,
-                ):
-                    continue
-
-                raise DebridServiceClosedConnectionException(
-                    provider=self.provider
-                ) from e
-            except httpx.HTTPStatusError as e:
-                preflight_status_code = e.response.status_code
-
-                logger.debug(
-                    self._build_log_message(
-                        f"Preflight HTTP error {preflight_status_code}: {e}"
-                    )
-                )
-
-                if preflight_status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                    # File can't be found at this URL; try refreshing the URL once
-                    if preflight_attempt == 0:
-                        fresh_url = await trio.to_thread.run_sync(
-                            self._refresh_download_url
-                        )
-
-                        if fresh_url:
-                            logger.warning(
-                                self._build_log_message(
-                                    f"URL refresh after HTTP {preflight_status_code}"
-                                )
-                            )
-
-                            if await self._retry_with_backoff(
-                                preflight_attempt, max_preflight_attempts, backoffs
-                            ):
-                                continue
-
-                    raise DebridServiceUnableToConnectException(
-                        provider=self.provider
-                    ) from e
-                else:
-                    # Other unexpected status codes
-                    logger.warning(
-                        self._build_log_message(
-                            f"Unexpected preflight HTTP {preflight_status_code}"
-                        )
-                    )
-                    raise DebridServiceException(
-                        "Unexpected error connecting to stream"
-                    ) from e
-            except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
-                logger.debug(
-                    self._build_log_message(
-                        f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): {e}"
-                    )
-                )
-
-                if preflight_attempt == 0:
-                    # On first exception, try refreshing the URL in case it's a connectivity issue
-                    fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url
-                    )
-
-                    if fresh_url:
-                        logger.warning(
-                            self._build_log_message("URL refresh after timeout")
-                        )
-
-                if await self._retry_with_backoff(
-                    preflight_attempt, max_preflight_attempts, backoffs
-                ):
-                    continue
-
-                raise DebridServiceUnableToConnectException(
-                    provider=self.provider
-                ) from e
-            except Exception as e:
-                logger.exception(
-                    self._build_log_message(
-                        f"Unexpected error during preflight checks: {e}"
-                    )
-                )
-
-                if await self._retry_with_backoff(
-                    preflight_attempt,
-                    max_preflight_attempts,
-                    backoffs,
-                ):
-                    continue
-
-                raise DebridServiceException(
-                    "Unexpected error connecting to stream"
-                ) from e
-        raise DebridServiceException("Unexpected error connecting to stream")
-
     async def _prepare_response(
         self,
         start: int,
@@ -1028,13 +872,6 @@ class MediaStream:
             }
         )
 
-        try:
-            await self._attempt_range_preflight_checks(headers)
-        except Exception as e:
-            logger.error(self._build_log_message(f"Preflight checks failed: {e}"))
-
-            raise
-
         max_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
 
@@ -1046,20 +883,27 @@ class MediaStream:
                 response.raise_for_status()
 
                 content_length = response.headers.get("Content-Length")
-                range_bytes = self.file_metadata["file_size"] - start
+                range_bytes = (end or self.file_metadata["file_size"]) - start
 
                 if (
                     response.status_code == HTTPStatus.OK
                     and content_length is not None
                     and int(content_length) > range_bytes
                 ):
-                    # Server appears to be ignoring range request and returning full content
-                    # This shouldn't happen due to preflight, treat as error
+                    # Server appears to be ignoring the range request and returning full content.
+                    # This is incompatible with our stream, as it will start at the incorrect position.
                     logger.warning(
                         self._build_log_message(
                             f"Server returned full content instead of range."
                         )
                     )
+
+                    if await self._retry_with_backoff(
+                        attempt,
+                        max_attempts,
+                        backoffs,
+                    ):
+                        continue
 
                     raise DebridServiceRefusedRangeRequestException(
                         provider=self.provider
@@ -1071,6 +915,8 @@ class MediaStream:
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
+                logger.debug(self._build_log_message(f"HTTP error {status_code}: {e}"))
+
                 if status_code == HTTPStatus.FORBIDDEN:
                     # Forbidden - could be rate limiting or auth issue, don't refresh URL
                     logger.debug(
@@ -1079,18 +925,40 @@ class MediaStream:
                         )
                     )
 
-                    if await self._retry_with_backoff(attempt, max_attempts, backoffs):
+                    if await self._retry_with_backoff(
+                        attempt,
+                        max_attempts,
+                        backoffs,
+                    ):
                         continue
 
                     raise DebridServiceForbiddenException(provider=self.provider) from e
                 elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                    # Preflight catches initial not found errors and attempts to refresh the URL
-                    # if it still happens after a real request, don't refresh again and bail out
+                    # File can't be found at this URL; try refreshing the URL once
+                    if attempt == 0:
+                        fresh_url = await trio.to_thread.run_sync(
+                            self._refresh_download_url
+                        )
+
+                        if fresh_url:
+                            logger.warning(
+                                self._build_log_message(
+                                    f"URL refresh after HTTP {status_code}"
+                                )
+                            )
+
+                            if await self._retry_with_backoff(
+                                attempt,
+                                max_attempts,
+                                backoffs,
+                            ):
+                                continue
+
                     raise DebridServiceUnableToConnectException(
                         provider=self.provider
                     ) from e
                 elif status_code == HTTPStatus.RANGE_NOT_SATISFIABLE:
-                    # Requested range not satisfiable; treat as EOF
+                    # Requested range not satisfiable; handled as EOF
                     raise DebridServiceRangeNotSatisfiableException(
                         provider=self.provider
                     ) from e
@@ -1102,7 +970,11 @@ class MediaStream:
                         )
                     )
 
-                    if await self._retry_with_backoff(attempt, max_attempts, backoffs):
+                    if await self._retry_with_backoff(
+                        attempt,
+                        max_attempts,
+                        backoffs,
+                    ):
                         continue
 
                     raise DebridServiceRateLimitedException(
@@ -1139,7 +1011,11 @@ class MediaStream:
                             self._build_log_message(f"URL refresh after timeout")
                         )
 
-                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
+                if await self._retry_with_backoff(
+                    attempt,
+                    max_attempts,
+                    backoffs,
+                ):
                     continue
 
                 raise DebridServiceUnableToConnectException(
@@ -1153,7 +1029,11 @@ class MediaStream:
                     )
                 )
 
-                if await self._retry_with_backoff(attempt, max_attempts, backoffs):
+                if await self._retry_with_backoff(
+                    attempt,
+                    max_attempts,
+                    backoffs,
+                ):
                     continue
 
                 raise DebridServiceClosedConnectionException(
@@ -1292,6 +1172,7 @@ class MediaStream:
         """
         if attempt < max_attempts - 1:
             await trio.sleep(backoffs[min(attempt, len(backoffs) - 1)])
+
             return True
 
         return False
