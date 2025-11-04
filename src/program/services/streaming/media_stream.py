@@ -137,7 +137,10 @@ class MediaStream:
             )
 
         # Use proxy client if provider requires it
-        if provider in PROXY_REQUIRED_PROVIDERS and settings_manager.settings.downloaders.proxy_url:
+        if (
+            provider in PROXY_REQUIRED_PROVIDERS
+            and settings_manager.settings.downloaders.proxy_url
+        ):
             self.async_client = di["ProxyClient"]
         else:
             self.async_client = di[httpx.AsyncClient]
@@ -439,7 +442,7 @@ class MediaStream:
 
                             continue
                         else:
-                            self._stream_error.value = e
+                            self._stream_error.value = e.original_exception
 
                             break
                     except FatalMediaStreamException as e:
@@ -449,7 +452,7 @@ class MediaStream:
                             )
                         )
 
-                        self._stream_error.value = e
+                        self._stream_error.value = e.original_exception
 
                         break
                     except Exception as e:
@@ -578,28 +581,10 @@ class MediaStream:
         """Context manager to capture and log stream errors."""
 
         try:
-            if self._stream_error.value:
-                raise self._stream_error.value
-
-            async with trio_util.move_on_when(
-                lambda: self._stream_error.wait_value(
-                    lambda v: v is not None,
-                )
-            ):
-                yield
-        except Exception as e:
-            logger.error(
-                self._build_log_message(
-                    f"Stream error captured: {e.__class__.__name__}: {e}"
-                )
-            )
-
-            raise
+            yield
         finally:
             if self._stream_error.value:
-                logger.debug(self._build_log_message("Clearing stream error"))
-
-                self._stream_error.value = None
+                raise self._stream_error.value from None
 
     @asynccontextmanager
     async def read_lifecycle(self, chunk_range: ChunkRange) -> AsyncIterator[ReadType]:
@@ -1195,11 +1180,11 @@ class MediaStream:
                     f"Found cache, attempting to read {start}-{end}"
                 ),
             )
-        except trio.TooSlowError:
+        except* trio.TooSlowError:
             raise ChunksTooSlowException(
                 threshold=self.config.chunk_wait_timeout_seconds,
                 chunk_range=chunk_range,
-            )
+            ) from None
 
     def _check_cache(self, *, start: int, end: int) -> bool:
         """Check if the given byte range is fully cached."""

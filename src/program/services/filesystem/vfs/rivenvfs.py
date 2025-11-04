@@ -41,9 +41,11 @@ import subprocess
 from typing import (
     TYPE_CHECKING,
     Literal,
+    NoReturn,
     TypedDict,
 )
 import threading
+import trio_util
 
 from kink import di
 
@@ -70,7 +72,6 @@ from ...streaming import (
     CacheConfig,
     MediaStream,
     ChunksTooSlowException,
-    MediaStreamException,
     ChunkCacheNotifier,
 )
 
@@ -194,7 +195,6 @@ class RivenVFS(pyfuse3.Operations):
         self._mounted = False
         self._is_unmounting = False
         self.stream_nursery: trio.Nursery
-        self._trio_token: trio.lowlevel.TrioToken | None = None
 
         # Prepare mountpoint (unmount, create directory)
         self._prepare_mountpoint(self._mountpoint)
@@ -210,28 +210,18 @@ class RivenVFS(pyfuse3.Operations):
         self._mounted = True
 
         def _fuse_runner():
-            async def _async_main():
-                # capture Trio token so we can call into the loop from other threads
-                self._trio_token = trio.lowlevel.current_trio_token()
+            async def _async_main() -> NoReturn:
+                # Open stream nursery for handling streaming operations.
+                # This is separate from the main FUSE loop,
+                # to prevent stream errors from crashing the entire filesystem.
+                async with trio_util.run_and_cancelling(pyfuse3.main):
+                    async with trio.open_nursery() as nursery:
+                        self.stream_nursery = nursery
 
-                async with trio.open_nursery() as daemon_nursery:
-                    daemon_nursery.start_soon(pyfuse3.main)
+                        logger.trace(f"Stream nursery ready and waiting for tasks")
 
-                    try:
-                        # Open stream nursery for handling streaming operations.
-                        # This is separate from the main FUSE loop,
-                        # to prevent stream errors from crashing the entire filesystem.
-                        async with trio.open_nursery() as stream_nursery:
-                            self.stream_nursery = stream_nursery
-
-                            logger.trace(f"Stream nursery ready and waiting for tasks")
-
-                            # Keep the stream nursery alive and ready to spawn tasks
-                            await trio.sleep_forever()
-                    except* Exception:
-                        logger.exception("FUSE main loop nursery error")
-                    finally:
-                        daemon_nursery.cancel_scope.cancel()
+                        # Keep the stream nursery alive and ready to spawn tasks
+                        await trio.sleep_forever()
 
             while not self._is_unmounting:
                 logger.trace("Starting FUSE main loop")
@@ -239,7 +229,7 @@ class RivenVFS(pyfuse3.Operations):
                 try:
                     # pyfuse3.main is a coroutine that needs to run in its own trio event loop
                     trio.run(_async_main)
-                except* Exception:
+                except Exception:
                     logger.exception("FUSE main loop error, restarting")
 
             logger.trace(f"FUSE main loop exited")
@@ -598,10 +588,10 @@ class RivenVFS(pyfuse3.Operations):
 
         try:
             # Terminate FUSE main loop from the Trio event loop context
-            if self._trio_token is not None:
+            if pyfuse3.trio_token is not None:
                 try:
                     trio.from_thread.run(
-                        self._terminate_async, trio_token=self._trio_token
+                        self._terminate_async, trio_token=pyfuse3.trio_token
                     )
                 except Exception:
                     logger.exception(f"Error requesting FUSE termination")
@@ -1699,58 +1689,44 @@ class RivenVFS(pyfuse3.Operations):
                 original_filename=original_filename,
             )
 
-            return await stream.read(
-                request_start=request_start,
-                request_end=request_end,
-                request_size=request_size,
-            )
-        except ChunksTooSlowException as e:
-            if stream:
-                logger.error(
-                    f"Timeout reading {stream.file_metadata['path']} fh={fh} off={off} size={size}: {e}"
+            try:
+                return await stream.read(
+                    request_start=request_start,
+                    request_end=request_end,
+                    request_size=request_size,
                 )
+            except ChunksTooSlowException as e:
+                if stream:
+                    logger.error(
+                        f"Timeout reading {stream.file_metadata['path']} fh={fh} off={off} size={size}: {e}"
+                    )
 
-            raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
-        except MediaStreamDataException as e:
-            if stream:
-                logger.error(
-                    f"{e.__class__.__name__} "
-                    f"data error reading {stream.file_metadata['path']} "
-                    f"fh={fh} "
-                    f"off={off} "
-                    f"size={size}"
-                    f": {e}"
-                )
+                raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
+            except (MediaStreamDataException, FatalMediaStreamException) as e:
+                if stream:
+                    logger.error(
+                        f"{e.__class__.__name__} "
+                        f"error reading {stream.file_metadata['path']} "
+                        f"fh={fh} "
+                        f"off={off} "
+                        f"size={size}"
+                        f": {e}"
+                    )
 
-            handle_info = self._file_handles.get(fh)
+                handle_info = self._file_handles.get(fh)
 
-            if handle_info:
-                # On media stream errors, something extremely bad happened during the streaming process
-                # which broke the integrity of the bytes being served to the client.
-                # This usually leads to playback issues, player hangs, and overall glitchiness.
-                #
-                # Mark that this handle has encountered a fatal stream error so that it can be killed.
-                handle_info["has_stream_error"] = True
+                if handle_info:
+                    # On media stream errors, something extremely bad happened during the streaming process
+                    # which broke the integrity of the bytes being served to the client.
+                    # This usually leads to playback issues, player hangs, and overall glitchiness.
+                    #
+                    # Mark that this handle has encountered a fatal stream error so that it can be killed.
+                    handle_info["has_stream_error"] = True
 
-            raise pyfuse3.FUSEError(errno.EIO) from e
-        except FatalMediaStreamException as e:
-            if stream:
-                logger.error(
-                    f"{e.__class__.__name__} "
-                    f"error reading {stream.file_metadata['path']} "
-                    f"fh={fh} "
-                    f"off={off} "
-                    f"size={size}"
-                    f": {e}"
-                )
-
-            return b""
-        except pyfuse3.FUSEError:
-            logger.debug(f"FUSE error occurred")
-            return b""
-        except ExceptionGroup:
-            logger.exception(f"read(group) error fh={fh}")
-            raise pyfuse3.FUSEError(errno.EIO)
+                raise pyfuse3.FUSEError(errno.EIO) from e
+        except pyfuse3.FUSEError as e:
+            logger.debug(f"FUSEError occurred: {e}")
+            raise
         except Exception:
             logger.exception(f"read(simple) error fh={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
@@ -1904,10 +1880,10 @@ class RivenVFS(pyfuse3.Operations):
                         force_resolve=False,
                     )
                 )
-                
+
                 provider = entry_info.get("provider") if entry_info else None
                 initial_url = entry_info.get("url") if entry_info else None
-                
+
                 stream = MediaStream(
                     fh=fh,
                     file_size=file_size,
@@ -1919,8 +1895,6 @@ class RivenVFS(pyfuse3.Operations):
 
                 self._active_streams[stream_key] = stream
 
-                # Start the main stream loop in the background,
-                # dormant until the stream_start_event is set.
                 self.stream_nursery.start_soon(stream.run)
 
         return self._active_streams[stream_key]
