@@ -26,6 +26,13 @@ from .exceptions import (
     FatalMediaStreamException,
     ByteLengthMismatchException,
     RecoverableMediaStreamException,
+    DebridServiceClosedConnectionException,
+    DebridServiceException,
+    DebridServiceForbiddenException,
+    DebridServiceRangeNotSatisfiableException,
+    DebridServiceUnableToConnectException,
+    DebridServiceRateLimitedException,
+    DebridServiceRefusedRangeRequestException,
 )
 from .file_metadata import FileMetadata
 from .recent_reads import Read, RecentReads
@@ -74,13 +81,14 @@ class MediaStream:
         path: str,
         original_filename: str,
         nursery: trio.Nursery,
-        provider: str | None = None,
-        initial_url: str | None = None,
+        provider: str,
+        initial_url: str,
     ) -> None:
         fs = settings_manager.settings.filesystem
 
         self.fh = fh
         self.nursery = nursery
+        self.provider = provider
         self.recent_reads: RecentReads = RecentReads()
         self.connection: StreamConnection | None = None
         self.is_streaming: trio_util.AsyncBool = trio_util.AsyncBool(False)
@@ -865,43 +873,8 @@ class MediaStream:
             The effective URL that was successfully used (may differ from input if refreshed).
         """
 
-        from program.services.filesystem.vfs import VFSDatabase
-
         max_preflight_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
-
-        # Only fetch URL from DB if not already provided during initialization
-        if not hasattr(self, "target_url") or not self.target_url:
-            # Get entry info from DB
-            # Only unrestrict if there's no unrestricted URL already (force_resolve=False)
-            # Let the refresh logic handle re-unrestricting on failures
-            entry_info = await trio.to_thread.run_sync(
-                lambda: di[VFSDatabase].get_entry_by_original_filename(
-                    self.file_metadata["original_filename"],
-                    True,  # for_http (use unrestricted URL if available)
-                    False,  # force_resolve (don't unrestrict if already have unrestricted URL)
-                )
-            )
-
-            if not entry_info:
-                logger.error(
-                    self._build_log_message(
-                        f"No entry info for {self.file_metadata['original_filename']}"
-                    )
-                )
-
-                raise pyfuse3.FUSEError(errno.ENOENT)
-
-            self.target_url = entry_info["url"]
-
-        if not self.target_url:
-            logger.error(
-                self._build_log_message(
-                    f"No URL for {self.file_metadata['original_filename']}"
-                )
-            )
-
-            raise pyfuse3.FUSEError(errno.ENOENT)
 
         for preflight_attempt in range(max_preflight_attempts):
             try:
@@ -933,7 +906,9 @@ class MediaStream:
                             continue
 
                         # Unable to get range support after retries
-                        raise pyfuse3.FUSEError(errno.EIO)
+                        raise DebridServiceRefusedRangeRequestException(
+                            provider=self.provider
+                        )
             except httpx.RemoteProtocolError as e:
                 logger.debug(
                     self._build_log_message(
@@ -942,13 +917,15 @@ class MediaStream:
                 )
 
                 if await self._retry_with_backoff(
-                    preflight_attempt,
-                    max_preflight_attempts,
-                    backoffs,
+                    attempt=preflight_attempt,
+                    max_attempts=max_preflight_attempts,
+                    backoffs=backoffs,
                 ):
                     continue
 
-                raise pyfuse3.FUSEError(errno.EIO) from e
+                raise DebridServiceClosedConnectionException(
+                    provider=self.provider
+                ) from e
             except httpx.HTTPStatusError as e:
                 preflight_status_code = e.response.status_code
 
@@ -977,8 +954,9 @@ class MediaStream:
                             ):
                                 continue
 
-                    # No fresh URL or still erroring after refresh
-                    raise pyfuse3.FUSEError(errno.ENOENT) from e
+                    raise DebridServiceUnableToConnectException(
+                        provider=self.provider
+                    ) from e
                 else:
                     # Other unexpected status codes
                     logger.warning(
@@ -986,7 +964,9 @@ class MediaStream:
                             f"Unexpected preflight HTTP {preflight_status_code}"
                         )
                     )
-                    raise pyfuse3.FUSEError(errno.EIO) from e
+                    raise DebridServiceException(
+                        "Unexpected error connecting to stream"
+                    ) from e
             except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 logger.debug(
                     self._build_log_message(
@@ -1010,9 +990,9 @@ class MediaStream:
                 ):
                     continue
 
-                raise pyfuse3.FUSEError(errno.EIO) from e
-            except pyfuse3.FUSEError:
-                raise
+                raise DebridServiceUnableToConnectException(
+                    provider=self.provider
+                ) from e
             except Exception as e:
                 logger.exception(
                     self._build_log_message(
@@ -1027,8 +1007,10 @@ class MediaStream:
                 ):
                     continue
 
-                raise pyfuse3.FUSEError(errno.EIO) from None
-        raise pyfuse3.FUSEError(errno.EIO)
+                raise DebridServiceException(
+                    "Unexpected error connecting to stream"
+                ) from e
+        raise DebridServiceException("Unexpected error connecting to stream")
 
     async def _prepare_response(
         self,
@@ -1078,7 +1060,10 @@ class MediaStream:
                             f"Server returned full content instead of range."
                         )
                     )
-                    raise pyfuse3.FUSEError(errno.EIO)
+
+                    raise DebridServiceRefusedRangeRequestException(
+                        provider=self.provider
+                    )
 
                 self.session_statistics.total_session_connections += 1
 
@@ -1097,14 +1082,18 @@ class MediaStream:
                     if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                         continue
 
-                    raise pyfuse3.FUSEError(errno.EACCES) from e
+                    raise DebridServiceForbiddenException(provider=self.provider) from e
                 elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
                     # Preflight catches initial not found errors and attempts to refresh the URL
                     # if it still happens after a real request, don't refresh again and bail out
-                    raise pyfuse3.FUSEError(errno.ENOENT) from e
-                elif status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE:
+                    raise DebridServiceUnableToConnectException(
+                        provider=self.provider
+                    ) from e
+                elif status_code == HTTPStatus.RANGE_NOT_SATISFIABLE:
                     # Requested range not satisfiable; treat as EOF
-                    raise pyfuse3.FUSEError(errno.EINVAL) from e
+                    raise DebridServiceRangeNotSatisfiableException(
+                        provider=self.provider
+                    ) from e
                 elif status_code == HTTPStatus.TOO_MANY_REQUESTS:
                     # Rate limited - back off exponentially, don't refresh URL
                     logger.warning(
@@ -1116,13 +1105,18 @@ class MediaStream:
                     if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                         continue
 
-                    raise pyfuse3.FUSEError(errno.EAGAIN) from e
+                    raise DebridServiceRateLimitedException(
+                        provider=self.provider
+                    ) from e
                 else:
                     # Other unexpected status codes
                     logger.warning(
                         self._build_log_message(f"Unexpected HTTP {status_code}")
                     )
-                    raise pyfuse3.FUSEError(errno.EIO) from e
+
+                    raise DebridServiceException(
+                        "Unexpected error connecting to stream"
+                    ) from e
             except (
                 httpx.TimeoutException,
                 httpx.ConnectError,
@@ -1148,7 +1142,9 @@ class MediaStream:
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                     continue
 
-                raise pyfuse3.FUSEError(errno.EIO) from e
+                raise DebridServiceUnableToConnectException(
+                    provider=self.provider
+                ) from e
             except httpx.RemoteProtocolError as e:
                 # This can happen if the server closes the connection prematurely
                 logger.debug(
@@ -1160,16 +1156,19 @@ class MediaStream:
                 if await self._retry_with_backoff(attempt, max_attempts, backoffs):
                     continue
 
-                raise pyfuse3.FUSEError(errno.EIO) from e
-            except pyfuse3.FUSEError:
-                raise
-            except Exception:
+                raise DebridServiceClosedConnectionException(
+                    provider=self.provider
+                ) from e
+            except Exception as e:
                 logger.exception(
                     self._build_log_message(f"Unexpected error connecting to stream")
                 )
-                raise pyfuse3.FUSEError(errno.EIO) from None
 
-        raise pyfuse3.FUSEError(errno.EIO)
+                raise DebridServiceException(
+                    "Unexpected error connecting to stream"
+                ) from e
+
+        raise DebridServiceException("Unexpected error connecting to stream")
 
     async def _wait_until_chunks_ready(
         self,

@@ -14,8 +14,28 @@ from .media_stream_exception import (
     FatalMediaStreamException,
     RecoverableMediaStreamException,
 )
+from .debrid_service_exception import (
+    DebridServiceException,
+    DebridServiceRefusedRangeRequestException,
+    DebridServiceUnableToConnectException,
+    DebridServiceForbiddenException,
+    DebridServiceRateLimitedException,
+    DebridServiceServiceUnavailableException,
+    DebridServiceFileNotFoundException,
+    DebridServiceClosedConnectionException,
+    DebridServiceRangeNotSatisfiableException,
+)
 
 __all__ = [
+    "DebridServiceException",
+    "DebridServiceRefusedRangeRequestException",
+    "DebridServiceUnableToConnectException",
+    "DebridServiceForbiddenException",
+    "DebridServiceRateLimitedException",
+    "DebridServiceServiceUnavailableException",
+    "DebridServiceFileNotFoundException",
+    "DebridServiceClosedConnectionException",
+    "DebridServiceRangeNotSatisfiableException",
     "MediaStreamException",
     "FatalMediaStreamException",
     "RecoverableMediaStreamException",

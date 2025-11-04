@@ -64,6 +64,13 @@ from program.services.filesystem.vfs.db import VFSDatabase
 from program.services.streaming.exceptions import (
     MediaStreamDataException,
     FatalMediaStreamException,
+    DebridServiceException,
+    DebridServiceForbiddenException,
+    DebridServiceRangeNotSatisfiableException,
+    DebridServiceRateLimitedException,
+    DebridServiceUnableToConnectException,
+    DebridServiceClosedConnectionException,
+    DebridServiceRefusedRangeRequestException,
 )
 
 
@@ -1657,6 +1664,7 @@ class RivenVFS(pyfuse3.Operations):
                     logger.error(
                         f"Subtitle content not found for {parent_original_filename} ({language})"
                     )
+
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
                 # Slice subtitle content in thread (could be large)
@@ -1727,6 +1735,20 @@ class RivenVFS(pyfuse3.Operations):
                     handle_info["has_stream_error"] = True
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
+            except DebridServiceUnableToConnectException as e:
+                raise pyfuse3.FUSEError(errno.ENOENT) from e
+            except DebridServiceForbiddenException as e:
+                raise pyfuse3.FUSEError(errno.EACCES) from e
+            except DebridServiceRangeNotSatisfiableException as e:
+                raise pyfuse3.FUSEError(errno.EINVAL) from e
+            except DebridServiceRefusedRangeRequestException as e:
+                raise pyfuse3.FUSEError(errno.ERANGE) from e
+            except DebridServiceRateLimitedException as e:
+                raise pyfuse3.FUSEError(errno.EAGAIN) from e
+            except DebridServiceClosedConnectionException as e:
+                raise pyfuse3.FUSEError(errno.ECONNABORTED) from e
+            except DebridServiceException as e:
+                raise pyfuse3.FUSEError(errno.EIO) from e
         except pyfuse3.FUSEError as e:
             logger.debug(f"FUSEError occurred: {e}")
             raise
@@ -1744,9 +1766,11 @@ class RivenVFS(pyfuse3.Operations):
             if handle_info:
                 # Resolve path from inode
                 inode = handle_info.get("inode")
+
                 if inode:
                     with self._tree_lock:
                         node = self._inode_to_node.get(inode)
+
                         if node:
                             path = node.path
 
@@ -1758,11 +1782,13 @@ class RivenVFS(pyfuse3.Operations):
                         for h in self._file_handles.values()
                         if h.get("inode") == inode
                     ]
+
                     if not remaining_handles:
                         stream_key = self._stream_key(path, fh)
 
                         # No other handles for this inode, clean up shared path state
                         active_stream = self._active_streams.pop(stream_key, None)
+
                         if active_stream:
                             await active_stream.kill()
 
@@ -1884,8 +1910,11 @@ class RivenVFS(pyfuse3.Operations):
                     )
                 )
 
-                provider = entry_info.get("provider") if entry_info else None
-                initial_url = entry_info.get("url") if entry_info else None
+                if not entry_info:
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+
+                provider = entry_info["provider"]
+                initial_url = entry_info["url"]
 
                 stream = MediaStream(
                     fh=fh,
