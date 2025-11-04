@@ -299,14 +299,14 @@ class MediaStream:
                                         ]
                                     )
 
+                                    if len(uncached_chunks) == 0:
+                                        continue
+
                                     chunk_range_label = (
                                         f"{uncached_chunks[0].index}"
                                         if len(uncached_chunks) == 1
                                         else f"{uncached_chunks[0].index}-{uncached_chunks[-1].index}"
                                     )
-
-                                    if len(uncached_chunks) == 0:
-                                        continue
 
                                     request_start, _ = read.chunk_range.request_range
 
@@ -449,7 +449,7 @@ class MediaStream:
 
                             break
                     except FatalMediaStreamException as e:
-                        logger.error(
+                        logger.exception(
                             self._build_log_message(
                                 f"Fatal error from stream: {e.original_exception}. Terminating."
                             )
@@ -460,7 +460,7 @@ class MediaStream:
                         break
                     except Exception as e:
                         # Safely catch any other unexpected exceptions to avoid crashing the FUSE mount
-                        logger.error(
+                        logger.exception(
                             self._build_log_message(
                                 f"Unexpected error from stream: {e}"
                             )
@@ -884,8 +884,8 @@ class MediaStream:
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
-                logger.log(
-                    "STREAM", self._build_log_message(f"HTTP error {status_code}: {e}")
+                logger.warning(
+                    self._build_log_message(f"HTTP error {status_code}: {e}")
                 )
 
                 if status_code == HTTPStatus.FORBIDDEN:
