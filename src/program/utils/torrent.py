@@ -25,7 +25,9 @@ def normalize_infohash(infohash: str) -> str:
     if len(infohash) == 32:
         # Convert base32 to base16
         try:
-            infohash = base64.b16encode(base64.b32decode(infohash.upper())).decode("utf-8")
+            infohash = base64.b16encode(base64.b32decode(infohash.upper())).decode(
+                "utf-8"
+            )
         except Exception as e:
             logger.debug(f"Failed to convert base32 infohash to base16: {e}")
             return infohash.lower()
