@@ -1,7 +1,6 @@
 import trio
 import trio_util
 import pyfuse3
-import errno
 import httpx
 
 from dataclasses import dataclass
@@ -71,8 +70,6 @@ class MediaStream:
     connections, fetching data, and managing playback.
     """
 
-    target_url: str
-
     def __init__(
         self,
         *,
@@ -98,7 +95,7 @@ class MediaStream:
         )
 
         # Store initial URL to avoid redundant unrestrict calls
-        self.target_url = initial_url
+        self.target_url: trio_util.AsyncValue[str] = trio_util.AsyncValue(initial_url)
 
         self.config = Config(
             sequential_read_tolerance_blocks=10,
@@ -298,7 +295,15 @@ class MediaStream:
 
                             async with trio_util.move_on_when(
                                 lambda connection=connection: trio_util.wait_any(
+                                    # Reconnect the stream if a seek is requested
                                     lambda: connection.seek_required.wait_value(True),
+                                    # Reconnect the stream if the target URL has been updated
+                                    # by another request (e.g. a scan that refreshed the URL).
+                                    lambda: self.target_url.wait_value(
+                                        lambda url: (
+                                            url != connection.response.request.url
+                                        )
+                                    ),
                                 )
                             ):
                                 async for (
@@ -877,7 +882,11 @@ class MediaStream:
 
         for attempt in range(max_attempts):
             try:
-                request = httpx.Request("GET", url=self.target_url, headers=headers)
+                request = httpx.Request(
+                    "GET",
+                    url=self.target_url.value,
+                    headers=headers,
+                )
                 response = await self.async_client.send(request, stream=True)
 
                 response.raise_for_status()
@@ -1145,14 +1154,14 @@ class MediaStream:
         if entry_info:
             fresh_url = entry_info.get("url")
 
-            if fresh_url and fresh_url != self.target_url:
+            if fresh_url and fresh_url != self.target_url.value:
                 logger.debug(
                     self._build_log_message(
                         f"Refreshed URL for {self.file_metadata['original_filename']}"
                     )
                 )
 
-                self.target_url = fresh_url
+                self.target_url.value = fresh_url
 
                 return True
 
