@@ -1894,10 +1894,9 @@ class RivenVFS(pyfuse3.Operations):
                     original_filename=original_filename,
                     provider=provider,
                     initial_url=initial_url,
+                    nursery=self.stream_nursery,
                 )
 
                 self._active_streams[stream_key] = stream
-
-                self.stream_nursery.start_soon(stream.run)
 
         return self._active_streams[stream_key]

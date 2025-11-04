@@ -73,12 +73,14 @@ class MediaStream:
         file_size: int,
         path: str,
         original_filename: str,
+        nursery: trio.Nursery,
         provider: str | None = None,
         initial_url: str | None = None,
     ) -> None:
         fs = settings_manager.settings.filesystem
 
         self.fh = fh
+        self.nursery = nursery
         self.recent_reads: RecentReads = RecentReads()
         self.connection: StreamConnection | None = None
         self.is_streaming: trio_util.AsyncBool = trio_util.AsyncBool(False)
@@ -263,7 +265,9 @@ class MediaStream:
         finally:
             await self.close()
 
-    async def run(self) -> None:
+    async def run(self, *, task_status=trio.TASK_STATUS_IGNORED) -> None:
+        has_started = False
+
         async with self.stream_lifecycle():
             async with trio_util.move_on_when(
                 lambda: self.is_killed.wait_value(True),
@@ -278,6 +282,10 @@ class MediaStream:
                         async with self.manage_connection(
                             position=position
                         ) as connection:
+                            if not has_started:
+                                task_status.started()
+                                has_started = True
+
                             # Reset attempt count on successful connection
                             attempt_count = 0
 
@@ -609,6 +617,12 @@ class MediaStream:
             read_type = await self._detect_read_type(
                 chunk_range=chunk_range,
             )
+
+            # Start the stream and wait for a connection before progressing with a body read.
+            # This needs to be done before assigning to current_read, so that it can pick up the value.
+            if read_type == "body_read" and not self.is_streaming.value:
+                with trio.fail_after(10):
+                    await self.nursery.start(self.run)
 
             self.recent_reads.current_read.value = Read(
                 chunk_range=chunk_range,
