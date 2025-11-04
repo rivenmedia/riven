@@ -29,30 +29,6 @@ class ByteLengthMismatchException(MediaStreamDataException):
         self.range = range
 
 
-class ReadPositionMismatchException(MediaStreamDataException):
-    """Raised when the read position in a stream does not match the expected position."""
-
-    def __init__(
-        self,
-        *,
-        expected_position: int,
-        actual_position: int | None,
-    ) -> None:
-        if actual_position is not None:
-            difference = actual_position - expected_position
-
-            super().__init__(
-                f"Expected read position {expected_position}, but got {actual_position}, a difference of {difference} bytes."
-            )
-        else:
-            super().__init__(
-                f"Expected read position {expected_position}, but got None."
-            )
-
-        self.expected_position = expected_position
-        self.actual_position = actual_position
-
-
 class EmptyDataException(MediaStreamDataException):
     """Raised when no data is returned from a stream read operation."""
 

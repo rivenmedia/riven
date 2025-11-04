@@ -7,7 +7,6 @@ from .exceptions.chunk_exception import (
 from .exceptions.media_stream_data_exception import (
     MediaStreamDataException,
     ByteLengthMismatchException,
-    ReadPositionMismatchException,
     CacheDataNotFoundException,
     EmptyDataException,
 )
@@ -22,7 +21,6 @@ __all__ = [
     "MediaStreamException",
     "MediaStreamDataException",
     "ByteLengthMismatchException",
-    "ReadPositionMismatchException",
     "CacheDataNotFoundException",
     "ChunkException",
     "ChunksTooSlowException",

@@ -36,9 +36,7 @@ from .exceptions import (
 from .file_metadata import FileMetadata
 from .recent_reads import Read, RecentReads
 from .session_statistics import SessionStatistics
-from .stream_connection import (
-    StreamConnection,
-)
+from .stream_connection import StreamConnection
 
 
 # Providers that require proxy connections for streaming
@@ -203,28 +201,15 @@ class MediaStream:
             self.connection = connection
 
             yield connection
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-
-            logger.exception(
-                self._build_log_message(
-                    f"HTTPStatusError {status_code} occurred whilst managing stream connection: {e}"
-                )
-            )
-
-            # If we got to this point, the connection was unable to be established,
-            # even after preflight checks and exponential backoff retries.
-            # This is a fatal error; the stream cannot be read.
-            raise FatalMediaStreamException(e) from e
         except (
-            httpx.ReadError,
-            httpx.RemoteProtocolError,
-            httpx.StreamClosed,
-            httpx.ConnectError,
+            EmptyDataException,
+            DebridServiceRateLimitedException,
+            DebridServiceRefusedRangeRequestException,
+            DebridServiceClosedConnectionException,
         ) as e:
             logger.exception(
                 self._build_log_message(
-                    f"{e.__class__.__name__} error occurred whilst managing stream connection: {e}"
+                    f"{e.__class__.__name__} occurred whilst managing stream connection: {e}"
                 )
             )
 
@@ -233,35 +218,15 @@ class MediaStream:
             if not self.connection:
                 raise FatalMediaStreamException(e) from e
 
-            # Otherwise, it's a recoverable error; we can attempt to reconnect.
             raise RecoverableMediaStreamException(e) from e
-        except httpx.ReadTimeout as e:
-            logger.exception(
-                self._build_log_message(f"Stream operation timed out whilst reading")
-            )
-
-            # Reading from the stream timed out. This is likely a recoverable error;
-            # we can attempt to reconnect.
-            raise RecoverableMediaStreamException(e) from e
-        except httpx.PoolTimeout as e:
+        except (
+            DebridServiceUnableToConnectException,
+            DebridServiceForbiddenException,
+            DebridServiceRangeNotSatisfiableException,
+        ) as e:
             logger.exception(
                 self._build_log_message(
-                    f"Stream operation timed out whilst acquiring a connection"
-                )
-            )
-
-            # This is likely a fatal error; we couldn't get a connection from the pool.
-            raise FatalMediaStreamException(e) from e
-        except StopAsyncIteration as e:
-            logger.debug(self._build_log_message("Stream exhausted"))
-
-            # This indicates the stream iterator has hit the end (likely EOF).
-            # This is a fatal error; the stream cannot be read further.
-            raise FatalMediaStreamException(e) from e
-        except Exception as e:
-            logger.error(
-                self._build_log_message(
-                    f"{e.__class__.__name__} occurred while managing stream connection: {e}"
+                    f"{e.__class__.__name__} occurred whilst managing stream connection: {e}"
                 )
             )
 
@@ -406,6 +371,17 @@ class MediaStream:
                                         for chunk in uncached_chunks:
                                             logger.debug(f"processing chunk: {chunk}")
 
+                                            if (
+                                                connection.current_read_position
+                                                != chunk.start
+                                            ):
+                                                # This should never happen due to prior seek handling,
+                                                # but just in case, we double-check here.
+                                                #
+                                                # Returning the wrong data would be catastrophic for playback,
+                                                # so we force a reconnect at the correct position.
+                                                connection.seek(position=chunk.start)
+
                                             chunk_label = f"[{chunk.start}-{chunk.end}]"
 
                                             with benchmark(
@@ -417,6 +393,11 @@ class MediaStream:
                                                 )
                                             ):
                                                 data = await anext(connection.reader)
+
+                                            if data == b"":
+                                                raise EmptyDataException(
+                                                    range=(chunk.start, chunk.end)
+                                                )
 
                                             with benchmark(
                                                 log=lambda duration: logger.log(
