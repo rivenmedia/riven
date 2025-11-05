@@ -102,7 +102,7 @@ class MediaStream:
         )
 
         self.chunker = Chunker(
-            cache_key=self.file_metadata["original_filename"],
+            cache_key=self.file_metadata.original_filename,
             chunk_size=self.config.chunk_size,
             header_size=self.config.header_size,
             footer_size=self.footer_size,
@@ -113,7 +113,7 @@ class MediaStream:
             "STREAM",
             self._build_log_message(
                 f"Initialized stream with chunk size {self.config.chunk_size / (1024 * 1024):.2f} MB. "
-                f"file_size={self.file_metadata['file_size']} bytes",
+                f"file_size={self.file_metadata.file_size} bytes",
             ),
         )
 
@@ -148,7 +148,7 @@ class MediaStream:
         max_footer_size = 10 * 1024 * 1024  # Maximum footer size of 10MB
         footer_percentage = 0.002  # 0.2% of file size
 
-        percentage_size = int(self.file_metadata["file_size"] * footer_percentage)
+        percentage_size = int(self.file_metadata.file_size * footer_percentage)
 
         raw_footer_size = min(max(percentage_size, min_footer_size), max_footer_size)
         aligned_footer_size = (
@@ -314,8 +314,8 @@ class MediaStream:
                                             self._build_log_message(
                                                 f"Requested start {request_start} "
                                                 f"is before current read position {connection.current_read_position} "
-                                                f"for {self.file_metadata['path']}. "
-                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata['file_size']}."
+                                                f"for {self.file_metadata.path}. "
+                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
                                             ),
                                         )
 
@@ -338,8 +338,8 @@ class MediaStream:
                                             self._build_log_message(
                                                 f"Requested start {request_start} "
                                                 f"is after current read position {connection.current_read_position} "
-                                                f"for {self.file_metadata['path']}. "
-                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata['file_size']}."
+                                                f"for {self.file_metadata.path}. "
+                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
                                             ),
                                         )
 
@@ -480,7 +480,7 @@ class MediaStream:
             "STREAM",
             self._build_log_message(
                 f"{response.http_version} stream connection established "
-                f"from byte {chunk_aligned_start} / {self.file_metadata['file_size']}."
+                f"from byte {chunk_aligned_start} / {self.file_metadata.file_size}."
             ),
         )
 
@@ -499,7 +499,7 @@ class MediaStream:
         logger.log(
             "STREAM",
             self._build_log_message(
-                f"Ended stream for {self.file_metadata['path']} fh={self.fh} "
+                f"Ended stream for {self.file_metadata.path} fh={self.fh} "
                 f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
                 f"in {self.session_statistics.total_session_connections} connections."
             ),
@@ -513,7 +513,7 @@ class MediaStream:
             # If the file was streaming,
             # clear all chunk cache emitters to free up memory.
             di[ChunkCacheNotifier].clear_emitters(
-                cache_key=self.file_metadata["original_filename"]
+                cache_key=self.file_metadata.original_filename
             )
 
             # Wait for the stream loop to close
@@ -729,7 +729,7 @@ class MediaStream:
         if start < end <= self.config.header_size:
             return "header_scan"
 
-        file_size = self.file_metadata["file_size"]
+        file_size = self.file_metadata.file_size
 
         if (
             (self.recent_reads.last_read_end or 0)
@@ -762,7 +762,7 @@ class MediaStream:
         ):
             return "general_scan"
 
-        if start < self.file_metadata["file_size"] - self.footer_size:
+        if start < self.file_metadata.file_size - self.footer_size:
             return "body_read"
 
         return "footer_read"
@@ -846,7 +846,7 @@ class MediaStream:
                 response.raise_for_status()
 
                 content_length = response.headers.get("Content-Length")
-                range_bytes = (end or self.file_metadata["file_size"]) - start
+                range_bytes = (end or self.file_metadata.file_size) - start
 
                 if (
                     response.status_code == HTTPStatus.OK
@@ -1044,7 +1044,7 @@ class MediaStream:
         from .cache import Cache
 
         return di[Cache].has(
-            cache_key=self.file_metadata["original_filename"],
+            cache_key=self.file_metadata.original_filename,
             start=start,
             end=end,
         )
@@ -1060,7 +1060,7 @@ class MediaStream:
         from .cache import Cache
 
         return await di[Cache].get(
-            cache_key=self.file_metadata["original_filename"],
+            cache_key=self.file_metadata.original_filename,
             start=start,
             end=end,
         )
@@ -1076,7 +1076,7 @@ class MediaStream:
         from .cache import Cache
 
         await di[Cache].put(
-            cache_key=self.file_metadata["original_filename"],
+            cache_key=self.file_metadata.original_filename,
             start=start,
             data=data,
         )
@@ -1095,7 +1095,7 @@ class MediaStream:
 
         # Query database by original_filename and force unrestrict
         entry_info = di[VFSDatabase].get_entry_by_original_filename(
-            original_filename=self.file_metadata["original_filename"],
+            original_filename=self.file_metadata.original_filename,
             for_http=True,
             force_resolve=True,
         )
@@ -1107,7 +1107,7 @@ class MediaStream:
                 logger.log(
                     "STREAM",
                     self._build_log_message(
-                        f"Refreshed URL for {self.file_metadata['original_filename']}"
+                        f"Refreshed URL for {self.file_metadata.original_filename}"
                     ),
                 )
 
@@ -1166,4 +1166,6 @@ class MediaStream:
         return data
 
     def _build_log_message(self, message: str) -> str:
-        return f"{message} [fh: {self.fh} | file={self.file_metadata['path'].split('/')[-1]}]"
+        return (
+            f"{message} [fh: {self.fh} | file={self.file_metadata.path.split('/')[-1]}]"
+        )

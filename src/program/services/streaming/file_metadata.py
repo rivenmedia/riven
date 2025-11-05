@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from typing import TypedDict
 
 
 @dataclass(frozen=True)
-class FileMetadata(TypedDict):
+class FileMetadata:
     """Metadata about the file being streamed."""
 
     original_filename: str
