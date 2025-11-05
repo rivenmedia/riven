@@ -958,7 +958,8 @@ class MediaStream:
                     )
 
                     raise DebridServiceException(
-                        "Unexpected error connecting to stream"
+                        "Unexpected error connecting to stream",
+                        provider=self.provider,
                     ) from e
             except (
                 httpx.TimeoutException,
@@ -1018,10 +1019,14 @@ class MediaStream:
                 )
 
                 raise DebridServiceException(
-                    "Unexpected error connecting to stream"
+                    "Unexpected error connecting to stream",
+                    provider=self.provider,
                 ) from e
 
-        raise DebridServiceException("Unexpected error connecting to stream")
+        raise DebridServiceException(
+            "Unexpected error connecting to stream",
+            provider=self.provider,
+        )
 
     async def _wait_until_chunks_ready(
         self,
