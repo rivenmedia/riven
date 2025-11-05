@@ -15,6 +15,8 @@ from ordered_set import OrderedSet
 
 from program.settings.manager import settings_manager
 from program.utils import benchmark
+from program.utils.async_client import AsyncClient
+from program.utils.proxy_client import ProxyClient
 
 from .chunker import ChunkCacheNotifier, ChunkRange, Chunker
 from .config import Config
@@ -133,9 +135,9 @@ class MediaStream:
             provider in PROXY_REQUIRED_PROVIDERS
             and settings_manager.settings.downloaders.proxy_url
         ):
-            self.async_client = di["ProxyClient"]
+            self.async_client = di[ProxyClient]
         else:
-            self.async_client = di[httpx.AsyncClient]
+            self.async_client = di[AsyncClient]
 
     @cached_property
     def footer_size(self) -> int:
