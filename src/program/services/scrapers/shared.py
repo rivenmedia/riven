@@ -208,100 +208,53 @@ def _parse_results(
             # Enrich parsed data with TMDB language so ranking can evaluate it
             _enrich_parsed_data_with_tmdb_language(parsed_data, item)
 
-            try:
-                # Calculate metrics with enriched data
-                lev_ratio = 0.0
-                if correct_title:
-                    lev_ratio = get_lev_ratio(
-                        correct_title,
-                        parsed_data.parsed_title,
-                        rtn.lev_threshold,
-                        aliases,
+            # Calculate metrics with enriched data
+            lev_ratio = 0.0
+            if correct_title:
+                lev_ratio = get_lev_ratio(
+                    correct_title,
+                    parsed_data.parsed_title,
+                    rtn.lev_threshold,
+                    aliases,
+                )
+
+            # Check if torrent is fetchable with enriched data
+            is_fetchable, failed_keys = check_fetch(
+                parsed_data, rtn.settings, speed_mode=True
+            )
+            rank = get_rank(parsed_data, rtn.settings, rtn.ranking_model)
+
+            if remove_trash_default:
+                if lev_ratio < rtn.lev_threshold:
+                    raise GarbageTorrent(
+                        f"'{raw_title}' does not match the correct title. "
+                        f"correct title: '{correct_title}', parsed title: '{parsed_data.parsed_title}'"
                     )
-                    if remove_trash_default and lev_ratio < rtn.lev_threshold:
-                        raise GarbageTorrent(
-                            f"'{raw_title}' does not match the correct title. "
-                            f"correct title: '{correct_title}', parsed title: '{parsed_data.parsed_title}'"
-                        )
+                if not is_fetchable:
+                    raise GarbageTorrent(
+                        f"'{parsed_data.raw_title}' denied by: {', '.join(failed_keys)}"
+                    )
+                if rank < rtn.settings.options["remove_ranks_under"]:
+                    raise GarbageTorrent(
+                        f"'{raw_title}' does not meet the minimum rank requirement, got rank of {rank}"
+                    )
 
-                # Check if torrent is fetchable with enriched data
-                is_fetchable, failed_keys = check_fetch(
-                    parsed_data, rtn.settings, speed_mode=True
-                )
-                rank = get_rank(parsed_data, rtn.settings, rtn.ranking_model)
+            # Create Torrent with enriched data
+            torrent = Torrent(
+                infohash=infohash,
+                raw_title=raw_title,
+                data=parsed_data,
+                fetch=is_fetchable,
+                rank=rank,
+                lev_ratio=lev_ratio,
+            )
 
-                if remove_trash_default:
-                    if not is_fetchable:
-                        raise GarbageTorrent(
-                            f"'{parsed_data.raw_title}' denied by: {', '.join(failed_keys)}"
-                        )
-                    if rank < rtn.settings.options["remove_ranks_under"]:
-                        raise GarbageTorrent(
-                            f"'{raw_title}' does not meet the minimum rank requirement, got rank of {rank}"
-                        )
-
-                # Create Torrent with enriched data
-                torrent = Torrent(
-                    infohash=infohash,
-                    raw_title=raw_title,
-                    data=parsed_data,
-                    fetch=is_fetchable,
-                    rank=rank,
-                    lev_ratio=lev_ratio,
-                )
-
-                logger.debug(
-                    f"RTN parsed {item.log_string} torrent: episodes={torrent.data.episodes}, "
-                    f"seasons={torrent.data.seasons}, year={torrent.data.year}, "
-                    f"country={torrent.data.country}, dubbed={torrent.data.dubbed}, "
-                    f"languages={torrent.data.languages}: {raw_title}"
-                )
-            except GarbageTorrent as e:
-                if remove_trash_default and _should_retry_without_trash(
-                    item, raw_title, aliases
-                ):
-                    try:
-                        # Re-parse without trash removal but with TMDB enrichment
-                        lev_ratio = 0.0
-                        if correct_title:
-                            lev_ratio = get_lev_ratio(
-                                correct_title,
-                                parsed_data.parsed_title,
-                                rtn.lev_threshold,
-                                aliases,
-                            )
-
-                        is_fetchable, failed_keys = check_fetch(
-                            parsed_data, rtn.settings, speed_mode=True
-                        )
-                        rank = get_rank(parsed_data, rtn.settings, rtn.ranking_model)
-
-                        torrent = Torrent(
-                            infohash=infohash,
-                            raw_title=raw_title,
-                            data=parsed_data,
-                            fetch=is_fetchable,
-                            rank=rank,
-                            lev_ratio=lev_ratio,
-                        )
-                        logger.debug(
-                            f"Accepted fallback torrent using keyword boost for {item.log_string}: "
-                            f"episodes={torrent.data.episodes}, seasons={torrent.data.seasons}: {raw_title}"
-                        )
-                    except GarbageTorrent as fallback_error:
-                        if log_msg:
-                            logger.trace(f"GarbageTorrent (fallback): {fallback_error}")
-                        rejection_reasons[raw_title] = (
-                            f"GarbageTorrent (fallback): {fallback_error}"
-                        )
-                        processed_infohashes.add(infohash)
-                        continue
-                else:
-                    if log_msg:
-                        logger.trace(f"GarbageTorrent: {e}")
-                    rejection_reasons[raw_title] = f"GarbageTorrent: {e}"
-                    processed_infohashes.add(infohash)
-                    continue
+            logger.debug(
+                f"RTN parsed {item.log_string} torrent: episodes={torrent.data.episodes}, "
+                f"seasons={torrent.data.seasons}, year={torrent.data.year}, "
+                f"country={torrent.data.country}, dubbed={torrent.data.dubbed}, "
+                f"languages={torrent.data.languages}: {raw_title}"
+            )
 
             if item.type == "movie":
                 # If movie item, disregard torrents with seasons and episodes
@@ -536,6 +489,14 @@ def _parse_results(
 
             torrents.add(torrent)
             processed_infohashes.add(infohash)
+        except GarbageTorrent as e:
+            # This is now the ONLY exception handler for this.
+            # If RTN says it's trash, it's trash. We don't retry.
+            if log_msg:
+                logger.trace(f"GarbageTorrent: {e}")
+            rejection_reasons[raw_title] = f"GarbageTorrent: {e}"
+            processed_infohashes.add(infohash)
+            continue
         except Exception as e:
             if log_msg:
                 logger.trace(f"Parser error: {e}")
@@ -577,50 +538,6 @@ def _parse_results(
 
 
 # helper functions
-
-
-def _should_retry_without_trash(
-    item: MediaItem, raw_title: str, aliases: Dict[str, list[str]]
-) -> bool:
-    """Decide whether to retry ranking without trash filtering.
-
-    This function no longer relies on manual keyword lists. It only:
-    - requires that the raw title contains the item's primary title or an enabled alias
-    - allows retries for explicit season matches (season/show queries)
-    If the title/aliases match, we consider a retry warranted so the fallback ranking
-    (without trash removal) can be attempted.
-    """
-    raw_lower = raw_title.lower()
-
-    title_tokens = {item.get_top_title().lower()} if item.get_top_title() else set()
-    if item.title:
-        title_tokens.add(item.title.lower())
-
-    for values in aliases.values():
-        for alias in values:
-            if alias:
-                title_tokens.add(alias.lower())
-
-    # If the title doesn't contain any known token, don't retry.
-    if not any(token and token in raw_lower for token in title_tokens):
-        return False
-
-    # If this is a season/show query and the title explicitly references a season, retry.
-    if item.type == "season":
-        season_tokens = {f"s{item.number:02}", f"season {item.number}"}
-        if any(token in raw_lower for token in season_tokens):
-            return True
-    elif item.type == "show":
-        season_tokens = {
-            token
-            for season in getattr(item, "seasons", [])
-            for token in (f"s{season.number:02}", f"season {season.number}")
-        }
-        if any(token in raw_lower for token in season_tokens if token):
-            return True
-
-    # Title/alias matched and nothing specifically excluded — allow a retry.
-    return True
 
 
 def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
