@@ -9,6 +9,10 @@ from RTN import (
     DefaultRanking,
     ParsedData,
     Torrent,
+    check_fetch,
+    get_lev_ratio,
+    get_rank,
+    parse,
     sort_torrents,
 )
 from RTN.exceptions import GarbageTorrent
@@ -23,188 +27,98 @@ ranking_settings: RTNSettingsModel = settings_manager.settings.ranking
 ranking_model: BaseRankingModel = DefaultRanking()
 rtn = RTN(ranking_settings, ranking_model)
 
-# TMDB ISO 639-1 and ISO 639-2/T language codes to RTN language markers
-# Supports both 2-letter (en, ja) and 3-letter (eng, jpn) language codes from TMDB
+# TMDB ISO 639-1 and ISO 639-2/T language codes mapped to ISO 639-1 (used by PTT)
+# This allows TMDB language data to be injected into PTT's language detection
 TMDB_LANGUAGE_MAP = {
     # English
-    "en": "ENGLISH",
-    "eng": "ENGLISH",
-    # Japanese
-    "ja": "JAPANESE",
-    "jpn": "JAPANESE",
-    # Spanish
-    "es": "SPANISH",
-    "spa": "SPANISH",
-    # French
-    "fr": "FRENCH",
-    "fra": "FRENCH",
-    "fre": "FRENCH",
-    # German
-    "de": "GERMAN",
-    "deu": "GERMAN",
-    "ger": "GERMAN",
-    # Italian
-    "it": "ITALIAN",
-    "ita": "ITALIAN",
-    # Portuguese
-    "pt": "PORTUGUESE",
-    "por": "PORTUGUESE",
-    # Russian
-    "ru": "RUSSIAN",
-    "rus": "RUSSIAN",
-    # Korean
-    "ko": "KOREAN",
-    "kor": "KOREAN",
-    # Chinese
-    "zh": "CHINESE",
-    "zho": "CHINESE",
-    "chi": "CHINESE",
-    # Thai
-    "th": "THAI",
-    "tha": "THAI",
-    # Arabic
-    "ar": "ARABIC",
-    "ara": "ARABIC",
-    # Hindi
-    "hi": "HINDI",
-    "hin": "HINDI",
-    # Polish
-    "pl": "POLISH",
-    "pol": "POLISH",
-}
-
-# Markers that indicate language info present or overrides in the title
-EXPLICIT_LANGUAGE_MARKERS = {
-    # English markers
-    "english": "en",
+    "en": "en",
     "eng": "en",
-    "english audio": "en",
-    "english dub": "en",
-    "english dubbed": "en",
-    # Non-English markers that should override default
-    "japanese": "ja",
+    # Japanese
+    "ja": "ja",
     "jpn": "ja",
-    "japanese audio": "ja",
-    "spanish": "es",
-    "french": "fr",
-    "german": "de",
-    "russian": "ru",
-    "korean": "ko",
-    "chinese": "zh",
-    "mandarin": "zh",
+    # Spanish
+    "es": "es",
+    "spa": "es",
+    # French
+    "fr": "fr",
+    "fra": "fr",
+    "fre": "fr",
+    # German
+    "de": "de",
+    "deu": "de",
+    "ger": "de",
+    # Italian
+    "it": "it",
+    "ita": "it",
+    # Portuguese
+    "pt": "pt",
+    "por": "pt",
+    # Russian
+    "ru": "ru",
+    "rus": "ru",
+    # Korean
+    "ko": "ko",
+    "kor": "ko",
+    # Chinese
+    "zh": "zh",
+    "zho": "zh",
+    "chi": "zh",
+    # Thai
+    "th": "th",
+    "tha": "th",
+    # Arabic
+    "ar": "ar",
+    "ara": "ar",
+    # Hindi
+    "hi": "hi",
+    "hin": "hi",
+    # Polish
+    "pl": "pl",
+    "pol": "pl",
 }
 
-# Markers that indicate mixed audio/language content (should be unknown)
-MIXED_LANGUAGE_MARKERS = [
-    "dual audio",
-    "dual.audio",
-    "multi audio",
-    "multi.audio",
-    "multi-language",
-    "multilingual",
-    "eng+jpn",
-    "en+jp",
-]
 
-# Markers that indicate subtitle-only or non-English only
-SUBTITLE_ONLY_MARKERS = [
-    "sub only",
-    "sub.only",
-    "subs only",
-    "subs.only",
-    "jp only",
-    "jp.only",
-    "japanese only",
-    "jpn only",
-    "no dub",
-    "no.dub",
-]
+def _enrich_parsed_data_with_tmdb_language(
+    parsed_data: ParsedData, item: MediaItem
+) -> None:
+    """Enrich parsed data with TMDB language after PTT parsing but before ranking.
 
-ANIME_DUB_KEYWORDS = [
-    # Dual/Multi Audio
-    "dual audio",
-    "dual.audio",
-    "multi audio",
-    "multi.audio",
-    "multi-audio",
-    "bilingual",
-    "2.0",  # Often indicates dual language audio
-    "2 audio",
-    "2.0 audio",
-    # English Dub Keywords
-    "eng dub",
-    "english dub",
-    "english dubbed",
-    "dubbed",
-    "eng.dub",
-    "en.dub",
-    "engdub",
-    "engsub",
-    "eng sub",
-    "english sub",
-    # Multi-language indicators
-    "eng+jpn",
-    "en+jp",
-    "engjap",
-    "eng_jap",
-    "english_japanese",
-    "jpn eng",
-    # Subtitle indicators (for sign/song subs or forced subs)
-    "signs songs",
-    "signs.songs",
-    "signs&songs",
-    "signs and songs",
-    "forced sub",
-    "forced.sub",
-    "forced.subtitles",
-    "hardsub",
-    "hardsubs",
-    # Uncensored (often indicates TV vs censored version)
-    "uncensored",
-    "uncensor",
-    # Edition indicators
-    "tv edit",
-    "broadcast",
-]
+    PTT's native language detection takes priority. This only adds TMDB language
+    if PTT found no language markers in the title.
 
-ANIME_SUB_ONLY_KEYWORDS = [
-    # Japanese only indicators
-    "sub only",
-    "sub.only",
-    "subs only",
-    "subs.only",
-    "japanese only",
-    "jpn only",
-    "jp only",
-    "jp.only",
-    # Japanese audio only
-    "japanese audio",
-    "jp audio",
-    "jpn audio",
-    "japanese.audio",
-    "jp.audio",
-    "jpn.audio",
-    "jap.audio",
-    # No dub indicators
-    "no dub",
-    "no.dub",
-    "no-dub",
-    "nodub",
-    "not dubbed",
-    "jap sub",
-    "jpn sub",
-    "jp sub",
-]
+    Modifies parsed_data.languages in place so ranking can evaluate it.
 
-FALLBACK_PRIORITY_KEYWORDS = [
-    "complete",
-    "collection",
-    "bundle",
-    "pack",
-    "dub",
-    "dual audio",
-    "english dub",
-]
+    Args:
+        parsed_data: ParsedData object from PTT parsing (has languages field)
+        item: MediaItem with TMDB language data
+    """
+    # Skip if PTT already detected language(s)
+    if parsed_data.languages:
+        logger.debug(
+            f"PTT detected language(s): {parsed_data.languages}, skipping TMDB enrichment"
+        )
+        return
+
+    # Skip if enrichment is disabled
+    if not scraping_settings.enrich_title_with_release_language:
+        logger.debug("TMDB language enrichment disabled in settings")
+        return
+
+    # Get TMDB language
+    tmdb_language = _get_item_release_language(item)
+    if not tmdb_language:
+        logger.debug("No TMDB language available for enrichment")
+        return
+
+    # Map TMDB code to ISO 639-1
+    iso_language = TMDB_LANGUAGE_MAP.get(tmdb_language)
+    if iso_language:
+        parsed_data.languages = [iso_language]
+        logger.debug(
+            f"Added TMDB language to ParsedData for ranking: {tmdb_language} → {iso_language}"
+        )
+    else:
+        logger.debug(f"TMDB language '{tmdb_language}' not in mapping")
 
 
 def _get_item_release_language(item: MediaItem) -> Optional[str]:
@@ -262,95 +176,6 @@ def _get_item_release_language(item: MediaItem) -> Optional[str]:
     return lang if lang else None
 
 
-def _extract_language_from_title(title: str) -> Optional[str]:
-    """Extract language markers from title.
-
-    Returns language code if explicit markers found (e.g., 'en', 'ja', 'mixed').
-    Returns 'unknown' if has mixed/subtitle-only indicators.
-    Returns None if no explicit markers.
-    """
-    title_lower = title.lower()
-
-    # Check for mixed language indicators (should be unknown)
-    for marker in MIXED_LANGUAGE_MARKERS:
-        if marker in title_lower:
-            logger.debug(f"Detected mixed language marker '{marker}' in: {title}")
-            return "mixed"
-
-    # Check for subtitle-only indicators
-    for marker in SUBTITLE_ONLY_MARKERS:
-        if marker in title_lower:
-            logger.debug(f"Detected subtitle-only marker '{marker}' in: {title}")
-            return "subtitle_only"
-
-    # Check for explicit language markers
-    for marker, lang_code in EXPLICIT_LANGUAGE_MARKERS.items():
-        if marker in title_lower:
-            logger.debug(
-                f"Detected explicit language marker '{marker}' ({lang_code}) in: {title}"
-            )
-            return lang_code
-
-    return None
-
-
-def _enrich_title_with_language(raw_title: str, item: MediaItem) -> str:
-    """Enrich title with language markers for RTN parsing.
-
-    Priority order:
-    1. Explicit language markers in title (dub, sub, dual audio, etc) - use as-is
-    2. TMDB release language - append marker if no explicit markers (if enabled)
-    3. Fall back to no marker (will be unknown_language in RTN)
-
-    Returns enriched title that RTN can parse for language detection.
-    """
-    # Check if language enrichment is enabled in settings
-    if not scraping_settings.enrich_title_with_release_language:
-        return raw_title
-
-    # Check if title already has explicit language markers
-    title_lang = _extract_language_from_title(raw_title)
-
-    if title_lang == "mixed":
-        # Mixed audio/language - leave as-is, RTN should parse as "MULTI" or unknown
-        logger.debug(f"Leaving mixed-language title unchanged: {raw_title}")
-        return raw_title
-    elif title_lang == "subtitle_only":
-        # Subtitle only - could mean non-English dub + subs
-        # Leave as-is for RTN to handle; if it's anime, dub filtering will catch it
-        logger.debug(f"Leaving subtitle-only title unchanged: {raw_title}")
-        return raw_title
-    elif title_lang:
-        # Has explicit language marker (e.g., "english", "japanese")
-        # Leave as-is since it's already annotated
-        logger.debug(f"Title has explicit language marker ({title_lang}): {raw_title}")
-        return raw_title
-
-    # No explicit markers - check TMDB release language
-    release_lang = _get_item_release_language(item)
-    if release_lang:
-        if release_lang in TMDB_LANGUAGE_MAP:
-            language_marker = TMDB_LANGUAGE_MAP[release_lang]
-            enriched_title = f"{raw_title} {language_marker}"
-            logger.debug(
-                f"Enriched title with TMDB release language ({release_lang}): "
-                f"{raw_title} → {enriched_title}"
-            )
-            return enriched_title
-        else:
-            # release_lang exists but not in TMDB_LANGUAGE_MAP
-            logger.debug(
-                f"TMDB release language '{release_lang}' not in mapping for: {raw_title}"
-            )
-            return raw_title
-
-    # No TMDB language data - return as-is (will result in unknown_language)
-    logger.debug(
-        f"No language markers or TMDB data for: {raw_title} (item.language={getattr(item, 'language', 'N/A')}, item.type={item.type})"
-    )
-    return raw_title
-
-
 def _parse_results(
     item: MediaItem, results: Dict[str, str], log_msg: bool = True
 ) -> Dict[str, Stream]:
@@ -377,35 +202,87 @@ def _parse_results(
             continue
 
         try:
-            # Enrich title with language markers before RTN parsing
-            enriched_title = _enrich_title_with_language(raw_title, item)
-            if enriched_title != raw_title:
-                logger.info(f"[LANG_ENRICHED] {raw_title} → {enriched_title}")
+            # Parse title with PTT first
+            parsed_data: ParsedData = parse(raw_title)
+
+            # Enrich parsed data with TMDB language so ranking can evaluate it
+            _enrich_parsed_data_with_tmdb_language(parsed_data, item)
 
             try:
-                torrent: Torrent = rtn.rank(
-                    raw_title=enriched_title,
-                    infohash=infohash,
-                    correct_title=correct_title,
-                    remove_trash=remove_trash_default,
-                    aliases=aliases,
+                # Calculate metrics with enriched data
+                lev_ratio = 0.0
+                if correct_title:
+                    lev_ratio = get_lev_ratio(
+                        correct_title,
+                        parsed_data.parsed_title,
+                        rtn.lev_threshold,
+                        aliases,
+                    )
+                    if remove_trash_default and lev_ratio < rtn.lev_threshold:
+                        raise GarbageTorrent(
+                            f"'{raw_title}' does not match the correct title. "
+                            f"correct title: '{correct_title}', parsed title: '{parsed_data.parsed_title}'"
+                        )
+
+                # Check if torrent is fetchable with enriched data
+                is_fetchable, failed_keys = check_fetch(
+                    parsed_data, rtn.settings, speed_mode=True
                 )
+                rank = get_rank(parsed_data, rtn.settings, rtn.ranking_model)
+
+                if remove_trash_default:
+                    if not is_fetchable:
+                        raise GarbageTorrent(
+                            f"'{parsed_data.raw_title}' denied by: {', '.join(failed_keys)}"
+                        )
+                    if rank < rtn.settings.options["remove_ranks_under"]:
+                        raise GarbageTorrent(
+                            f"'{raw_title}' does not meet the minimum rank requirement, got rank of {rank}"
+                        )
+
+                # Create Torrent with enriched data
+                torrent = Torrent(
+                    infohash=infohash,
+                    raw_title=raw_title,
+                    data=parsed_data,
+                    fetch=is_fetchable,
+                    rank=rank,
+                    lev_ratio=lev_ratio,
+                )
+
                 logger.debug(
                     f"RTN parsed {item.log_string} torrent: episodes={torrent.data.episodes}, "
                     f"seasons={torrent.data.seasons}, year={torrent.data.year}, "
-                    f"country={torrent.data.country}, dubbed={torrent.data.dubbed}: {raw_title}"
+                    f"country={torrent.data.country}, dubbed={torrent.data.dubbed}, "
+                    f"languages={torrent.data.languages}: {raw_title}"
                 )
             except GarbageTorrent as e:
                 if remove_trash_default and _should_retry_without_trash(
                     item, raw_title, aliases
                 ):
                     try:
-                        torrent = rtn.rank(
-                            raw_title=enriched_title,
+                        # Re-parse without trash removal but with TMDB enrichment
+                        lev_ratio = 0.0
+                        if correct_title:
+                            lev_ratio = get_lev_ratio(
+                                correct_title,
+                                parsed_data.parsed_title,
+                                rtn.lev_threshold,
+                                aliases,
+                            )
+
+                        is_fetchable, failed_keys = check_fetch(
+                            parsed_data, rtn.settings, speed_mode=True
+                        )
+                        rank = get_rank(parsed_data, rtn.settings, rtn.ranking_model)
+
+                        torrent = Torrent(
                             infohash=infohash,
-                            correct_title=correct_title,
-                            remove_trash=False,
-                            aliases=aliases,
+                            raw_title=raw_title,
+                            data=parsed_data,
+                            fetch=is_fetchable,
+                            rank=rank,
+                            lev_ratio=lev_ratio,
                         )
                         logger.debug(
                             f"Accepted fallback torrent using keyword boost for {item.log_string}: "
@@ -645,50 +522,12 @@ def _parse_results(
                 continue
 
             if item.is_anime and scraping_settings.dubbed_anime_only:
-                # Enhanced dubbed anime filtering prioritizing English dub + signs/songs subtitles
-                is_dubbed = False
-                dub_reason = None
-
-                # Primary check: RTN detected dubbed flag
-                if torrent.data.dubbed:
-                    is_dubbed = True
-                    dub_reason = "RTN dubbed flag"
-
-                # Enhanced checks for dual audio and english dub indicators
-                title_lower = raw_title.lower()
-
-                # Strong dub indicators (including signs/songs versions)
-                for indicator in ANIME_DUB_KEYWORDS:
-                    if indicator in title_lower:
-                        is_dubbed = True
-                        dub_reason = f"Dub keyword: {indicator}"
-                        break
-
-                # Sub-only exclusions (stronger filtering) - but allow signs/songs
-                for indicator in ANIME_SUB_ONLY_KEYWORDS:
-                    if indicator in title_lower:
-                        # Don't exclude if it has signs/songs indicators
-                        has_signs = any(
-                            signs in title_lower
-                            for signs in [
-                                "signs songs",
-                                "signs.songs",
-                                "forced sub",
-                                "forced.sub",
-                            ]
-                        )
-                        if not has_signs:
-                            is_dubbed = False
-                            dub_reason = f"Sub-only keyword: {indicator}"
-                            logger.trace(
-                                f"Skipping sub-only anime torrent (found '{indicator}') for {item.log_string}: {raw_title}"
-                            )
-                            break
-
-                # Final filter: skip if not dubbed
-                if not is_dubbed:
+                # Rely on RTN's parsed data for language and dub status.
+                # The `dubbed` flag is set by PTT, and `languages` is enriched from TMDB.
+                is_english_dub = torrent.data.dubbed or "en" in torrent.data.languages
+                if not is_english_dub:
                     rejection_reasons[raw_title] = (
-                        f"Not dubbed anime (dubbed={torrent.data.dubbed}, reason={dub_reason or 'no dub indicators'})"
+                        f"Not an English dub (dubbed={torrent.data.dubbed}, languages={torrent.data.languages})"
                     )
                     logger.trace(
                         f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}"
@@ -743,8 +582,14 @@ def _parse_results(
 def _should_retry_without_trash(
     item: MediaItem, raw_title: str, aliases: Dict[str, list[str]]
 ) -> bool:
-    """Determine whether to retry ranking without trash filtering based on keyword matches."""
+    """Decide whether to retry ranking without trash filtering.
 
+    This function no longer relies on manual keyword lists. It only:
+    - requires that the raw title contains the item's primary title or an enabled alias
+    - allows retries for explicit season matches (season/show queries)
+    If the title/aliases match, we consider a retry warranted so the fallback ranking
+    (without trash removal) can be attempted.
+    """
     raw_lower = raw_title.lower()
 
     title_tokens = {item.get_top_title().lower()} if item.get_top_title() else set()
@@ -756,12 +601,11 @@ def _should_retry_without_trash(
             if alias:
                 title_tokens.add(alias.lower())
 
+    # If the title doesn't contain any known token, don't retry.
     if not any(token and token in raw_lower for token in title_tokens):
         return False
 
-    if any(keyword in raw_lower for keyword in FALLBACK_PRIORITY_KEYWORDS):
-        return True
-
+    # If this is a season/show query and the title explicitly references a season, retry.
     if item.type == "season":
         season_tokens = {f"s{item.number:02}", f"season {item.number}"}
         if any(token in raw_lower for token in season_tokens):
@@ -775,11 +619,8 @@ def _should_retry_without_trash(
         if any(token in raw_lower for token in season_tokens if token):
             return True
 
-    if item.is_anime and scraping_settings.dubbed_anime_only:
-        if any(keyword in raw_lower for keyword in ANIME_DUB_KEYWORDS):
-            return True
-
-    return False
+    # Title/alias matched and nothing specifically excluded — allow a retry.
+    return True
 
 
 def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
