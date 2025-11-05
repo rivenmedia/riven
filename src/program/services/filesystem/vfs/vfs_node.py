@@ -156,6 +156,10 @@ class VFSFile(VFSNode):
         inode: pyfuse3.InodeT,
         parent: VFSDirectory,
         original_filename: str,
+        file_size: int,
+        created_at: str,
+        updated_at: str,
+        entry_type: Literal["media", "subtitle"],
     ) -> None:
         super().__init__(
             name=name,
@@ -164,6 +168,10 @@ class VFSFile(VFSNode):
         )
 
         self.original_filename = original_filename
+        self.file_size = file_size
+        self.created_at = created_at
+        self.updated_at = updated_at
+        self.entry_type = entry_type
 
     def __repr__(self) -> str:
         return (

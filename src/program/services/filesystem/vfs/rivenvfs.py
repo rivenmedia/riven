@@ -291,6 +291,10 @@ class RivenVFS(pyfuse3.Operations):
         path: str,
         is_directory: bool,
         original_filename: str | None = None,
+        created_at: str | None = None,
+        updated_at: str | None = None,
+        file_size: int | None = None,
+        entry_type: Literal["media", "subtitle"] | None = None,
     ) -> VFSNode:
         """
         Get or create a node at the given path, creating parent directories as needed.
@@ -324,11 +328,20 @@ class RivenVFS(pyfuse3.Operations):
                                 "original_filename must be provided for file nodes"
                             )
 
+                        assert file_size
+                        assert created_at
+                        assert updated_at
+                        assert entry_type
+
                         child = VFSFile(
                             name=part,
                             original_filename=original_filename,
                             inode=self._assign_inode(),
                             parent=current,
+                            file_size=file_size,
+                            created_at=created_at,
+                            updated_at=updated_at,
+                            entry_type=entry_type,
                         )
                     else:
                         child = VFSDirectory(
@@ -718,8 +731,6 @@ class RivenVFS(pyfuse3.Operations):
             # Create new root node
             self._root = VFSRoot()
             self._inode_to_node = {pyfuse3.ROOT_INODE: self._root}
-            # Keep inode counter to avoid reusing inodes
-            # self._next_inode is preserved
 
         # Clear pending invalidations for this sync
         self._pending_invalidations.clear()
@@ -1039,6 +1050,7 @@ class RivenVFS(pyfuse3.Operations):
         with self._tree_lock:
             # Check if already registered
             existing_node = self._get_node_by_path(clean_path)
+
             if existing_node:
                 logger.trace(f"Path already registered: {clean_path}")
                 return True
@@ -1048,14 +1060,11 @@ class RivenVFS(pyfuse3.Operations):
                 path=clean_path,
                 is_directory=False,
                 original_filename=original_filename,
+                file_size=file_size,
+                created_at=created_at,
+                updated_at=updated_at,
+                entry_type=entry_type,
             )
-
-            if isinstance(node, VFSFile):
-                # Populate metadata in node
-                node.file_size = file_size
-                node.created_at = created_at
-                node.updated_at = updated_at
-                node.entry_type = entry_type
 
             # Get parent inodes for invalidation (collect for batching)
             parent_inodes = self._get_parent_inodes(node)
