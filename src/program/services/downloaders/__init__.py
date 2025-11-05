@@ -1,12 +1,16 @@
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
 
 from loguru import logger
+from RTN import ParsedData
+from sqlalchemy import select
 
+from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Show
-from program.media.state import States
-from program.media.stream import Stream
 from program.media.media_entry import MediaEntry
+from program.media.state import States
+from program.media.stream import Stream, StreamPendingRecord
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
@@ -16,13 +20,17 @@ from program.services.downloaders.models import (
     TorrentContainer,
     TorrentInfo,
 )
-from RTN import ParsedData
 from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
+from program.settings.manager import settings_manager
 from program.utils.request import CircuitBreakerOpen
 
-from .realdebrid import RealDebridDownloader
-from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
+from .debridlink import DebridLinkDownloader
+from .realdebrid import RealDebridDownloader
+
+SERVICE_COOLDOWN_MIN_SECONDS = 30
+SERVICE_COOLDOWN_MAX_SECONDS = 5 * 60
+MAX_RESCHEDULE_SECONDS = 10 * 60
 
 
 class Downloader:
@@ -47,6 +55,12 @@ class Downloader:
         self._circuit_breaker_retries = {}
         # Track per-service cooldowns when circuit breaker is open
         self._service_cooldowns = {}  # {service.key: datetime}
+        self._service_cooldown_backoff = defaultdict(
+            lambda: SERVICE_COOLDOWN_MIN_SECONDS
+        )
+        # Track gate state to prevent spam logging
+        self._gate_closed = False
+        self._gate_closed_log_time = None
 
     def validate(self):
         if not self.initialized_services:
@@ -58,6 +72,85 @@ class Downloader:
             f"Initialized {len(self.initialized_services)} downloader service(s): {', '.join(s.key for s in self.initialized_services)}"
         )
         return True
+
+    def has_available_service(self) -> bool:
+        """
+        Check if any configured downloader service is currently available (not in cooldown).
+        Does NOT perform health checks - those should be done separately when needed.
+        """
+        now = datetime.now()
+        for service in self.initialized_services:
+            # Check if service is still in cooldown
+            if (
+                service.key not in self._service_cooldowns
+                or self._service_cooldowns[service.key] <= now
+            ):
+                return True
+        return False
+
+    def check_service_health(self) -> bool:
+        """
+        Perform a health check on available services (lightweight connectivity check without full validation).
+        If any service fails the health check, reapply cooldown.
+        This should be called sparingly and only when needed during circuit breaker recovery.
+        """
+        now = datetime.now()
+        for service in self.initialized_services:
+            # Check if service is still in cooldown
+            if (
+                service.key in self._service_cooldowns
+                and self._service_cooldowns[service.key] > now
+            ):
+                continue
+
+            # Try a lightweight responsiveness check (no premium logging, just connectivity)
+            try:
+                if service.is_responsive():
+                    logger.debug(
+                        f"Service {service.key} health check passed - service is responsive"
+                    )
+                    return True
+                else:
+                    # Service not responsive, reapply cooldown
+                    cooldown_seconds = self._service_cooldown_backoff[service.key]
+                    self._service_cooldowns[service.key] = now + timedelta(
+                        seconds=cooldown_seconds
+                    )
+                    self._service_cooldown_backoff[service.key] = min(
+                        cooldown_seconds * 2, SERVICE_COOLDOWN_MAX_SECONDS
+                    )
+                    logger.warning(
+                        f"Service {service.key} health check failed (returned False), reapplying {cooldown_seconds}s cooldown"
+                    )
+                    continue
+            except CircuitBreakerOpen:
+                # Circuit breaker tripped during health check
+                cooldown_seconds = self._service_cooldown_backoff[service.key]
+                self._service_cooldowns[service.key] = now + timedelta(
+                    seconds=cooldown_seconds
+                )
+                self._service_cooldown_backoff[service.key] = min(
+                    cooldown_seconds * 2, SERVICE_COOLDOWN_MAX_SECONDS
+                )
+                logger.warning(
+                    f"Service {service.key} circuit breaker opened during health check, reapplying {cooldown_seconds}s cooldown"
+                )
+                continue
+            except Exception as e:
+                # Health check threw exception, reapply cooldown
+                cooldown_seconds = self._service_cooldown_backoff[service.key]
+                self._service_cooldowns[service.key] = now + timedelta(
+                    seconds=cooldown_seconds
+                )
+                self._service_cooldown_backoff[service.key] = min(
+                    cooldown_seconds * 2, SERVICE_COOLDOWN_MAX_SECONDS
+                )
+                logger.warning(
+                    f"Service {service.key} health check failed with exception: {e}, reapplying {cooldown_seconds}s cooldown"
+                )
+                continue
+
+        return False
 
     def run(self, item: MediaItem):
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
@@ -74,16 +167,40 @@ class Downloader:
         if not available_services:
             # All services are in cooldown, reschedule for the earliest available time
             next_attempt = min(self._service_cooldowns.values())
-            logger.warning(
-                f"All downloader services in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
-            )
+            latest_allowed = datetime.now() + timedelta(seconds=MAX_RESCHEDULE_SECONDS)
+            next_attempt = min(next_attempt, latest_allowed)
+            wait_seconds = (next_attempt - datetime.now()).total_seconds()
+
+            # Only log once per gate closure to avoid spam
+            if not self._gate_closed:
+                self._gate_closed = True
+                self._gate_closed_log_time = now
+                logger.warning(
+                    f"Circuit breaker open: All downloader services in cooldown, rescheduling and waiting for gate to close for {wait_seconds:.0f}s"
+                )
+
             yield (item, next_attempt)
             return
 
+        # Gate is now open, reset the closed flag AND reset backoff counters on successful processing
+        if self._gate_closed:
+            self._gate_closed = False
+            self._gate_closed_log_time = None
+            # Only reset backoff counters when gate successfully opens, not on every call
+            for service_key in self._service_cooldown_backoff:
+                self._service_cooldown_backoff[service_key] = (
+                    SERVICE_COOLDOWN_MIN_SECONDS
+                )
+            logger.info("Downloader services recovered, backoff reset to minimum")
+
+        pending_candidates: list[tuple[int, Stream, str]] = []
+        stream_rank: dict[Stream, int] = {}
+
         try:
             download_success = False
-            # Sort streams by resolution and rank (highest first) using simple, fast sorting
-            sorted_streams = _sort_streams_by_quality(item.streams)
+            # Sort streams by resolution and rank (highest first), with anime dub prioritization
+            sorted_streams = _sort_streams_by_quality(item.streams, item)
+            stream_rank = {stream: idx for idx, stream in enumerate(sorted_streams)}
 
             # Track if we hit circuit breaker on any service
             hit_circuit_breaker = False
@@ -95,6 +212,11 @@ class Downloader:
                 stream_hit_circuit_breaker = False
 
                 for service in available_services:
+                    if (
+                        service.key in self._service_cooldowns
+                        and self._service_cooldowns[service.key] > datetime.now()
+                    ):
+                        continue
                     logger.debug(
                         f"Trying stream {stream.infohash} on {service.key} for {item.log_string}"
                     )
@@ -110,6 +232,73 @@ class Downloader:
                             )
                             continue
 
+                        pending_count = len(getattr(container, "pending_files", []))
+                        ready_count = len(getattr(container, "ready_files", []))
+                        requires_full_pack = item.type in ("show", "season")
+
+                        # Check if this stream has been pending for too long (likely a bad torrent)
+                        # Query for existing pending record REGARDLESS of current pending_count
+                        # (it may have gone ready temporarily then pending again)
+                        now_time = datetime.now()
+                        session = db.Session()
+                        try:
+                            stmt = select(StreamPendingRecord).where(
+                                (StreamPendingRecord.media_item_id == item.id)
+                                & (
+                                    StreamPendingRecord.stream_infohash
+                                    == stream.infohash
+                                )
+                            )
+                            pending_record = session.execute(stmt).scalar_one_or_none()
+
+                            if pending_count:
+                                # Files are currently pending
+                                if not pending_record:
+                                    # First time seeing this stream in pending state, create record
+                                    pending_record = StreamPendingRecord(
+                                        media_item_id=item.id,
+                                        stream_infohash=stream.infohash,
+                                        pending_since=now_time,
+                                    )
+                                    session.add(pending_record)
+                                    session.commit()
+
+                            # Check timeout regardless of whether files are currently pending
+                            if pending_record:
+                                time_pending = (
+                                    now_time - pending_record.pending_since
+                                ).total_seconds()
+                                pending_timeout = (
+                                    settings_manager.settings.downloaders.pending_timeout_seconds
+                                )
+
+                                if time_pending > pending_timeout:
+                                    logger.warning(
+                                        f"Stream {stream.infohash} has been pending for {time_pending/3600:.1f}h for {item.log_string}; likely a bad torrent, blacklisting"
+                                    )
+                                    item.blacklist_stream(stream)
+                                    # Delete the pending record
+                                    session.delete(pending_record)
+                                    session.commit()
+                                    stream_failed_on_all_services = True
+                                    continue
+                                elif not pending_count:
+                                    # Files are no longer pending, but record exists - delete it
+                                    session.delete(pending_record)
+                                    session.commit()
+                        finally:
+                            session.close()
+
+                        if pending_count and (requires_full_pack or ready_count == 0):
+                            logger.info(
+                                f"Stream {stream.infohash} cached on {service.key} but {pending_count} file(s) are still preparing; will retry later"
+                            )
+                            pending_candidates.append(
+                                (pending_count, stream, service.key)
+                            )
+                            stream_failed_on_all_services = False
+                            continue
+
                         # Try to download using this service
                         download_result = self.download_cached_stream_on_service(
                             stream, container, service
@@ -119,6 +308,24 @@ class Downloader:
                                 "DEBRID",
                                 f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}] using {service.key}",
                             )
+                            # Clean up pending record for this stream
+                            session = db.Session()
+                            try:
+                                stmt = select(StreamPendingRecord).where(
+                                    (StreamPendingRecord.media_item_id == item.id)
+                                    & (
+                                        StreamPendingRecord.stream_infohash
+                                        == stream.infohash
+                                    )
+                                )
+                                pending_record = session.execute(
+                                    stmt
+                                ).scalar_one_or_none()
+                                if pending_record:
+                                    session.delete(pending_record)
+                                    session.commit()
+                            finally:
+                                session.close()
                             download_success = True
                             stream_failed_on_all_services = False
                             break
@@ -127,14 +334,17 @@ class Downloader:
                                 f"No valid files found for {item.log_string} ({item.id})"
                             )
 
-                    except CircuitBreakerOpen as e:
+                    except CircuitBreakerOpen:
                         # This specific service hit circuit breaker, set cooldown and try next service
-                        cooldown_duration = timedelta(minutes=1)
+                        cooldown_seconds = self._service_cooldown_backoff[service.key]
                         self._service_cooldowns[service.key] = (
-                            datetime.now() + cooldown_duration
+                            datetime.now() + timedelta(seconds=cooldown_seconds)
+                        )
+                        self._service_cooldown_backoff[service.key] = min(
+                            cooldown_seconds * 2, SERVICE_COOLDOWN_MAX_SECONDS
                         )
                         logger.warning(
-                            f"Circuit breaker OPEN for {service.key}, trying next service for stream {stream.infohash}"
+                            f"Circuit breaker OPEN for {service.key}, backing off {cooldown_seconds}s before retry"
                         )
                         stream_hit_circuit_breaker = True
                         hit_circuit_breaker = True
@@ -179,6 +389,22 @@ class Downloader:
                         logger.debug(
                             f"Stream {stream.infohash} failed on all {len(available_services)} available service(s), blacklisting"
                         )
+                        # Clean up pending record when stream is blacklisted
+                        session = db.Session()
+                        try:
+                            stmt = select(StreamPendingRecord).where(
+                                (StreamPendingRecord.media_item_id == item.id)
+                                & (
+                                    StreamPendingRecord.stream_infohash
+                                    == stream.infohash
+                                )
+                            )
+                            pending_record = session.execute(stmt).scalar_one_or_none()
+                            if pending_record:
+                                session.delete(pending_record)
+                                session.commit()
+                        finally:
+                            session.close()
                         item.blacklist_stream(stream)
 
                 tried_streams += 1
@@ -190,11 +416,29 @@ class Downloader:
                 f"Unexpected error in downloader for {item.log_string} ({item.id}): {e}"
             )
 
+        if not download_success and pending_candidates:
+            # Use the candidate with the fewest pending files and highest ranked stream
+            pending_candidates.sort(key=lambda c: (c[0], stream_rank.get(c[1], 0)))
+            best_pending, best_stream, service_key = pending_candidates[0]
+            retry_delay = min(180, max(30, best_pending * 15))
+            next_attempt = datetime.now() + timedelta(seconds=retry_delay)
+            latest_allowed = datetime.now() + timedelta(seconds=MAX_RESCHEDULE_SECONDS)
+            next_attempt = min(next_attempt, latest_allowed)
+            logger.info(
+                f"Deferring {item.log_string}: best cached stream {best_stream.infohash} on {service_key} still preparing {best_pending} file(s); rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
+            )
+            yield (item, next_attempt)
+            return
+
         if not download_success:
             # Check if we hit circuit breaker in single-provider mode
             if hit_circuit_breaker and len(self.initialized_services) == 1:
                 # Reschedule for after cooldown instead of failing
                 next_attempt = min(self._service_cooldowns.values())
+                latest_allowed = datetime.now() + timedelta(
+                    seconds=MAX_RESCHEDULE_SECONDS
+                )
+                next_attempt = min(next_attempt, latest_allowed)
                 logger.warning(
                     f"Single provider hit circuit breaker for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
                 )
@@ -208,6 +452,7 @@ class Downloader:
             # Clear retry count and service cooldowns on successful download
             self._circuit_breaker_retries.pop(item.id, None)
             self._service_cooldowns.clear()
+            self._service_cooldown_backoff.clear()
 
         yield item
 
@@ -255,6 +500,19 @@ class Downloader:
 
         if valid_files:
             container.files = valid_files
+            # Keep readiness metadata aligned with the filtered file list
+            if hasattr(container, "ready_files"):
+                container.ready_files = [
+                    file.filename
+                    for file in valid_files
+                    if file.download_url and file.filename
+                ]
+            if hasattr(container, "pending_files"):
+                container.pending_files = [
+                    file.filename
+                    for file in valid_files
+                    if not file.download_url and file.filename
+                ]
             return container
 
         return None
@@ -288,7 +546,7 @@ class Downloader:
                         # happens if theres a new season with no episodes yet
                         method_2 = show.seasons[-2].episodes[-1].number
                     episode_cap = max([method_1, method_2])
-                except Exception as e:
+                except Exception:
                     pass
             found = False
             files = list(download_result.container.files or [])
@@ -298,15 +556,17 @@ class Downloader:
             for file in files:
                 try:
                     file_data: ParsedData = parse_filename(file.filename)
-                except Exception as e:
+                except Exception:
                     continue
 
                 if item.type in ("show", "season", "episode"):
-                    if not file_data.episodes:
-                        continue
-                    elif 0 in file_data.episodes and len(file_data.episodes) == 1:
-                        continue
-                    elif file_data.seasons and file_data.seasons[0] == 0:
+                    if (
+                        not file_data.episodes
+                        or 0 in file_data.episodes
+                        and len(file_data.episodes) == 1
+                        or file_data.seasons
+                        and file_data.seasons[0] == 0
+                    ):
                         continue
 
                 if self.match_file_to_item(

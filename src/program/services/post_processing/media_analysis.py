@@ -11,16 +11,17 @@ metadata that can be used for intelligent subtitle selection and
 upgrade decisions.
 """
 
+import errno
 import os
+import time
 import traceback
-
-from typing import Dict, Any
+from typing import Any, Dict
 
 from loguru import logger
-from program.utils.ffprobe import parse_media_file
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.utils.ffprobe import parse_media_file
 
 
 class MediaAnalysisService:
@@ -153,6 +154,9 @@ class MediaAnalysisService:
                 logger.debug(f"File not found for ffprobe: {file_path}")
                 return {}
 
+            if not self._ensure_vfs_ready(file_path, item):
+                return {}
+
             media_metadata = parse_media_file(file_path)
             if media_metadata:
                 ffprobe_dict = media_metadata.model_dump(mode="json")
@@ -168,3 +172,36 @@ class MediaAnalysisService:
                 f"FFprobe analysis failed for {item.log_string}: {traceback.format_exc()}"
             )
             return {}
+
+    def _ensure_vfs_ready(self, file_path: str, item: MediaItem) -> bool:
+        """Best-effort check to avoid hammering the VFS while the provider prepares range support."""
+
+        delay = 0.5
+        max_attempts = 3
+
+        for attempt in range(max_attempts):
+            try:
+                with open(file_path, "rb") as handle:
+                    # Read a tiny chunk to force a range request through the VFS
+                    handle.read(4096)
+                return True
+            except (BlockingIOError, OSError) as err:
+                errno_value = getattr(err, "errno", None)
+
+                if isinstance(err, BlockingIOError) or errno_value in (
+                    errno.EAGAIN,
+                    errno.EIO,
+                ):
+                    if attempt == max_attempts - 1:
+                        logger.info(
+                            f"Deferring ffprobe until provider readies range support for {item.log_string}"
+                        )
+                        return False
+
+                    time.sleep(delay)
+                    delay = min(delay * 2, 4.0)
+                    continue
+
+                raise
+
+        return False

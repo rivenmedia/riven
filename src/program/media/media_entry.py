@@ -1,6 +1,7 @@
+from typing import Optional
+
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column
-from typing import Optional
 
 from program.media.filesystem_entry import FilesystemEntry
 

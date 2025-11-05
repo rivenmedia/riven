@@ -1,6 +1,6 @@
 """Model for subtitle entries"""
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from program.media.filesystem_entry import FilesystemEntry
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem
+    pass
 
 
 class SubtitleEntry(FilesystemEntry):

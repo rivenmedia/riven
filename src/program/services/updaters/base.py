@@ -39,7 +39,6 @@ class BaseUpdater(ABC):
         Returns:
             bool: True if validation successful, False otherwise
         """
-        pass
 
     @abstractmethod
     def refresh_path(self, path: str) -> bool:
@@ -55,4 +54,3 @@ class BaseUpdater(ABC):
         Returns:
             bool: True if refresh was triggered successfully, False otherwise
         """
-        pass

@@ -8,17 +8,16 @@ from loguru import logger
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
-from program.services.scrapers.shared import _parse_results
-from program.settings.manager import settings_manager
-
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
+from program.services.scrapers.shared import _parse_results
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
+from program.settings.manager import settings_manager
 
 
 class Scraping:
@@ -62,8 +61,9 @@ class Scraping:
 
         if new_streams:
             item.streams.extend(new_streams)
-            if item.failed_attempts > 0:
-                item.failed_attempts = 0  # Reset failed attempts on success
+            item.failed_attempts = min(
+                item.failed_attempts, 0
+            )  # Reset failed attempts on success
             logger.log(
                 "SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}"
             )
@@ -97,20 +97,32 @@ class Scraping:
 
         def run_service(svc, it) -> None:
             """Run a single service and update the results."""
-            service_results = svc.run(it)
-            if not isinstance(service_results, dict):
-                logger.error(
-                    f"Service {svc.__class__.__name__} returned invalid results: {service_results}"
-                )
-                return
-
-            with results_lock:
-                try:
-                    results.update(service_results)
-                except Exception as e:
-                    logger.exception(
-                        f"Error updating results for {svc.__class__.__name__}: {e}"
+            try:
+                service_results = svc.run(it)
+                if not isinstance(service_results, dict):
+                    logger.error(
+                        f"Service {svc.__class__.__name__} returned invalid results: {service_results}"
                     )
+                    return
+
+                # The 'with results_lock:' statement guarantees lock release even if an exception occurs
+                # inside the block, so this is safe from deadlock scenarios
+                with results_lock:
+                    try:
+                        results.update(service_results)
+                    except Exception as e:
+                        logger.error(
+                            f"Error updating results for {svc.__class__.__name__}: {e}"
+                        )
+                        # Lock is automatically released here by 'with' statement
+            except Exception as e:
+                # Catch any unhandled exceptions from svc.run() to prevent thread crashes
+                # This is placed OUTSIDE the lock context to avoid any potential lock issues
+                logger.error(
+                    f"Critical error in {svc.__class__.__name__}.run(): {type(e).__name__}: {e}"
+                )
+                # Note: We don't re-raise here - this allows other scrapers to continue
+                # and prevents the entire scraping operation from failing
 
         with ThreadPoolExecutor(
             thread_name_prefix="ScraperService_",

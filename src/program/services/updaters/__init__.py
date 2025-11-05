@@ -62,6 +62,9 @@ class Updater:
         for _item in items:
             # Get all VFS paths from the entry's helper method
             fe = getattr(_item, "filesystem_entry", None)
+            logger.debug(
+                f"Updater.run() for {_item.log_string}: filesystem_entry={fe is not None}, type={type(fe).__name__ if fe else 'N/A'}"
+            )
             if not fe:
                 logger.debug(
                     f"No filesystem entry for {_item.log_string}; skipping updater"
@@ -78,17 +81,26 @@ class Updater:
                 logger.debug(f"No VFS paths for {_item.log_string}; skipping updater")
                 continue
 
-            logger.debug(f"Updating {_item.log_string} at {len(all_vfs_paths)} path(s)")
+            logger.debug(
+                f"Updating {_item.log_string} at {len(all_vfs_paths)} path(s): {all_vfs_paths}"
+            )
 
             for vfs_path in all_vfs_paths:
                 # Build absolute path to the file
                 abs_path = os.path.join(self.library_path, vfs_path.lstrip("/"))
                 refresh_path = os.path.dirname(abs_path)
+                logger.debug(
+                    f"  VFS path: {vfs_path} -> abs_path: {abs_path} -> refresh_dir: {refresh_path}"
+                )
 
                 # Refresh the path in all services (skip if already refreshed)
                 if refresh_path not in refreshed_paths:
+                    logger.debug(f"  Calling refresh_path({refresh_path})")
                     if self.refresh_path(refresh_path):
+                        logger.debug(f"  ✓ refresh_path succeeded for {refresh_path}")
                         refreshed_paths.add(refresh_path)
+                    else:
+                        logger.debug(f"  ✗ refresh_path failed for {refresh_path}")
 
             _item.updated = True
             logger.debug(f"Updated {_item.log_string}")

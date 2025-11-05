@@ -2,12 +2,14 @@ import linecache
 import os
 import threading
 import time
+from datetime import datetime, timedelta
 from queue import Empty
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
-from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.filesystem_entry import FilesystemEntry
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.scheduling import ProgramScheduler
 from program.services.content import (
     Listrr,
     Mdblist,
@@ -25,10 +27,9 @@ from program.settings.manager import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import logger
-from program.scheduling import ProgramScheduler
 
-from .state_transition import process_event
 from .services.filesystem import FilesystemService
+from .state_transition import process_event
 from .types import Event
 
 if settings_manager.settings.tracemalloc:
@@ -37,11 +38,7 @@ if settings_manager.settings.tracemalloc:
 from sqlalchemy import func, select, text
 
 from program.db import db_functions
-from program.db.db import (
-    create_database_if_not_exists,
-    db,
-    run_migrations,
-)
+from program.db.db import create_database_if_not_exists, db, run_migrations
 
 
 class Program(threading.Thread):
@@ -54,6 +51,7 @@ class Program(threading.Thread):
         self.services = {}
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
+        self.last_downloader_submission = None  # Throttle downloader submissions
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic() - 50
@@ -274,7 +272,73 @@ class Program(threading.Thread):
                 event.emitted_by, existing_item, event.content_item
             )
 
+            # If next service is Downloader but no services are available, wait until one becomes available
+            if (
+                next_service == Downloader
+                and not self.services[Downloader].has_available_service()
+            ):
+                logger.warning(
+                    f"Scheduler yielding: No available downloader service for {existing_item.log_string if existing_item else 'item'}. Waiting for a downloader to become available..."
+                )
+                # Wait for cooldown to expire AND service to pass MULTIPLE health checks to ensure stability
+                service_ready = False
+                successful_health_checks = 0
+                required_consecutive_checks = 3  # Require 3 consecutive successful health checks (15 seconds apart)
+
+                while self.initialized and not service_ready:
+                    # First check if cooldown has expired
+                    if self.services[Downloader].has_available_service():
+                        # Cooldown expired, now verify service is actually responsive
+                        if self.services[Downloader].check_service_health():
+                            successful_health_checks += 1
+                            if successful_health_checks >= required_consecutive_checks:
+                                service_ready = True
+                                logger.info(
+                                    f"Downloader service is ready and verified ({required_consecutive_checks} consecutive health checks passed). Resuming processing of {existing_item.log_string if existing_item else 'item'}"
+                                )
+                            else:
+                                logger.debug(
+                                    f"Health check passed ({successful_health_checks}/{required_consecutive_checks}). Waiting for confirmation..."
+                                )
+                                time.sleep(5)
+                        else:
+                            # Health check failed, reset counter and wait
+                            successful_health_checks = 0
+                            logger.debug(
+                                "Health check failed, resetting counter. Waiting for next cooldown..."
+                            )
+                            time.sleep(5)
+                    else:
+                        # Still in cooldown, reset counter and wait before checking again
+                        successful_health_checks = 0
+                        time.sleep(5)
+
+                if not self.initialized:
+                    # Program was shut down while waiting
+                    continue
+
             for item_to_submit in items_to_submit:
+                # Skip downloader submissions if gate is closed
+                if (
+                    next_service == Downloader
+                    and not self.services[Downloader].has_available_service()
+                ):
+                    logger.debug(
+                        f"Downloader gate closed, deferring {item_to_submit.log_string if hasattr(item_to_submit, 'log_string') else 'item'}"
+                    )
+                    # Re-queue with a 30-second delay to avoid hammering Prowlarr and other services
+                    # while waiting for the downloader gate to open
+                    if hasattr(item_to_submit, "id") and item_to_submit.id:
+                        defer_time = datetime.now() + timedelta(seconds=30)
+                        self.em.add_event(
+                            Event(
+                                "StateTransition",
+                                item_id=item_to_submit.id,
+                                run_at=defer_time,
+                            )
+                        )
+                    continue
+
                 if not next_service:
                     self.em.add_event_to_queue(
                         Event("StateTransition", item_id=item_to_submit.id)
@@ -288,18 +352,27 @@ class Program(threading.Thread):
                         event = Event(next_service, content_item=item_to_submit)
 
                     # Event will be added to running when job actually starts in submit_job
+                    # Throttle downloader submissions to prevent overwhelming the debrid API
+                    # Real-Debrid rate limit: 250 requests/min = ~4.17 req/sec, so space out submissions
+                    if next_service == Downloader:
+                        now = time.time()
+                        if self.last_downloader_submission is not None:
+                            time_since_last = now - self.last_downloader_submission
+                            # Minimum 250ms between downloader submissions (4 per second)
+                            if time_since_last < 0.25:
+                                time.sleep(0.25 - time_since_last)
+                        self.last_downloader_submission = time.time()
+
                     self.em.submit_job(next_service, self, event)
 
     def stop(self):
         if not self.initialized:
             return
 
-        if hasattr(self, "executors"):
-            for executor in self.executors:
-                if not executor["_executor"]._shutdown:
-                    executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler_manager"):
-            self.scheduler_manager.stop()
+        self.initialized = False
+
+        # Ensure background workers flush before services close
+        self.em.shutdown(wait=True)
 
         self.services[FilesystemService].close()
         logger.log("PROGRAM", "Riven has been stopped.")

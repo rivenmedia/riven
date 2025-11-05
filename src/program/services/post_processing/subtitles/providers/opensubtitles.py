@@ -5,10 +5,11 @@ OpenSubtitles provider for Riven.
 import base64
 import time
 import zlib
+from typing import Any, Dict, List, Optional
 from xmlrpc.client import ServerProxy
-from typing import List, Dict, Optional, Any
 
-from babelfish import Language, Error as BabelfishError
+from babelfish import Error as BabelfishError
+from babelfish import Language
 from loguru import logger
 
 from .base import SubtitleProvider
@@ -113,13 +114,13 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
         if status_code == 401:
             raise Exception("Unauthorized - Invalid credentials")
-        elif status_code == 406:
+        if status_code == 406:
             raise Exception("No session - Please login again")
-        elif status_code == 407:
+        if status_code == 407:
             raise Exception("Download limit reached")
-        elif status_code == 503:
+        if status_code == 503:
             raise Exception("Service unavailable")
-        elif status_code != 200:
+        if status_code != 200:
             raise Exception(f"OpenSubtitles error: {status}")
 
         return response
@@ -358,7 +359,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
             if content and "opensubtitles vip" in content.lower():
                 logger.debug("Received VIP-only content")
 
-            logger.debug(f"Downloaded subtitle successfully")
+            logger.debug("Downloaded subtitle successfully")
             return content
 
         except Exception as e:

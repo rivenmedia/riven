@@ -1,4 +1,3 @@
-import json
 import threading
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -13,7 +12,7 @@ from pydantic import BaseModel
 
 from program.db import db_functions
 from program.db.db import db
-from program.managers.sse_manager import sse_manager
+from program.managers.websocket_manager import manager as websocket_manager
 from program.media.item import MediaItem
 from program.types import Event
 
@@ -35,6 +34,7 @@ class EventManager:
         self._queued_events: list[Event] = []
         self._running_events: list[Event] = []
         self.mutex = Lock()
+        self._shutting_down = False
 
     def _find_or_create_executor(self, service_cls) -> ThreadPoolExecutor:
         """
@@ -76,9 +76,7 @@ class EventManager:
             result = future.result()
             if future in self._futures:
                 self._futures.remove(future)
-            sse_manager.publish_event(
-                "event_update", json.dumps(self.get_event_updates())
-            )
+            websocket_manager.publish("event_update", self.get_event_updates())
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
@@ -111,6 +109,10 @@ class EventManager:
         Args:
             event (Event): The event to add to the queue.
         """
+        if self._shutting_down:
+            logger.debug(f"Ignoring queued event '{event.log_message}' during shutdown")
+            return
+
         with self.mutex:
             if event.item_id:
                 with db.Session() as session:
@@ -223,6 +225,12 @@ class EventManager:
             program (Program): The program containing the service.
             item (Event, optional): The event item to process. Defaults to None.
         """
+        if self._shutting_down:
+            logger.debug(
+                f"Skipping job submission for {service.__name__}; manager shutting down"
+            )
+            return
+
         log_message = f"Submitting service {service.__name__} to be executed"
         # Content services dont provide an event.
         if event:
@@ -243,7 +251,7 @@ class EventManager:
         if event:
             future.event = event
         self._futures.append(future)
-        sse_manager.publish_event("event_update", json.dumps(self.get_event_updates()))
+        websocket_manager.publish("event_update", self.get_event_updates())
         future.add_done_callback(lambda f: self._process_future(f, service))
 
     def cancel_job(self, item_id: str, suppress_logs=False):
@@ -385,6 +393,10 @@ class EventManager:
         Returns:
             True if queued; False if deduped away.
         """
+        if self._shutting_down:
+            logger.debug(f"Ignoring event '{event.log_message}' while shutting down")
+            return False
+
         # Check if the event's item is a show and its seasons or episodes are in the queue or running
         with db.Session() as session:
             item_id, related_ids = db_functions.get_item_ids(session, event.item_id)
@@ -415,12 +427,40 @@ class EventManager:
                 ci, self._queued_events
             ) or self.item_exists_in_queue(ci, self._running_events):
                 logger.debug(
-                    f"Content Item with {ci.log_string} is already queued or running, skipping."
+                    f"Content item {getattr(ci, 'log_string', 'unknown')} already queued or running, skipping."
                 )
                 return False
 
         self.add_event_to_queue(event)
         return True
+
+    def shutdown(self, wait: bool = False) -> None:
+        """Stop accepting work, cancel queued futures, and shut down executors."""
+        self._shutting_down = True
+        with self.mutex:
+            futures = list(self._futures)
+            self._futures.clear()
+            self._queued_events.clear()
+            self._running_events.clear()
+            executors = [entry["_executor"] for entry in self._executors]
+            self._executors.clear()
+
+        for future in futures:
+            try:
+                if hasattr(future, "cancellation_event"):
+                    future.cancellation_event.set()
+                if not future.done():
+                    future.cancel()
+            except Exception as exc:
+                logger.debug(f"Error cancelling future during shutdown: {exc}")
+
+        for executor in executors:
+            try:
+                executor.shutdown(wait=wait, cancel_futures=True)
+            except RuntimeError as exc:
+                logger.debug(f"Executor shutdown raised RuntimeError: {exc}")
+            except Exception as exc:
+                logger.debug(f"Executor shutdown failed: {exc}")
 
     def add_item(self, item, service: str = "Manual") -> bool:
         """

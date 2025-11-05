@@ -137,16 +137,26 @@ class ProgramScheduler:
 
     def _retry_library(self) -> None:
         """Retry items that failed to download by emitting events into the EM."""
-        item_ids = db_functions.retry_library()
-        for item_id in item_ids:
-            self.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+        try:
+            item_ids = db_functions.retry_library()
+            for item_id in item_ids:
+                try:
+                    self.program.em.add_event(
+                        Event(emitted_by="RetryLibrary", item_id=item_id)
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to add retry event for item {item_id}: {e}")
+                    # Continue with other items instead of failing completely
 
-        if item_ids:
-            logger.log(
-                "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
-            )
-        else:
-            logger.log("NOT_FOUND", "No items required retrying")
+            if item_ids:
+                logger.log(
+                    "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
+                )
+            else:
+                logger.log("NOT_FOUND", "No items required retrying")
+        except Exception as e:
+            logger.error(f"Critical error in _retry_library: {e}")
+            # Don't re-raise - this runs in the background scheduler
 
     def _schedule_callback(self, task: ScheduledTask, callback: Callable) -> None:
         """Schedule a callback to run at the task's scheduled_for time."""
@@ -201,7 +211,23 @@ class ProgramScheduler:
                     return
 
                 for task in due_tasks:
-                    self._process_single_scheduled_task(session, task, now)
+                    try:
+                        self._process_single_scheduled_task(session, task, now)
+                    except Exception as e:
+                        # Ensure one failed task doesn't break the entire batch
+                        logger.error(
+                            f"Critical error processing task {getattr(task, 'id', 'unknown')}: {e}"
+                        )
+                        try:
+                            # Try to mark as failed if not already handled
+                            self._mark_task_status(
+                                session, task, ScheduledStatus.Failed, now
+                            )
+                        except Exception as mark_error:
+                            logger.error(
+                                f"Failed to mark task {getattr(task, 'id', 'unknown')} as failed: {mark_error}"
+                            )
+                        # Continue with next task
         except SQLAlchemyError as e:
             logger.error(f"Scheduler DB error: {e}")
 
@@ -490,7 +516,7 @@ class ProgramScheduler:
             return None
 
         # Find next occurrence >= ref within 3 weeks
-        for i in range(0, 21):
+        for i in range(21):
             candidate = ref + timedelta(days=i)
             if candidate.weekday() in valid_days:
                 candidate_dt = candidate.replace(

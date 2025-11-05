@@ -1,8 +1,7 @@
 """Model for filesystem entries"""
 
 from datetime import datetime, timezone
-from typing import Optional, TYPE_CHECKING
-
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column, relationship

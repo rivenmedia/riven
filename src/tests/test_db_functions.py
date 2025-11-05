@@ -9,12 +9,8 @@ from sqlalchemy import create_engine, text
 from testcontainers.postgres import PostgresContainer
 
 from program.db.db import db, run_migrations
-from program.db.db_functions import (
-    clear_streams,
-    get_item_by_external_id,
-    item_exists_by_any_id,
-)
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.db.db_functions import clear_streams, item_exists_by_any_id
+from program.media.item import Episode, Movie, Season, Show
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
 
 

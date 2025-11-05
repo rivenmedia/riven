@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
 
 from loguru import logger as log
-from sqlalchemy.orm.exc import StaleDataError
 
 from program.db.db import db
 from program.media.filesystem_entry import FilesystemEntry
@@ -66,7 +65,6 @@ class VFSDatabase:
         """
         # Legacy directories for backward compatibility with existing data
         # These will be automatically created as virtual directories when files are added
-        pass
 
     # --- Queries ---
     def get_entry(self, path: str) -> Optional[VFSEntry]:

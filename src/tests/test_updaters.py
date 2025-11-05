@@ -1,11 +1,10 @@
 """Test suite for updater services"""
 
-import os
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
-from program.media.item import Episode, Movie, Season, Show
+from program.media.item import Episode, Movie, Show
 from program.services.updaters import Updater
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater

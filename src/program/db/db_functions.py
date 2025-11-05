@@ -7,16 +7,14 @@ from datetime import datetime, timedelta
 from threading import Event
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
-from kink import di
-from program.utils.logging import logger
 from sqlalchemy import delete, func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 import alembic
-from program.apis.tvdb_api import TVDBApi
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
+from program.utils.logging import logger
 
 from .db import db
 
@@ -360,13 +358,25 @@ def run_thread_with_db_item(
                             program.em.remove_id_from_queues(input_item.id)
 
                         if not cancellation_event.is_set():
-                            # Update parent item based on type
-                            if input_item.type == "episode":
-                                input_item.parent.parent.store_state()
-                            elif input_item.type == "season":
-                                input_item.parent.store_state()
-                            else:
+                            # Only update state if this is not a reschedule (reschedule is a tuple with run_at)
+                            # If it's a reschedule, the item stays in its current state and will be retried at run_at
+                            if not isinstance(res, tuple):
+                                # Persist the processed item's state and bubble updates up the hierarchy when needed
                                 item.store_state()
+
+                                if item.type == "episode":
+                                    parent_season = getattr(item, "parent", None)
+                                    if parent_season:
+                                        parent_season.store_state()
+                                        parent_show = getattr(
+                                            parent_season, "parent", None
+                                        )
+                                        if parent_show:
+                                            parent_show.store_state()
+                                elif item.type == "season":
+                                    parent_show = getattr(item, "parent", None)
+                                    if parent_show:
+                                        parent_show.store_state()
                             session.commit()
                         return res
 

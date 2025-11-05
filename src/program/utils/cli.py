@@ -1,13 +1,11 @@
 import argparse
 import os
 import subprocess
-from pathlib import Path
 from datetime import datetime
-from typing import Tuple, Optional
+from pathlib import Path
+from typing import Optional, Tuple
 
-from program.db.db_functions import (
-    hard_reset_database,
-)
+from program.db.db_functions import hard_reset_database
 from program.utils.logging import log_cleaner, logger
 
 
@@ -96,7 +94,7 @@ def _run_pg_dump(
 
     logger.info(f"Creating database snapshot at {output_file} using pg_dump...")
     env = _setup_pg_env(password)
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    result = subprocess.run(cmd, check=False, env=env, capture_output=True, text=True)
 
     if result.returncode == 0:
         return True
@@ -134,7 +132,7 @@ def _run_psql(
 
     logger.info(f"Restoring database from {snapshot_file} using psql...")
     env = _setup_pg_env(password)
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    result = subprocess.run(cmd, check=False, env=env, capture_output=True, text=True)
 
     if result.returncode == 0:
         return True

@@ -32,36 +32,37 @@ Usage:
 """
 from __future__ import annotations
 
+import errno
 import os
 import shutil
-import errno
+import subprocess
+import threading
 import time
 from dataclasses import dataclass
-from kink import di
-from loguru import logger
-import subprocess
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, TypedDict
 
-import threading
-
-from program.services.downloaders import Downloader
 import httpx
-
 import pyfuse3
 import trio
+from kink import di
+from loguru import logger
 
+from program.services.downloaders import Downloader
+from program.settings.manager import settings_manager
 from program.settings.models import FilesystemModel
+
+from .cache import Cache, CacheConfig
 from .db import VFSDatabase
 
-from program.settings.manager import settings_manager
-from .cache import Cache, CacheConfig
+RANGE_NOT_READY_INITIAL_DELAY = 5.0
+RANGE_NOT_READY_MAX_DELAY = 60.0
 
 log = logger
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem
     from program.media.filesystem_entry import FilesystemEntry
+    from program.media.item import MediaItem
 
 
 @dataclass
@@ -336,6 +337,14 @@ class FileHandlePrefetchState(TypedDict):
     prefetch_window_end: int
 
 
+class RangeNotReadyError(Exception):
+    """Raised when a provider has not enabled range requests yet."""
+
+    def __init__(self, retry_after: float) -> None:
+        super().__init__("Range support not ready")
+        self.retry_after = retry_after
+
+
 class RivenVFS(pyfuse3.Operations):
     """
     Riven Virtual File System - A FUSE-based VFS for streaming media content.
@@ -475,6 +484,15 @@ class RivenVFS(pyfuse3.Operations):
             self
         )  # Pass VFS instance for chunk locking
         self._scheduler_started = False
+
+        # Track providers that temporarily reject range requests so we can back off
+        self._range_waits: Dict[str, float] = {}
+        self._range_wait_backoff: Dict[str, float] = {}
+
+        # Per-file preflight request locks to serialize HEAD requests and prevent API hammering
+        # Uses threading.Lock for thread-safety since FUSE calls come from multiple threads
+        self._preflight_locks: Dict[str, trio.Lock] = {}
+        self._preflight_locks_lock = threading.Lock()
 
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)
@@ -677,6 +695,27 @@ class RivenVFS(pyfuse3.Operations):
                 self._chunk_locks[chunk_key] = trio.Lock()
             return self._chunk_locks[chunk_key]
 
+    async def _get_preflight_lock(self, path: str) -> trio.Lock:
+        """
+        Get or create a lock for preflight checks on a file to prevent concurrent HEAD requests.
+
+        This ensures that only one preflight check runs at a time per file, preventing
+        concurrent requests from hammering the provider API with multiple HEAD requests.
+
+        Uses a thread-safe mechanism (threading.Lock) to ensure only one lock object
+        is created per path, even with concurrent FUSE thread calls.
+
+        Args:
+            path: File path
+
+        Returns:
+            Lock for this file's preflight checks
+        """
+        with self._preflight_locks_lock:
+            if path not in self._preflight_locks:
+                self._preflight_locks[path] = trio.Lock()
+            return self._preflight_locks[path]
+
     def sync(self, item: Optional["MediaItem"] = None) -> None:
         """
         Synchronize VFS with database state.
@@ -862,8 +901,8 @@ class RivenVFS(pyfuse3.Operations):
                     trio.from_thread.run(
                         self._terminate_async, trio_token=self._trio_token
                     )
-                except Exception as e:
-                    log.exception(f"Error requesting FUSE termination")
+                except Exception:
+                    log.exception("Error requesting FUSE termination")
             else:
                 log.warning("No Trio token available; skipping graceful terminate")
 
@@ -1039,7 +1078,7 @@ class RivenVFS(pyfuse3.Operations):
         if registered_count > 0:
             try:
                 pyfuse3.invalidate_inode(pyfuse3.ROOT_INODE, attr_only=False)
-                log.debug(f"Invalidated root directory cache after sync")
+                log.debug("Invalidated root directory cache after sync")
             except Exception as e:
                 log.trace(f"Could not invalidate root directory: {e}")
 
@@ -1056,6 +1095,7 @@ class RivenVFS(pyfuse3.Operations):
             item: MediaItem to re-sync
         """
         from sqlalchemy.orm import object_session
+
         from program.db.db import db as db_module
 
         log.debug(f"Individual sync: re-registering item {item.id}")
@@ -1156,9 +1196,10 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             List of registered VFS paths
         """
+        import os
+
         from program.media.media_entry import MediaEntry
         from program.media.subtitle_entry import SubtitleEntry
-        import os
 
         if isinstance(entry, MediaEntry):
             # Register MediaEntry (video file)
@@ -1234,9 +1275,10 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             List of unregistered VFS paths
         """
+        import os
+
         from program.media.media_entry import MediaEntry
         from program.media.subtitle_entry import SubtitleEntry
-        import os
 
         if isinstance(entry, MediaEntry):
             # Unregister MediaEntry (video file)
@@ -1997,9 +2039,31 @@ class RivenVFS(pyfuse3.Operations):
                             chunk_results[chunk_start] = chunk_data
 
                 # Launch all chunk fetches concurrently
-                async with trio.open_nursery() as nursery:
-                    for chunk_start, chunk_end in chunks_to_fetch:
-                        nursery.start_soon(fetch_one_chunk, chunk_start, chunk_end)
+                fuse_errors: list[pyfuse3.FUSEError] = []
+                unexpected: list[BaseException] = []
+
+                try:
+                    async with trio.open_nursery() as nursery:
+                        for chunk_start, chunk_end in chunks_to_fetch:
+                            nursery.start_soon(fetch_one_chunk, chunk_start, chunk_end)
+                except* pyfuse3.FUSEError as group:
+                    fuse_errors.extend(group.exceptions)
+                except* BaseException as group:
+                    unexpected.extend(group.exceptions)
+
+                if unexpected:
+                    log.exception(f"Unexpected error while fetching chunks for {path}")
+                    raise unexpected[0]
+
+                if fuse_errors:
+                    # Prioritize range-not-ready (EAGAIN) over missing files (ENOENT)
+                    if any(err.errno == errno.EAGAIN for err in fuse_errors):
+                        raise pyfuse3.FUSEError(errno.EAGAIN)
+                    if any(err.errno == errno.ENOENT for err in fuse_errors):
+                        raise pyfuse3.FUSEError(errno.ENOENT)
+
+                    # Propagate the first remaining fuse error
+                    raise fuse_errors[0]
 
                 # Reassemble chunks in order (in thread to avoid blocking event loop)
                 def reassemble_chunks():
@@ -2282,11 +2346,11 @@ class RivenVFS(pyfuse3.Operations):
 
     async def flush(self, fh: int) -> None:
         """Flush file data (no-op for read-only filesystem)."""
-        return None
+        return
 
     async def fsync(self, fh: int, datasync: bool) -> None:
         """Sync file data (no-op for read-only filesystem)."""
-        return None
+        return
 
     async def access(self, inode: pyfuse3.InodeT, mode: int, ctx=None) -> None:
         """Check file access permissions.
@@ -2298,7 +2362,7 @@ class RivenVFS(pyfuse3.Operations):
                 node = self._inode_to_node.get(inode)
                 if node is None:
                     raise pyfuse3.FUSEError(errno.ENOENT)
-            return None
+            return
         except pyfuse3.FUSEError:
             raise
         except Exception:
@@ -2430,6 +2494,13 @@ class RivenVFS(pyfuse3.Operations):
         max_preflight_attempts = 4
         backoffs = [0.2, 0.5, 1.0]
 
+        pause_until = self._range_waits.get(path)
+        if pause_until:
+            now = time.monotonic()
+            if pause_until > now:
+                raise RangeNotReadyError(retry_after=pause_until - now)
+            self._range_waits.pop(path, None)
+
         for preflight_attempt in range(max_preflight_attempts):
             try:
                 preflight_response = await self.async_client.head(
@@ -2445,10 +2516,19 @@ class RivenVFS(pyfuse3.Operations):
                     # Preflight passed, proceed to actual request
                     return target_url
                 elif preflight_status_code == HTTPStatus.OK:
+                    accept_ranges = preflight_response.headers.get("Accept-Ranges", "")
+                    content_range = preflight_response.headers.get("Content-Range")
+
+                    if "bytes" in accept_ranges.lower() or content_range:
+                        log.debug(
+                            f"Preflight accepted 200 with range headers (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path}"
+                        )
+                        return target_url
+
                     # Server refused range request. Serving this request would return the full media file,
                     # which eats downloader bandwidth usage unnecessarily. Wait and retry.
-                    log.warning(
-                        f"Server doesn't support range requests yet: path={path}"
+                    log.debug(
+                        f"Server does not honour range yet (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path}"
                     )
 
                     if await self._retry_with_backoff(
@@ -2456,8 +2536,18 @@ class RivenVFS(pyfuse3.Operations):
                     ):
                         continue
 
-                    # Unable to get range support after retries
-                    raise pyfuse3.FUSEError(errno.EIO)
+                    cooldown = self._range_wait_backoff.get(
+                        path, RANGE_NOT_READY_INITIAL_DELAY
+                    )
+                    next_cooldown = min(cooldown * 2, RANGE_NOT_READY_MAX_DELAY)
+                    self._range_wait_backoff[path] = next_cooldown
+                    self._range_waits[path] = time.monotonic() + cooldown
+                    log.info(
+                        f"Range preflight deferred; provider still preparing file: path={path} retry_in={cooldown:.1f}s"
+                    )
+                    raise RangeNotReadyError(retry_after=cooldown)
+            except RangeNotReadyError:
+                raise
             except httpx.RemoteProtocolError as e:
                 log.debug(
                     f"HTTP protocol error (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path} error={type(e).__name__}"
@@ -2492,13 +2582,78 @@ class RivenVFS(pyfuse3.Operations):
                             ):
                                 continue
                     # No fresh URL or still erroring after refresh
-                    raise pyfuse3.FUSEError(errno.ENOENT) from e
-                else:
-                    # Other unexpected status codes
-                    log.warning(
-                        f"Unexpected preflight HTTP {preflight_status_code}: path={path}"
+                    # Try to extract error details from API response
+                    error_details = ""
+                    try:
+                        api_data = (
+                            e.response.json() if hasattr(e.response, "json") else {}
+                        )
+                        if isinstance(api_data, dict):
+                            error_code = api_data.get("error_code")
+                            error_msg = api_data.get("error")
+                            if error_code or error_msg:
+                                error_details = f" | API error_code: {error_code}, error: {error_msg}"
+                    except Exception:
+                        pass
+                    log.debug(
+                        f"File not found after refresh{error_details}: path={path} status={preflight_status_code}"
                     )
-                    raise pyfuse3.FUSEError(errno.EIO) from e
+                    raise pyfuse3.FUSEError(errno.ENOENT) from e
+                if preflight_status_code == HTTPStatus.SERVICE_UNAVAILABLE:
+                    # 503 Service Unavailable - Real-Debrid or related service is temporarily down
+                    # Try to extract error details from API response
+                    error_details = ""
+                    try:
+                        api_data = (
+                            e.response.json() if hasattr(e.response, "json") else {}
+                        )
+                        if isinstance(api_data, dict):
+                            error_code = api_data.get("error_code")
+                            error_msg = api_data.get("error")
+                            if error_code or error_msg:
+                                error_details = f" | API error_code: {error_code}, error: {error_msg}"
+                        log.debug(f"Real-Debrid response json api_data: {api_data}")
+                    except Exception:
+                        pass
+
+                    log.warning(
+                        f"Real-Debrid temporarily unavailable (HTTP 503){error_details}: path={path}"
+                    )
+
+                    log.debug(
+                        f"Real-Debrid response: {e.response}\nHeaders: {e.response.headers}\n Content: {e.response.text}\n Response object: {vars(e.response)}"
+                    )
+
+                    if await self._retry_with_backoff(
+                        preflight_attempt, max_preflight_attempts, backoffs
+                    ):
+                        continue
+
+                    # All retries exhausted, add to cooldown queue
+                    cooldown = self._range_wait_backoff.get(
+                        path, RANGE_NOT_READY_INITIAL_DELAY
+                    )
+                    next_cooldown = min(cooldown * 2, RANGE_NOT_READY_MAX_DELAY)
+                    self._range_wait_backoff[path] = next_cooldown
+                    self._range_waits[path] = time.monotonic() + cooldown
+                    raise RangeNotReadyError(retry_after=cooldown)
+                # Other unexpected status codes
+                error_details = ""
+                try:
+                    api_data = e.response.json() if hasattr(e.response, "json") else {}
+                    if isinstance(api_data, dict):
+                        error_code = api_data.get("error_code")
+                        error_msg = api_data.get("error")
+                        if error_code or error_msg:
+                            error_details = (
+                                f" | API error_code: {error_code}, error: {error_msg}"
+                            )
+                except Exception:
+                    pass
+                log.warning(
+                    f"Unexpected preflight HTTP {preflight_status_code}{error_details}: path={path}"
+                )
+                raise pyfuse3.FUSEError(errno.EIO) from e
             except (httpx.TimeoutException, httpx.ConnectError, httpx.InvalidURL) as e:
                 log.debug(
                     f"HTTP request failed (attempt {preflight_attempt + 1}/{max_preflight_attempts}): path={path} error={type(e).__name__}"
@@ -2543,11 +2698,42 @@ class RivenVFS(pyfuse3.Operations):
         headers = self._get_range_request_headers(start, end)
 
         try:
-            target_url = await self._attempt_range_preflight_checks(
-                path,
-                target_url,
-                headers,
+            # Serialize preflight checks per file to prevent concurrent HEAD requests
+            # This prevents hammering the provider API when multiple clients request the same file
+            preflight_lock = await self._get_preflight_lock(path)
+            async with preflight_lock:
+                target_url = await self._attempt_range_preflight_checks(
+                    path,
+                    target_url,
+                    headers,
+                )
+            self._range_waits.pop(path, None)
+            self._range_wait_backoff.pop(path, None)
+        except RangeNotReadyError as pending:
+            log.debug(
+                f"Range preflight pending (retry in {pending.retry_after:.1f}s): path={path}"
             )
+            raise pyfuse3.FUSEError(errno.EAGAIN) from None
+        except pyfuse3.FUSEError as fuse_err:
+            if fuse_err.errno == errno.ENOENT:
+                log.info(
+                    f"Provider link missing during preflight; will request refresh: path={path}"
+                )
+                cooldown = max(
+                    self._range_wait_backoff.get(path, RANGE_NOT_READY_INITIAL_DELAY),
+                    RANGE_NOT_READY_INITIAL_DELAY,
+                )
+                self._range_waits[path] = time.monotonic() + cooldown
+                self._range_wait_backoff[path] = min(
+                    cooldown * 2, RANGE_NOT_READY_MAX_DELAY
+                )
+            elif fuse_err.errno == errno.EAGAIN:
+                log.debug(f"Preflight still pending range enablement: path={path}")
+            else:
+                log.warning(
+                    f"Preflight failed with errno={fuse_err.errno}: path={path}"
+                )
+            raise
         except Exception as e:
             log.error(f"Preflight checks failed for {path}: {e}")
             raise
@@ -2604,11 +2790,11 @@ class RivenVFS(pyfuse3.Operations):
                         continue
 
                     raise pyfuse3.FUSEError(errno.EACCES) from e
-                elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
+                if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
                     # Preflight catches initial not found errors and attempts to refresh the URL
                     # if it still happens after a real request, don't refresh again and bail out
                     raise pyfuse3.FUSEError(errno.ENOENT) from e
-                elif status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE:
+                if status_code == HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE:
                     # Requested range not satisfiable; treat as EOF
                     return b""
                 elif status_code == HTTPStatus.TOO_MANY_REQUESTS:

@@ -25,6 +25,7 @@ from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
+
 from ..models.shared import MessageResponse
 
 
@@ -516,7 +517,6 @@ async def manual_update_attributes(
             item.reset()
 
             # Ensure a staging MediaEntry exists and is linked
-            from sqlalchemy import select
             from program.media.media_entry import MediaEntry
 
             fs_entry = None
@@ -691,9 +691,10 @@ async def overseerr_requests(
     db: Session = Depends(get_db),
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""
+    from kink import di
+
     from program.apis.overseerr_api import OverseerrAPI
     from program.db.db_functions import item_exists_by_any_id
-    from kink import di
 
     overseerr_api = di[OverseerrAPI]
     o_items = overseerr_api.get_media_requests("overseerr", filter, take)

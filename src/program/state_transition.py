@@ -2,11 +2,11 @@ from loguru import logger
 
 from program.media import MediaItem, States
 from program.services.downloaders import Downloader
+from program.services.filesystem import FilesystemService
 from program.services.indexers import IndexerService
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
-from program.services.filesystem import FilesystemService
 from program.types import ProcessedEvent, Service
 
 

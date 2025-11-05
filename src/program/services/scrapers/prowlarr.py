@@ -12,7 +12,7 @@ from requests import ReadTimeout, RequestException
 from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession
+from program.utils.request import CircuitBreakerOpen, SmartSession
 from program.utils.torrent import extract_infohash, normalize_infohash
 
 
@@ -43,6 +43,14 @@ class Indexer(BaseModel):
 
 
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
+
+
+class IndexerError(Exception):
+    """Raised when an indexer request fails."""
+
+    def __init__(self, message: str, remove_indexer: bool = False):
+        super().__init__(message)
+        self.remove_indexer = remove_indexer
 
 
 class Prowlarr(ScraperService):
@@ -209,13 +217,22 @@ class Prowlarr(ScraperService):
         try:
             return self.scrape(item)
         except Exception as e:
+            # Comprehensive error handling to prevent service crashes
             if "rate limit" in str(e).lower() or "429" in str(e):
                 logger.debug(f"Prowlarr ratelimit exceeded for item: {item.log_string}")
             elif isinstance(e, RequestException):
                 logger.error(f"Prowlarr request exception: {e}")
+            elif "deque mutated" in str(e):
+                logger.error(f"Prowlarr thread safety error (fixed in next run): {e}")
+            elif "ConnectionState" in str(e) or "ConnectionInputs" in str(e):
+                logger.error(f"Prowlarr connection state error: {e}")
             else:
-                logger.exception(f"Prowlarr failed to scrape item with error: {e}")
-        return {}
+                logger.error(f"Prowlarr unexpected error: {type(e).__name__}: {e}")
+                # Log full traceback for debugging unknown errors
+                logger.debug(f"Full traceback for {item.log_string}", exc_info=True)
+
+            # Always return empty dict - never let exceptions bubble up
+            return {}
 
     def scrape(self, item: MediaItem) -> Dict[str, str]:
         """Scrape a single item from all indexers at the same time, return a list of streams"""
@@ -223,6 +240,7 @@ class Prowlarr(ScraperService):
 
         torrents = {}
         start_time = time.time()
+        failed_indexers = []  # Track failed indexers to remove after iteration
 
         with concurrent.futures.ThreadPoolExecutor(
             thread_name_prefix="ProwlarrScraper", max_workers=len(self.indexers)
@@ -239,8 +257,28 @@ class Prowlarr(ScraperService):
                     torrents.update(result)
                 except concurrent.futures.TimeoutError:
                     logger.debug(f"Timeout for indexer {indexer.name}, skipping.")
-                except Exception as e:
-                    logger.error(f"Error processing indexer {indexer.name}: {e}")
+                except Exception as exc:
+                    remove_indexer = False
+
+                    if isinstance(exc, IndexerError):
+                        log_fn = logger.error if exc.remove_indexer else logger.warning
+                        log_fn(f"Error processing indexer {indexer.name}: {exc}")
+                        remove_indexer = exc.remove_indexer
+                    else:
+                        logger.error(f"Error processing indexer {indexer.name}: {exc}")
+                        if "deque mutated" not in str(exc):
+                            remove_indexer = True
+
+                    if remove_indexer and indexer not in failed_indexers:
+                        failed_indexers.append(indexer)
+
+        # Safely remove failed indexers after concurrent iteration is complete
+        for failed_indexer in failed_indexers:
+            if failed_indexer in self.indexers:
+                self.indexers.remove(failed_indexer)
+                logger.debug(
+                    f"Removed failed indexer {failed_indexer.name} from usable indexers"
+                )
 
         elapsed = time.time() - start_time
         if torrents:
@@ -269,9 +307,9 @@ class Prowlarr(ScraperService):
 
         if item.type == "movie":
             if "imdbId" in search_params.movie:
-                set_query_and_type(item.imdb_id, "movie-search")
+                set_query_and_type(item.imdb_id, "moviesearch")
             if "q" in search_params.movie:
-                set_query_and_type(item_title, "movie-search")
+                set_query_and_type(item_title, "moviesearch")
             elif "q" in search_params.search:
                 set_query_and_type(item_title, "search")
             else:
@@ -281,9 +319,9 @@ class Prowlarr(ScraperService):
 
         elif item.type == "show":
             if "imdbId" in search_params.tv:
-                set_query_and_type(item.imdb_id, "tv-search")
+                set_query_and_type(item.imdb_id, "tvsearch")
             elif "q" in search_params.tv:
-                set_query_and_type(item_title, "tv-search")
+                set_query_and_type(item_title, "tvsearch")
             elif "q" in search_params.search:
                 set_query_and_type(item_title, "search")
             else:
@@ -291,11 +329,18 @@ class Prowlarr(ScraperService):
 
         elif item.type == "season":
             if "q" in search_params.tv:
-                set_query_and_type(f"{item_title} S{item.number}", "tv-search")
+                # Convert zero-padded season number (e.g., "01") to integer (e.g., 1)
+                season_num = (
+                    int(item.number) if isinstance(item.number, str) else item.number
+                )
+                set_query_and_type(f"{item_title} {season_num}", "tvsearch")
                 if "season" in search_params.tv:
                     params["season"] = item.number
             elif "q" in search_params.search:
-                query = f"{item_title} S{item.number}"
+                season_num = (
+                    int(item.number) if isinstance(item.number, str) else item.number
+                )
+                query = f"{item_title} {season_num}"
                 set_query_and_type(query, "search")
             else:
                 raise ValueError(
@@ -304,15 +349,57 @@ class Prowlarr(ScraperService):
 
         elif item.type == "episode":
             if "q" in search_params.tv:
-                if "ep" in search_params.tv:
-                    query = f"{item_title}"
-                    params["season"] = item.parent.number
-                    params["ep"] = item.number
+                # Different search strategies for anime vs non-anime
+                # Anime: use loose searches with episode numbers (e.g., "Show 7" or "Show 7 Episode Title")
+                # Non-anime: use strict S##E## format (e.g., "Show S03E07") for better precision
+                episode_num = (
+                    int(item.number) if isinstance(item.number, str) else item.number
+                )
+                season_num = (
+                    int(item.parent.number)
+                    if isinstance(item.parent.number, str)
+                    else item.parent.number
+                )
+
+                if item.is_anime:
+                    # Anime: use loose format to catch various naming conventions
+                    # - "Show III 07" (Roman numerals)
+                    # - "Show Season 3 Episode 7" (spelled out)
+                    # - "Show 3 07" (plain numbers)
+                    query = f"{item_title} {episode_num}"
+                    if item.title:
+                        query = f"{query} {item.title}"
                 else:
-                    query = f"{item.log_string}"
-                set_query_and_type(query, "tv-search")
+                    # Non-anime: use strict S##E## format for better precision
+                    query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
+
+                # Include structured params if available (doesn't hurt, might help some)
+                if "season" in search_params.tv:
+                    params["season"] = season_num
+                if "ep" in search_params.tv:
+                    params["ep"] = episode_num
+
+                set_query_and_type(query, "tvsearch")
             elif "q" in search_params.search:
-                query = f"{item.log_string}"
+                # Basic search fallback
+                episode_num = (
+                    int(item.number) if isinstance(item.number, str) else item.number
+                )
+                season_num = (
+                    int(item.parent.number)
+                    if isinstance(item.parent.number, str)
+                    else item.parent.number
+                )
+
+                if item.is_anime:
+                    # Anime: use loose format
+                    query = f"{item_title} {episode_num}"
+                    if item.title:
+                        query = f"{query} {item.title}"
+                else:
+                    # Non-anime: use strict S##E## format
+                    query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
+
                 set_query_and_type(query, "search")
             else:
                 raise ValueError(
@@ -330,10 +417,44 @@ class Prowlarr(ScraperService):
         params["indexerIds"] = indexer.id
         params["categories"] = list(categories)
         params["limit"] = 1000
+
         return params
 
+    def _perform_search_request(self, indexer: Indexer, params: dict):
+        """Perform the search request, retrying once on transient request failures."""
+
+        session = self.session or self._create_session()
+        self.session = session
+
+        try:
+            return session.get(
+                "/search", params=params, timeout=self.timeout, headers=self.headers
+            )
+        except CircuitBreakerOpen as exc:
+            raise IndexerError(str(exc), remove_indexer=False) from exc
+        except RequestException as exc:
+            logger.warning(
+                f"Request error while scraping {indexer.name}: {exc}. Reinitializing session and retrying once."
+            )
+            self.session = self._create_session()
+            try:
+                return self.session.get(
+                    "/search",
+                    params=params,
+                    timeout=self.timeout,
+                    headers=self.headers,
+                )
+            except CircuitBreakerOpen as retry_cb:
+                raise IndexerError(str(retry_cb), remove_indexer=False) from retry_cb
+            except RequestException as retry_exc:
+                raise IndexerError(
+                    f"Repeated request error while scraping {indexer.name}: {retry_exc}",
+                    remove_indexer=False,
+                ) from retry_exc
+
     def scrape_indexer(self, indexer: Indexer, item: MediaItem) -> dict[str, str]:
-        """scrape from a single indexer"""
+        """Scrape results from a single indexer."""
+
         if indexer.name in ANIME_ONLY_INDEXERS or "anime" in indexer.name.lower():
             if not item.is_anime:
                 logger.debug(f"Indexer {indexer.name} is anime only, skipping")
@@ -341,88 +462,116 @@ class Prowlarr(ScraperService):
 
         try:
             params = self.build_search_params(indexer, item)
-        except ValueError as e:
-            logger.error(f"Failed to build search params for {indexer.name}: {e}")
+        except ValueError as exc:
+            logger.error(f"Failed to build search params for {indexer.name}: {exc}")
             return {}
 
         start_time = time.time()
-        response = self.session.get(
-            "/search", params=params, timeout=self.timeout, headers=self.headers
-        )
-        if not response.ok:
-            message = response.data.message or "Unknown error"
-            logger.debug(
-                f"Failed to scrape {indexer.name}: [{response.status_code}] {message}"
-            )
-            self.indexers.remove(indexer)
-            logger.debug(
-                f"Removed indexer {indexer.name} from the list of usable indexers"
-            )
-            return {}
 
-        data = response.data
-        streams = {}
-        urls_to_fetch = []  # List of (torrent, title) tuples that need URL fetching
+        try:
+            response = self._perform_search_request(indexer, params)
 
-        # First pass: extract infohashes from available fields and collect URLs that need fetching
-        for torrent in data:
-            title = torrent.title
-            infohash = None
+            if not getattr(response, "ok", False):
+                message = "Unknown error"
+                data = getattr(response, "data", None)
+                if hasattr(data, "message"):
+                    message = data.message or message
+                elif isinstance(data, dict):
+                    message = data.get("message") or data.get("error") or message
 
-            # Priority 1: Use infoHash field directly if available (normalize to handle base32)
-            if hasattr(torrent, "infoHash") and torrent.infoHash:
-                infohash = normalize_infohash(torrent.infoHash)
+                status_code = getattr(response, "status_code", None)
+                lower_message = (message or "").lower()
 
-            # Priority 2: Try to extract from guid (handles magnets and bare hashes)
-            if not infohash and hasattr(torrent, "guid") and torrent.guid:
-                infohash = extract_infohash(torrent.guid)
+                remove_indexer = True
+                if status_code == 400 and "all selected indexers" in lower_message:
+                    remove_indexer = False
 
-            # Priority 3: Collect URLs that need fetching
-            if not infohash and hasattr(torrent, "downloadUrl") and torrent.downloadUrl:
-                urls_to_fetch.append((torrent, title))
-            elif infohash:
-                # We already have an infohash, add it directly
-                streams[infohash] = title
-
-        # Fetch URLs in parallel
-        if urls_to_fetch:
-            with concurrent.futures.ThreadPoolExecutor(
-                thread_name_prefix="ProwlarrHashExtract", max_workers=10
-            ) as executor:
-                future_to_torrent = {
-                    executor.submit(self.get_infohash_from_url, torrent.downloadUrl): (
-                        torrent,
-                        title,
-                    )
-                    for torrent, title in urls_to_fetch
-                }
-
-                done, pending = concurrent.futures.wait(
-                    future_to_torrent.keys(),
-                    timeout=self.settings.infohash_fetch_timeout,
+                raise IndexerError(
+                    f"[{status_code if status_code is not None else 'N/A'}] {message}",
+                    remove_indexer=remove_indexer,
                 )
 
-                # Process completed futures
-                for future in done:
-                    torrent, title = future_to_torrent[future]
-                    try:
-                        infohash = future.result()
-                        if infohash:
-                            streams[infohash] = title
-                    except Exception as e:
-                        logger.debug(
-                            f"Failed to get infohash from downloadUrl for {title}: {e}"
+            data = getattr(response, "data", None)
+            if not data:
+                logger.debug(f"Indexer {indexer.name} returned empty data set")
+                return {}
+
+            streams: dict[str, str] = {}
+            urls_to_fetch: list[tuple[object, str]] = []
+
+            for torrent in data:
+                title = getattr(torrent, "title", None)
+                if not title:
+                    continue
+
+                # Log all available attributes from the torrent object for debugging
+                logger.debug(
+                    f"Prowlarr torrent object attributes: {vars(torrent) if hasattr(torrent, '__dict__') else str(torrent)}"
+                )
+
+                infohash = None
+                if hasattr(torrent, "infoHash") and torrent.infoHash:
+                    infohash = normalize_infohash(torrent.infoHash)
+                if not infohash and hasattr(torrent, "guid") and torrent.guid:
+                    infohash = extract_infohash(torrent.guid)
+
+                if (
+                    not infohash
+                    and hasattr(torrent, "downloadUrl")
+                    and torrent.downloadUrl
+                ):
+                    urls_to_fetch.append((torrent, title))
+                elif infohash:
+                    streams[infohash] = title
+
+            if urls_to_fetch:
+                try:
+                    with concurrent.futures.ThreadPoolExecutor(
+                        thread_name_prefix="ProwlarrHashExtract", max_workers=10
+                    ) as executor:
+                        future_to_torrent = {
+                            executor.submit(
+                                self.get_infohash_from_url, torrent.downloadUrl
+                            ): (torrent, title)
+                            for torrent, title in urls_to_fetch
+                        }
+
+                        done, pending = concurrent.futures.wait(
+                            future_to_torrent.keys(),
+                            timeout=self.settings.infohash_fetch_timeout,
                         )
 
-                # Cancel and log timeouts for pending futures
-                for future in pending:
-                    torrent, title = future_to_torrent[future]
-                    future.cancel()
-                    logger.debug(
-                        f"Timeout getting infohash from downloadUrl for {title}"
+                        for future in done:
+                            torrent, title = future_to_torrent[future]
+                            try:
+                                infohash = future.result()
+                                if infohash:
+                                    streams[infohash] = title
+                            except Exception as exc:
+                                logger.debug(
+                                    f"Failed to get infohash from downloadUrl for {title}: {exc}"
+                                )
+
+                        for future in pending:
+                            torrent, title = future_to_torrent[future]
+                            future.cancel()
+                            logger.debug(
+                                f"Timeout getting infohash from downloadUrl for {title}"
+                            )
+                except Exception as exc:
+                    logger.error(
+                        f"Error during parallel infohash fetching for {indexer.name}: {exc}"
                     )
 
-        logger.debug(
-            f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds"
-        )
-        return streams
+            logger.debug(
+                f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds"
+            )
+            return streams
+
+        except IndexerError:
+            raise
+        except Exception as exc:
+            raise IndexerError(
+                f"Unexpected error scraping {indexer.name}: {exc}",
+                remove_indexer=False,
+            ) from exc

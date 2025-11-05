@@ -7,8 +7,8 @@ import regex
 from kink import di
 from loguru import logger
 
-from program.apis.tvdb_api import TVDBApi
 from program.apis.trakt_api import TraktAPI
+from program.apis.tvdb_api import TVDBApi
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
 from program.settings.manager import settings_manager
@@ -102,14 +102,16 @@ class TVDBIndexer(BaseIndexer):
 
             # Get show details from API
             show_data = None
+            language_preference = self._get_language_preference(show)
+
             if tvdb_id:
-                show_data = self.api.get_series(tvdb_id)
+                show_data = self.api.get_series(tvdb_id, language_preference)
             elif imdb_id:
                 search_results = self.api.search_by_imdb_id(imdb_id)
                 if search_results and search_results.data:
                     if hasattr(search_results.data[0], "series"):
                         tvdb_id = str(search_results.data[0].series.id)
-                        show_data = self.api.get_series(tvdb_id)
+                        show_data = self.api.get_series(tvdb_id, language_preference)
 
             if not show_data:
                 logger.error(f"Could not fetch TVDB data for {show.log_string}")
@@ -147,9 +149,30 @@ class TVDBIndexer(BaseIndexer):
                 logger.debug(
                     f"Failed to get aliases from Trakt for imdbid {imdb_id}, using TVDB aliases"
                 )
-                aliases = self.api.get_aliases(show_data) or {}
+                tvdb_aliases = self.api.get_aliases(show_data) or {}
+                # Normalize all English variants to use "eng" as the primary key
+                aliases = {}
+                english_aliases = []
+                for lang in ["eng", "en", "us", "gb"]:
+                    if lang in tvdb_aliases:
+                        english_aliases.extend(tvdb_aliases[lang])
+                if english_aliases:
+                    aliases["eng"] = english_aliases
+                # Add any other language aliases
+                for lang, lang_aliases in tvdb_aliases.items():
+                    if lang not in ["eng", "en", "us", "gb"]:
+                        aliases[lang] = lang_aliases
+            else:
+                # Normalize Trakt aliases to use "eng" for English variants
+                english_aliases = []
+                for lang in ["eng", "en", "us", "gb"]:
+                    if lang in aliases:
+                        english_aliases.extend(aliases.pop(lang))
+                if english_aliases:
+                    aliases["eng"] = english_aliases
+
             slug = (show_data.slug or "").replace("-", " ").title()
-            aliases.setdefault("us", []).append(slug.title())
+            aliases.setdefault("eng", []).append(slug.title())
 
             # Get title (with translation if needed)
             title = show_data.name
@@ -170,12 +193,12 @@ class TVDBIndexer(BaseIndexer):
                             and translation.data.aliases
                         ):
                             additional_aliases = translation.data.aliases
-                            aliases["us"].extend(
+                            aliases.setdefault("eng", []).extend(
                                 [alias for alias in additional_aliases]
                             )
 
-            if aliases:
-                aliases = {k: list(set(v)) for k, v in aliases.items()}
+            # if aliases:
+            #     aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             # Extract genres and determine if anime
             genres_lower = [
@@ -246,9 +269,12 @@ class TVDBIndexer(BaseIndexer):
             return None
 
         try:
+            # Get language preference based on global settings for initial lookup
+            language_preference = self._get_global_language_preference()
+
             # Direct lookup by TVDB ID
             if tvdb_id:
-                show_details = self.api.get_series(tvdb_id)
+                show_details = self.api.get_series(tvdb_id, language_preference)
                 if show_details:
                     show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
                     if show_item:
@@ -266,7 +292,7 @@ class TVDBIndexer(BaseIndexer):
                         return None
                     elif hasattr(search_results.data[0], "series"):
                         tvdb_id = str(search_results.data[0].series.id)
-                        show_details = self.api.get_series(tvdb_id)
+                        show_details = self.api.get_series(tvdb_id, language_preference)
                         if show_details:
                             show_item = self._map_show_from_tvdb_data(
                                 show_details, imdb_id
@@ -316,9 +342,30 @@ class TVDBIndexer(BaseIndexer):
                 logger.debug(
                     f"Failed to get aliases from Trakt for imdbid {imdb_id}, using TVDB aliases"
                 )
-                aliases = self.api.get_aliases(show_data) or {}
+                tvdb_aliases = self.api.get_aliases(show_data) or {}
+                # Normalize all English variants to use "eng" as the primary key
+                aliases = {}
+                english_aliases = []
+                for lang in ["eng", "en", "us", "gb"]:
+                    if lang in tvdb_aliases:
+                        english_aliases.extend(tvdb_aliases[lang])
+                if english_aliases:
+                    aliases["eng"] = english_aliases
+                # Add any other language aliases
+                for lang, lang_aliases in tvdb_aliases.items():
+                    if lang not in ["eng", "en", "us", "gb"]:
+                        aliases[lang] = lang_aliases
+            else:
+                # Normalize Trakt aliases to use "eng" for English variants
+                english_aliases = []
+                for lang in ["eng", "en", "us", "gb"]:
+                    if lang in aliases:
+                        english_aliases.extend(aliases.pop(lang))
+                if english_aliases:
+                    aliases["eng"] = english_aliases
+
             slug = (show_data.slug or "").replace("-", " ").title()
-            aliases.setdefault("us", []).append(slug.title())
+            aliases.setdefault("eng", []).append(slug.title())
 
             title = show_data.name
             poster_path = show_data.image
@@ -338,8 +385,7 @@ class TVDBIndexer(BaseIndexer):
                             and translation.data.aliases
                         ):
                             additional_aliases = translation.data.aliases
-
-                            aliases["us"].extend(
+                            aliases.setdefault("eng", []).extend(
                                 [alias for alias in additional_aliases]
                             )
 
@@ -427,7 +473,11 @@ class TVDBIndexer(BaseIndexer):
             ]
 
             for season_data in filtered_seasons:
-                if extended_data := self.api.get_season(season_data.id).data:
+                # Get language preference for season API call
+                language_preference = self._get_global_language_preference()
+                if extended_data := self.api.get_season(
+                    season_data.id, language_preference
+                ).data:
                     season_number = extended_data.number
                     if season_number is None:
                         continue
@@ -462,19 +512,33 @@ class TVDBIndexer(BaseIndexer):
                             if episode_number is None:
                                 continue
 
+                            # Fetch detailed episode data with language preference
+                            language_preference = self._get_global_language_preference()
+                            detailed_episode_data = None
+                            if hasattr(episode_data, "id") and episode_data.id:
+                                detailed_episode_data = self.api.get_episode(
+                                    str(episode_data.id), language_preference
+                                )
+
+                            # Use detailed data if available, otherwise fallback to episode_data
+                            final_episode_data = (
+                                detailed_episode_data
+                                if detailed_episode_data
+                                else episode_data
+                            )
+                            final_episode_data.poster_path = season_item.poster_path
+
                             # Check if this episode already exists
                             if episode_number in existing_episodes:
                                 # Update existing episode with fresh metadata
                                 episode_item = existing_episodes[episode_number]
-                                episode_data.poster_path = season_item.poster_path
                                 self._update_episode_metadata(
-                                    episode_item, episode_data
+                                    episode_item, final_episode_data
                                 )
                             else:
                                 # Create new episode
-                                episode_data.poster_path = season_item.poster_path
                                 episode_item = self._create_episode_from_data(
-                                    episode_data, season_item
+                                    final_episode_data, season_item
                                 )
                                 if episode_item:
                                     season_item.add_episode(episode_item)
@@ -578,7 +642,7 @@ class TVDBIndexer(BaseIndexer):
 
             # Update episode attributes
             episode.tvdb_id = str(episode_data.id)
-            episode.title = episode_data.name or f"Episode {episode_data.number}"
+            episode.title = self._get_episode_title_with_fallback(episode_data, episode)
             episode.poster_path = episode_data.poster_path
             episode.aired_at = aired_at
             episode.year = year
@@ -611,7 +675,7 @@ class TVDBIndexer(BaseIndexer):
             episode_item = {
                 "number": episode_number,
                 "tvdb_id": str(episode_data.id),
-                "title": episode_data.name or f"Episode {episode_number}",
+                "title": "temp_title",  # Temporary, will be updated below
                 "poster_path": episode_data.poster_path,
                 "aired_at": aired_at,
                 "year": year,
@@ -623,7 +687,166 @@ class TVDBIndexer(BaseIndexer):
 
             episode = Episode(episode_item)
             episode.parent = season
+
+            # Now set the title using the fallback system with proper context
+            episode.title = self._get_episode_title_with_fallback(episode_data, episode)
+            episode.parent = season
             return episode
         except Exception as e:
             logger.error(f"Error creating episode from TVDB data: {str(e)}")
             return None
+
+    def _get_language_preference(self, item: MediaItem) -> Optional[List[str]]:
+        """Get language preference for TVDB API calls based on settings."""
+        try:
+            scraping_settings = settings_manager.settings.scraping
+
+            # Return configured language preference if any languages are specified
+            if scraping_settings.preferred_languages:
+                return scraping_settings.preferred_languages
+
+            # No language preference configured, use TVDB default
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error getting language preference: {e}")
+            return None
+
+    def _get_global_language_preference(self) -> Optional[List[str]]:
+        """Get global language preference for TVDB API calls when item context is not available."""
+        try:
+            scraping_settings = settings_manager.settings.scraping
+
+            # Return configured language preference if any languages are specified
+            if scraping_settings.preferred_languages:
+                return scraping_settings.preferred_languages
+
+            # No language preference configured, use TVDB default
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error getting global language preference: {e}")
+            return None
+
+    def _get_episode_title_with_fallback(self, episode_data, episode_item=None) -> str:
+        """Get episode title with English fallback strategies."""
+        try:
+            original_title = episode_data.name
+            episode_number = episode_data.number
+
+            # If we already have an English title, use it
+            if original_title and self._is_likely_english(original_title):
+                return original_title
+
+            # Strategy 1: Try to get English translation from TVDB
+            if hasattr(episode_data, "id") and episode_data.id:
+                try:
+                    translation = self.api.get_episode_translation(
+                        str(episode_data.id), "eng"
+                    )
+                    if (
+                        translation
+                        and hasattr(translation, "data")
+                        and translation.data
+                    ):
+                        if hasattr(translation.data, "name") and translation.data.name:
+                            english_title = translation.data.name
+                            if english_title and self._is_likely_english(english_title):
+                                logger.debug(
+                                    f"Found English translation for episode {episode_data.id}: {english_title}"
+                                )
+                                return english_title
+                except Exception as e:
+                    logger.debug(f"Error getting episode translation: {e}")
+
+            # Strategy 2: Generate descriptive English title based on context
+            if episode_item and hasattr(episode_item, "parent") and episode_item.parent:
+                season = episode_item.parent
+                if hasattr(season, "parent") and season.parent:
+                    show = season.parent
+                    show_title = show.title
+                    season_number = getattr(season, "number", 1)
+
+                    # For anime, create more descriptive titles
+                    if getattr(show, "is_anime", False):
+                        return f"{show_title} - Season {season_number} Episode {episode_number}"
+                    else:
+                        return f"Episode {episode_number}"
+
+            # Strategy 3: Basic fallback with episode number
+            if episode_number:
+                return f"Episode {episode_number}"
+
+            # Strategy 4: Last resort - use original title even if it's not English
+            return original_title or "Unknown Episode"
+
+        except Exception as e:
+            logger.error(f"Error in episode title fallback: {e}")
+            return (
+                f"Episode {episode_data.number}"
+                if episode_data.number
+                else "Unknown Episode"
+            )
+
+    def _is_likely_english(self, text: str) -> bool:
+        """Check if text is likely in English (basic heuristic)."""
+        if not text:
+            return False
+
+        # Check for common English words/patterns
+        english_indicators = [
+            " the ",
+            " and ",
+            " of ",
+            " to ",
+            " a ",
+            " in ",
+            " is ",
+            " it ",
+            " you ",
+            " that ",
+            " he ",
+            " was ",
+            " for ",
+            " on ",
+            " are ",
+            " as ",
+            " with ",
+            " his ",
+            " they ",
+            " at ",
+            " be ",
+            " this ",
+            " have ",
+            " from ",
+            " or ",
+            " one ",
+            " had ",
+            " by ",
+            " words",
+            " but ",
+            " not ",
+            " what ",
+            " all ",
+            " were ",
+            " we ",
+            " when ",
+        ]
+
+        text_lower = text.lower()
+
+        # If it contains common English words, likely English
+        for indicator in english_indicators:
+            if indicator in text_lower:
+                return True
+
+        # Check if it's mostly ASCII characters (rough heuristic)
+        try:
+            ascii_chars = sum(1 for c in text if ord(c) < 128)
+            total_chars = len(text)
+            if total_chars > 0 and (ascii_chars / total_chars) > 0.8:
+                return True
+        except:
+            pass
+
+        return False

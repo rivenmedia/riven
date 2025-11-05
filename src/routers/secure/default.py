@@ -13,9 +13,9 @@ from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.services.downloaders import Downloader
+from program.services.filesystem.filesystem_service import FilesystemService
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
-from program.services.filesystem.filesystem_service import FilesystemService
 
 from ..models.shared import MessageResponse
 
@@ -205,6 +205,7 @@ async def get_stats(_: Request) -> StatsResponse:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
             from sqlalchemy import exists
+
             from program.media.filesystem_entry import FilesystemEntry
 
             movies_symlinks = conn.execute(

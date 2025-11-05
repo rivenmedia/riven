@@ -1,7 +1,6 @@
 """Jackett scraper module"""
 
 import concurrent.futures
-from types import SimpleNamespace
 from typing import Dict, List, Optional
 
 from loguru import logger

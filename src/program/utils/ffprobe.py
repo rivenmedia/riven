@@ -1,8 +1,9 @@
 import subprocess
-import orjson
-from pathlib import Path
-from typing import Optional, List
 from fractions import Fraction
+from pathlib import Path
+from typing import List, Optional
+
+import orjson
 from pydantic import BaseModel, Field
 
 

@@ -1,13 +1,10 @@
 ﻿import json
 from datetime import datetime, timezone
 
+import httpx
 import pytest
 
 from program.utils.request import CircuitBreaker, SmartResponse, SmartSession
-
-
-import httpx
-from types import SimpleNamespace
 
 
 @pytest.fixture

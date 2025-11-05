@@ -7,10 +7,11 @@ Supports flexible naming templates for future customization.
 
 import os
 from typing import Optional
-from loguru import logger
 
-from program.media.item import MediaItem, Movie, Show, Season, Episode
+from loguru import logger
 from PTT import parse_title
+
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 
 
 class NamingService:
@@ -129,11 +130,9 @@ class NamingService:
         seen = 0
         try:
             while (
-                hasattr(current, "parent")
-                and getattr(current, "parent") is not None
-                and seen < 10
+                hasattr(current, "parent") and current.parent is not None and seen < 10
             ):
-                current = getattr(current, "parent")
+                current = current.parent
                 seen += 1
         except Exception:
             # If anything unexpected, just return the last known object
@@ -202,15 +201,15 @@ class NamingService:
 
         # Year: from top parent aired_at or year; avoid 'Unknown'
         year = None
-        if hasattr(top_parent, "aired_at") and getattr(top_parent, "aired_at"):
+        if hasattr(top_parent, "aired_at") and top_parent.aired_at:
             try:
-                year = str(getattr(top_parent, "aired_at")).split("-")[0]
+                year = str(top_parent.aired_at).split("-")[0]
             except (ValueError, IndexError, AttributeError):
                 year = None
-        if year is None and hasattr(top_parent, "year") and getattr(top_parent, "year"):
-            year = getattr(top_parent, "year")
-        if year is None and hasattr(item, "year") and getattr(item, "year"):
-            year = getattr(item, "year")
+        if year is None and hasattr(top_parent, "year") and top_parent.year:
+            year = top_parent.year
+        if year is None and hasattr(item, "year") and item.year:
+            year = item.year
 
         # TVDB ID: strictly from show-level (top parent) when present
         tvdb_id = getattr(top_parent, "tvdb_id", None)
@@ -298,13 +297,13 @@ class NamingService:
         title = self._sanitize_name(title_str)
 
         year = None
-        if hasattr(top_parent, "aired_at") and getattr(top_parent, "aired_at"):
+        if hasattr(top_parent, "aired_at") and top_parent.aired_at:
             try:
-                year = str(getattr(top_parent, "aired_at")).split("-")[0]
+                year = str(top_parent.aired_at).split("-")[0]
             except (ValueError, IndexError, AttributeError):
                 year = None
         if year is None and getattr(top_parent, "year", None):
-            year = getattr(top_parent, "year")
+            year = top_parent.year
 
         season_num = item.parent.number if item.parent else 1
         episode_num = item.number
@@ -318,7 +317,7 @@ class NamingService:
             if isinstance(parsed, dict):
                 episodes = parsed.get("episodes")
             elif hasattr(parsed, "episodes"):
-                episodes = getattr(parsed, "episodes")
+                episodes = parsed.episodes
 
         if episodes and len(episodes) > 1:
             # Multi-episode file: sYYeXX-eZZ (season & endpoints 2-digit)

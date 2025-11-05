@@ -5,11 +5,12 @@ which library profiles a media item should be placed in.
 """
 
 from typing import List, Optional
+
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.settings.models import LibraryProfile, LibraryProfileFilterRules
 from program.settings.manager import settings_manager
+from program.settings.models import LibraryProfileFilterRules
 
 
 class LibraryProfileMatcher:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -11,10 +10,9 @@ from sqlalchemy import create_engine, text
 from testcontainers.postgres import PostgresContainer
 
 from program.db.db import db, run_migrations
-from program.media.item import Episode, Movie, Show, Season
+from program.media.item import Episode, Movie, Season, Show
 from program.media.state import States
-from program.scheduling.models import ScheduledTask, ScheduledStatus
-
+from program.scheduling.models import ScheduledStatus, ScheduledTask
 from program.scheduling.scheduler import ProgramScheduler
 
 
@@ -231,7 +229,6 @@ class TestComputeNextAirDatetime:
 
     def test_compute_from_airs_days_and_time_when_next_aired_missing(self):
         """Computing next air time from airs_days + airs_time when next_aired is missing."""
-        from program.program import Program
 
         now = datetime(2025, 1, 13, 10, 0, 0)  # Monday 10:00 AM
         release_data = {
@@ -259,7 +256,6 @@ class TestComputeNextAirDatetime:
 
     def test_handle_next_aired_as_date_only_string(self):
         """Handling next_aired as a date-only string (should combine with airs_time)."""
-        from program.program import Program
 
         now = datetime(2025, 1, 13, 10, 0, 0)
         release_data = {
@@ -278,7 +274,6 @@ class TestComputeNextAirDatetime:
 
     def test_handle_next_aired_as_full_iso_datetime(self):
         """Handling next_aired as a full ISO datetime string."""
-        from program.program import Program
 
         now = datetime(2025, 1, 13, 10, 0, 0)
         release_data = {
@@ -292,7 +287,6 @@ class TestComputeNextAirDatetime:
 
     def test_graceful_fallback_when_timezone_invalid(self):
         """Graceful fallback when timezone is invalid or missing."""
-        from program.program import Program
 
         now = datetime(2025, 1, 13, 10, 0, 0)
         release_data = {
@@ -308,7 +302,6 @@ class TestComputeNextAirDatetime:
 
     def test_return_none_when_no_valid_air_time(self):
         """Returning None when no valid air time can be computed."""
-        from program.program import Program
 
         now = datetime(2025, 1, 13, 10, 0, 0)
         release_data = {}
@@ -319,7 +312,6 @@ class TestComputeNextAirDatetime:
 
     def test_handle_malformed_airs_time(self):
         """Handling malformed or missing airs_time values."""
-        from program.program import Program
 
         now = datetime(2025, 1, 13, 10, 0, 0)
         release_data = {

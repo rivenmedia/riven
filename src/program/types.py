@@ -10,12 +10,10 @@ from program.services.content import (
     PlexWatchlist,
     TraktContent,
 )
-from program.services.downloaders import (
-    RealDebridDownloader,
-)
+from program.services.downloaders import RealDebridDownloader
+from program.services.filesystem import FilesystemService
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
-from program.services.filesystem import FilesystemService
 
 # Typehint classes
 Scraper = Union[Scraping]

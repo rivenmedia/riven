@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy
@@ -45,6 +46,25 @@ class StreamBlacklistRelation(db.Model):
     )
 
 
+class StreamPendingRecord(db.Model):
+    """Track when a stream first entered pending state per item (for dead torrent detection)"""
+
+    __tablename__ = "StreamPendingRecord"
+
+    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
+    media_item_id: Mapped[int] = mapped_column(
+        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), nullable=False
+    )
+    stream_infohash: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    pending_since: Mapped[datetime] = mapped_column(
+        sqlalchemy.DateTime, default=datetime.now, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_stream_pending_item_infohash", "media_item_id", "stream_infohash"),
+    )
+
+
 class Stream(db.Model):
     __tablename__ = "Stream"
 
@@ -85,7 +105,7 @@ class Stream(db.Model):
         )
 
     def __hash__(self):
-        return self.infohash
+        return hash(self.infohash)
 
     def __eq__(self, other):
         return isinstance(other, Stream) and self.infohash == other.infohash

@@ -5,12 +5,13 @@ using the RivenVFS implementation.
 """
 
 from typing import Generator
+
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.settings.manager import settings_manager
-from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
+from program.services.filesystem.common_utils import get_items_to_update
+from program.settings.manager import settings_manager
 
 
 class FilesystemService:

@@ -35,7 +35,7 @@ logger.add(SSELogHandler())
 
 @router.get("/event_types")
 async def get_event_types():
-    return {"message": list(sse_manager.subscribers.keys())}
+    return {"message": list(sse_manager.event_queues.keys())}
 
 
 @router.get("/{event_type}")

@@ -1,6 +1,6 @@
 """RivenVFS implementation"""
 
-from .rivenvfs import RivenVFS
 from .db import VFSDatabase
+from .rivenvfs import RivenVFS
 
 __all__ = ["RivenVFS", "VFSDatabase"]

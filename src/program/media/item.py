@@ -1,7 +1,7 @@
 """MediaItem class"""
 
 from datetime import datetime
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import sqlalchemy
 from loguru import logger
@@ -271,8 +271,9 @@ class MediaItem(db.Model):
         Opens its own session (session-per-request).
         """
         from sqlalchemy.exc import IntegrityError
-        from program.scheduling.models import ScheduledTask, ScheduledStatus
+
         from program.db.db import db
+        from program.scheduling.models import ScheduledStatus, ScheduledTask
 
         if not self.id:
             logger.error("Cannot schedule task for unsaved item (missing id)")
@@ -655,8 +656,8 @@ class MediaItem(db.Model):
         still accessible in the session.
         """
         # Remove VFS nodes BEFORE clearing entries (so we can still access them)
-        from program.services.filesystem import FilesystemService
         from program.program import riven
+        from program.services.filesystem import FilesystemService
 
         filesystem_service = riven.services.get(FilesystemService)
         if filesystem_service and filesystem_service.riven_vfs:

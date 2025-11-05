@@ -57,7 +57,13 @@ def setup_logger(level):
     # Set log levels
     for name, (no, default_color, default_icon) in log_levels.items():
         color, icon = get_log_settings(name, default_color, default_icon)
-        logger.level(name, no=no, color=color, icon=icon)
+        try:
+            logger.level(name, no=no, color=color, icon=icon)
+        except Exception as e:
+            logger.error(
+                f"Failed to set custom log level, falling back to default for {name}: {e}"
+            )
+            logger.level(name, no=no, color=default_color, icon=default_icon)
 
     # Default log levels
     debug_color, debug_icon = get_log_settings("DEBUG", "98C1D9", "🐞")
@@ -170,3 +176,6 @@ def log_cleaner():
 
 
 setup_logger(settings_manager.settings.log_level)
+logger.warning(
+    f"Loguru logger initialized: level={settings_manager.settings.log_level}"
+)

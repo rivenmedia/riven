@@ -4,12 +4,11 @@ import hashlib
 import os
 import threading
 import time
+from bisect import bisect_right, insort
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from bisect import bisect_right, insort
-
 
 from loguru import logger
 

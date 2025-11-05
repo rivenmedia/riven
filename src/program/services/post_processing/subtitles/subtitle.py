@@ -6,14 +6,16 @@ for serving via RivenVFS.
 """
 
 from typing import List, Optional
-from sqlalchemy.orm import object_session
+
 from loguru import logger
+from sqlalchemy.orm import object_session
 
 from program.db.db import db
 from program.media.item import MediaItem
 from program.media.subtitle_entry import SubtitleEntry
-from program.settings.manager import settings_manager
 from program.services.filesystem.filesystem_service import FilesystemService
+from program.settings.manager import settings_manager
+
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
 

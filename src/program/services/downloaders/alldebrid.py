@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import time
 from typing import List, Optional, Tuple
 
 from loguru import logger
@@ -42,17 +41,15 @@ class AllDebridAPI:
         # AllDebrid rate limits: 12 req/sec and 600 req/min
         # Using conservative 10 req/sec (600 capacity)
         rate_limits = {"api.alldebrid.com": {"rate": 10, "capacity": 600}}
-        proxies = None
-        if proxy_url:
-            proxies = {"http": proxy_url, "https": proxy_url}
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
-            proxies=proxies,
             retries=2,
             backoff_factor=0.5,
         )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
+        if proxy_url:
+            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 
 class AllDebridDownloader(DownloaderBase):
@@ -81,7 +78,7 @@ class AllDebridDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
-        proxy_url = self.PROXY_URL or None
+        proxy_url = getattr(self, "PROXY_URL", None) or None
         self.api = AllDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
         return self._validate_premium()
 
@@ -151,8 +148,37 @@ class AllDebridDownloader(DownloaderBase):
         if resp.status_code == 429:
             logger.warning("AllDebrid rate limit hit, backing off")
 
+    def is_responsive(self) -> bool:
+        """
+        Verify the API is responsive by calling the user endpoint.
+        This is a lightweight check that validates API key and service availability
+        without adding invalid torrents that could trigger errors.
+        Uses bypass_breaker=True to allow probing even when circuit breaker is OPEN.
+
+        Returns:
+            True if API is responsive and accessible, False otherwise
+        """
+        try:
+            # Simple lightweight health check: call the user endpoint to verify API key is valid
+            # and service is responsive. This bypasses the circuit breaker to allow recovery detection.
+            resp: SmartResponse = self.api.session.get("user", bypass_breaker=True)
+            if resp.ok:
+                return True
+            else:
+                logger.debug(
+                    f"Health check failed for AllDebrid: HTTP {resp.status_code}"
+                )
+                return False
+        except CircuitBreakerOpen:
+            # Should not happen due to bypass_breaker=True, but just in case
+            return False
+        except Exception as e:
+            # Any other error means service is not responsive
+            logger.debug(f"Health check failed for AllDebrid: {e}")
+            return False
+
     def get_instant_availability(
-        self, infohash: str, item_type: str
+        self, infohash: str, item_type: str, bypass_breaker: bool = False
     ) -> Optional[TorrentContainer]:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -160,21 +186,26 @@ class AllDebridDownloader(DownloaderBase):
 
         AllDebrid doesn't have a separate cache check endpoint,
         so we add the magnet and check its status.
+
+        Args:
+            infohash: Torrent infohash to check
+            item_type: Type of item (movie/show)
+            bypass_breaker: If True, bypass circuit breaker for health checks
         """
         container: Optional[TorrentContainer] = None
         torrent_id: Optional[int] = None
 
         try:
-            torrent_id = self.add_torrent(infohash)
+            torrent_id = self.add_torrent(infohash, bypass_breaker=bypass_breaker)
             container, reason, info = self._process_torrent(
-                torrent_id, infohash, item_type
+                torrent_id, infohash, item_type, bypass_breaker=bypass_breaker
             )
             if container is None and reason:
                 logger.debug(f"Availability check failed [{infohash}]: {reason}")
                 # Failed validation - delete the torrent
                 if torrent_id:
                     try:
-                        self.delete_torrent(torrent_id)
+                        self.delete_torrent(torrent_id, bypass_breaker=bypass_breaker)
                     except Exception as e:
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
@@ -192,7 +223,7 @@ class AllDebridDownloader(DownloaderBase):
             logger.debug(f"Circuit breaker OPEN for AllDebrid; skipping {infohash}")
             if torrent_id:
                 try:
-                    self.delete_torrent(torrent_id)
+                    self.delete_torrent(torrent_id, bypass_breaker=bypass_breaker)
                 except Exception:
                     pass
             raise
@@ -200,7 +231,7 @@ class AllDebridDownloader(DownloaderBase):
             logger.warning(f"Availability check failed [{infohash}]: {e}")
             if torrent_id:
                 try:
-                    self.delete_torrent(torrent_id)
+                    self.delete_torrent(torrent_id, bypass_breaker=bypass_breaker)
                 except Exception:
                     pass
             return None
@@ -228,6 +259,7 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: str,
+        bypass_breaker: bool = False,
     ) -> Tuple[Optional[TorrentContainer], Optional[str], Optional[TorrentInfo]]:
         """
         Process a single torrent and return (container, reason, info).
@@ -236,7 +268,7 @@ class AllDebridDownloader(DownloaderBase):
             (TorrentContainer or None, human-readable reason string if None, TorrentInfo or None)
         """
 
-        info = self.get_torrent_info(torrent_id)
+        info = self.get_torrent_info(torrent_id, bypass_breaker=bypass_breaker)
         if not info:
             return None, "no torrent info returned by AllDebrid", None
 
@@ -246,7 +278,7 @@ class AllDebridDownloader(DownloaderBase):
             return None, f"Not instantly available (status={info.status})", None
 
         # Get files from the magnet/files endpoint
-        files_data = self._get_magnet_files(torrent_id)
+        files_data = self._get_magnet_files(torrent_id, bypass_breaker=bypass_breaker)
         if not files_data:
             return None, "no files present in the torrent", None
 
@@ -258,8 +290,19 @@ class AllDebridDownloader(DownloaderBase):
         if not files:
             return None, "no valid files after validation", None
 
+        ready_filenames = [file.filename for file in files if file.filename]
+
         # Return container WITH the TorrentInfo to avoid re-fetching in download phase
-        return TorrentContainer(infohash=infohash, files=files), None, info
+        return (
+            TorrentContainer(
+                infohash=infohash,
+                files=files,
+                ready_files=ready_filenames,
+                pending_files=[],
+            ),
+            None,
+            info,
+        )
 
     def _add_link_to_files_recursive(
         self, files: List, download_link: str, result: List
@@ -347,7 +390,7 @@ class AllDebridDownloader(DownloaderBase):
                 except InvalidDebridFileException:
                     pass
 
-    def add_torrent(self, infohash: str) -> int:
+    def add_torrent(self, infohash: str, bypass_breaker: bool = False) -> int:
         """
         Add a magnet by infohash.
 
@@ -360,7 +403,9 @@ class AllDebridDownloader(DownloaderBase):
         """
         magnet_url = f"magnet:?xt=urn:btih:{infohash}"
         resp: SmartResponse = self.api.session.post(
-            "magnet/upload", data={"magnets[]": magnet_url}
+            "magnet/upload",
+            data={"magnets[]": magnet_url},
+            bypass_breaker=bypass_breaker,
         )
         self._maybe_backoff(resp)
         if not resp.ok:
@@ -397,9 +442,10 @@ class AllDebridDownloader(DownloaderBase):
         Note: AllDebrid doesn't require explicit file selection.
         Files are automatically available once the magnet is ready.
         """
-        pass
 
-    def _get_magnet_files(self, magnet_id: int) -> Optional[List]:
+    def _get_magnet_files(
+        self, magnet_id: int, bypass_breaker: bool = False
+    ) -> Optional[List]:
         """
         Get the files and download links for a magnet.
 
@@ -409,7 +455,9 @@ class AllDebridDownloader(DownloaderBase):
         try:
             # Get the magnet status which includes links
             status_resp: SmartResponse = self.api.session.post(
-                "magnet/status", data={"id": str(magnet_id)}
+                "magnet/status",
+                data={"id": str(magnet_id)},
+                bypass_breaker=bypass_breaker,
             )
             self._maybe_backoff(status_resp)
 
@@ -463,12 +511,15 @@ class AllDebridDownloader(DownloaderBase):
             logger.debug(f"Error getting magnet files: {e}")
             return None
 
-    def get_torrent_info(self, torrent_id: int) -> TorrentInfo:
+    def get_torrent_info(
+        self, torrent_id: int, bypass_breaker: bool = False
+    ) -> TorrentInfo:
         """
         Get information about a specific magnet using its ID.
 
         Args:
             torrent_id: ID of the magnet to get info for.
+            bypass_breaker: If True, bypass circuit breaker for health checks.
 
         Returns:
             TorrentInfo: Current information about the magnet.
@@ -479,7 +530,7 @@ class AllDebridDownloader(DownloaderBase):
         """
         # AllDebrid API expects ID as string
         resp: SmartResponse = self.api.session.post(
-            "magnet/status", data={"id": str(torrent_id)}
+            "magnet/status", data={"id": str(torrent_id)}, bypass_breaker=bypass_breaker
         )
         self._maybe_backoff(resp)
         if not resp.ok:
@@ -543,7 +594,7 @@ class AllDebridDownloader(DownloaderBase):
             links=[],
         )
 
-    def delete_torrent(self, torrent_id: int) -> None:
+    def delete_torrent(self, torrent_id: int, bypass_breaker: bool = False) -> None:
         """
         Delete a magnet on AllDebrid.
 
@@ -553,7 +604,7 @@ class AllDebridDownloader(DownloaderBase):
         """
         # AllDebrid API expects ID as string
         resp: SmartResponse = self.api.session.post(
-            "magnet/delete", data={"id": str(torrent_id)}
+            "magnet/delete", data={"id": str(torrent_id)}, bypass_breaker=bypass_breaker
         )
         self._maybe_backoff(resp)
         if not resp.ok:

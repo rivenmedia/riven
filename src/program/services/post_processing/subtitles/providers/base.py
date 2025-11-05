@@ -3,7 +3,7 @@ Base provider interface for subtitle providers.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 
 
 class SubtitleProvider(ABC):
@@ -37,15 +37,12 @@ class SubtitleProvider(ABC):
         Returns:
             List of subtitle results
         """
-        pass
 
     @abstractmethod
     def download_subtitle(self, subtitle_info: Dict[str, Any]) -> Optional[str]:
         """Download subtitle content."""
-        pass
 
     @property
     @abstractmethod
     def name(self) -> str:
         """Provider name."""
-        pass

@@ -1,16 +1,9 @@
 """Riven settings models"""
 
 from pathlib import Path
-from typing import Any, Callable, List, Literal, Annotated
+from typing import Annotated, Any, Callable, List, Literal
 
-from pydantic import (
-    BaseModel,
-    Field,
-    field_validator,
-    model_validator,
-    BeforeValidator,
-    TypeAdapter,
-)
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 from pydantic.networks import PostgresDsn
 from RTN.models import SettingsModel
 
@@ -104,6 +97,11 @@ class DownloadersModel(Observable):
     )
     proxy_url: EmptyOrUrl = Field(
         default="", description="Proxy URL for downloaders (optional)"
+    )
+    pending_timeout_seconds: int = Field(
+        default=7200,
+        ge=60,
+        description="Timeout in seconds for pending files before skipping the stream as a bad torrent (default: 2 hours)",
     )
     real_debrid: RealDebridModel = Field(
         default_factory=lambda: RealDebridModel(),
@@ -681,6 +679,16 @@ class ScraperModel(Observable):
     )
     dubbed_anime_only: bool = Field(
         default=False, description="Only scrape dubbed anime content"
+    )
+    enrich_title_with_release_language: bool = Field(
+        default=True,
+        description="Enrich torrent titles with TMDB release language when no explicit language markers are present. "
+        "This allows RTN to detect language even when indexers don't provide language metadata. "
+        "Disable to use only explicit language markers from titles (may result in higher unknown_language rejection rate).",
+    )
+    preferred_languages: List[str] = Field(
+        default=[],
+        description="Preferred languages for metadata (TVDB episode titles, etc.). Leave empty to use TVDB's default language. Examples: ['en','eng'] for English, ['ja','jpn'] for Japanese.",
     )
     torrentio: TorrentioConfig = Field(
         default_factory=lambda: TorrentioConfig(), description="Torrentio configuration"

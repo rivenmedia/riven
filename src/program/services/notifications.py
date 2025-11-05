@@ -7,6 +7,7 @@ from apprise import Apprise
 from loguru import logger
 
 from program.managers.sse_manager import sse_manager
+from program.managers.websocket_manager import manager as websocket_manager
 from program.media.item import MediaItem
 from program.media.state import States
 from program.settings.manager import settings_manager
@@ -15,7 +16,7 @@ from program.settings.manager import settings_manager
 class NotificationService:
     """
     Unified notification service that handles all notification types:
-    - SSE state change notifications (real-time UI updates)
+    - WebSocket state change notifications (real-time UI updates)
     - SSE completion notifications (frontend notification popups)
     - External notifications via Apprise (Discord, etc.)
     """
@@ -90,7 +91,7 @@ class NotificationService:
         self, item: MediaItem, previous_state: States, new_state: States
     ):
         """
-        Notify about a state change via SSE.
+        Notify about a state change via WebSocket.
 
         This is called automatically from MediaItem.store_state() to provide
         real-time updates to the frontend.
@@ -101,12 +102,14 @@ class NotificationService:
             new_state: The new state
         """
         if previous_state and previous_state != new_state:
-            state_change_data = {
-                "last_state": previous_state.name,
-                "new_state": new_state.name,
-                "item_id": item.id,
-            }
-            sse_manager.publish_event("item_update", json.dumps(state_change_data))
+            websocket_manager.publish(
+                "item_update",
+                {
+                    "last_state": previous_state,
+                    "new_state": new_state,
+                    "item_id": item.id,
+                },
+            )
             logger.debug(
                 f"State change notification: {item.log_string} {previous_state.name} -> {new_state.name}"
             )

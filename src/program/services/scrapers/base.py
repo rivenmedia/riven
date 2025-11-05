@@ -4,6 +4,7 @@ from typing import Dict, Optional, Tuple
 
 import bencodepy
 from loguru import logger
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.utils.request import SmartSession
 from program.utils.torrent import extract_infohash

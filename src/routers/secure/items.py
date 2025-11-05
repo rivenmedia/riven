@@ -3,11 +3,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Callable, List, Literal, Optional, Set, Union
 
-import Levenshtein
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
 from program.db import db_functions
@@ -539,7 +538,8 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
 
                     def mutation(i: MediaItem, s: Session):
                         i.scraped_at = None
-                        i.scraped_times = 1
+                        i.scraped_times = 0
+                        i.failed_attempts = 0
 
                     apply_item_mutation(
                         request.app.program,

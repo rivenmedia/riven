@@ -40,33 +40,44 @@ class SettingsManager:
     def check_environment(self, settings, prefix="", separator="_"):
         checked_settings = {}
         for key, value in settings.items():
-            if isinstance(value, dict):
+            environment_variable = f"{prefix}_{key}".upper()
+            env_value = os.getenv(environment_variable, None)
+
+            if env_value is not None:
+                # Environment variable exists - try to parse it based on the expected type
+                if isinstance(value, bool):
+                    checked_settings[key] = (
+                        env_value.lower() == "true" or env_value == "1"
+                    )
+                elif isinstance(value, int):
+                    checked_settings[key] = int(env_value)
+                elif isinstance(value, float):
+                    checked_settings[key] = float(env_value)
+                elif isinstance(value, list) and env_value.startswith("["):
+                    checked_settings[key] = json.loads(env_value)
+                elif isinstance(value, list):
+                    logger.error(
+                        f"Environment variable {environment_variable} for list type must be a JSON array string. Got {env_value}."
+                    )
+                    checked_settings[key] = value  # Keep default value
+                elif isinstance(value, dict) and env_value.startswith("{"):
+                    checked_settings[key] = json.loads(env_value)
+                elif isinstance(value, dict):
+                    logger.error(
+                        f"Environment variable {environment_variable} for dict type must be a JSON object string. Got {env_value}."
+                    )
+                    checked_settings[key] = value  # Keep default value
+                else:
+                    checked_settings[key] = env_value
+            elif isinstance(value, dict):
+                # No environment variable override - recurse into dictionary
                 sub_checked_settings = self.check_environment(
                     value, f"{prefix}{separator}{key}"
                 )
                 checked_settings[key] = sub_checked_settings
             else:
-                environment_variable = f"{prefix}_{key}".upper()
-                if os.getenv(environment_variable, None):
-                    new_value = os.getenv(environment_variable)
-                    if isinstance(value, bool):
-                        checked_settings[key] = (
-                            new_value.lower() == "true" or new_value == "1"
-                        )
-                    elif isinstance(value, int):
-                        checked_settings[key] = int(new_value)
-                    elif isinstance(value, float):
-                        checked_settings[key] = float(new_value)
-                    elif isinstance(value, list) and new_value.startswith("["):
-                        checked_settings[key] = json.loads(new_value)
-                    elif isinstance(value, list):
-                        logger.error(
-                            f"Environment variable {environment_variable} for list type must be a JSON array string. Got {new_value}."
-                        )
-                    else:
-                        checked_settings[key] = new_value
-                else:
-                    checked_settings[key] = value
+                # No environment variable override - keep default value
+                checked_settings[key] = value
         return checked_settings
 
     def load(self, settings_dict: dict | None = None):

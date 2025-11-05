@@ -1,13 +1,13 @@
 import json
 import random
 import ssl
-import time
 import threading
+import time
+from contextlib import closing
 from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
 from typing import Dict, Optional
 from urllib.parse import urlparse
-from contextlib import closing
 
 import httpx
 import requests
@@ -364,11 +364,15 @@ class SmartSession:
         Args:
             method (str): HTTP method.
             url (str): Request URL (relative or absolute).
+            bypass_breaker (bool): If True, skip circuit breaker check (useful for health checks).
             **kwargs: Additional requests-compatible parameters.
 
         Returns:
             SmartResponse: Parsed response object.
         """
+        # Extract bypass_breaker before processing kwargs
+        bypass_breaker = kwargs.pop("bypass_breaker", False)
+
         if self.base_url and not url.lower().startswith(("http://", "https://")):
             url = f"{self.base_url}/{url.lstrip('/')}"
 
@@ -376,7 +380,7 @@ class SmartSession:
         domain = parsed.hostname.lower() if parsed.hostname else ""
 
         breaker = self.breakers.get(domain)
-        if breaker:
+        if breaker and not bypass_breaker:
             breaker.before_request()
 
         limiter = self.limiters.get(domain)
@@ -564,20 +568,19 @@ class SmartSession:
             # Use context manager so the client is always closed
             with closing(per_request_client_factory()) as pr_client:
                 return _run_with_client(pr_client)
+        elif tmp_client is not None:
+            try:
+                resp = _run_with_client(client)
+                return resp
+            finally:
+                # Close tmp_client if still owned here (not handed off for streaming)
+                if tmp_client is not None:
+                    try:
+                        tmp_client.close()
+                    except Exception:
+                        pass
         else:
-            if tmp_client is not None:
-                try:
-                    resp = _run_with_client(client)
-                    return resp
-                finally:
-                    # Close tmp_client if still owned here (not handed off for streaming)
-                    if tmp_client is not None:
-                        try:
-                            tmp_client.close()
-                        except Exception:
-                            pass
-            else:
-                return _run_with_client(client)
+            return _run_with_client(client)
 
     def get(self, url: str, **kwargs) -> SmartResponse:
         return self.request("GET", url, **kwargs)

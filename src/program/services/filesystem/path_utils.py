@@ -4,6 +4,7 @@ Used by Downloader to generate target paths for items.
 """
 
 import os
+
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.downloaders.models import ParsedFileData
 

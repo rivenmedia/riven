@@ -135,6 +135,8 @@ class TorrentContainer(BaseModel):
 
     infohash: str
     files: List[DebridFile] = Field(default_factory=list)
+    ready_files: List[str] = Field(default_factory=list)
+    pending_files: List[str] = Field(default_factory=list)
     torrent_id: Optional[Union[int, str]] = None  # Cached torrent_id to avoid re-adding
     torrent_info: Optional["TorrentInfo"] = None  # Cached info to avoid re-fetching
 
@@ -147,6 +149,11 @@ class TorrentContainer(BaseModel):
     def file_ids(self) -> List[int]:
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id is not None]
+
+    @property
+    def all_files_ready(self) -> bool:
+        """Returns True when every selected file exposes a direct download URL."""
+        return self.cached and len(self.pending_files) == 0
 
     def to_dict(self) -> Dict[str, Union[str, Dict]]:
         """Convert the TorrentContainer to a dictionary including the infohash"""
