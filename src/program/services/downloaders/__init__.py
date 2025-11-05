@@ -22,6 +22,7 @@ from program.utils.request import CircuitBreakerOpen
 
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
+from .alldebrid import AllDebridDownloader
 
 
 class Downloader:
@@ -31,6 +32,7 @@ class Downloader:
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
             DebridLinkDownloader: DebridLinkDownloader(),
+            AllDebridDownloader: AllDebridDownloader(),
         }
         # Get all initialized services instead of just the first one
         self.initialized_services = [
@@ -554,10 +556,6 @@ class Downloader:
     def delete_torrent(self, torrent_id: int) -> None:
         """Delete a torrent"""
         self.service.delete_torrent(torrent_id)
-
-    def resolve_link(self, link: str) -> Optional[Dict]:
-        """Resolve a link to a download URL"""
-        return self.service.resolve_link(link)
 
     def get_user_info(self, service) -> Dict:
         """Get user information"""

@@ -32,7 +32,7 @@ class Torrentio(ScraperService):
             rate_limits = {}
 
         self.session = SmartSession(
-            rate_limits=rate_limits, retries=3, backoff_factor=0.3
+            rate_limits=rate_limits, retries=self.settings.retries, backoff_factor=0.3
         )
         self.headers = {"User-Agent": "Mozilla/5.0"}
         self.proxies = (

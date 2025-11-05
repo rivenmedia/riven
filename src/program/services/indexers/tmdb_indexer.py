@@ -7,6 +7,7 @@ from kink import di
 from loguru import logger
 
 from program.apis.tmdb_api import TMDBApi
+from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
 
@@ -20,6 +21,7 @@ class TMDBIndexer(BaseIndexer):
         super().__init__()
         self.key = "tmdbindexer"
         self.api = di[TMDBApi]
+        self.trakt_api = di[TraktAPI]
 
     def run(
         self, in_item: MediaItem, log_msg: bool = True
@@ -145,6 +147,9 @@ class TMDBIndexer(BaseIndexer):
                                 break
                         break
 
+            # Aliases
+            aliases = self.trakt_api.get_aliases(imdb_id, "movies") or {}
+
             poster_path = getattr(movie_details, "poster_path", None)
             full_poster_url = None
             if poster_path:
@@ -168,7 +173,7 @@ class TMDBIndexer(BaseIndexer):
                 any(g in ["animation", "anime"] for g in genres)
                 and getattr(movie_details, "original_language", None) != "en"
             )
-            movie.aliases = {}
+            movie.aliases = aliases
             movie.rating = rating
             movie.content_rating = content_rating
 
@@ -262,6 +267,10 @@ class TMDBIndexer(BaseIndexer):
                                 break
                         break
 
+            # Aliases
+            _imdb_id = getattr(movie_details, "imdb_id", None)
+            aliases = self.trakt_api.get_aliases(_imdb_id, "movies") or {}
+
             poster_path = getattr(movie_details, "poster_path", None)
             full_poster_url = None
             if poster_path:
@@ -277,7 +286,7 @@ class TMDBIndexer(BaseIndexer):
                 ),
                 "tvdb_id": None,
                 "tmdb_id": str(movie_details.id),
-                "imdb_id": getattr(movie_details, "imdb_id", None),
+                "imdb_id": _imdb_id,
                 "aired_at": release_date,
                 "genres": genres,
                 "type": "movie",
@@ -288,7 +297,7 @@ class TMDBIndexer(BaseIndexer):
                     any(g in ["animation", "anime"] for g in genres)
                     and getattr(movie_details, "original_language", None) != "en"
                 ),
-                "aliases": {},
+                "aliases": aliases,
                 "rating": rating,
                 "content_rating": content_rating,
             }

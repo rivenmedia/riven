@@ -68,7 +68,7 @@ class Jackett(ScraperService):
                 self.session = SmartSession(
                     base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
                     rate_limits=rate_limits,
-                    retries=3,
+                    retries=self.settings.retries,
                     backoff_factor=0.3,
                 )
 
@@ -125,15 +125,7 @@ class Jackett(ScraperService):
                 if not infohash and hasattr(result, "MagnetUri") and result.MagnetUri:
                     infohash = extract_infohash(result.MagnetUri)
 
-                # Priority 3: Try to extract from Guid field
-                if not infohash and hasattr(result, "Guid") and result.Guid:
-                    infohash = extract_infohash(result.Guid)
-
-                # Priority 4: Try to extract from Details field
-                if not infohash and hasattr(result, "Details") and result.Details:
-                    infohash = extract_infohash(result.Details)
-
-                # Priority 5: Collect URLs that need fetching
+                # Priority 3: Collect URLs that need fetching
                 if not infohash and hasattr(result, "Link") and result.Link:
                     urls_to_fetch.append((result, result.Title))
                 elif infohash:
@@ -154,7 +146,8 @@ class Jackett(ScraperService):
                     }
 
                     done, pending = concurrent.futures.wait(
-                        future_to_result.keys(), timeout=self.settings.infohash_fetch_timeout
+                        future_to_result.keys(),
+                        timeout=self.settings.infohash_fetch_timeout,
                     )
                     # Process completed futures
                     for future in done:
@@ -164,7 +157,9 @@ class Jackett(ScraperService):
                             if infohash:
                                 torrents[infohash] = title
                         except Exception as e:
-                            logger.debug(f"Failed to get infohash from Link for {title}: {e}")
+                            logger.debug(
+                                f"Failed to get infohash from Link for {title}: {e}"
+                            )
                     # Cancel and log timeouts for pending futures
                     for future in pending:
                         result, title = future_to_result[future]

@@ -76,6 +76,11 @@ class DebridLinkModel(Observable):
     api_key: str = Field(default="", description="Debrid-Link API key")
 
 
+class AllDebridModel(Observable):
+    enabled: bool = Field(default=False, description="Enable AllDebrid")
+    api_key: str = Field(default="", description="AllDebrid API key")
+
+
 class DownloadersModel(Observable):
     video_extensions: List[str] = Field(
         default_factory=lambda: ["mp4", "mkv", "avi"],
@@ -107,6 +112,10 @@ class DownloadersModel(Observable):
     debrid_link: DebridLinkModel = Field(
         default_factory=lambda: DebridLinkModel(),
         description="Debrid-Link downloader configuration",
+    )
+    all_debrid: AllDebridModel = Field(
+        default_factory=lambda: AllDebridModel(),
+        description="AllDebrid downloader configuration",
     )
 
 
@@ -533,6 +542,9 @@ class TorrentioConfig(Observable):
         default="http://torrentio.strem.fun", description="Torrentio URL"
     )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
     proxy_url: EmptyOrUrl = Field(
         default="", description="Proxy URL for Torrentio requests"
@@ -543,6 +555,9 @@ class CometConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Comet scraper")
     url: EmptyOrUrl = Field(default="http://localhost:8000", description="Comet URL")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
@@ -550,6 +565,9 @@ class ZileanConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Zilean scraper")
     url: EmptyOrUrl = Field(default="http://localhost:8181", description="Zilean URL")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
@@ -559,6 +577,9 @@ class MediafusionConfig(Observable):
         default="http://localhost:8000", description="Mediafusion URL"
     )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
@@ -579,6 +600,9 @@ class OrionoidConfig(Observable):
         description="Additional Orionoid parameters",
     )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
@@ -587,6 +611,9 @@ class JackettConfig(Observable):
     url: EmptyOrUrl = Field(default="http://localhost:9117", description="Jackett URL")
     api_key: str = Field(default="", description="Jackett API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     infohash_fetch_timeout: int = Field(
         default=30,
         ge=1,
@@ -600,6 +627,9 @@ class ProwlarrConfig(Observable):
     url: EmptyOrUrl = Field(default="http://localhost:9696", description="Prowlarr URL")
     api_key: str = Field(default="", description="Prowlarr API key")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     infohash_fetch_timeout: int = Field(
         default=30,
         ge=1,
@@ -615,6 +645,9 @@ class RarbgConfig(Observable):
     enabled: bool = Field(default=False, description="Enable RARBG scraper")
     url: EmptyOrUrl = Field(default="https://therarbg.to", description="RARBG URL")
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import requests
 from loguru import logger
@@ -43,15 +43,17 @@ class RealDebridAPI:
 
         # 250 req/min ~= 4.17 rps with capacity 250
         rate_limits = {"api.real-debrid.com": {"rate": 250 / 60, "capacity": 250}}
+        proxies = None
+        if proxy_url:
+            proxies = {"http": proxy_url, "https": proxy_url}
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
+            proxies=proxies,
             retries=2,
             backoff_factor=0.5,
         )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
-        if proxy_url:
-            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 
 class RealDebridDownloader(DownloaderBase):
@@ -80,7 +82,7 @@ class RealDebridDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
-        proxy_url = getattr(self, "PROXY_URL", None) or None
+        proxy_url = self.PROXY_URL or None
         self.api = RealDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
         return self._validate_premium()
 
@@ -529,25 +531,6 @@ class RealDebridDownloader(DownloaderBase):
         except Exception as e:
             logger.debug(f"Unrestrict check failed for {link}: {e}")
             return False
-
-    def resolve_link(self, link: str) -> Optional[Dict]:
-        """
-        Resolve a link to get download URL, bypassing rate limiting for VFS usage.
-
-        Uses unrestrict_link_direct() to avoid rate limiting issues during Plex scans.
-        """
-        try:
-            resp = self.unrestrict_link(link)
-            if not resp:
-                return None
-            return {
-                "download_url": resp.download,
-                "name": resp.filename or resp.original_filename,
-                "size": int(resp.filesize or 0),
-            }
-        except Exception as e:
-            logger.debug(f"resolve_link failed for {link}: {e}")
-            return None
 
     def get_user_info(self) -> Optional[UserInfo]:
         """

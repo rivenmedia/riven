@@ -39,7 +39,7 @@ class Orionoid(ScraperService):
         self.session = SmartSession(
             base_url=self.base_url,
             rate_limits=rate_limits,
-            retries=3,
+            retries=self.settings.retries,
             backoff_factor=0.3,
         )
         self._initialize()

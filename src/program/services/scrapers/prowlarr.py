@@ -66,7 +66,7 @@ class Prowlarr(ScraperService):
         """Create a session for Prowlarr"""
         return SmartSession(
             base_url=f"{self.settings.url.rstrip('/')}/api/v1",
-            retries=3,
+            retries=self.settings.retries,
             backoff_factor=0.3,
         )
 
@@ -399,9 +399,9 @@ class Prowlarr(ScraperService):
 
                 done, pending = concurrent.futures.wait(
                     future_to_torrent.keys(),
-                    timeout=self.settings.infohash_fetch_timeout
+                    timeout=self.settings.infohash_fetch_timeout,
                 )
-                
+
                 # Process completed futures
                 for future in done:
                     torrent, title = future_to_torrent[future]
@@ -413,7 +413,7 @@ class Prowlarr(ScraperService):
                         logger.debug(
                             f"Failed to get infohash from downloadUrl for {title}: {e}"
                         )
-                
+
                 # Cancel and log timeouts for pending futures
                 for future in pending:
                     torrent, title = future_to_torrent[future]

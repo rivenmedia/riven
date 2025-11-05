@@ -1066,3 +1066,32 @@ async def reindex_item(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to reindex item: {str(e)}",
             )
+
+
+class ItemAliasesResponse(BaseModel):
+    aliases: dict[str, list[str]]
+
+
+@router.get(
+    "/{item_id}/aliases",
+    summary="Get Media Item Aliases",
+    description="Get aliases for a media item",
+    operation_id="get_item_aliases",
+)
+async def get_item_aliases(
+    _: Request, item_id: int, db: Session = Depends(get_db)
+) -> ItemAliasesResponse:
+    """Get aliases for a media item"""
+    item: MediaItem = (
+        db.execute(select(MediaItem).where(MediaItem.id == item_id))
+        .unique()
+        .scalar_one_or_none()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
+
+    aliases = item.aliases or {}
+    return ItemAliasesResponse(aliases=aliases)

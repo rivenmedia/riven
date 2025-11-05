@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # import required here to support SETTINGS_FILENAME
 
-from program.db.db import db # noqa
+from program.db.db import db  # noqa
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,13 +51,13 @@ args = handle_args()
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
     di[httpx.AsyncClient] = httpx.AsyncClient(http2=True)
-    
+
     proxy_url = settings_manager.settings.downloaders.proxy_url
     if proxy_url and PROXY_REQUIRED_PROVIDERS:
         di["ProxyClient"] = httpx.AsyncClient(http2=True, proxy=proxy_url)
-    
+
     yield
-    
+
     await di[httpx.AsyncClient].aclose()
     if "ProxyClient" in di:
         await di["ProxyClient"].aclose()
