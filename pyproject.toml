@@ -43,8 +43,7 @@ dependencies = [
     "rank-torrent-name>=1.9.3,<2",
     "parsett>=1.8.2,<2",
     "trio-util>=0.8.0",
-    "ordered-set>=4.1.0",
-    "pre-commit>=4.3.0",
+    "ordered-set>=4.1.0"
 ]
 
 [dependency-groups]
