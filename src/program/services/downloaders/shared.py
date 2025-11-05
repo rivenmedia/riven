@@ -172,14 +172,24 @@ def get_resolution(torrent: Stream) -> Resolution:
 
 
 def _sort_streams_by_quality(streams: List[Stream], item=None) -> List[Stream]:
-    """Sort streams by resolution, RTN rank, then seeder count."""
+    """Sort streams by RTN rank, then resolution, then seeder count."""
 
     def sort_key(stream: Stream) -> tuple[int, int, int]:
-        resolution_value = get_resolution(stream).value
+        # Priority 1: RTN Rank (highest first)
+        # This rank already includes all your preferences (dubs, resolution, etc.)
+        # from your settings file.
         rank_value = stream.rank
+
+        # Priority 2: Resolution (highest first)
+        # Used as a tie-breaker if two streams have the same RTN rank.
+        resolution_value = get_resolution(stream).value
+
+        # Priority 3: Seeders (highest first)
+        # Used as a final tie-breaker. This correctly de-prioritizes dead torrents.
         seeders = getattr(getattr(stream, "parsed_data", None), "seeders", None)
         seeders_value = int(seeders) if isinstance(seeders, (int, float)) else -1
 
-        return (resolution_value, rank_value, seeders_value)
+        # This sort order ensures the highest-ranked torrent is always checked first.
+        return (rank_value, resolution_value, seeders_value)
 
     return sorted(streams, key=sort_key, reverse=True)
