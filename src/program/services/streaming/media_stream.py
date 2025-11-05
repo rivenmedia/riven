@@ -848,7 +848,11 @@ class MediaStream:
                 response.raise_for_status()
 
                 content_length = response.headers.get("Content-Length")
-                range_bytes = (end or self.file_metadata.file_size) - start
+
+                if end is not None:
+                    range_bytes = end - start + 1
+                else:
+                    range_bytes = self.file_metadata.file_size - start
 
                 if (
                     response.status_code == HTTPStatus.OK
