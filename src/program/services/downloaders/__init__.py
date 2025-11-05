@@ -196,6 +196,9 @@ class Downloader:
         pending_candidates: list[tuple[int, Stream, str]] = []
         stream_rank: dict[Stream, int] = {}
 
+        # Cache to store { (infohash, service.key): (service_instance, service_torrent_id) }
+        torrent_id_cache = {}
+
         try:
             download_success = False
             # Sort streams by resolution and rank (highest first), with anime dub prioritization
@@ -223,10 +226,19 @@ class Downloader:
 
                     try:
                         # Validate stream on this specific service
-                        container: Optional[TorrentContainer] = (
-                            self.validate_stream_on_service(stream, item, service)
+                        container = service.get_instant_availability(
+                            stream.infohash, item.type
                         )
-                        if not container:
+
+                        # Store the ID in the cache IMMEDIATELY
+                        if container and container.torrent_id:
+                            torrent_id_cache[(stream.infohash, service.key)] = (
+                                service,
+                                container.torrent_id,
+                            )
+
+                        # Now, validate the container
+                        if not self.validate_stream_container(container, item):
                             logger.debug(
                                 f"Stream {stream.infohash} not available on {service.key}"
                             )
@@ -276,12 +288,24 @@ class Downloader:
                                     logger.warning(
                                         f"Stream {stream.infohash} has been pending for {time_pending/3600:.1f}h for {item.log_string}; likely a bad torrent, blacklisting"
                                     )
+
+                                    if container and container.torrent_id:
+                                        try:
+                                            service.delete_torrent(container.torrent_id)
+                                            logger.debug(
+                                                f"Deleted dead torrent {container.torrent_id} from {service.key}"
+                                            )
+                                        except Exception as e:
+                                            logger.warning(
+                                                f"Failed to delete dead torrent {container.torrent_id} from {service.key}: {e}"
+                                            )
+
                                     item.blacklist_stream(stream)
                                     # Delete the pending record
                                     session.delete(pending_record)
                                     session.commit()
                                     stream_failed_on_all_services = True
-                                    continue
+                                    break
                                 elif not pending_count:
                                     # Files are no longer pending, but record exists - delete it
                                     session.delete(pending_record)
@@ -516,6 +540,56 @@ class Downloader:
             return container
 
         return None
+
+    def validate_stream_container(
+        self, container: Optional[TorrentContainer], item: MediaItem
+    ) -> bool:
+        """
+        Validates a container by ensuring its files match the item's requirements.
+        This is the validation logic extracted from validate_stream_on_service.
+        """
+        if not container:
+            return False
+
+        valid_files = []
+        for file in container.files or []:
+            if isinstance(file, DebridFile):
+                valid_files.append(file)
+                continue
+
+            try:
+                debrid_file = DebridFile.create(
+                    filename=file.filename,
+                    filesize_bytes=file.filesize,
+                    filetype=item.type,
+                    file_id=file.file_id,
+                )
+
+                if isinstance(debrid_file, DebridFile):
+                    valid_files.append(debrid_file)
+            except InvalidDebridFileException as e:
+                logger.debug(f"{container.infohash}: {e}")
+                continue
+
+        if valid_files:
+            container.files = valid_files
+            # Keep readiness metadata aligned with the filtered file list
+            if hasattr(container, "ready_files"):
+                container.ready_files = [
+                    file.filename
+                    for file in valid_files
+                    if file.download_url and file.filename
+                ]
+            if hasattr(container, "pending_files"):
+                container.pending_files = [
+                    file.filename
+                    for file in valid_files
+                    if not file.download_url and file.filename
+                ]
+            return True
+
+        # No valid files found
+        return False
 
     def update_item_attributes(
         self, item: MediaItem, download_result: DownloadedTorrent, service=None
