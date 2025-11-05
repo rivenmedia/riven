@@ -63,10 +63,13 @@ class Cache:
     def __init__(self, cfg: CacheConfig) -> None:
         self.cfg = cfg
         # key -> (size, last_access, path, start)
-        self._index: "OrderedDict[str, tuple[int, float, str, int]]" = OrderedDict()
+        self._index: "OrderedDict[str, CacheEntry]" = OrderedDict()
         self._by_path: dict[str, list[int]] = {}
         self._total_bytes = 0
         self._lock = trio.Lock()
+        self._thread_lock = (
+            threading.Lock()
+        )  # Thread lock for synchronizing _index/_by_path access
         self._metrics = Metrics()
         self._last_log = 0.0  # Initialize last log timestamp
 
@@ -169,22 +172,22 @@ class Cache:
             entries.sort(key=lambda t: t.mtime)  # by mtime asc
 
             async with self._lock:
-                self._index.clear()
-                self._by_path.clear()
-                self._total_bytes = 0
+                # Also acquire thread lock to prevent races with sync readers
+                await trio.to_thread.run_sync(self._thread_lock.acquire)
+                try:
+                    self._index.clear()
+                    self._by_path.clear()
+                    self._total_bytes = 0
 
-                for cache_entry in entries:
-                    self._index[cache_entry.key] = (
-                        cache_entry.size,
-                        cache_entry.mtime,
-                        cache_entry.cache_key,
-                        cache_entry.start,
-                    )
-                    self._total_bytes += cache_entry.size
+                    for cache_entry in entries:
+                        self._index[cache_entry.key] = cache_entry
+                        self._total_bytes += cache_entry.size
 
-                    # Rebuild _by_path index
-                    lst = self._by_path.setdefault(cache_entry.cache_key, [])
-                    insort(lst, cache_entry.start)
+                        # Rebuild _by_path index
+                        lst = self._by_path.setdefault(cache_entry.cache_key, [])
+                        insort(lst, cache_entry.start)
+                finally:
+                    self._thread_lock.release()
 
             # If we are over budget, evict oldest until within max_disk_bytes
             try:
@@ -248,49 +251,28 @@ class Cache:
 
     async def _evict_lru(self, need_bytes: int = 0) -> None:
         async with self._lock:
-            target = max(0, self._total_bytes + need_bytes - self.cfg.max_size_bytes)
+            # Also acquire thread lock to prevent races with sync readers
+            await trio.to_thread.run_sync(self._thread_lock.acquire)
+            try:
+                target = max(
+                    0, self._total_bytes + need_bytes - self.cfg.max_size_bytes
+                )
 
-            while target > 0 and self._index:
-                k, (sz, _ts, _path, _start) = self._index.popitem(last=False)  # LRU
+                while target > 0 and self._index:
+                    k, cache_entry = self._index.popitem(last=False)  # LRU
 
-                # Remove from per-path index
-                lst = self._by_path.get(_path)
+                    # Remove from per-path index
+                    lst = self._by_path.get(cache_entry.cache_key)
 
-                if lst:
-                    idx = bisect_right(lst, _start) - 1
+                    if lst:
+                        idx = bisect_right(lst, cache_entry.start) - 1
 
-                    if idx >= 0 and lst[idx] == _start:
-                        del lst[idx]
+                        if idx >= 0 and lst[idx] == cache_entry.start:
+                            del lst[idx]
 
-                    if not lst:
-                        self._by_path.pop(_path, None)
+                        if not lst:
+                            self._by_path.pop(cache_entry.cache_key, None)
 
-                fp = self._file_for(k)
-
-                try:
-                    if fp.exists():
-                        fp.unlink()
-
-                    # Also remove metadata file
-                    self._remove_metadata(k)
-                except Exception:
-                    pass
-
-                self._total_bytes -= sz
-                target -= sz
-                self._metrics.evictions += 1
-
-    async def _evict_ttl(self) -> None:
-        ttl = self.cfg.ttl_seconds
-        now = time.time()
-        removed = 0
-
-        async with self._lock:
-            for k in list(self._index.keys()):
-                info = self._index.get(k, (0, 0.0, "", 0))
-                sz, ts, pth, st = info[0], info[1], info[2], info[3]
-
-                if now - ts > ttl:
                     fp = self._file_for(k)
 
                     try:
@@ -302,20 +284,55 @@ class Cache:
                     except Exception:
                         pass
 
-                    self._index.pop(k, None)
-                    lst = self._by_path.get(pth)
+                    self._total_bytes -= cache_entry.size
+                    target -= cache_entry.size
+                    self._metrics.evictions += 1
+            finally:
+                self._thread_lock.release()
 
-                    if lst:
-                        idx = bisect_right(lst, st) - 1
+    async def _evict_ttl(self) -> None:
+        ttl = self.cfg.ttl_seconds
+        now = time.time()
+        removed = 0
 
-                        if idx >= 0 and lst[idx] == st:
-                            del lst[idx]
+        async with self._lock:
+            # Also acquire thread lock to prevent races with sync readers
+            await trio.to_thread.run_sync(self._thread_lock.acquire)
+            try:
+                for k in list(self._index.keys()):
+                    cache_entry = self._index.get(k)
 
-                        if not lst:
-                            self._by_path.pop(pth, None)
+                    if not cache_entry:
+                        continue
 
-                    self._total_bytes -= sz
-                    removed += 1
+                    if now - cache_entry.mtime > ttl:
+                        fp = self._file_for(k)
+
+                        try:
+                            if fp.exists():
+                                fp.unlink()
+
+                            # Also remove metadata file
+                            self._remove_metadata(k)
+                        except Exception:
+                            pass
+
+                        self._index.pop(k, None)
+                        lst = self._by_path.get(cache_entry.cache_key)
+
+                        if lst:
+                            idx = bisect_right(lst, cache_entry.start) - 1
+
+                            if idx >= 0 and lst[idx] == cache_entry.start:
+                                del lst[idx]
+
+                            if not lst:
+                                self._by_path.pop(cache_entry.cache_key, None)
+
+                        self._total_bytes -= cache_entry.size
+                        removed += 1
+            finally:
+                self._thread_lock.release()
 
         if removed:
             self._metrics.evictions += removed
@@ -335,27 +352,31 @@ class Cache:
         chunk_start_offset = 0
 
         async with self._lock:
-            s_list = self._by_path.get(cache_key)
+            # Also acquire thread lock to prevent races with concurrent readers
+            await trio.to_thread.run_sync(self._thread_lock.acquire)
+            try:
+                s_list = self._by_path.get(cache_key)
 
-            if s_list:
-                # Find chunk that might contain start position
-                idx = bisect_right(s_list, start) - 1
+                if s_list:
+                    # Find chunk that might contain start position
+                    idx = bisect_right(s_list, start) - 1
 
-                if idx >= 0:
-                    chunk_start = s_list[idx]
-                    chunk_entry = self._index.get(self._key(cache_key, chunk_start))
+                    if idx >= 0:
+                        chunk_start = s_list[idx]
+                        cache_entry = self._index.get(self._key(cache_key, chunk_start))
 
-                    if chunk_entry:
-                        chunk_size, _, _, _ = chunk_entry
-                        chunk_end = chunk_start + chunk_size - 1
+                        if cache_entry:
+                            chunk_end = chunk_start + cache_entry.size - 1
 
-                        # Check if this single chunk covers the entire request
-                        if start >= chunk_start and end <= chunk_end:
-                            # Fast path: single chunk covers entire request
-                            chunk_key = self._key(cache_key, chunk_start)
-                            chunk_file = self._file_for(chunk_key)
-                            chunk_start_offset = chunk_start
-                            # Don't update timestamps yet - do it after successful read
+                            # Check if this single chunk covers the entire request
+                            if start >= chunk_start and end <= chunk_end:
+                                # Fast path: single chunk covers entire request
+                                chunk_key = self._key(cache_key, chunk_start)
+                                chunk_file = self._file_for(chunk_key)
+                                chunk_start_offset = chunk_start
+                                # Don't update timestamps yet - do it after successful read
+            finally:
+                self._thread_lock.release()
 
         # Fast path: read single chunk outside the lock
         if chunk_key and chunk_file:
@@ -384,21 +405,27 @@ class Cache:
                     # Update LRU (move to end) but only update timestamp periodically
                     # to reduce lock contention and index modifications
                     async with self._lock:
-                        if chunk_key in self._index:
-                            chunk_entry = self._index[chunk_key]
-                            self._index.move_to_end(chunk_key, last=True)
+                        # Also acquire thread lock to prevent races with sync readers
+                        await trio.to_thread.run_sync(self._thread_lock.acquire)
+                        try:
+                            if chunk_key in self._index:
+                                cache_entry = self._index[chunk_key]
+                                self._index.move_to_end(chunk_key, last=True)
 
-                            # Only update timestamp if it's been more than 10 seconds
-                            # This reduces write pressure on the index
-                            now = time.time()
+                                # Only update timestamp if it's been more than 10 seconds
+                                # This reduces write pressure on the index
+                                now = time.time()
 
-                            if now - chunk_entry[1] > 10.0:
-                                self._index[chunk_key] = (
-                                    chunk_entry[0],
-                                    now,
-                                    chunk_entry[2],
-                                    chunk_entry[3],
-                                )
+                                if now - cache_entry.mtime > 10.0:
+                                    self._index[chunk_key] = CacheEntry(
+                                        key=cache_entry.key,
+                                        cache_key=cache_entry.cache_key,
+                                        mtime=now,
+                                        start=cache_entry.start,
+                                        size=cache_entry.size,
+                                    )
+                        finally:
+                            self._thread_lock.release()
 
                     self._metrics.hits += 1
                     self._metrics.bytes_from_cache += needed_len
@@ -420,50 +447,54 @@ class Cache:
         chunks_to_read = []
 
         async with self._lock:
-            s_list = self._by_path.get(cache_key)
+            # Also acquire thread lock to prevent races with concurrent readers
+            await trio.to_thread.run_sync(self._thread_lock.acquire)
+            try:
+                s_list = self._by_path.get(cache_key)
 
-            if s_list:
-                current_pos = start
+                if s_list:
+                    current_pos = start
 
-                while current_pos <= end:
-                    # Find chunk that contains current_pos
-                    idx = bisect_right(s_list, current_pos) - 1
-                    if idx < 0:
-                        break  # No chunk starts at or before current_pos
+                    while current_pos <= end:
+                        # Find chunk that contains current_pos
+                        idx = bisect_right(s_list, current_pos) - 1
+                        if idx < 0:
+                            break  # No chunk starts at or before current_pos
 
-                    chunk_start = s_list[idx]
-                    chunk_key = self._key(cache_key, chunk_start)
-                    chunk_entry = self._index.get(chunk_key)
+                        chunk_start = s_list[idx]
+                        chunk_key = self._key(cache_key, chunk_start)
+                        cache_entry = self._index.get(chunk_key)
 
-                    if not chunk_entry:
-                        break  # Chunk not in index
+                        if not cache_entry:
+                            break  # Chunk not in index
 
-                    chunk_size, chunk_ts, _, _ = chunk_entry
-                    chunk_end = chunk_start + chunk_size - 1
+                        chunk_end = chunk_start + cache_entry.size - 1
 
-                    # Check if this chunk covers current_pos
-                    if current_pos < chunk_start or current_pos > chunk_end:
-                        break  # Gap in coverage
+                        # Check if this chunk covers current_pos
+                        if current_pos < chunk_start or current_pos > chunk_end:
+                            break  # Gap in coverage
 
-                    # Calculate what portion of this chunk we need
-                    copy_start = max(current_pos, chunk_start) - chunk_start
-                    copy_end = min(end, chunk_end) - chunk_start
-                    bytes_to_read = copy_end - copy_start + 1
+                        # Calculate what portion of this chunk we need
+                        copy_start = max(current_pos, chunk_start) - chunk_start
+                        copy_end = min(end, chunk_end) - chunk_start
+                        bytes_to_read = copy_end - copy_start + 1
 
-                    # Plan this read operation
-                    chunk_file = self._file_for(chunk_key)
-                    chunks_to_read.append(
-                        {
-                            "chunk_key": chunk_key,
-                            "chunk_ts": chunk_ts,
-                            "chunk_file": chunk_file,
-                            "copy_start": copy_start,
-                            "bytes_to_read": bytes_to_read,
-                            "chunk_end": chunk_end,
-                        }
-                    )
+                        # Plan this read operation
+                        chunk_file = self._file_for(chunk_key)
+                        chunks_to_read.append(
+                            {
+                                "chunk_key": chunk_key,
+                                "chunk_ts": cache_entry.mtime,
+                                "chunk_file": chunk_file,
+                                "copy_start": copy_start,
+                                "bytes_to_read": bytes_to_read,
+                                "chunk_end": chunk_end,
+                            }
+                        )
 
-                    current_pos = chunk_end + 1
+                        current_pos = chunk_end + 1
+            finally:
+                self._thread_lock.release()
 
         # Execute reads outside the lock to reduce contention
         if chunks_to_read:
@@ -492,21 +523,29 @@ class Cache:
                 if len(result_data) == needed_len:
                     # Update LRU and timestamps while holding the lock
                     async with self._lock:
-                        now = time.time()
+                        # Also acquire thread lock to prevent races with sync readers
+                        await trio.to_thread.run_sync(self._thread_lock.acquire)
+                        try:
+                            now = time.time()
 
-                        for chunk_key, chunk_ts in chunks_used:
-                            if chunk_key in self._index:  # Verify chunk still exists
-                                self._index.move_to_end(chunk_key, last=True)
+                            for chunk_key, chunk_ts in chunks_used:
+                                if (
+                                    chunk_key in self._index
+                                ):  # Verify chunk still exists
+                                    self._index.move_to_end(chunk_key, last=True)
 
-                                # Only update timestamp if it's been more than 10 seconds
-                                if now - chunk_ts > 10.0:
-                                    chunk_entry = self._index[chunk_key]
-                                    self._index[chunk_key] = (
-                                        chunk_entry[0],
-                                        now,
-                                        chunk_entry[2],
-                                        chunk_entry[3],
-                                    )
+                                    # Only update timestamp if it's been more than 10 seconds
+                                    if now - chunk_ts > 10.0:
+                                        cache_entry = self._index[chunk_key]
+                                        self._index[chunk_key] = CacheEntry(
+                                            key=cache_entry.key,
+                                            mtime=now,
+                                            cache_key=cache_entry.cache_key,
+                                            start=cache_entry.start,
+                                            size=cache_entry.size,
+                                        )
+                        finally:
+                            self._thread_lock.release()
 
                     self._metrics.hits += 1
                     self._metrics.bytes_from_cache += needed_len
@@ -526,7 +565,13 @@ class Cache:
 
         if data is None:
             async with self._lock:
-                self._index.pop(k, None)
+                # Also acquire thread lock to prevent races with sync readers
+                await trio.to_thread.run_sync(self._thread_lock.acquire)
+
+                try:
+                    self._index.pop(k, None)
+                finally:
+                    self._thread_lock.release()
 
             self._metrics.misses += 1
             # No log for cache misses - reduces noise (misses are expected and normal)
@@ -536,7 +581,13 @@ class Cache:
         async with self._lock:
             if k not in self._index:
                 sz = len(data)
-                self._index[k] = (sz, time.time(), cache_key, start)
+                self._index[k] = CacheEntry(
+                    key=k,
+                    cache_key=cache_key,
+                    start=start,
+                    size=sz,
+                    mtime=time.time(),
+                )
                 lst = self._by_path.setdefault(cache_key, [])
                 insort(lst, start)
                 self._total_bytes += sz
@@ -580,48 +631,62 @@ class Cache:
             return
 
         async with self._lock:
-            prev = self._index.pop(k, None)
+            # Also acquire thread lock to prevent races with sync readers
+            await trio.to_thread.run_sync(self._thread_lock.acquire)
+            try:
+                prev = self._index.pop(k, None)
 
-            if prev:
-                self._total_bytes -= prev[0]
-                lst_prev = self._by_path.get(cache_key)
+                if prev:
+                    self._total_bytes -= prev.size
+                    lst_prev = self._by_path.get(cache_key)
 
-                if lst_prev:
-                    idx_prev = bisect_right(lst_prev, start) - 1
+                    if lst_prev:
+                        idx_prev = bisect_right(lst_prev, start) - 1
 
-                    if idx_prev >= 0 and lst_prev[idx_prev] == start:
-                        del lst_prev[idx_prev]
+                        if idx_prev >= 0 and lst_prev[idx_prev] == start:
+                            del lst_prev[idx_prev]
 
-                    if not lst_prev:
-                        self._by_path.pop(cache_key, None)
+                        if not lst_prev:
+                            self._by_path.pop(cache_key, None)
 
-            self._index[k] = (need, time.time(), cache_key, start)
-            lst = self._by_path.setdefault(cache_key, [])
-            insort(lst, start)
-            self._total_bytes += need
-            self._metrics.bytes_written += need
+                self._index[k] = CacheEntry(
+                    key=k,
+                    cache_key=cache_key,
+                    start=start,
+                    size=need,
+                    mtime=time.time(),
+                )
+                lst = self._by_path.setdefault(cache_key, [])
+                insort(lst, start)
+                self._total_bytes += need
+                self._metrics.bytes_written += need
+            finally:
+                self._thread_lock.release()
 
     def has(self, cache_key: str, start: int, end: int) -> bool:
         """
         Check if the cache contains the full range [start, end] for the given cache_key.
 
-        This is done outside of the lock to avoid contention, as it only checks for existence.
+        This uses a thread-safe approach to prevent data races with concurrent writers.
         """
 
         k = self._key(cache_key, start)
-        chunk_entry = self._index.get(k)
 
-        if not chunk_entry:
-            return False
+        # Use a separate thread lock to protect _index reads from async writers
+        # This avoids the need to make this method async
+        with self._thread_lock:
+            cache_entry = self._index.get(k)
 
-        chunk_size, _, _, chunk_start = chunk_entry
-        chunk_end = chunk_start + chunk_size - 1
+            if not cache_entry:
+                return False
 
-        if end > chunk_end:
-            return False
+            chunk_end = cache_entry.start + cache_entry.size - 1
 
+            if end > chunk_end:
+                return False
+
+        # Check file existence outside the lock
         fp = self._file_for(k)
-
         return fp.exists()
 
     async def trim(self) -> None:
@@ -634,7 +699,12 @@ class Cache:
         # Hard safety net: if our accounting drifted (e.g., external files), rebuild and prune
         try:
             async with self._lock:
-                over = self._total_bytes > self.cfg.max_size_bytes
+                # Also acquire thread lock to prevent races with concurrent readers
+                await trio.to_thread.run_sync(self._thread_lock.acquire)
+                try:
+                    over = self._total_bytes > self.cfg.max_size_bytes
+                finally:
+                    self._thread_lock.release()
             if over:
                 await self._initial_scan()
         except Exception:
