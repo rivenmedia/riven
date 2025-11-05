@@ -696,7 +696,7 @@ class MediaStream:
 
         logger.log(
             "STREAM",
-            self._build_log_message(f"Found cache; attempting to read"),
+            self._build_log_message(f"Found cache, attempting to read {start}-{end}"),
         )
 
         cached_data = await self._read_cache(
@@ -707,7 +707,9 @@ class MediaStream:
         if cached_data:
             logger.log(
                 "STREAM",
-                self._build_log_message(f"Found data from cache"),
+                self._build_log_message(
+                    f"Found data {start}-{end} ({len(cached_data)} bytes) from cache"
+                ),
             )
 
             return cached_data
@@ -1170,14 +1172,4 @@ class MediaStream:
         return data
 
     def _build_log_message(self, message: str) -> str:
-        current_read_info = (
-            f"["
-            f"read_type: {self.recent_reads.current_read.value.read_type} | "
-            f"range: {self.recent_reads.current_read.value.chunk_range.request_range} | "
-            f"size: {self.recent_reads.current_read.value.chunk_range.size}"
-            f"]"
-            if self.recent_reads.current_read.value
-            else ""
-        )
-
-        return f"{message} [fh: {self.fh} | file={self.file_metadata['path'].split('/')[-1]}] {current_read_info}"
+        return f"{message} [fh: {self.fh} | file={self.file_metadata['path'].split('/')[-1]}]"
