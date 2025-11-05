@@ -15,26 +15,13 @@ class VFSNode:
 
     Attributes:
         name: Name of this node (e.g., "Frozen.mkv" or "movies")
-        is_directory: True if this is a directory, False if it's a file
-        original_filename: Original filename from debrid provider (for files only)
-                           This is used to look up the MediaEntry in the database.
-                           For directories, this is None.
         inode: FUSE inode number assigned to this node
-        children: Dict of child name -> VFSNode (only for directories)
-        parent: Reference to parent VFSNode (None for root)
-
-        # Cached file metadata (for files only, eliminates DB queries in getattr)
-        file_size: File size in bytes (None for directories)
-        created_at: Creation timestamp as ISO string (None for directories)
-        updated_at: Modification timestamp as ISO string (None for directories)
-        entry_type: Entry type ("media" or "subtitle", None for directories)
-        bitrate: Bitrate in kbps (None for directories, or when media analysis is absent)
-        duration: Duration in seconds (None for directories, or when media analysis is absent)
+        parent: Reference to parent VFSDirectory (None for root)
     """
 
     name: str
     inode: pyfuse3.InodeT
-    parent: "VFSNode"
+    parent: "VFSDirectory | None"
 
     @cached_property
     def path(self) -> str:
@@ -61,9 +48,10 @@ class VFSDirectory(VFSNode):
     Represents a directory node in the VFS tree.
 
     Inherits from VFSNode and adds directory-specific attributes.
-    """
 
-    parent: "VFSDirectory"
+    Attributes:
+        parent: Reference to parent VFSDirectory
+    """
 
     @property
     def children(self) -> dict[str, VFSNode]:
@@ -109,13 +97,16 @@ class VFSRoot(VFSDirectory):
     Represents the root node of the VFS tree.
 
     Inherits from VFSNode and initializes as a directory with root inode.
+
+    Attributes:
+        parent: None (root has no parent)
     """
 
     def __init__(self) -> None:
         super().__init__(
             name="",
             inode=pyfuse3.ROOT_INODE,
-            parent=self,
+            parent=None,
         )
 
     @cached_property
@@ -128,16 +119,6 @@ class VFSRoot(VFSDirectory):
 
         return "/"
 
-    @property
-    def parent(self) -> None:
-        """Root has no parent"""
-        return None
-
-    @parent.setter
-    def parent(self, _) -> None:
-        """Root has no parent, ignore setting"""
-        pass
-
 
 @dataclass
 class VFSFile(VFSNode):
@@ -145,6 +126,18 @@ class VFSFile(VFSNode):
     Represents a file node in the VFS tree.
 
     Inherits from VFSNode and adds file-specific attributes.
+
+    Attributes:
+        name: Name of this node (e.g., "Frozen.mkv" or "movies")
+        original_filename: Original filename from debrid provider (for files only)
+                           This is used to look up the MediaEntry in the database.
+        parent: Reference to parent VFSDirectory
+
+        # Cached file metadata
+        file_size: File size in bytes
+        created_at: Creation timestamp as ISO string
+        updated_at: Modification timestamp as ISO string
+        entry_type: Entry type ("media" or "subtitle")
     """
 
     name: str
@@ -155,9 +148,6 @@ class VFSFile(VFSNode):
     created_at: str
     updated_at: str
     entry_type: Literal["media", "subtitle"]
-    bitrate: int | None
-    duration: int | None
-    parent: VFSDirectory
 
     def __init__(
         self,
@@ -184,8 +174,6 @@ class VFSFile(VFSNode):
             f"file_size={self.file_size}, "
             f"created_at={self.created_at!r}, "
             f"updated_at={self.updated_at!r}, "
-            f"entry_type={self.entry_type!r}, "
-            f"bitrate={self.bitrate}, "
-            f"duration={self.duration}, "
+            f"entry_type={self.entry_type!r}"
             ")"
         )
