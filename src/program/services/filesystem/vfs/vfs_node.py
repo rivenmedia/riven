@@ -73,7 +73,7 @@ class VFSDirectory(VFSNode):
         child = self.children.pop(name, None)
 
         if child:
-            del child.parent
+            child.parent = None
 
         return child
 
