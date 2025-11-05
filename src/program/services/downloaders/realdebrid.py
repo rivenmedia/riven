@@ -17,6 +17,9 @@ from program.services.downloaders.models import (
 )
 from program.settings.manager import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.streaming.exceptions.debrid_service_exception import (
+    DebridServiceLinkUnavailable,
+)
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -492,7 +495,10 @@ class RealDebridDownloader(DownloaderBase):
                 logger.debug(
                     f"Direct unrestrict failed with status {response.status_code}: {response.text}"
                 )
-                return None
+
+                raise DebridServiceLinkUnavailable(provider=self.key, link=link)
+        except DebridServiceLinkUnavailable:
+            raise
         except Exception as e:
             logger.debug(f"Direct unrestrict_link failed for {link}: {e}")
             return None

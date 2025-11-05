@@ -33,6 +33,7 @@ from .exceptions import (
     DebridServiceRateLimitedException,
     DebridServiceRefusedRangeRequestException,
     MediaStreamKilledException,
+    DebridServiceLinkUnavailable,
 )
 from .file_metadata import FileMetadata
 from .recent_reads import Read, RecentReads
@@ -1000,6 +1001,8 @@ class MediaStream:
                 raise DebridServiceClosedConnectionException(
                     provider=self.provider
                 ) from e
+            except DebridServiceLinkUnavailable as e:
+                raise
             except Exception as e:
                 logger.exception(
                     self._build_log_message(f"Unexpected error connecting to stream")

@@ -69,14 +69,14 @@ class DebridServiceServiceUnavailableException(DebridServiceException):
         self.provider = provider
 
 
-class DebridServiceFileNotFoundException(DebridServiceException):
-    """Raised when a file is not found on the debrid service."""
+class DebridServiceLinkUnavailable(DebridServiceException):
+    """Raised when a link is unavailable on the debrid service."""
 
-    def __init__(self, provider: str, path: str) -> None:
-        super().__init__(f"File with path '{path}' not found on {provider}")
+    def __init__(self, provider: str, link: str) -> None:
+        super().__init__(f"Link '{link}' is not valid on {provider}")
 
         self.provider = provider
-        self.path = path
+        self.link = link
 
 
 class DebridServiceClosedConnectionException(DebridServiceException):

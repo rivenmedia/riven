@@ -21,7 +21,7 @@ from .debrid_service_exception import (
     DebridServiceForbiddenException,
     DebridServiceRateLimitedException,
     DebridServiceServiceUnavailableException,
-    DebridServiceFileNotFoundException,
+    DebridServiceLinkUnavailable,
     DebridServiceClosedConnectionException,
     DebridServiceRangeNotSatisfiableException,
 )
@@ -33,7 +33,7 @@ __all__ = [
     "DebridServiceForbiddenException",
     "DebridServiceRateLimitedException",
     "DebridServiceServiceUnavailableException",
-    "DebridServiceFileNotFoundException",
+    "DebridServiceLinkUnavailable",
     "DebridServiceClosedConnectionException",
     "DebridServiceRangeNotSatisfiableException",
     "MediaStreamException",

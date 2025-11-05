@@ -10,7 +10,7 @@ from program.db.db import db
 from program.media.filesystem_entry import FilesystemEntry
 from program.media.media_entry import MediaEntry
 from program.services.streaming.exceptions import (
-    DebridServiceFileNotFoundException,
+    DebridServiceLinkUnavailable,
 )
 
 if TYPE_CHECKING:
@@ -343,6 +343,7 @@ class VFSDatabase:
                         if service and hasattr(service, "unrestrict_link"):
                             try:
                                 new_unrestricted = service.unrestrict_link(download_url)
+
                                 if (
                                     new_unrestricted
                                     and new_unrestricted.download != unrestricted_url
@@ -353,7 +354,7 @@ class VFSDatabase:
                                     log.debug(
                                         f"Refreshed unrestricted URL for {original_filename}"
                                     )
-                            except Exception as e:
+                            except DebridServiceLinkUnavailable as e:
                                 log.warning(
                                     f"Failed to unrestrict URL for {original_filename}: {e}"
                                 )
@@ -365,10 +366,11 @@ class VFSDatabase:
                                 )
 
                                 if not is_download_url_valid:
-                                    raise DebridServiceFileNotFoundException(
-                                        provider=service.key,
-                                        path=original_filename,
-                                    ) from e
+                                    raise
+                            except Exception as e:
+                                log.warning(
+                                    f"Failed to unrestrict URL for {original_filename}: {e}"
+                                )
 
                 # Choose URL based on for_http flag
                 if for_http:
@@ -392,6 +394,8 @@ class VFSDatabase:
                     "entry_type": "media",
                     "url": chosen_url,  # The URL to use for this request
                 }
+        except DebridServiceLinkUnavailable:
+            raise
         except Exception as e:
             log.error(
                 f"Error getting entry by original_filename {original_filename}: {e}"

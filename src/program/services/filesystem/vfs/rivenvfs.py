@@ -72,7 +72,7 @@ from program.services.streaming.exceptions import (
     DebridServiceClosedConnectionException,
     DebridServiceRefusedRangeRequestException,
     CacheDataNotFoundException,
-    DebridServiceFileNotFoundException,
+    DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
 
@@ -1700,7 +1700,7 @@ class RivenVFS(pyfuse3.Operations):
                     file_size=file_size,
                     original_filename=original_filename,
                 )
-            except DebridServiceFileNotFoundException as e:
+            except DebridServiceLinkUnavailable as e:
                 logger.error(f"Failed to get stream URL for {path}: {e}")
 
                 raise pyfuse3.FUSEError(errno.ENOENT) from e
@@ -1735,7 +1735,10 @@ class RivenVFS(pyfuse3.Operations):
                     handle_info["has_stream_error"] = True
 
                 raise pyfuse3.FUSEError(errno.EIO) from e.exceptions[0]
-            except* DebridServiceUnableToConnectException as e:
+            except* (
+                DebridServiceLinkUnavailable,
+                DebridServiceUnableToConnectException,
+            ) as e:
                 for exc in e.exceptions:
                     logger.error(
                         stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
