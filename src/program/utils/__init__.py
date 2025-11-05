@@ -51,9 +51,9 @@ def benchmark(
 ) -> Iterator[None]:
     """Context manager for benchmarking code execution time."""
 
-    try:
-        start_time = time()
+    start_time = time()
 
+    try:
         yield
     finally:
         end_time = time()
