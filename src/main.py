@@ -55,7 +55,7 @@ async def lifespan(_: FastAPI):
 
     proxy_url = settings_manager.settings.downloaders.proxy_url
 
-    if proxy_url and PROXY_REQUIRED_PROVIDERS:
+    if proxy_url:
         di[ProxyClient] = ProxyClient(proxy_url=proxy_url)
 
     yield
