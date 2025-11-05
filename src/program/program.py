@@ -76,7 +76,7 @@ class Program(threading.Thread):
         _downloader = Downloader()
         self.services = {
             IndexerService: IndexerService(),
-            Scraping: Scraping(),
+            Scraping: Scraping(self.em),
             Updater: Updater(),
             Downloader: _downloader,
             FilesystemService: FilesystemService(_downloader),

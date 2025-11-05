@@ -1,7 +1,7 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, Generator, List
+from typing import Dict, Generator, List, TYPE_CHECKING
 
 from loguru import logger
 
@@ -19,10 +19,14 @@ from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
 from program.settings.manager import settings_manager
 
+if TYPE_CHECKING:
+    from program.managers.event_manager import EventManager
+
 
 class Scraping:
-    def __init__(self):
+    def __init__(self, event_manager: "EventManager"):
         self.key = "scraping"
+        self.em = event_manager
         self.initialized = False
         self.settings = settings_manager.settings.scraping
         self.max_failed_attempts = (
@@ -128,6 +132,11 @@ class Scraping:
             thread_name_prefix="ScraperService_",
             max_workers=max(1, len(self.initialized_services)),
         ) as executor:
+            if self.em._shutting_down:
+                logger.debug(
+                    "EventManager is shutting down, skipping scraper sub-tasks."
+                )
+                return {}  # Abort before submitting new futures
             futures = {
                 executor.submit(run_service, service, item): service.key
                 for service in self.initialized_services

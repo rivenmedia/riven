@@ -16,6 +16,8 @@ from program.db.db import db
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.types import Event
+from program.settings.manager import settings_manager
+from program.services.scrapers import Scraping
 
 
 class EventUpdate(BaseModel):
@@ -52,7 +54,25 @@ class EventManager:
             if executor["_name_prefix"] == service_name:
                 logger.debug(f"Executor for {service_name} found.")
                 return executor["_executor"]
-        _executor = ThreadPoolExecutor(thread_name_prefix=service_name, max_workers=1)
+
+        # Default to 1 worker for most services to ensure serialization
+        workers = 1
+
+        # Allow scraping (which includes VFS reads) to be concurrent
+        if service_cls == Scraping:
+            try:
+                workers = settings_manager.settings.scraping.max_workers
+                if workers > 1:
+                    logger.info(f"Using {workers} workers for Scraping service.")
+            except Exception:
+                logger.warning(
+                    "Could not read scraping.max_workers setting. Defaulting to 1."
+                )
+                workers = 1
+
+        _executor = ThreadPoolExecutor(
+            thread_name_prefix=service_name, max_workers=workers
+        )
         self._executors.append({"_name_prefix": service_name, "_executor": _executor})
         logger.debug(f"Created executor for {service_name}")
         return _executor

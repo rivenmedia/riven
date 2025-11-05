@@ -25,7 +25,7 @@ services:
             - SYS_ADMIN
         security_opt:
             - apparmor:unconfined
-        shm_size: 1024m
+        shm_size: 1.1G # Adjust shared memory size as needed, used for VFS caching with the /dev/shm filesystem. Set to about 10% over the FILESYSTEM_CACHE_MAX_SIZE_MB setting to allow for overhead and prevent clamping.
         devices:
             - /dev/fuse
         environment:

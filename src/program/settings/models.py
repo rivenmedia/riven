@@ -715,6 +715,11 @@ class ScraperModel(Observable):
     rarbg: RarbgConfig = Field(
         default_factory=lambda: RarbgConfig(), description="RARBG configuration"
     )
+    max_workers: int = Field(
+        default=1,
+        ge=1,
+        description="Number of parallel workers for the scraping service. Increase this to allow concurrent scraping and VFS file access.",
+    )
 
 
 # Version Ranking Model (set application defaults here!)
