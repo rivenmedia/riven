@@ -55,12 +55,6 @@ type ReadType = Literal[
 ]
 
 
-@dataclass(frozen=True, init=True)
-class ReadEvent:
-    type: ReadType
-    chunk_range: ChunkRange
-
-
 class MediaStream:
     """
     Represents an active streaming session for a file.
@@ -96,13 +90,7 @@ class MediaStream:
         # Store initial URL to avoid redundant unrestrict calls
         self.target_url: trio_util.AsyncValue[str] = trio_util.AsyncValue(initial_url)
 
-        self.config = Config(
-            sequential_read_tolerance_blocks=10,
-            target_chunk_duration_seconds=2,
-            seek_chunk_tolerance=5,
-            scan_tolerance_blocks=25,
-            default_bitrate=10 * 1000 * 1000,  # 10 Mbps
-        )
+        self.config = Config()
 
         self.session_statistics = SessionStatistics()
 
