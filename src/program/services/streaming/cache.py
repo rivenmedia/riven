@@ -47,13 +47,13 @@ class Metrics:
 
     def snapshot(self) -> dict[str, int]:
         with self.lock:
-            return dict(
-                hits=self.hits,
-                misses=self.misses,
-                bytes_from_cache=self.bytes_from_cache,
-                bytes_written=self.bytes_written,
-                evictions=self.evictions,
-            )
+            return {
+                "hits": self.hits,
+                "misses": self.misses,
+                "bytes_from_cache": self.bytes_from_cache,
+                "bytes_written": self.bytes_written,
+                "evictions": self.evictions,
+            }
 
 
 class Cache:
@@ -94,14 +94,12 @@ class Cache:
     async def _initialize(self) -> None:
         # Lazy-rebuild index for any pre-existing files so size limits apply after restart
         try:
-            if self.cfg.eviction == "LRU":
-                await self._initial_scan()
+            await self._initial_scan()
         except Exception as e:
             logger.debug(f"Disk cache initial scan skipped: {e}")
 
     async def _initial_scan(self) -> None:
         # Build index from on-disk files, ordered by mtime ascending for LRU correctness
-        # (key, size, mtime, cache_key, start)
         entries: list[CacheEntry] = []
 
         try:
@@ -118,6 +116,7 @@ class Cache:
 
                                 # Try to read metadata for this cache entry
                                 metadata = self._read_metadata(key)
+
                                 if metadata:
                                     cache_key, start = metadata
                                     entries.append(
@@ -194,7 +193,7 @@ class Cache:
 
             # If we are over budget, evict oldest until within max_disk_bytes
             try:
-                await self._evict_lru(0)
+                await self.trim()
             except Exception:
                 pass
 
@@ -653,7 +652,7 @@ class Cache:
         if self.cfg.eviction == "TTL":
             await self._evict_ttl()
         else:
-            await self._evict_lru(0)
+            await self._evict_lru()
 
         # Hard safety net: if our accounting drifted (e.g., external files), rebuild and prune
         try:
