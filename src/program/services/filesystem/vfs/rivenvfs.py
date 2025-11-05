@@ -1947,7 +1947,7 @@ class RivenVFS(pyfuse3.Operations):
                     lambda: self.vfs_db.get_entry_by_original_filename(
                         original_filename,
                         for_http=True,
-                        force_resolve=True,
+                        force_resolve=False,
                     )
                 )
 
