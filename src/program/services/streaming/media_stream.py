@@ -1025,7 +1025,7 @@ class MediaStream:
             with trio.fail_after(self.config.chunk_wait_timeout_seconds):
                 await trio_util.wait_all(
                     *[
-                        lambda: chunk.is_cached.wait_value(True)
+                        (lambda chunk=chunk: chunk.is_cached.wait_value(True))
                         for chunk in chunk_range.chunks
                     ]
                 )
