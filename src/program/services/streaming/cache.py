@@ -12,10 +12,20 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from bisect import bisect_right, insort
-from typing import Literal
+from typing import Literal, NotRequired, Required, TypedDict
 
 
 from loguru import logger
+
+
+class CacheSnapshot(TypedDict):
+    hits: Required[int]
+    misses: Required[int]
+    bytes_from_cache: Required[int]
+    bytes_written: Required[int]
+    evictions: Required[int]
+    total_bytes: NotRequired[int]
+    entries: NotRequired[int]
 
 
 @dataclass
@@ -45,15 +55,15 @@ class Metrics:
         self.evictions = 0
         self.lock = threading.Lock()
 
-    def snapshot(self) -> dict[str, int]:
+    def snapshot(self) -> CacheSnapshot:
         with self.lock:
-            return {
-                "hits": self.hits,
-                "misses": self.misses,
-                "bytes_from_cache": self.bytes_from_cache,
-                "bytes_written": self.bytes_written,
-                "evictions": self.evictions,
-            }
+            return CacheSnapshot(
+                hits=self.hits,
+                misses=self.misses,
+                bytes_from_cache=self.bytes_from_cache,
+                bytes_written=self.bytes_written,
+                evictions=self.evictions,
+            )
 
 
 class Cache:
@@ -664,10 +674,10 @@ class Cache:
         except Exception:
             pass
 
-    async def stats(self) -> dict[str, int]:
+    async def stats(self) -> CacheSnapshot:
         s = self._metrics.snapshot()
 
-        async with self._lock:
+        async with self.locks():
             s["total_bytes"] = self._total_bytes
             s["entries"] = len(self._index)
 
