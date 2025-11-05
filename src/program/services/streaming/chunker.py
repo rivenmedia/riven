@@ -168,7 +168,7 @@ class ChunkRange:
         if len(self.chunks) == 1:
             return self.chunk_size
 
-        return self.last_chunk.end - self.first_chunk.end + 1
+        return self.last_chunk.end - self.first_chunk.start + 1
 
     @cached_property
     def chunks(self) -> OrderedSet[Chunk]:
