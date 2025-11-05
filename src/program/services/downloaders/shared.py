@@ -172,59 +172,14 @@ def get_resolution(torrent: Stream) -> Resolution:
 
 
 def _sort_streams_by_quality(streams: List[Stream], item=None) -> List[Stream]:
-    """Sort streams by resolution, dub suitability, original rank, then seeder count."""
+    """Sort streams by resolution, RTN rank, then seeder count."""
 
-    def sort_key(stream: Stream) -> tuple[int, int, int, int]:
+    def sort_key(stream: Stream) -> tuple[int, int, int]:
         resolution_value = get_resolution(stream).value
         rank_value = stream.rank
         seeders = getattr(getattr(stream, "parsed_data", None), "seeders", None)
         seeders_value = int(seeders) if isinstance(seeders, (int, float)) else -1
 
-        # Default to no dub adjustments unless the item's context requires it
-        dub_bonus = 0
-        if item and getattr(stream, "parsed_data", None):
-            title_lower = (stream.raw_title or "").lower()
-            dub_indicators = [
-                "dual audio",
-                "dual.audio",
-                "eng dub",
-                "english dub",
-                "dubbed",
-            ]
-            signs_indicators = [
-                "signs songs",
-                "signs.songs",
-                "forced sub",
-                "forced.sub",
-                "forced.subtitles",
-            ]
-
-            has_dub_indicators = any(
-                indicator in title_lower for indicator in dub_indicators
-            )
-            has_signs_indicators = any(
-                indicator in title_lower for indicator in signs_indicators
-            )
-
-            if getattr(item, "is_anime", False):
-                # Anime: prefer dubbed releases, especially when bundled with signs/songs tracks
-                if getattr(stream.parsed_data, "dubbed", False) or has_dub_indicators:
-                    dub_bonus = 1000
-                if has_dub_indicators and has_signs_indicators:
-                    dub_bonus = 1500
-                elif has_dub_indicators:
-                    dub_bonus = max(dub_bonus, 500)
-            elif getattr(item, "language", None):
-                language = item.language.lower()
-                if language not in {"en", "eng", "english"}:
-                    if (
-                        getattr(stream.parsed_data, "dubbed", False)
-                        or has_dub_indicators
-                    ):
-                        dub_bonus = 500
-                elif has_dub_indicators:
-                    dub_bonus = -200
-
-        return (resolution_value, dub_bonus, rank_value, seeders_value)
+        return (resolution_value, rank_value, seeders_value)
 
     return sorted(streams, key=sort_key, reverse=True)
