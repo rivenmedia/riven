@@ -140,7 +140,6 @@ class VFSFile(VFSNode):
         entry_type: Entry type ("media" or "subtitle")
     """
 
-    name: str
     original_filename: str
 
     # Cached metadata for files (eliminates database queries)
