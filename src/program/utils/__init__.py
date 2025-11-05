@@ -47,7 +47,7 @@ def generate_api_key():
 def benchmark(
     *,
     log: Callable[[float], None] | None,
-    sig_figs: int = 3,
+    decimal_places: int = 3,
 ) -> Iterator[None]:
     """Context manager for benchmarking code execution time."""
 
@@ -57,10 +57,9 @@ def benchmark(
         yield
     finally:
         end_time = time()
+        elapsed = end_time - start_time
 
         if log:
-            log(float(f"{end_time - start_time:.{sig_figs}f}"))
+            log(round(elapsed, decimal_places))
         else:
-            logger.debug(
-                f"Execution time: {end_time - start_time:.{sig_figs}f} seconds"
-            )
+            logger.debug(f"Execution time: {elapsed:.{decimal_places}f} seconds")
