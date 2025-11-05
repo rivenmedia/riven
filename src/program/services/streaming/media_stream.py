@@ -1006,7 +1006,7 @@ class MediaStream:
                 raise DebridServiceClosedConnectionException(
                     provider=self.provider
                 ) from e
-            except DebridServiceLinkUnavailable as e:
+            except DebridServiceLinkUnavailable:
                 raise
             except Exception as e:
                 logger.exception(
