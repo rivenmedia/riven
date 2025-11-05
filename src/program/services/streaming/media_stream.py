@@ -792,13 +792,16 @@ class MediaStream:
 
         data = b""
 
-        async for chunk in response.aiter_bytes(
-            chunk_size=min(size, self.config.chunk_size)
-        ):
-            data += chunk
+        try:
+            async for chunk in response.aiter_bytes(
+                chunk_size=min(size, self.config.chunk_size)
+            ):
+                data += chunk
 
-            if len(data) >= size:
-                break
+                if len(data) >= size:
+                    break
+        finally:
+            await response.aclose()
 
         self.session_statistics.bytes_transferred += len(data)
 
