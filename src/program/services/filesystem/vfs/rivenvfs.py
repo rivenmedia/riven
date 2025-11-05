@@ -71,11 +71,10 @@ from program.services.streaming.exceptions import (
     DebridServiceUnableToConnectException,
     DebridServiceClosedConnectionException,
     DebridServiceRefusedRangeRequestException,
-)
-from src.program.services.streaming.exceptions.media_stream_exception import (
+    CacheDataNotFoundException,
+    DebridServiceFileNotFoundException,
     MediaStreamKilledException,
 )
-
 
 from ...streaming import (
     Cache,
@@ -1694,12 +1693,17 @@ class RivenVFS(pyfuse3.Operations):
             if request_end < request_start:
                 return b""
 
-            stream = await self._get_stream(
-                path=path,
-                fh=fh,
-                file_size=file_size,
-                original_filename=original_filename,
-            )
+            try:
+                stream = await self._get_stream(
+                    path=path,
+                    fh=fh,
+                    file_size=file_size,
+                    original_filename=original_filename,
+                )
+            except DebridServiceFileNotFoundException as e:
+                logger.error(f"Failed to get stream URL for {path}: {e}")
+
+                raise pyfuse3.FUSEError(errno.ENOENT) from e
 
             try:
                 return await stream.read(
@@ -1708,19 +1712,17 @@ class RivenVFS(pyfuse3.Operations):
                     request_size=request_size,
                 )
             except* ChunksTooSlowException as e:
-                if stream:
-                    for exc in e.exceptions:
-                        logger.error(
-                            stream._build_log_message(f"{e.__class__.__name__}: {exc}")
-                        )
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{e.__class__.__name__}: {exc}")
+                    )
 
                 raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
             except* (MediaStreamDataException, FatalMediaStreamException) as e:
-                if stream:
-                    for exc in e.exceptions:
-                        logger.error(
-                            stream._build_log_message(f"{e.__class__.__name__}: {exc}")
-                        )
+                for exc in e.exceptions:
+                    logger.error(
+                        stream._build_log_message(f"{e.__class__.__name__}: {exc}")
+                    )
 
                 handle_info = self._file_handles.get(fh)
 
@@ -1778,7 +1780,7 @@ class RivenVFS(pyfuse3.Operations):
                     )
 
                 raise pyfuse3.FUSEError(errno.ECONNABORTED) from e
-            except* DebridServiceException as e:
+            except* (DebridServiceException, CacheDataNotFoundException) as e:
                 for exc in e.exceptions:
                     logger.error(f"{exc.__class__.__name__}: {exc}")
 
@@ -1945,7 +1947,7 @@ class RivenVFS(pyfuse3.Operations):
                     lambda: self.vfs_db.get_entry_by_original_filename(
                         original_filename,
                         for_http=True,
-                        force_resolve=False,
+                        force_resolve=True,
                     )
                 )
 
