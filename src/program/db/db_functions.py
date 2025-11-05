@@ -286,7 +286,7 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
         .options(selectinload(Show.seasons).selectinload(Season.episodes))
         .where(MediaItem.last_state != States.Completed)
         .where(MediaItem.aired_at.is_not(None))
-        .where(MediaItem.aired_at >= datetime.now() - timedelta(days=1))
+        .where(MediaItem.aired_at >= datetime.now() - timedelta(days=30))
         .execution_options(stream_results=True)
     ).unique()
 
