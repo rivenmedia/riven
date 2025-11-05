@@ -534,8 +534,9 @@ class RivenVFS(pyfuse3.Operations):
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
         if self._mounted:
-            self._is_unmounting = True
             logger.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
+            self._is_unmounting = True
+            self.stream_nursery.cancel_scope.cancel()
             self._cleanup_mountpoint(self._mountpoint)
             self._mounted = False
 
