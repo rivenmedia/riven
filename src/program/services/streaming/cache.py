@@ -439,10 +439,6 @@ class Cache:
         if not data:
             return
 
-        now = time.time()
-
-        logger.debug(f"Caching chunk for {cache_key} [{start}-{start + len(data) - 1}]")
-
         k = self._key(cache_key, start)
         need = len(data)
 
@@ -481,10 +477,6 @@ class Cache:
             insort(lst, start)
             self._total_bytes += need
             self._metrics.bytes_written += need
-
-            logger.debug(
-                f"Cached chunk for {cache_key} [{start}-{start + len(data) - 1}] in {time.time() - now:.3f}s"
-            )
 
     def has(self, cache_key: str, start: int, end: int) -> bool:
         """
