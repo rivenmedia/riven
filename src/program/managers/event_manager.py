@@ -1,3 +1,4 @@
+import json
 import threading
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 
 from program.db import db_functions
 from program.db.db import db
-from program.managers.websocket_manager import manager as websocket_manager
+from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.types import Event
 
@@ -76,7 +77,9 @@ class EventManager:
             result = future.result()
             if future in self._futures:
                 self._futures.remove(future)
-            websocket_manager.publish("event_update", self.get_event_updates())
+            sse_manager.publish_event(
+                "event_update", json.dumps(self.get_event_updates())
+            )
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
@@ -251,7 +254,7 @@ class EventManager:
         if event:
             future.event = event
         self._futures.append(future)
-        websocket_manager.publish("event_update", self.get_event_updates())
+        sse_manager.publish_event("event_update", json.dumps(self.get_event_updates()))
         future.add_done_callback(lambda f: self._process_future(f, service))
 
     def cancel_job(self, item_id: str, suppress_logs=False):
@@ -427,7 +430,7 @@ class EventManager:
                 ci, self._queued_events
             ) or self.item_exists_in_queue(ci, self._running_events):
                 logger.debug(
-                    f"Content item {getattr(ci, 'log_string', 'unknown')} already queued or running, skipping."
+                    f"Content Item with {ci.log_string} is already queued or running, skipping."
                 )
                 return False
 

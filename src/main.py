@@ -5,11 +5,13 @@ import threading
 import time
 
 import httpx
+from kink import di
 import uvicorn
 from dotenv import load_dotenv
-from kink import di
 
 load_dotenv()  # import required here to support SETTINGS_FILENAME
+
+from program.db.db import db  # noqa
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +20,6 @@ from scalar_fastapi import get_scalar_api_reference
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from program.db.db import db  # noqa
 from program.program import riven
 from program.settings.models import get_version
 from program.utils.cli import handle_args
@@ -47,18 +48,7 @@ args = handle_args()
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Create AsyncClient with limited connection pools to prevent overwhelming debrid services
-    # Limits: 10 connections per host, 20 total connections, prevent connection pool exhaustion
-    limits = httpx.Limits(
-        max_connections=20,
-        max_keepalive_connections=10,
-        keepalive_expiry=30.0,
-    )
-    di[httpx.AsyncClient] = httpx.AsyncClient(
-        http2=True,
-        limits=limits,
-        timeout=httpx.Timeout(30.0),  # 30 second timeout for all requests
-    )
+    di[httpx.AsyncClient] = httpx.AsyncClient(http2=True)
     yield
     await di[httpx.AsyncClient].aclose()
 

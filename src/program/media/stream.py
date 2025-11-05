@@ -105,7 +105,7 @@ class Stream(db.Model):
         )
 
     def __hash__(self):
-        return hash(self.infohash)
+        return self.infohash
 
     def __eq__(self, other):
         return isinstance(other, Stream) and self.infohash == other.infohash
