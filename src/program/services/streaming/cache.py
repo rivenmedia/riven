@@ -5,6 +5,7 @@ import hashlib
 import os
 import threading
 import time
+import json
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,7 +81,8 @@ class Cache:
 
     async def _initial_scan(self) -> None:
         # Build index from on-disk files, ordered by mtime ascending for LRU correctness
-        entries: list[tuple[str, int, float]] = []  # (key, size, mtime)
+        # (key, size, mtime, cache_key, start)
+        entries: list[tuple[str, int, float, str, int]] = []
 
         try:
             for sub in self.cfg.cache_dir.iterdir():
@@ -88,19 +90,70 @@ class Cache:
                     if sub.is_dir():
                         for fp in sub.iterdir():
                             try:
-                                if not fp.is_file():
+                                if not fp.is_file() or fp.suffix == ".meta":
                                     continue
 
                                 key = fp.name
                                 st = fp.stat()
-                                entries.append(
-                                    (key, int(st.st_size), float(st.st_mtime))
-                                )
+
+                                # Try to read metadata for this cache entry
+                                metadata = self._read_metadata(key)
+                                if metadata:
+                                    cache_key, start = metadata
+                                    entries.append(
+                                        (
+                                            key,
+                                            int(st.st_size),
+                                            float(st.st_mtime),
+                                            cache_key,
+                                            start,
+                                        )
+                                    )
+                                else:
+                                    # No metadata found - this is an orphaned file
+                                    logger.warning(
+                                        f"Removing orphaned cache file without metadata: {fp}"
+                                    )
+                                    try:
+                                        fp.unlink()
+                                        # Also remove any stale metadata file
+                                        self._remove_metadata(key)
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"Failed to remove orphaned cache file {fp}: {e}"
+                                        )
                             except Exception:
                                 continue
-                    elif sub.is_file():
+                    elif sub.is_file() and sub.suffix != ".meta":
+                        key = sub.name
                         st = sub.stat()
-                        entries.append((sub.name, int(st.st_size), float(st.st_mtime)))
+
+                        # Try to read metadata for this cache entry
+                        metadata = self._read_metadata(key)
+                        if metadata:
+                            cache_key, start = metadata
+                            entries.append(
+                                (
+                                    key,
+                                    int(st.st_size),
+                                    float(st.st_mtime),
+                                    cache_key,
+                                    start,
+                                )
+                            )
+                        else:
+                            # No metadata found - this is an orphaned file
+                            logger.warning(
+                                f"Removing orphaned cache file without metadata: {sub}"
+                            )
+                            try:
+                                sub.unlink()
+                                # Also remove any stale metadata file
+                                self._remove_metadata(key)
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to remove orphaned cache file {sub}: {e}"
+                                )
                 except Exception:
                     continue
         finally:
@@ -111,9 +164,13 @@ class Cache:
                 self._by_path.clear()
                 self._total_bytes = 0
 
-                for key, sz, ts in entries:
-                    self._index[key] = (sz, ts, "", 0)
+                for key, sz, ts, cache_key, start in entries:
+                    self._index[key] = (sz, ts, cache_key, start)
                     self._total_bytes += sz
+
+                    # Rebuild _by_path index
+                    lst = self._by_path.setdefault(cache_key, [])
+                    insort(lst, start)
 
             # If we are over budget, evict oldest until within max_disk_bytes
             try:
@@ -131,6 +188,49 @@ class Cache:
         p = self.cfg.cache_dir / sub
         p.mkdir(parents=True, exist_ok=True)
         return p / key
+
+    def _metadata_file_for(self, key: str) -> Path:
+        """Get the metadata sidecar file path for a cache entry."""
+
+        return self._file_for(key).with_suffix(".meta")
+
+    def _write_metadata(self, key: str, cache_key: str, start: int) -> None:
+        """Write metadata for a cache entry to a sidecar file."""
+
+        metadata = {"cache_key": cache_key, "start": start}
+
+        try:
+            with self._metadata_file_for(key).open("w") as f:
+                json.dump(metadata, f)
+        except Exception as e:
+            logger.warning(f"Failed to write cache metadata for {key}: {e}")
+
+    def _read_metadata(self, key: str) -> tuple[str, int] | None:
+        """Read metadata for a cache entry from its sidecar file."""
+
+        metadata_file = self._metadata_file_for(key)
+
+        if not metadata_file.exists():
+            return None
+
+        try:
+            with metadata_file.open("r") as f:
+                metadata = json.load(f)
+                return metadata["cache_key"], metadata["start"]
+        except Exception as e:
+            logger.warning(f"Failed to read cache metadata for {key}: {e}")
+            return None
+
+    def _remove_metadata(self, key: str) -> None:
+        """Remove metadata file for a cache entry."""
+
+        try:
+            metadata_file = self._metadata_file_for(key)
+
+            if metadata_file.exists():
+                metadata_file.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to remove cache metadata for {key}: {e}")
 
     async def _evict_lru(self, need_bytes: int = 0) -> None:
         async with self._lock:
@@ -156,6 +256,9 @@ class Cache:
                 try:
                     if fp.exists():
                         fp.unlink()
+
+                    # Also remove metadata file
+                    self._remove_metadata(k)
                 except Exception:
                     pass
 
@@ -179,6 +282,9 @@ class Cache:
                     try:
                         if fp.exists():
                             fp.unlink()
+
+                        # Also remove metadata file
+                        self._remove_metadata(k)
                     except Exception:
                         pass
 
@@ -452,6 +558,9 @@ class Cache:
         try:
             with fp.open("wb") as f:
                 f.write(data)
+
+            # Write metadata after successful data write
+            self._write_metadata(k, cache_key, start)
         except Exception as e:
             logger.warning(f"Disk cache write failed: {e}")
             return
