@@ -405,7 +405,7 @@ class MediaStream:
                                                 log=lambda duration: logger.log(
                                                     "STREAM",
                                                     self._build_log_message(
-                                                        f"Processing chunk(s) {chunk_range_label} {chunk_label} took {duration}s"
+                                                        f"Processing chunk(s) #{chunk_range_label} {chunk_label} took {duration}s"
                                                     ),
                                                 )
                                             ):
