@@ -25,6 +25,15 @@ class CacheConfig:
     metrics_enabled: bool = True
 
 
+@dataclass(frozen=True)
+class CacheEntry:
+    key: str
+    cache_key: str
+    start: int
+    size: int
+    mtime: float
+
+
 class Metrics:
     def __init__(self) -> None:
         self.hits = 0
@@ -82,7 +91,7 @@ class Cache:
     async def _initial_scan(self) -> None:
         # Build index from on-disk files, ordered by mtime ascending for LRU correctness
         # (key, size, mtime, cache_key, start)
-        entries: list[tuple[str, int, float, str, int]] = []
+        entries: list[CacheEntry] = []
 
         try:
             for sub in self.cfg.cache_dir.iterdir():
@@ -101,12 +110,12 @@ class Cache:
                                 if metadata:
                                     cache_key, start = metadata
                                     entries.append(
-                                        (
-                                            key,
-                                            int(st.st_size),
-                                            float(st.st_mtime),
-                                            cache_key,
-                                            start,
+                                        CacheEntry(
+                                            key=key,
+                                            cache_key=cache_key,
+                                            start=start,
+                                            size=int(st.st_size),
+                                            mtime=float(st.st_mtime),
                                         )
                                     )
                                 else:
@@ -133,12 +142,12 @@ class Cache:
                         if metadata:
                             cache_key, start = metadata
                             entries.append(
-                                (
-                                    key,
-                                    int(st.st_size),
-                                    float(st.st_mtime),
-                                    cache_key,
-                                    start,
+                                CacheEntry(
+                                    key=key,
+                                    cache_key=cache_key,
+                                    start=start,
+                                    size=int(st.st_size),
+                                    mtime=float(st.st_mtime),
                                 )
                             )
                         else:
@@ -157,20 +166,25 @@ class Cache:
                 except Exception:
                     continue
         finally:
-            entries.sort(key=lambda t: t[2])  # by mtime asc
+            entries.sort(key=lambda t: t.mtime)  # by mtime asc
 
             async with self._lock:
                 self._index.clear()
                 self._by_path.clear()
                 self._total_bytes = 0
 
-                for key, sz, ts, cache_key, start in entries:
-                    self._index[key] = (sz, ts, cache_key, start)
-                    self._total_bytes += sz
+                for cache_entry in entries:
+                    self._index[cache_entry.key] = (
+                        cache_entry.size,
+                        cache_entry.mtime,
+                        cache_entry.cache_key,
+                        cache_entry.start,
+                    )
+                    self._total_bytes += cache_entry.size
 
                     # Rebuild _by_path index
-                    lst = self._by_path.setdefault(cache_key, [])
-                    insort(lst, start)
+                    lst = self._by_path.setdefault(cache_entry.cache_key, [])
+                    insort(lst, cache_entry.start)
 
             # If we are over budget, evict oldest until within max_disk_bytes
             try:
