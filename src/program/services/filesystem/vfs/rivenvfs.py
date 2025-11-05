@@ -1782,12 +1782,21 @@ class RivenVFS(pyfuse3.Operations):
                 raise pyfuse3.FUSEError(errno.ECONNABORTED) from e
             except* (DebridServiceException, CacheDataNotFoundException) as e:
                 for exc in e.exceptions:
-                    logger.error(f"{exc.__class__.__name__}: {exc}")
+                    logger.error(
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
             except* Exception as e:
                 for exc in e.exceptions:
-                    logger.error(f"{exc.__class__.__name__}: {exc}")
+                    if stream:
+                        logger.error(
+                            stream._build_log_message(
+                                f"{exc.__class__.__name__}: {exc}"
+                            )
+                        )
+                    else:
+                        logger.error(f"{exc.__class__.__name__}: {exc}")
 
                 raise pyfuse3.FUSEError(errno.EIO)
         except pyfuse3.FUSEError as e:
