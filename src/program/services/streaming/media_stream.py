@@ -273,6 +273,17 @@ class MediaStream:
                                 async def _process_chunks(
                                     chunks: OrderedSet[Chunk],
                                 ) -> None:
+                                    if len(chunks) == 0:
+                                        logger.log(
+                                            "STREAM",
+                                            self._build_log_message(
+                                                f"Received no chunks to process; skipping."
+                                            ),
+                                        )
+
+                                    if len(chunks) == 0:
+                                        return
+
                                     logger.log(
                                         "STREAM",
                                         self._build_log_message(
