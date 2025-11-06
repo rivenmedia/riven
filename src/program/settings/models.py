@@ -798,6 +798,10 @@ class AppModel(Observable):
     log_level: Literal["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = (
         Field(default="INFO", description="Logging level")
     )
+    enable_network_tracing: bool = Field(
+        default=False,
+        description="Enable detailed network request/response logging",
+    )
     retry_interval: int = Field(
         default=60 * 60 * 24,
         ge=0,

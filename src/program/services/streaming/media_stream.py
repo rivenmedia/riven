@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from contextlib import asynccontextmanager
 from loguru import logger
-from typing import Literal
+from typing import Any, Literal
 from http import HTTPStatus
 from kink import di
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -338,7 +338,7 @@ class MediaStream:
                                         logger.log(
                                             "STREAM",
                                             self._build_log_message(
-                                                f"Requested start {request_start} "
+                                                f"Request chunk start {uncached_chunks[0].start} "
                                                 f"is after current read position {connection.current_read_position} "
                                                 f"for {self.file_metadata.path}. "
                                                 f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
@@ -825,6 +825,20 @@ class MediaStream:
     ) -> httpx.Response:
         """Establish a streaming connection starting at the given byte offset."""
 
+        if settings_manager.settings.enable_network_tracing:
+
+            async def trace_log(event_name, info):
+                logger.log(
+                    "NETWORK",
+                    self._build_log_message(
+                        f"HTTPX Trace Event: {event_name} - {info}"
+                    ),
+                )
+
+            extensions = {"trace": trace_log}
+        else:
+            extensions = None
+
         headers = httpx.Headers(
             {
                 "Accept-Encoding": "identity",
@@ -842,6 +856,7 @@ class MediaStream:
                     "GET",
                     url=self.target_url.value,
                     headers=headers,
+                    extensions=extensions,
                 )
                 response = await self.async_client.send(request, stream=True)
 
@@ -962,14 +977,11 @@ class MediaStream:
                         provider=self.provider,
                     ) from e
             except (
-                httpx.TimeoutException,
                 httpx.ConnectError,
                 httpx.InvalidURL,
             ) as e:
                 logger.warning(
-                    self._build_log_message(
-                        f"HTTP request failed (attempt {attempt + 1}/{max_attempts}): {e}"
-                    ),
+                    f"Encountered {e.__class__.__name__}: {e} (attempt {attempt + 1}/{max_attempts})"
                 )
 
                 if attempt == 0:
@@ -993,11 +1005,11 @@ class MediaStream:
                 raise DebridServiceUnableToConnectException(
                     provider=self.provider
                 ) from e
-            except httpx.RemoteProtocolError as e:
+            except (httpx.RemoteProtocolError, httpx.TimeoutException) as e:
                 # This can happen if the server closes the connection prematurely
                 logger.warning(
                     self._build_log_message(
-                        f"HTTP protocol error (attempt {attempt + 1}/{max_attempts}): {e}"
+                        f"{e.__class__.__name__} error (attempt {attempt + 1}/{max_attempts}): {e}"
                     ),
                 )
 

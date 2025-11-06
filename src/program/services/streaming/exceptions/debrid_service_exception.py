@@ -59,7 +59,7 @@ class DebridServiceLinkUnavailable(DebridServiceException):
     """Raised when a link is unavailable on the debrid service."""
 
     def __init__(self, provider: str, link: str) -> None:
-        super().__init__("Link is unavailable or invalid", provider=provider)
+        super().__init__(f"Link {link} is unavailable or invalid", provider=provider)
 
         self.link = link
 
