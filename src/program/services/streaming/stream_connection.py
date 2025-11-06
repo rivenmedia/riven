@@ -3,10 +3,9 @@ import httpx
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-import trio
 import trio_util
 
-from program.services.streaming.chunker import ChunkRange
+from program.services.streaming.recent_reads import Read
 
 
 @dataclass
@@ -30,8 +29,8 @@ class StreamConnection:
         self.start_position = start_position
         self.current_read_position = current_read_position
         self.reader = reader
-        self.requested_chunks: set[ChunkRange] = set()
         self.seek_required = trio_util.AsyncBool(False)
+        self.seek_read: Read | None = None
 
     @property
     def sequential_chunks_fetched(self) -> int:
@@ -82,11 +81,13 @@ class StreamConnection:
 
         self._sequential_chunks_fetched += 1
 
-    def seek(self, position: int) -> None:
+    def seek(self, read: Read) -> None:
         """Seek to a new position in the stream."""
 
-        self.current_read_position = position
-        self.seek_required.value = True
+        if len(read.uncached_chunks) > 0:
+            self.seek_read = read
+            self.current_read_position = read.uncached_chunks[0].start
+            self.seek_required.value = True
 
     async def close(self) -> None:
         if self.response:

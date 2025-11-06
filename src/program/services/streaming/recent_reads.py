@@ -2,20 +2,31 @@ from dataclasses import dataclass, field
 
 from typing import TYPE_CHECKING
 
+import time
+from ordered_set import OrderedSet
 import trio_util
 
-from program.services.streaming.chunker import ChunkRange
+from program.services.streaming.chunker import Chunk, ChunkRange
 
 if TYPE_CHECKING:
     from program.services.streaming.media_stream import ReadType
 
 
-@dataclass
+@dataclass(frozen=True)
 class Read:
     """Represents a single read operation."""
 
     chunk_range: ChunkRange
     read_type: "ReadType"
+    timestamp: float = field(default_factory=time.monotonic)
+
+    @property
+    def uncached_chunks(self) -> OrderedSet[Chunk]:
+        """The number of uncached chunks in this read operation."""
+
+        return OrderedSet(
+            [chunk for chunk in self.chunk_range.chunks if not chunk.is_cached.value]
+        )
 
 
 @dataclass

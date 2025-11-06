@@ -18,7 +18,7 @@ from program.utils import benchmark
 from program.utils.async_client import AsyncClient
 from program.utils.proxy_client import ProxyClient
 
-from .chunker import ChunkCacheNotifier, ChunkRange, Chunker
+from .chunker import Chunk, ChunkCacheNotifier, ChunkRange, Chunker
 from .config import Config
 from .exceptions import (
     CacheDataNotFoundException,
@@ -242,6 +242,8 @@ class MediaStream:
                 attempt_count = 0
                 max_attempts = 4
 
+                seek_read = None
+
                 while True:
                     try:
                         async with self.manage_connection(
@@ -267,94 +269,22 @@ class MediaStream:
                                     ),
                                 )
                             ):
-                                async for (
-                                    read
-                                ) in self.recent_reads.current_read.eventual_values(
-                                    lambda v: v is not None
-                                    and v.read_type == "body_read"
-                                ):
-                                    if not read:
-                                        raise ValueError(
-                                            self._build_log_message("No read available")
-                                        )
 
+                                async def _process_chunks(
+                                    chunks: OrderedSet[Chunk],
+                                ) -> None:
                                     logger.log(
                                         "STREAM",
                                         self._build_log_message(
-                                            f"Received read: {read}"
+                                            f"Received chunks to process: {chunks}"
                                         ),
                                     )
 
-                                    uncached_chunks = OrderedSet(
-                                        [
-                                            chunk
-                                            for chunk in read.chunk_range.chunks
-                                            if not chunk.is_cached.value
-                                        ]
-                                    )
-
-                                    if len(uncached_chunks) == 0:
-                                        continue
-
                                     chunk_range_label = (
-                                        f"{uncached_chunks[0].index}"
-                                        if len(uncached_chunks) == 1
-                                        else f"{uncached_chunks[0].index}-{uncached_chunks[-1].index}"
+                                        f"{chunks[0].index}"
+                                        if len(chunks) == 1
+                                        else f"{chunks[0].index}-{chunks[-1].index}"
                                     )
-
-                                    request_start, _ = read.chunk_range.request_range
-
-                                    if (
-                                        self.config.header_size
-                                        < uncached_chunks[0].start
-                                        < connection.start_position
-                                    ):
-                                        # Backward seek detection:
-                                        #
-                                        # If the requested start is before the start of the stream, we will always need to seek.
-                                        # This is because streams can only read forwards, so a new connection must be made.
-
-                                        logger.log(
-                                            "STREAM",
-                                            self._build_log_message(
-                                                f"Requested start {request_start} "
-                                                f"is before current read position {connection.current_read_position} "
-                                                f"for {self.file_metadata.path}. "
-                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
-                                            ),
-                                        )
-
-                                        connection.seek(
-                                            position=uncached_chunks[0].start
-                                        )
-
-                                        break
-
-                                    if (
-                                        connection.current_read_position
-                                        < uncached_chunks[0].start
-                                    ):
-                                        # Forward seek detection:
-                                        #
-                                        # If the requested start is after the current read position, we need to seek forward.
-                                        # This is because streams cannot skip chunks of data, so a new connection must be made,
-                                        # to avoid requesting data that will be discarded and using unnecessary bandwidth.
-
-                                        logger.log(
-                                            "STREAM",
-                                            self._build_log_message(
-                                                f"Request chunk start {uncached_chunks[0].start} "
-                                                f"is after current read position {connection.current_read_position} "
-                                                f"for {self.file_metadata.path}. "
-                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
-                                            ),
-                                        )
-
-                                        connection.seek(
-                                            position=uncached_chunks[0].start
-                                        )
-
-                                        break
 
                                     start_read_position = (
                                         connection.current_read_position
@@ -370,8 +300,7 @@ class MediaStream:
                                             ),
                                         )
                                     ):
-                                        for chunk in uncached_chunks:
-
+                                        for chunk in chunks:
                                             chunk_label = f"[{chunk.start}-{chunk.end}]"
 
                                             with benchmark(
@@ -414,7 +343,81 @@ class MediaStream:
                                                     data
                                                 )
 
+                                if seek_read:
+                                    await _process_chunks(seek_read.uncached_chunks)
+                                    seek_read = None
+
+                                async for (
+                                    read
+                                ) in self.recent_reads.current_read.eventual_values(
+                                    lambda v: (
+                                        v is not None and v.read_type == "body_read"
+                                    )
+                                ):
+                                    if not read:
+                                        raise ValueError(
+                                            self._build_log_message("No read available")
+                                        )
+
+                                    uncached_chunks = read.uncached_chunks
+
+                                    if len(uncached_chunks) == 0:
+                                        continue
+
+                                    request_start, _ = read.chunk_range.request_range
+
+                                    if (
+                                        self.config.header_size
+                                        < uncached_chunks[0].start
+                                        < connection.start_position
+                                    ):
+                                        # Backward seek detection:
+                                        #
+                                        # If the requested start is before the start of the stream, we will always need to seek.
+                                        # This is because streams can only read forwards, so a new connection must be made.
+
+                                        logger.log(
+                                            "STREAM",
+                                            self._build_log_message(
+                                                f"Requested start {request_start} "
+                                                f"is before current read position {connection.current_read_position} "
+                                                f"for {self.file_metadata.path}. "
+                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
+                                            ),
+                                        )
+
+                                        connection.seek(read=read)
+
+                                        break
+
+                                    if (
+                                        connection.current_read_position
+                                        < uncached_chunks[0].start
+                                    ):
+                                        # Forward seek detection:
+                                        #
+                                        # If the requested start is after the current read position, we need to seek forward.
+                                        # This is because streams cannot skip chunks of data, so a new connection must be made,
+                                        # to avoid requesting data that will be discarded and using unnecessary bandwidth.
+
+                                        logger.log(
+                                            "STREAM",
+                                            self._build_log_message(
+                                                f"Request chunk start {uncached_chunks[0].start} "
+                                                f"is after current read position {connection.current_read_position} "
+                                                f"for {self.file_metadata.path}. "
+                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
+                                            ),
+                                        )
+
+                                        connection.seek(read=read)
+
+                                        break
+
+                                    await _process_chunks(uncached_chunks)
+
                             position = connection.current_read_position
+                            seek_read = connection.seek_read
                     except RecoverableMediaStreamException as e:
                         logger.warning(
                             self._build_log_message(
