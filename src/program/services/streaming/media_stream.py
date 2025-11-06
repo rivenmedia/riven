@@ -227,15 +227,18 @@ class MediaStream:
         finally:
             await self.close()
 
-    async def run(self, *, task_status=trio.TASK_STATUS_IGNORED) -> None:
+    async def run(
+        self,
+        position: int,
+        *,
+        task_status=trio.TASK_STATUS_IGNORED,
+    ) -> None:
         has_started = False
 
         async with self.stream_lifecycle():
             async with trio_util.move_on_when(
                 lambda: self.is_killed.wait_value(True),
             ):
-                position = self.config.header_size
-
                 attempt_count = 0
                 max_attempts = 4
 
@@ -325,6 +328,8 @@ class MediaStream:
                                             position=uncached_chunks[0].start
                                         )
 
+                                        break
+
                                     if (
                                         connection.current_read_position
                                         < uncached_chunks[0].start
@@ -349,39 +354,31 @@ class MediaStream:
                                             position=uncached_chunks[0].start
                                         )
 
+                                        break
+
                                     start_read_position = (
                                         connection.current_read_position
                                     )
 
                                     with benchmark(
-                                        log=lambda duration, connection=connection: logger.log(
+                                        log=lambda duration, conn=connection, start=start_read_position: logger.log(
                                             "STREAM",
                                             self._build_log_message(
-                                                f"Stream fetched {start_read_position}-{connection.current_read_position} "
-                                                f"({connection.current_read_position - start_read_position} bytes) "
+                                                f"Stream fetched {start}-{conn.current_read_position} "
+                                                f"({conn.current_read_position - start} bytes) "
                                                 f"in {duration}s."
                                             ),
                                         )
                                     ):
                                         for chunk in uncached_chunks:
-                                            if (
-                                                connection.current_read_position
-                                                != chunk.start
-                                            ):
-                                                # This should never happen due to prior seek handling,
-                                                # but just in case, we double-check here.
-                                                #
-                                                # Returning the wrong data would be catastrophic for playback,
-                                                # so we force a reconnect at the correct position.
-                                                connection.seek(position=chunk.start)
 
                                             chunk_label = f"[{chunk.start}-{chunk.end}]"
 
                                             with benchmark(
-                                                log=lambda duration: logger.log(
+                                                log=lambda duration, c=chunk: logger.log(
                                                     "STREAM",
                                                     self._build_log_message(
-                                                        f"Fetching {chunk} took {duration}s"
+                                                        f"Fetching {c} took {duration}s"
                                                     ),
                                                 )
                                             ):
@@ -393,10 +390,10 @@ class MediaStream:
                                                 )
 
                                             with benchmark(
-                                                log=lambda duration: logger.log(
+                                                log=lambda duration, label=chunk_label, range_label=chunk_range_label: logger.log(
                                                     "STREAM",
                                                     self._build_log_message(
-                                                        f"Processing chunk(s) #{chunk_range_label} {chunk_label} took {duration}s"
+                                                        f"Processing chunk(s) #{range_label} {label} took {duration}s"
                                                     ),
                                                 )
                                             ):
@@ -610,7 +607,7 @@ class MediaStream:
             # or else the stream will not receive the value.
             if read_type == "body_read" and not self.is_streaming.value:
                 with trio.fail_after(10):
-                    await self.nursery.start(self.run)
+                    await self.nursery.start(self.run, chunk_range.position)
 
             self.recent_reads.current_read.value = Read(
                 chunk_range=chunk_range,
@@ -739,9 +736,8 @@ class MediaStream:
         ) and file_size - self.footer_size <= start <= file_size:
             return "footer_scan"
 
-        if (
-            self.recent_reads.last_read_end
-            and (
+        if self.recent_reads.last_read_end and (
+            (
                 # This behaviour is seen during scanning
                 # and captures large jumps in read position
                 # generally observed when the player is reading the footer
@@ -795,13 +791,7 @@ class MediaStream:
         data = b""
 
         try:
-            async for chunk in response.aiter_bytes(
-                chunk_size=min(size, self.config.chunk_size)
-            ):
-                data += chunk
-
-                if len(data) >= size:
-                    break
+            data = await response.aread()
         finally:
             await response.aclose()
 
@@ -830,9 +820,7 @@ class MediaStream:
             async def trace_log(event_name, info):
                 logger.log(
                     "NETWORK",
-                    self._build_log_message(
-                        f"HTTPX Trace Event: {event_name} - {info}"
-                    ),
+                    self._build_log_message(f"{event_name} - {info}"),
                 )
 
             extensions = {"trace": trace_log}
@@ -859,8 +847,6 @@ class MediaStream:
                     extensions=extensions,
                 )
                 response = await self.async_client.send(request, stream=True)
-
-                response.raise_for_status()
 
                 content_length = response.headers.get("Content-Length")
 
@@ -898,6 +884,8 @@ class MediaStream:
                 return response
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
+
+                await e.response.aclose()
 
                 logger.warning(
                     self._build_log_message(f"HTTP error {status_code}: {e}")

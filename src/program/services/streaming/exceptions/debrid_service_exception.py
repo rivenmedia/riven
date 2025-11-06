@@ -42,7 +42,7 @@ class DebridServiceRateLimitedException(DebridServiceHTTPException):
 
 
 class DebridServiceUnableToConnectException(DebridServiceException):
-    """Raised when the debrid service does not provide a download URL."""
+    """Raised when unable to establish a connection to the debrid service."""
 
     def __init__(self, provider: str) -> None:
         super().__init__("Unable to connect", provider=provider)

@@ -1723,14 +1723,14 @@ class RivenVFS(pyfuse3.Operations):
             except* ChunksTooSlowException as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{e.__class__.__name__}: {exc}")
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
             except* (MediaStreamDataException, FatalMediaStreamException) as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{e.__class__.__name__}: {exc}")
+                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 handle_info = self._file_handles.get(fh)

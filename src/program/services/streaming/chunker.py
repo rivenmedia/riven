@@ -122,7 +122,7 @@ class Chunk:
         String representation of the Chunk.
 
         e.g.
-        `Chunk #1 [0-1023] (1024 bytes)`
+        `Chunk #1 (cached) [0-1023] (1024 bytes)`
         """
 
         cached_str = "(cached) " if self.is_cached.value else ""

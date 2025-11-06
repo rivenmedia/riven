@@ -4,10 +4,6 @@ from loguru import logger
 from program.settings.manager import settings_manager
 
 
-def trace_log(event_name, info):
-    logger.log("NETWORK", f"{event_name} - {info}")
-
-
 class AsyncClient(httpx.AsyncClient):
     def __init__(self) -> None:
         enable_network_tracing = settings_manager.settings.enable_network_tracing
