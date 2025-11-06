@@ -15,7 +15,7 @@ class AsyncClient(httpx.AsyncClient):
         hooks = (
             {
                 "request": [self.log_request],
-                "response": [self.log_response],
+                "response": [self.log_response, self.raise_on_4xx_5xx],
             }
             if enable_network_tracing
             else None
@@ -31,6 +31,11 @@ class AsyncClient(httpx.AsyncClient):
             ),
             event_hooks=hooks,
         )
+
+    async def raise_on_4xx_5xx(self, response: httpx.Response) -> None:
+        """Raise an error if the response status code indicates an error."""
+
+        response.raise_for_status()
 
     async def log_request(self, request: httpx.Request) -> None:
         """Log the HTTP request details.
