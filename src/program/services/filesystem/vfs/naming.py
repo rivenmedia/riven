@@ -152,41 +152,6 @@ class NamingService:
         else:
             return "/movies"  # Fallback
 
-    def _extract_title(self, obj) -> str | None:
-        """Safely extract a title string from a MediaItem/Show-like object or string.
-        - If obj is a plain string, return it.
-        - If obj has a string attribute 'title', return it.
-        - Otherwise return None.
-        """
-        if obj is None:
-            return None
-        if isinstance(obj, str):
-            return obj
-        try:
-            t = getattr(obj, "title", None)
-            return t if isinstance(t, str) else None
-        except Exception:
-            return None
-
-    def _get_top_parent(self, item: MediaItem):
-        """Walk up the parent chain to the top-most parent object.
-        Returns the item itself if no parent is present.
-        """
-        current = item
-        seen = 0
-        try:
-            while (
-                hasattr(current, "parent")
-                and getattr(current, "parent") is not None
-                and seen < 10
-            ):
-                current = getattr(current, "parent")
-                seen += 1
-        except Exception:
-            # If anything unexpected, just return the last known object
-            return current
-        return current
-
     def _create_folder_structure(self, item: MediaItem, base_path: str) -> str:
         """
         Create folder structure for item.
@@ -251,22 +216,14 @@ class NamingService:
         - Season dir: settings.filesystem.season_dir_template
         """
         # Determine the top-most parent (Show-level for seasons/episodes)
-        top_parent = self._get_top_parent(item)
-
-        # Extract show-level metadata
-        title_str = self._extract_title(top_parent) or self._extract_title(item) or ""
+        top_parent = item._get_top_parent()
 
         # Year: from top parent aired_at or year
         year = None
-        if hasattr(top_parent, "aired_at") and getattr(top_parent, "aired_at"):
-            try:
-                year = str(getattr(top_parent, "aired_at")).split("-")[0]
-            except (ValueError, IndexError, AttributeError):
-                year = None
-        if year is None and hasattr(top_parent, "year") and getattr(top_parent, "year"):
+        if getattr(top_parent, "aired_at", None):
+            year = getattr(top_parent, "aired_at").year
+        elif getattr(top_parent, "year", None):
             year = getattr(top_parent, "year")
-        if year is None and hasattr(item, "year") and getattr(item, "year"):
-            year = getattr(item, "year")
 
         # TVDB ID: strictly from show-level (top parent) when present
         tvdb_id = getattr(top_parent, "tvdb_id", None)
@@ -274,7 +231,7 @@ class NamingService:
 
         # Build show directory context
         show_context = {
-            "title": title_str,
+            "title": top_parent.title,
             "year": year,
             "tvdb_id": tvdb_id,
             "imdb_id": imdb_id,
@@ -290,7 +247,7 @@ class NamingService:
             logger.warning(
                 f"Failed to render show_dir_template: {e}, falling back to title"
             )
-            segment = self._sanitize_name(title_str)
+            segment = self._sanitize_name(top_parent.title)
 
         folder = f"{base_path}/{segment}" if segment else base_path
 
@@ -400,16 +357,12 @@ class NamingService:
         Includes media metadata from MediaEntry if available.
         """
         # Use show-level (top parent) for title/year
-        top_parent = self._get_top_parent(item)
-        title_str = self._extract_title(top_parent) or self._extract_title(item) or ""
+        top_parent = item._get_top_parent()
 
         year = None
-        if hasattr(top_parent, "aired_at") and getattr(top_parent, "aired_at"):
-            try:
-                year = str(getattr(top_parent, "aired_at")).split("-")[0]
-            except (ValueError, IndexError, AttributeError):
-                year = None
-        if year is None and getattr(top_parent, "year", None):
+        if getattr(top_parent, "aired_at", None):
+            year = getattr(top_parent, "aired_at").year
+        elif getattr(top_parent, "year", None):
             year = getattr(top_parent, "year")
 
         season_num = item.parent.number if item.parent else 1
@@ -434,7 +387,7 @@ class NamingService:
             "season": season_num,
             "episode": episode_num,
             "show": {  # Nested show data
-                "title": title_str,
+                "title": top_parent.title,
                 "year": year,
                 "tvdb_id": getattr(top_parent, "tvdb_id", None),
                 "imdb_id": getattr(top_parent, "imdb_id", None),
@@ -466,7 +419,7 @@ class NamingService:
             else:
                 episode_string = f"e{episode_num:02d}"
             return self._sanitize_name(
-                f"{title_str} - s{season_num:02d}{episode_string}"
+                f"{top_parent.title} - s{season_num:02d}{episode_string}"
             )
 
     def _adapt_template_for_multi_episode(self, template: str, episodes: list) -> str:

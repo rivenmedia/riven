@@ -709,6 +709,16 @@ class MediaItem(db.Model):
                 return self.parent.is_parent_blocked()
         return False
 
+    def _get_top_parent(self) -> "MediaItem":
+        """Return the top-most parent item in the hierarchy."""
+        if self.type == "season" and getattr(self, "parent", None):
+            return self.parent
+        if self.type == "episode" and getattr(
+            getattr(self, "parent", None), "parent", None
+        ):
+            return self.parent.parent
+        return self
+
 
 class Movie(MediaItem):
     """Movie class"""

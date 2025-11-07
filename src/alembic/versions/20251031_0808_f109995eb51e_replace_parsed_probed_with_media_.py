@@ -110,27 +110,12 @@ def upgrade() -> None:
             media_metadata["year"] = parsed_data.get("year")
 
             # Video metadata from parsed data
-            if parsed_data.get("resolution"):
-                resolutions = parsed_data["resolution"]
-                resolution = (
-                    resolutions[0]
-                    if isinstance(resolutions, list) and resolutions
-                    else resolutions
-                )
-                media_metadata["video"] = {
-                    "resolution": resolution,
-                    "codec": (
-                        parsed_data.get("codec", [None])[0]
-                        if isinstance(parsed_data.get("codec"), list)
-                        else parsed_data.get("codec")
-                    ),
-                    "hdr": parsed_data.get("hdr", []),
-                    "bit_depth": (
-                        parsed_data.get("bitDepth", [None])[0]
-                        if isinstance(parsed_data.get("bitDepth"), list)
-                        else parsed_data.get("bitDepth")
-                    ),
-                }
+            media_metadata["video"] = {
+                "resolution": parsed_data.get("resolution", "unknown"),
+                "codec": parsed_data.get("codec", None),
+                "hdr": parsed_data.get("hdr", []),
+                "bit_depth": parsed_data.get("bit_depth", None),
+            }
 
             # Audio tracks from parsed data
             if parsed_data.get("audio"):
@@ -158,10 +143,15 @@ def upgrade() -> None:
             media_metadata["is_remux"] = parsed_data.get("remux", False)
             media_metadata["is_proper"] = parsed_data.get("proper", False)
             media_metadata["is_repack"] = parsed_data.get("repack", False)
-            media_metadata["is_remastered"] = parsed_data.get("remastered", False)
             media_metadata["is_upscaled"] = parsed_data.get("upscaled", False)
-            media_metadata["is_directors_cut"] = parsed_data.get("directorsCut", False)
-            media_metadata["is_extended"] = parsed_data.get("extended", False)
+
+            _edition = parsed_data.get("edition", "").lower()
+            media_metadata["is_remastered"] = _edition == "remastered"
+            media_metadata["is_directors_cut"] = _edition == "directors cut"
+            media_metadata["is_theatrical_cut"] = (
+                _edition == "theatrical cut"
+            )  # PTT doesnt support this yet
+            media_metadata["is_extended"] = _edition == "extended cut"
 
             # Episode information
             media_metadata["seasons"] = parsed_data.get("season", [])

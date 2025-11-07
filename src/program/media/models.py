@@ -171,57 +171,42 @@ class MediaMetadata(BaseModel):
         Returns:
             MediaMetadata instance with parsed data populated
         """
-        # Extract resolution from parsed data
         resolution_height = None
-        bit_depth = None
-        if parsed_data.get("resolution"):
-            # RTN returns resolution as string (e.g., "1080p", "2160p")
-            # Handle both string and list for backward compatibility
-            resolution = parsed_data["resolution"]
-            resolutions = [resolution] if isinstance(resolution, str) else resolution
-
-            for res in resolutions:
-                if "2160" in res or "4K" in res.upper() or "UHD" in res.upper():
+        if parsed_data.get("resolution", "unknown"):
+            res = parsed_data["resolution"].lower()
+            match res:
+                case "2160p" | "2160i":
                     resolution_height = 2160
-                elif "1440" in res:
+                case "1440p" | "1440i":
                     resolution_height = 1440
-                elif "1080" in res or "FHD" in res.upper():
+                case "1080p" | "1080i":
                     resolution_height = 1080
-                elif "720" in res or "HD" in res.upper():
+                case "720p" | "720i":
                     resolution_height = 720
-                elif "480" in res or "SD" in res.upper():
+                case "480p" | "480i":
                     resolution_height = 480
-                if resolution_height:
-                    break
 
+        bit_depth = None
         if parsed_data.get("bit_depth"):
-            # RTN returns bit_depth as string (e.g., "10bit")
-            # Handle both string and list for backward compatibility
-            bd = parsed_data["bit_depth"]
-            if isinstance(bd, list):
-                bit_depth = bd[0] if bd else None
-            else:
-                # Extract numeric value from string like "10bit"
-                bit_depth = int(bd.replace("bit", "")) if bd and "bit" in bd else bd
+            bd = parsed_data.get("bit_depth")
+            if bd:
+                try:
+                    bit_depth = int(bd.replace("bit", ""))
+                except:
+                    # PTT/RTN should only return `10bit` or `8bit` 99% of the time
+                    # buit lets add a failsafe just in case
+                    from program.utils import logger
 
-        # Extract codec from parsed data
-        codec = None
-        if parsed_data.get("codec"):
-            # RTN returns codec as string (e.g., "hevc", "h264")
-            # Handle both string and list for backward compatibility
-            c = parsed_data["codec"]
-            codec = c[0] if isinstance(c, list) else c
+                    logger.debug(f"Failed to parse bit_depth '{bd}' as int")
+                    bit_depth = None
 
-        # Extract HDR type
-        # RTN returns hdr as list (e.g., ["DV", "HDR10"])
+        codec = parsed_data.get("codec")
+
         # Join them into a single string for storage
         hdr_type = None
         hdr = parsed_data.get("hdr")
         if hdr:
-            if isinstance(hdr, list):
-                hdr_type = "+".join(hdr) if hdr else None
-            else:
-                hdr_type = hdr
+            hdr_type = "+".join(hdr)
 
         # Create video metadata if we have any video info
         video = None
@@ -236,27 +221,17 @@ class MediaMetadata(BaseModel):
         # Extract audio tracks from parsed data
         audio_tracks = []
         if parsed_data.get("audio"):
-            # RTN returns audio as list like ["AAC", "DTS"]
             for audio_codec in parsed_data["audio"]:
                 audio_tracks.append(AudioMetadata(codec=audio_codec))
 
         # Extract subtitle tracks from parsed data
         subtitle_tracks = []
-        if parsed_data.get("subtitles"):
-            # RTN returns subtitles as list like ["eng", "spa"]
-            for lang in parsed_data["subtitles"]:
+        if parsed_data.get("subbed", False):
+            for lang in parsed_data["languages"]:
                 subtitle_tracks.append(SubtitleMetadata(language=lang))
 
-        # Extract quality source
-        quality_source = None
-        if parsed_data.get("quality"):
-            # RTN returns quality as string (e.g., "WEB-DL", "BluRay")
-            # Handle both string and list for backward compatibility
-            quality = parsed_data["quality"]
-            if isinstance(quality, list):
-                quality_source = quality[0] if quality else None
-            else:
-                quality_source = quality
+        quality_source = parsed_data["quality"]
+        _edition = parsed_data.get("edition", "").lower()
 
         return cls(
             filename=filename or parsed_data.get("raw_title"),
@@ -266,13 +241,13 @@ class MediaMetadata(BaseModel):
             audio_tracks=audio_tracks,
             subtitle_tracks=subtitle_tracks,
             quality_source=quality_source,
-            is_remux=parsed_data.get("remux", False),
+            is_remux="remux" in quality_source.lower(),
             is_proper=parsed_data.get("proper", False),
             is_repack=parsed_data.get("repack", False),
-            is_remastered=parsed_data.get("remastered", False),
+            is_remastered="remastered" in _edition,
             is_upscaled=parsed_data.get("upscaled", False),
-            is_directors_cut=parsed_data.get("directorsCut", False),
-            is_extended=parsed_data.get("extended", False),
+            is_directors_cut="directors" in _edition,
+            is_extended="extended" in _edition,
             seasons=parsed_data.get("season", []),
             episodes=parsed_data.get("episode", []),
             data_source=DataSource.PARSED,
