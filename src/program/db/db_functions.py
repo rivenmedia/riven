@@ -348,6 +348,7 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
             "show_title": title,
             "item_type": item.type,
             "aired_at": item.aired_at,
+            "last_state": item.last_state,
         }
 
         if item.type == "show":
