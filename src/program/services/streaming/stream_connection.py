@@ -88,7 +88,3 @@ class StreamConnection:
             self.seek_read = read
             self.current_read_position = read.uncached_chunks[0].start
             self.seek_required.value = True
-
-    async def close(self) -> None:
-        if self.response:
-            await self.response.aclose()

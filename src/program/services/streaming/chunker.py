@@ -47,9 +47,9 @@ class ChunkCacheNotifier:
     def clear_emitters(self, *, cache_key: str) -> None:
         """Clear all emitters for a specific cache key."""
 
-        self.emitters = {
-            k: v for k, v in self.emitters.items() if k.cache_key != cache_key
-        }
+        for chunk in list(self.emitters.keys()):
+            if chunk.cache_key == cache_key:
+                del self.emitters[chunk]
 
 
 @dataclass(frozen=True, unsafe_hash=True)
@@ -166,7 +166,7 @@ class ChunkRange:
         """The number of bytes required to satisfy this range."""
 
         if len(self.chunks) == 1:
-            return self.chunk_size
+            return next(iter(self.chunks)).size
 
         return self.last_chunk.end - self.first_chunk.start + 1
 
@@ -274,10 +274,11 @@ class Chunker:
         self.header_size = header_size
         self.file_size = file_size
         self.footer_size = footer_size
-        self.footer_start = file_size - footer_size
-        self.total_chunks_excluding_header_footer = (
-            self.file_size - self.footer_size - self.header_size
-        ) // self.chunk_size
+        self.footer_start = max(0, file_size - footer_size)
+        self.total_chunks_excluding_header_footer = max(
+            0,
+            (self.file_size - self.footer_size - self.header_size) // self.chunk_size,
+        )
 
     @cached_property
     def header_chunk(self) -> Chunk:
@@ -293,7 +294,7 @@ class Chunker:
             cache_key=self.cache_key,
             index=index,
             start=0,
-            end=self.header_size - 1,
+            end=max(0, min(self.header_size, self.file_size) - 1),
         )
 
     @cached_property
@@ -309,8 +310,8 @@ class Chunker:
         return Chunk(
             cache_key=self.cache_key,
             index=index,
-            start=self.footer_start,
-            end=self.file_size - 1,
+            start=min(self.footer_start, max(0, self.file_size - 1)),
+            end=max(0, self.file_size - 1),
         )
 
     def get_chunk_range(self, *, position: int, size: int = 1) -> ChunkRange:

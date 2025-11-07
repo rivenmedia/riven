@@ -1852,7 +1852,7 @@ class RivenVFS(pyfuse3.Operations):
                         active_stream = self._active_streams.pop(stream_key, None)
 
                         if active_stream:
-                            await active_stream.kill()
+                            await active_stream.close()
 
             logger.trace(f"release: fh={fh} path={path}")
         except pyfuse3.FUSEError:

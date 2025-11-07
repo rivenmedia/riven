@@ -22,7 +22,7 @@ class Read:
 
     @property
     def uncached_chunks(self) -> OrderedSet[Chunk]:
-        """The number of uncached chunks in this read operation."""
+        """The uncached chunks in this read operation."""
 
         return OrderedSet(
             [chunk for chunk in self.chunk_range.chunks if not chunk.is_cached.value]

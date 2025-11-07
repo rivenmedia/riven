@@ -83,7 +83,6 @@ class MediaStream:
         self.nursery = nursery
         self.provider = provider
         self.recent_reads: RecentReads = RecentReads()
-        self.connection: StreamConnection | None = None
         self.is_streaming: trio_util.AsyncBool = trio_util.AsyncBool(False)
         self.is_killed: trio_util.AsyncBool = trio_util.AsyncBool(False)
         self._stream_error: trio_util.AsyncValue[Exception | None] = (
@@ -189,11 +188,8 @@ class MediaStream:
         """Context manager to handle connection lifecycle."""
 
         try:
-            connection = await self.connect(position=position)
-
-            self.connection = connection
-
-            yield connection
+            async with self.connect(position=position) as connection:
+                yield connection
         except (
             EmptyDataException,
             DebridServiceRateLimitedException,
@@ -205,11 +201,6 @@ class MediaStream:
                     f"{e.__class__.__name__} occurred whilst managing stream connection: {e}"
                 )
             )
-
-            # If no connection exists, it means we failed to establish one.
-            # This is a fatal error; the stream cannot be read.
-            if not self.connection:
-                raise FatalMediaStreamException(e) from e
 
             raise RecoverableMediaStreamException(e) from e
         except (
@@ -224,8 +215,6 @@ class MediaStream:
             )
 
             raise FatalMediaStreamException(e) from e
-        finally:
-            await self.close()
 
     async def run(
         self,
@@ -472,7 +461,8 @@ class MediaStream:
 
                         break
 
-    async def connect(self, *, position: int) -> StreamConnection:
+    @asynccontextmanager
+    async def connect(self, *, position: int) -> AsyncGenerator[StreamConnection]:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
         chunk_aligned_start = max(
@@ -480,45 +470,25 @@ class MediaStream:
             self.chunker.get_chunk_range(position=position).first_chunk.start,
         )
 
-        response = await self._prepare_response(start=chunk_aligned_start)
+        async with self.establish_connection(start=chunk_aligned_start) as response:
+            stream_connection = StreamConnection(
+                response=response,
+                start_position=chunk_aligned_start,
+                current_read_position=chunk_aligned_start,
+                reader=response.aiter_raw(chunk_size=self.config.chunk_size),
+            )
 
-        stream_connection = StreamConnection(
-            response=response,
-            start_position=chunk_aligned_start,
-            current_read_position=chunk_aligned_start,
-            reader=response.aiter_bytes(chunk_size=self.config.chunk_size),
-        )
+            logger.log(
+                "STREAM",
+                self._build_log_message(
+                    f"{response.http_version} stream connection established "
+                    f"from byte {chunk_aligned_start} / {self.file_metadata.file_size}."
+                ),
+            )
 
-        logger.log(
-            "STREAM",
-            self._build_log_message(
-                f"{response.http_version} stream connection established "
-                f"from byte {chunk_aligned_start} / {self.file_metadata.file_size}."
-            ),
-        )
-
-        return stream_connection
+            yield stream_connection
 
     async def close(self) -> None:
-        """Close the active stream."""
-
-        if not self.connection:
-            return
-
-        await self.connection.close()
-
-        self.connection = None
-
-        logger.log(
-            "STREAM",
-            self._build_log_message(
-                f"Ended stream for {self.file_metadata.path} fh={self.fh} "
-                f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
-                f"in {self.session_statistics.total_session_connections} connections."
-            ),
-        )
-
-    async def kill(self) -> None:
         """Immediately terminate the active stream."""
 
         # First wait for the stream to stop, then close the client
@@ -538,6 +508,15 @@ class MediaStream:
                 logger.warning(
                     self._build_log_message("Stream didn't stop within 5 seconds")
                 )
+
+        logger.log(
+            "STREAM",
+            self._build_log_message(
+                f"Ended stream for {self.file_metadata.path} fh={self.fh} "
+                f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
+                f"in {self.session_statistics.total_session_connections} connections."
+            ),
+        )
 
     async def scan(self, read_position: int, size: int) -> bytes:
         """Fetch a one-off range of data for scanning purposes."""
@@ -718,115 +697,13 @@ class MediaStream:
 
         raise CacheDataNotFoundException(range=chunk_range.request_range)
 
-    async def _detect_read_type(
-        self,
-        *,
-        chunk_range: ChunkRange,
-    ) -> ReadType:
-        start, end = chunk_range.request_range
-        size = chunk_range.size
-
-        # First, attempt to detect if the requested range is already cached.
-        # This uses a lightweight check, that just checks for existence,
-        # rather than reading the actual data.
-        is_request_fully_cached = await trio.to_thread.run_sync(
-            lambda: self._check_cache(
-                start=chunk_range.first_chunk.start,  # Align to start of chunk for cache check
-                end=end,
-            )
-        )
-
-        if is_request_fully_cached:
-            return "cache_hit"
-
-        if start < end <= self.config.header_size:
-            return "header_scan"
-
-        file_size = self.file_metadata.file_size
-
-        if (
-            (self.recent_reads.last_read_end or 0)
-            < start - self.config.sequential_read_tolerance
-        ) and file_size - self.footer_size <= start <= file_size:
-            return "footer_scan"
-
-        if self.recent_reads.last_read_end and (
-            (
-                # This behaviour is seen during scanning
-                # and captures large jumps in read position
-                # generally observed when the player is reading the footer
-                # for cues or metadata after initial playback start.
-                #
-                # Scans typically read less than a single block.
-                abs(self.recent_reads.last_read_end - start)
-                > self.config.scan_tolerance
-                and start != self.config.header_size
-                and size < self.config.block_size
-            )
-            or (
-                # This behaviour is seen when seeking.
-                # Playback has already begun, so the header has been served
-                # for this file, but the scan happens on a new file handle
-                # and is the first request to be made.
-                start > self.config.header_size
-                and self.recent_reads.last_read_end == 0
-            )
-        ):
-            return "general_scan"
-
-        if start < self.file_metadata.file_size - self.footer_size:
-            return "body_read"
-
-        return "footer_read"
-
-    async def _fetch_discrete_byte_range(
-        self,
-        start: int,
-        size: int,
-        should_cache: bool = True,
-    ) -> bytes:
-        """
-        Fetch a discrete range of data outside of the main stream.
-
-        Used for fetching the header, footer, and one-off scans.
-        """
-
-        if start < 0:
-            raise ValueError("Start must be non-negative")
-
-        if size <= 0:
-            raise ValueError("Size must be positive")
-
-        response = await self._prepare_response(
-            start,
-            end=start + size - 1,
-        )
-
-        data = b""
-
-        try:
-            data = await response.aread()
-        finally:
-            await response.aclose()
-
-        self.session_statistics.bytes_transferred += len(data)
-
-        verified_data = self._verify_scan_integrity((start, start + size), data)
-
-        if should_cache:
-            await self._cache_chunk(
-                start=start,
-                data=verified_data[:size],
-            )
-
-        return verified_data
-
-    async def _prepare_response(
+    @asynccontextmanager
+    async def establish_connection(
         self,
         start: int,
         *,
         end: int | None = None,
-    ) -> httpx.Response:
+    ) -> AsyncGenerator[httpx.Response]:
         """Establish a streaming connection starting at the given byte offset."""
 
         if settings_manager.settings.enable_network_tracing:
@@ -854,52 +731,50 @@ class MediaStream:
 
         for attempt in range(max_attempts):
             try:
-                request = httpx.Request(
-                    "GET",
+                async with self.async_client.stream(
+                    method="GET",
                     url=self.target_url.value,
                     headers=headers,
                     extensions=extensions,
-                )
-                response = await self.async_client.send(request, stream=True)
+                ) as stream:
+                    content_length = stream.headers.get("Content-Length")
 
-                content_length = response.headers.get("Content-Length")
+                    if end is not None:
+                        range_bytes = end - start + 1
+                    else:
+                        range_bytes = self.file_metadata.file_size - start
 
-                if end is not None:
-                    range_bytes = end - start + 1
-                else:
-                    range_bytes = self.file_metadata.file_size - start
-
-                if (
-                    response.status_code == HTTPStatus.OK
-                    and content_length is not None
-                    and int(content_length) > range_bytes
-                ):
-                    # Server appears to be ignoring the range request and returning full content.
-                    # This is incompatible with our stream, as it will start at the incorrect position.
-                    logger.warning(
-                        self._build_log_message(
-                            f"Server returned full content instead of range."
-                        )
-                    )
-
-                    if await self._retry_with_backoff(
-                        attempt,
-                        max_attempts,
-                        backoffs,
+                    if (
+                        stream.status_code == HTTPStatus.OK
+                        and content_length is not None
+                        and int(content_length) > range_bytes
                     ):
-                        continue
+                        # Server appears to be ignoring the range request and returning full content.
+                        # This is incompatible with our stream, as it will start at the incorrect position.
+                        logger.warning(
+                            self._build_log_message(
+                                f"Server returned full content instead of range."
+                            )
+                        )
 
-                    raise DebridServiceRefusedRangeRequestException(
-                        provider=self.provider
-                    )
+                        if await self._retry_with_backoff(
+                            attempt,
+                            max_attempts,
+                            backoffs,
+                        ):
+                            continue
 
-                self.session_statistics.total_session_connections += 1
+                        raise DebridServiceRefusedRangeRequestException(
+                            provider=self.provider
+                        )
 
-                return response
+                    self.session_statistics.total_session_connections += 1
+
+                    yield stream
+
+                    return
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
-
-                await e.response.aclose()
 
                 logger.warning(
                     self._build_log_message(f"HTTP error {status_code}: {e}")
@@ -1015,6 +890,14 @@ class MediaStream:
                     ),
                 )
 
+                if isinstance(e, httpx.PoolTimeout):
+                    # Pool timeout indicates all connections are in use
+                    logger.warning(
+                        self._build_log_message(
+                            f"All connections are in use: {self.async_client._transport._pool}"  # type: ignore
+                        )
+                    )
+
                 if await self._retry_with_backoff(
                     attempt,
                     max_attempts,
@@ -1041,6 +924,103 @@ class MediaStream:
             "Unexpected error connecting to stream",
             provider=self.provider,
         )
+
+    async def _detect_read_type(
+        self,
+        *,
+        chunk_range: ChunkRange,
+    ) -> ReadType:
+        start, end = chunk_range.request_range
+        size = chunk_range.size
+
+        # First, attempt to detect if the requested range is already cached.
+        # This uses a lightweight check, that just checks for existence,
+        # rather than reading the actual data.
+        is_request_fully_cached = await trio.to_thread.run_sync(
+            lambda: self._check_cache(
+                start=chunk_range.first_chunk.start,  # Align to start of chunk for cache check
+                end=end,
+            )
+        )
+
+        if is_request_fully_cached:
+            return "cache_hit"
+
+        if start < end <= self.config.header_size:
+            return "header_scan"
+
+        file_size = self.file_metadata.file_size
+
+        if (
+            (self.recent_reads.last_read_end or 0)
+            < start - self.config.sequential_read_tolerance
+        ) and file_size - self.footer_size <= start <= file_size:
+            return "footer_scan"
+
+        if self.recent_reads.last_read_end and (
+            (
+                # This behaviour is seen during scanning
+                # and captures large jumps in read position
+                # generally observed when the player is reading the footer
+                # for cues or metadata after initial playback start.
+                #
+                # Scans typically read less than a single block.
+                abs(self.recent_reads.last_read_end - start)
+                > self.config.scan_tolerance
+                and start != self.config.header_size
+                and size < self.config.block_size
+            )
+            or (
+                # This behaviour is seen when seeking.
+                # Playback has already begun, so the header has been served
+                # for this file, but the scan happens on a new file handle
+                # and is the first request to be made.
+                start > self.config.header_size
+                and self.recent_reads.last_read_end == 0
+            )
+        ):
+            return "general_scan"
+
+        if start < self.file_metadata.file_size - self.footer_size:
+            return "body_read"
+
+        return "footer_read"
+
+    async def _fetch_discrete_byte_range(
+        self,
+        start: int,
+        size: int,
+        should_cache: bool = True,
+    ) -> bytes:
+        """
+        Fetch a discrete range of data outside of the main stream.
+
+        Used for fetching the header, footer, and one-off scans.
+        """
+
+        if start < 0:
+            raise ValueError("Start must be non-negative")
+
+        if size <= 0:
+            raise ValueError("Size must be positive")
+
+        async with self.establish_connection(
+            start=start,
+            end=start + size - 1,
+        ) as response:
+            data = await response.aread()
+
+            self.session_statistics.bytes_transferred += len(data)
+
+            verified_data = self._verify_scan_integrity((start, start + size), data)
+
+            if should_cache:
+                await self._cache_chunk(
+                    start=start,
+                    data=verified_data[:size],
+                )
+
+            return verified_data
 
     async def _wait_until_chunks_ready(
         self,
