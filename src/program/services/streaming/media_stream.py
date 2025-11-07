@@ -127,7 +127,7 @@ class MediaStream:
             logger.warning(
                 f"Cache size ({fs.cache_max_size_mb}MB) is too small. "
                 f"Minimum recommended: {min_cache_mb}MB. "
-                f"Cache thrashing may occur with concurrent reads, causing poor performance."
+                "Cache thrashing may occur with concurrent reads, causing poor performance."
             )
 
         # Use proxy client if provider requires it
@@ -255,7 +255,7 @@ class MediaStream:
 
             logger.log(
                 "STREAM",
-                f"Stream ended, stopping timeout handler",
+                "Stream ended, stopping timeout handler",
             )
 
         async with self.stream_lifecycle():
@@ -306,11 +306,10 @@ class MediaStream:
                                             logger.log(
                                                 "STREAM",
                                                 self._build_log_message(
-                                                    f"Received no chunks to process; skipping."
+                                                    "Received no chunks to process; skipping."
                                                 ),
                                             )
 
-                                        if len(chunks) == 0:
                                             return
 
                                         logger.log(
@@ -812,7 +811,7 @@ class MediaStream:
                         # This is incompatible with our stream, as it will start at the incorrect position.
                         logger.warning(
                             self._build_log_message(
-                                f"Server returned full content instead of range."
+                                "Server returned full content instead of range."
                             )
                         )
 
@@ -928,7 +927,7 @@ class MediaStream:
 
                     if fresh_url:
                         logger.warning(
-                            self._build_log_message(f"URL refresh after timeout")
+                            self._build_log_message("URL refresh after timeout")
                         )
 
                 if await self._retry_with_backoff(
@@ -971,7 +970,7 @@ class MediaStream:
                 raise
             except Exception as e:
                 logger.exception(
-                    self._build_log_message(f"Unexpected error connecting to stream")
+                    self._build_log_message("Unexpected error connecting to stream")
                 )
 
                 raise DebridServiceException(
