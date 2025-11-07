@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import trio_util
 
-from program.services.streaming.recent_reads import Read
+from program.services.streaming.chunker import ChunkRange
 
 
 @dataclass
@@ -30,7 +30,7 @@ class StreamConnection:
         self.current_read_position = current_read_position
         self.reader = reader
         self.seek_required = trio_util.AsyncBool(False)
-        self.seek_read: Read | None = None
+        self.seek_range: ChunkRange | None = None
 
     @property
     def sequential_chunks_fetched(self) -> int:
@@ -60,17 +60,16 @@ class StreamConnection:
         return self._start_position
 
     @start_position.setter
-    def start_position(self, value: int | None) -> None:
+    def start_position(self, value: int) -> None:
         """Set the start position in the stream."""
-
-        if value is None:
-            if hasattr(self, "_start_position"):
-                del self._start_position
-
-            return
 
         if value < 0:
             raise ValueError("Start position cannot be negative")
+
+        if value > self.current_read_position:
+            raise ValueError(
+                "Start position cannot be greater than current read position"
+            )
 
         self._start_position = value
 
@@ -81,10 +80,10 @@ class StreamConnection:
 
         self._sequential_chunks_fetched += 1
 
-    def seek(self, read: Read) -> None:
+    def seek(self, chunk_range: ChunkRange) -> None:
         """Seek to a new position in the stream."""
 
-        if len(read.uncached_chunks) > 0:
-            self.seek_read = read
-            self.current_read_position = read.uncached_chunks[0].start
+        if len(chunk_range.uncached_chunks) > 0:
+            self.seek_range = chunk_range
+            self.current_read_position = chunk_range.uncached_chunks[0].start
             self.seek_required.value = True

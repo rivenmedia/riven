@@ -261,7 +261,7 @@ class MediaStream:
                     attempt_count = 0
                     max_attempts = 4
 
-                    seek_read = None
+                    seek_range: ChunkRange | None = None
 
                     while True:
                         try:
@@ -379,9 +379,11 @@ class MediaStream:
                                                         data
                                                     )
 
-                                    if seek_read:
-                                        await _process_chunks(seek_read.uncached_chunks)
-                                        seek_read = None
+                                    if seek_range:
+                                        await _process_chunks(
+                                            seek_range.uncached_chunks
+                                        )
+                                        seek_range = None
 
                                     async for (
                                         read
@@ -397,7 +399,9 @@ class MediaStream:
                                                 )
                                             )
 
-                                        uncached_chunks = read.uncached_chunks
+                                        uncached_chunks = (
+                                            read.chunk_range.uncached_chunks
+                                        )
 
                                         if len(uncached_chunks) == 0:
                                             continue
@@ -426,7 +430,9 @@ class MediaStream:
                                                 ),
                                             )
 
-                                            connection.seek(read=read)
+                                            connection.seek(
+                                                chunk_range=read.chunk_range
+                                            )
 
                                             break
 
@@ -450,14 +456,16 @@ class MediaStream:
                                                 ),
                                             )
 
-                                            connection.seek(read=read)
+                                            connection.seek(
+                                                chunk_range=read.chunk_range
+                                            )
 
                                             break
 
                                         await _process_chunks(uncached_chunks)
 
                                 position = connection.current_read_position
-                                seek_read = connection.seek_read
+                                seek_range = connection.seek_range
                         except RecoverableMediaStreamException as e:
                             logger.warning(
                                 self._build_log_message(
@@ -505,9 +513,12 @@ class MediaStream:
     async def connect(self, *, position: int) -> AsyncGenerator[StreamConnection]:
         """Establish a streaming connection starting at the given byte offset, aligned to the closest chunk."""
 
-        chunk_aligned_start = max(
-            self.config.header_size,
-            self.chunker.get_chunk_range(position=position).first_chunk.start,
+        chunk_range = self.chunker.get_chunk_range(position=position)
+
+        chunk_aligned_start = (
+            chunk_range.uncached_chunks[0].start
+            if len(chunk_range.uncached_chunks) > 0
+            else max(self.config.header_size, chunk_range.first_chunk.start)
         )
 
         async with self.establish_connection(start=chunk_aligned_start) as response:
@@ -628,8 +639,6 @@ class MediaStream:
     async def read_lifecycle(self, chunk_range: ChunkRange) -> AsyncIterator[ReadType]:
         """Context manager for managing read lifecycle."""
 
-        read_type: ReadType | None = None
-
         try:
             read_type = await self._detect_read_type(
                 chunk_range=chunk_range,
@@ -685,7 +694,13 @@ class MediaStream:
                             read_position=request_start,
                             size=request_size,
                         )
-                    case "footer_scan":
+                    case "footer_scan" | "footer_read":
+                        # Note: if the read type is footer_read, the footer cache chunk
+                        # has likely expired and the player is nearing EOF.
+                        # In this case, we will re-download the entire footer and serve the rest from cache.
+                        #
+                        # This can happen if the user's cache size is small,
+                        # or during heavy scans with lots of competing streams.
                         return await self.scan_footer(
                             read_position=request_start,
                             size=request_size,
@@ -697,10 +712,6 @@ class MediaStream:
                         )
                     case "body_read":
                         return await self.read_bytes(chunk_range=read_range)
-                    case "footer_read":
-                        raise RuntimeError(
-                            "Tried to read footer but should have been cached"
-                        )
                     case _:
                         # This should never happen due to prior validation
                         raise RuntimeError("Unknown read type")
@@ -1078,10 +1089,11 @@ class MediaStream:
                     ]
                 )
         except* trio.TooSlowError:
-            raise ChunksTooSlowException(
-                threshold=self.config.chunk_wait_timeout_seconds,
-                chunk_range=chunk_range,
-            ) from None
+            if len(chunk_range.uncached_chunks) > 0:
+                raise ChunksTooSlowException(
+                    threshold=self.config.chunk_wait_timeout_seconds,
+                    chunks=chunk_range.uncached_chunks,
+                ) from None
 
     def _check_cache(self, *, start: int, end: int) -> bool:
         """Check if the given byte range is fully cached."""

@@ -21,14 +21,6 @@ class Read:
     read_type: "ReadType"
     timestamp: float = field(default_factory=trio.current_time)
 
-    @property
-    def uncached_chunks(self) -> OrderedSet[Chunk]:
-        """The uncached chunks in this read operation."""
-
-        return OrderedSet(
-            [chunk for chunk in self.chunk_range.chunks if not chunk.is_cached.value]
-        )
-
 
 @dataclass
 class RecentReads:

@@ -241,6 +241,12 @@ class ChunkRange:
 
         return self.chunks[-1]
 
+    @property
+    def uncached_chunks(self) -> OrderedSet[Chunk]:
+        """The uncached chunks needed for the request."""
+
+        return OrderedSet([chunk for chunk in self.chunks if not chunk.is_cached.value])
+
     def __repr__(self) -> str:
         return (
             f"{self.__class__.__name__}("
