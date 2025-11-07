@@ -8,7 +8,6 @@ import trio_util
 from program.services.streaming.chunker import ChunkRange
 
 
-@dataclass
 class StreamConnection:
     """Metadata about the current streaming connection."""
 

@@ -2,12 +2,10 @@ from dataclasses import dataclass, field
 
 from typing import TYPE_CHECKING
 
-import time
-from ordered_set import OrderedSet
 import trio
 import trio_util
 
-from program.services.streaming.chunker import Chunk, ChunkRange
+from program.services.streaming.chunker import ChunkRange
 
 if TYPE_CHECKING:
     from program.services.streaming.media_stream import ReadType

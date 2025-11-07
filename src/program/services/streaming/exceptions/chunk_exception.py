@@ -13,9 +13,10 @@ class ChunksTooSlowException(ChunkException):
     """Raised when chunks took too long to be fetched from the cache."""
 
     def __init__(self, *, chunks: OrderedSet[Chunk], threshold: int) -> None:
-        logger.debug(f"ChunksTooSlowException: {chunks}, threshold={threshold}")
-
         if len(chunks) == 0:
+            super().__init__("No chunks provided")
+            self.chunks = chunks
+            self.threshold = threshold
             return
 
         if len(chunks) == 1:

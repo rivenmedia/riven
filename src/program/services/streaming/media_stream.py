@@ -227,6 +227,8 @@ class MediaStream:
         has_started = False
 
         async def _handle_timeout() -> None:
+            """Handle stream timeout based on recent reads."""
+
             timeout_seconds = 60
 
             while True:
