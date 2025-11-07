@@ -6,8 +6,6 @@ from program.settings.manager import settings_manager
 
 class AsyncClient(httpx.AsyncClient):
     def __init__(self) -> None:
-        enable_network_tracing = settings_manager.settings.enable_network_tracing
-
         super().__init__(
             http2=True,
             follow_redirects=True,
@@ -18,6 +16,8 @@ class AsyncClient(httpx.AsyncClient):
             ),
             event_hooks={"response": [self.raise_on_4xx_5xx]},
         )
+
+        enable_network_tracing = settings_manager.settings.enable_network_tracing
 
         if enable_network_tracing:
             self.event_hooks["request"].append(self.log_request)
