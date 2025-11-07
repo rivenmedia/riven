@@ -58,7 +58,7 @@ def process_event(
 
     elif existing_item is not None and existing_item.last_state == States.Indexed:
         next_service = Scraping
-        if emitted_by != Scraping and Scraping.should_submit(existing_item):
+        if Scraping.should_submit(existing_item):
             items_to_submit = [existing_item]
         elif existing_item.type == "show":
             items_to_submit = [

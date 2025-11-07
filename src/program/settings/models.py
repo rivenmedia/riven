@@ -274,6 +274,11 @@ class FilesystemModel(Observable):
             "(e.g., genres: ['action', '!horror'] = action movies but not horror)."
         ),
     )
+    max_workers: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum number of workers for VFS operations.",
+    )
     cache_dir: Path = Field(
         default=Path("/dev/shm/riven-cache"),
         description="Directory for caching downloaded chunks",

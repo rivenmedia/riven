@@ -1,8 +1,10 @@
 """Prowlarr scraper module"""
 
 import concurrent.futures
+import re
 import time
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Dict
 
 from loguru import logger
@@ -45,12 +47,60 @@ class Indexer(BaseModel):
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
 
 
+class QueryStrategy(str, Enum):
+    """Enum for different query strategies with priority order"""
+
+    # For anime episodes - prioritize dubbed searches first
+    STRICT_SEASON_EPISODE_DUB = "strict_season_episode_dub"  # "Show S02E09 dub"
+    EPISODE_NUMBER_DUB = "episode_number_dub"  # "Show 9 dubbed"
+    ROMAN_SEASON_EPISODE_DUB = "roman_season_episode_dub"  # "Show IV - 9 dub" (Overlord IV - 9 dub)
+    STRICT_SEASON_EPISODE = "strict_season_episode"  # "Show S02E09"
+    EPISODE_NUMBER_ONLY = "episode_number_only"  # "Show 9"
+    ROMAN_SEASON_EPISODE = "roman_season_episode"  # "Show IV 9" or "Show IV - 9"
+    EPISODE_WITH_TITLE = "episode_with_title"  # "Show 9 Episode Title"
+
+    # For anime seasons
+    SEASON_NUMBER_DUB = "season_number_dub"  # "Show Season 2 dub"
+    ROMAN_SEASON_DUB = "roman_season_dub"  # "Show IV dub" (for Overlord IV dub)
+    SEASON_NUMBER = "season_number"  # "Show 2"
+    ROMAN_SEASON = "roman_season"  # "Show IV" (for Overlord IV)
+    STRICT_SEASON = "strict_season"  # "Show Season 2"
+    STRICT_SEASON_NUMBER = "strict_season_number"  # "Show S02"
+
+    # Standard queries
+    STANDARD = "standard"  # Default for non-anime or when no alternatives
+
+
+class QueryResult(BaseModel):
+    """Result of a query attempt"""
+
+    query: str
+    strategy: QueryStrategy
+    params: dict
+    streams: dict[str, str] = {}
+    has_results: bool = False
+
+
 class IndexerError(Exception):
     """Raised when an indexer request fails."""
 
     def __init__(self, message: str, remove_indexer: bool = False):
         super().__init__(message)
         self.remove_indexer = remove_indexer
+
+
+def _arabic_to_roman(num: int) -> str:
+    """Convert Arabic number to Roman numeral (I-X range for seasons)."""
+    val = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+    syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+    roman_num = ""
+    i = 0
+    while num > 0:
+        for _ in range(num // val[i]):
+            roman_num += syms[i]
+            num -= val[i]
+        i += 1
+    return roman_num if roman_num else None
 
 
 class Prowlarr(ScraperService):
@@ -242,6 +292,10 @@ class Prowlarr(ScraperService):
         start_time = time.time()
         failed_indexers = []  # Track failed indexers to remove after iteration
 
+        if len(self.indexers) == 0:
+            logger.debug("No Prowlarr indexers available for scraping.")
+            return torrents
+        
         with concurrent.futures.ThreadPoolExecutor(
             thread_name_prefix="ProwlarrScraper", max_workers=len(self.indexers)
         ) as executor:
@@ -291,8 +345,67 @@ class Prowlarr(ScraperService):
 
         return torrents
 
-    def build_search_params(self, indexer: Indexer, item: MediaItem) -> dict:
-        """Build a search query for a single indexer."""
+    def get_query_strategies(self, item: MediaItem) -> list[QueryStrategy]:
+        """
+        Determine which query strategies to try for an item, in priority order.
+        Returns a list of strategies to attempt in sequence.
+        Prioritizes dubbed anime searches when dubbed_anime_only is enabled.
+        """
+        scraping_settings = settings_manager.settings.scraping
+        
+        if item.type == "episode" and item.is_anime:
+            # For anime episodes: prioritize dubbed searches if setting is enabled
+            strategies = []
+            
+            if scraping_settings.dubbed_anime_only:
+                # Try dubbed-specific searches first (including Roman numerals)
+                strategies.extend([
+                    QueryStrategy.STRICT_SEASON_EPISODE_DUB,
+                    QueryStrategy.EPISODE_NUMBER_DUB,
+                    QueryStrategy.ROMAN_SEASON_EPISODE_DUB,
+                ])
+            
+            # Then try standard anime searches (including Roman numerals)
+            strategies.extend([
+                QueryStrategy.STRICT_SEASON_EPISODE,
+                QueryStrategy.EPISODE_NUMBER_ONLY,
+                QueryStrategy.ROMAN_SEASON_EPISODE,
+                QueryStrategy.EPISODE_WITH_TITLE if item.title else None,
+            ])
+            
+            return [s for s in strategies if s is not None]
+            
+        elif item.type == "season" and item.is_anime:
+            # For anime seasons: prioritize dubbed searches if setting is enabled
+            strategies = []
+            
+            if scraping_settings.dubbed_anime_only:
+                # Try dubbed-specific searches first (including Roman numerals)
+                strategies.extend([
+                    QueryStrategy.SEASON_NUMBER_DUB,
+                    QueryStrategy.ROMAN_SEASON_DUB,
+                ])
+            
+            # Then try standard anime searches (including Roman numerals)
+            strategies.extend([
+                QueryStrategy.SEASON_NUMBER,
+                QueryStrategy.ROMAN_SEASON,
+                QueryStrategy.STRICT_SEASON,
+                QueryStrategy.STRICT_SEASON_NUMBER,
+            ])
+            
+            return strategies
+        else:
+            # For non-anime or other types: use standard approach
+            return [QueryStrategy.STANDARD]
+
+    def build_search_params(
+        self,
+        indexer: Indexer,
+        item: MediaItem,
+        strategy: QueryStrategy = QueryStrategy.STANDARD,
+    ) -> dict:
+        """Build a search query for a single indexer using the specified strategy."""
         params = {}
         item_title = (
             item.get_top_title()
@@ -328,19 +441,46 @@ class Prowlarr(ScraperService):
                 raise ValueError(f"Indexer {indexer.name} does not support show search")
 
         elif item.type == "season":
+            season_num = (
+                int(item.number) if isinstance(item.number, str) else item.number
+            )
+
             if "q" in search_params.tv:
-                # Convert zero-padded season number (e.g., "01") to integer (e.g., 1)
-                season_num = (
-                    int(item.number) if isinstance(item.number, str) else item.number
-                )
-                set_query_and_type(f"{item_title} {season_num}", "tvsearch")
+                # Build query based on strategy
+                if strategy == QueryStrategy.STRICT_SEASON_NUMBER:
+                    query = f"{item_title} S{season_num:02d}"
+                elif strategy == QueryStrategy.STRICT_SEASON:
+                    query = f"{item_title} Season {season_num}"
+                elif strategy == QueryStrategy.SEASON_NUMBER:
+                    query = f"{item_title} {season_num}"
+                elif strategy == QueryStrategy.ROMAN_SEASON:
+                    # Roman numeral season (e.g., "Overlord IV")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman}" if roman else f"{item_title} {season_num}"
+                elif strategy == QueryStrategy.ROMAN_SEASON_DUB:
+                    # Roman numeral season with dubbed keyword (e.g., "Overlord IV dub")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman} dub" if roman else f"{item_title} {season_num} dub"
+                else:
+                    # STANDARD strategy
+                    query = f"{item_title} {season_num}"
+
+                set_query_and_type(query, "tvsearch")
                 if "season" in search_params.tv:
                     params["season"] = item.number
             elif "q" in search_params.search:
-                season_num = (
-                    int(item.number) if isinstance(item.number, str) else item.number
-                )
-                query = f"{item_title} {season_num}"
+                if strategy == QueryStrategy.STRICT_SEASON:
+                    query = f"{item_title} Season {season_num}"
+                elif strategy == QueryStrategy.ROMAN_SEASON:
+                    # Roman numeral season (e.g., "Overlord IV")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman}" if roman else f"{item_title} {season_num}"
+                elif strategy == QueryStrategy.ROMAN_SEASON_DUB:
+                    # Roman numeral season with dubbed keyword (e.g., "Overlord IV dub")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman} dub" if roman else f"{item_title} {season_num} dub"
+                else:
+                    query = f"{item_title} {season_num}"
                 set_query_and_type(query, "search")
             else:
                 raise ValueError(
@@ -348,32 +488,53 @@ class Prowlarr(ScraperService):
                 )
 
         elif item.type == "episode":
-            if "q" in search_params.tv:
-                # Different search strategies for anime vs non-anime
-                # Anime: use loose searches with episode numbers (e.g., "Show 7" or "Show 7 Episode Title")
-                # Non-anime: use strict S##E## format (e.g., "Show S03E07") for better precision
-                episode_num = (
-                    int(item.number) if isinstance(item.number, str) else item.number
-                )
-                season_num = (
-                    int(item.parent.number)
-                    if isinstance(item.parent.number, str)
-                    else item.parent.number
-                )
+            episode_num = (
+                int(item.number) if isinstance(item.number, str) else item.number
+            )
+            season_num = (
+                int(item.parent.number)
+                if isinstance(item.parent.number, str)
+                else item.parent.number
+            )
 
-                if item.is_anime:
-                    # Anime: use loose format to catch various naming conventions
-                    # - "Show III 07" (Roman numerals)
-                    # - "Show Season 3 Episode 7" (spelled out)
-                    # - "Show 3 07" (plain numbers)
+            if "q" in search_params.tv:
+                # Build query based on strategy
+                if strategy == QueryStrategy.STRICT_SEASON_EPISODE:
+                    # Always use strict S##E## format for this strategy
+                    query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
+                elif strategy == QueryStrategy.STRICT_SEASON_EPISODE_DUB:
+                    # Strict S##E## format with dubbed keyword
+                    query = f"{item_title} S{season_num:02d}E{episode_num:02d} dubbed"
+                elif strategy == QueryStrategy.ROMAN_SEASON_EPISODE:
+                    # Roman numeral season with episode (e.g., "Overlord IV 9")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman} {episode_num}" if roman else f"{item_title} {episode_num}"
+                elif strategy == QueryStrategy.ROMAN_SEASON_EPISODE_DUB:
+                    # Roman numeral season with episode and dubbed keyword (e.g., "Overlord IV 9 dub")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman} {episode_num} dub" if roman else f"{item_title} {episode_num} dub"
+                elif strategy == QueryStrategy.EPISODE_NUMBER_ONLY:
+                    # Just episode number (good for anime)
+                    query = f"{item_title} {episode_num}"
+                elif strategy == QueryStrategy.EPISODE_NUMBER_DUB:
+                    # Episode number with dubbed keyword
+                    query = f"{item_title} {episode_num} dubbed"
+                elif strategy == QueryStrategy.SEASON_NUMBER_DUB:
+                    # Season number with dubbed keyword
+                    query = f"{item_title} Season {season_num} dub"
+                elif strategy == QueryStrategy.EPISODE_WITH_TITLE:
+                    # Episode number with title (fallback for anime)
                     query = f"{item_title} {episode_num}"
                     if item.title:
                         query = f"{query} {item.title}"
                 else:
-                    # Non-anime: use strict S##E## format for better precision
-                    query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
+                    # STANDARD strategy: use appropriate format based on anime status
+                    if item.is_anime:
+                        query = f"{item_title} {episode_num}"
+                    else:
+                        query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
 
-                # Include structured params if available (doesn't hurt, might help some)
+                # Include structured params if available (helps some indexers)
                 if "season" in search_params.tv:
                     params["season"] = season_num
                 if "ep" in search_params.tv:
@@ -382,23 +543,34 @@ class Prowlarr(ScraperService):
                 set_query_and_type(query, "tvsearch")
             elif "q" in search_params.search:
                 # Basic search fallback
-                episode_num = (
-                    int(item.number) if isinstance(item.number, str) else item.number
-                )
-                season_num = (
-                    int(item.parent.number)
-                    if isinstance(item.parent.number, str)
-                    else item.parent.number
-                )
-
-                if item.is_anime:
-                    # Anime: use loose format
+                if strategy == QueryStrategy.STRICT_SEASON_EPISODE:
+                    query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
+                elif strategy == QueryStrategy.STRICT_SEASON_EPISODE_DUB:
+                    query = f"{item_title} S{season_num:02d}E{episode_num:02d} dubbed"
+                elif strategy == QueryStrategy.ROMAN_SEASON_EPISODE:
+                    # Roman numeral season with episode (e.g., "Overlord IV 9")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman} {episode_num}" if roman else f"{item_title} {episode_num}"
+                elif strategy == QueryStrategy.ROMAN_SEASON_EPISODE_DUB:
+                    # Roman numeral season with episode and dubbed keyword (e.g., "Overlord IV 9 dub")
+                    roman = _arabic_to_roman(season_num)
+                    query = f"{item_title} {roman} {episode_num} dub" if roman else f"{item_title} {episode_num} dub"
+                elif strategy == QueryStrategy.EPISODE_NUMBER_ONLY:
+                    query = f"{item_title} {episode_num}"
+                elif strategy == QueryStrategy.EPISODE_NUMBER_DUB:
+                    query = f"{item_title} {episode_num} dubbed"
+                elif strategy == QueryStrategy.SEASON_NUMBER_DUB:
+                    query = f"{item_title} Season {season_num} dub"
+                elif strategy == QueryStrategy.EPISODE_WITH_TITLE:
                     query = f"{item_title} {episode_num}"
                     if item.title:
                         query = f"{query} {item.title}"
                 else:
-                    # Non-anime: use strict S##E## format
-                    query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
+                    # STANDARD strategy
+                    if item.is_anime:
+                        query = f"{item_title} {episode_num}"
+                    else:
+                        query = f"{item_title} S{season_num:02d}E{episode_num:02d}"
 
                 set_query_and_type(query, "search")
             else:
@@ -409,7 +581,7 @@ class Prowlarr(ScraperService):
         categories = {
             cat_id
             for category in indexer.capabilities.categories
-            if category.type == item.type
+            if (category.type == "tv" and item.type in ("show", "season", "episode"))
             or (category.type == "anime" and item.is_anime)
             for cat_id in category.ids
         }
@@ -452,126 +624,210 @@ class Prowlarr(ScraperService):
                     remove_indexer=False,
                 ) from retry_exc
 
+    def _execute_search_strategy(
+        self, indexer: Indexer, item: MediaItem, params: dict, strategy: QueryStrategy
+    ) -> dict[str, str]:
+        """Execute a single search strategy and return streams found."""
+        start_time = time.time()
+
+        response = self._perform_search_request(indexer, params)
+
+        if not getattr(response, "ok", False):
+            message = "Unknown error"
+            data = getattr(response, "data", None)
+            if hasattr(data, "message"):
+                message = data.message or message
+            elif isinstance(data, dict):
+                message = data.get("message") or data.get("error") or message
+
+            status_code = getattr(response, "status_code", None)
+            lower_message = (message or "").lower()
+
+            remove_indexer = True
+            if status_code == 400 and "all selected indexers" in lower_message:
+                remove_indexer = False
+
+            raise IndexerError(
+                f"[{status_code if status_code is not None else 'N/A'}] {message}",
+                remove_indexer=remove_indexer,
+            )
+
+        data = getattr(response, "data", None)
+        if not data:
+            logger.debug(
+                f"Indexer {indexer.name} returned empty data set for strategy {strategy.value}"
+            )
+            return {}
+
+        streams: dict[str, str] = {}
+        urls_to_fetch: list[tuple[object, str]] = []
+
+        for torrent in data:
+            title = getattr(torrent, "title", None)
+            if not title:
+                continue
+
+            # Log all available attributes from the torrent object for debugging
+            logger.debug(
+                f"Prowlarr torrent object attributes: {vars(torrent) if hasattr(torrent, '__dict__') else str(torrent)}"
+            )
+
+            infohash = None
+            if hasattr(torrent, "infoHash") and torrent.infoHash:
+                infohash = normalize_infohash(torrent.infoHash)
+            if not infohash and hasattr(torrent, "guid") and torrent.guid:
+                infohash = extract_infohash(torrent.guid)
+
+            if not infohash and hasattr(torrent, "downloadUrl") and torrent.downloadUrl:
+                urls_to_fetch.append((torrent, title))
+            elif infohash:
+                streams[infohash] = title
+
+        if urls_to_fetch:
+            try:
+                with concurrent.futures.ThreadPoolExecutor(
+                    thread_name_prefix="ProwlarrHashExtract",
+                    max_workers=max(1, len(self.indexers)),
+                ) as executor:
+                    future_to_torrent = {
+                        executor.submit(
+                            self.get_infohash_from_url, torrent.downloadUrl
+                        ): (torrent, title)
+                        for torrent, title in urls_to_fetch
+                    }
+
+                    done, pending = concurrent.futures.wait(
+                        future_to_torrent.keys(),
+                        timeout=self.settings.infohash_fetch_timeout,
+                    )
+
+                    for future in done:
+                        torrent, title = future_to_torrent[future]
+                        try:
+                            infohash = future.result()
+                            if infohash:
+                                streams[infohash] = title
+                        except Exception as exc:
+                            logger.debug(
+                                f"Failed to get infohash from downloadUrl for {title}: {exc}"
+                            )
+
+                    for future in pending:
+                        torrent, title = future_to_torrent[future]
+                        future.cancel()
+                        logger.debug(
+                            f"Timeout getting infohash from downloadUrl for {title}"
+                        )
+            except Exception as exc:
+                logger.error(
+                    f"Error during parallel infohash fetching for {indexer.name}: {exc}"
+                )
+
+        elapsed = time.time() - start_time
+        logger.debug(
+            f"Indexer {indexer.name} found {len(streams)} streams using strategy '{strategy.value}' for {item.log_string} in {elapsed:.2f}s"
+        )
+
+        return streams
+
     def scrape_indexer(self, indexer: Indexer, item: MediaItem) -> dict[str, str]:
-        """Scrape results from a single indexer."""
+        """Scrape results from a single indexer with multi-strategy fallback.
+        
+        Uses RTN/PTT parsing to validate result quality and determine if fallback
+        strategies should be attempted based on actual result validity, not just count.
+        """
 
         if indexer.name in ANIME_ONLY_INDEXERS or "anime" in indexer.name.lower():
             if not item.is_anime:
                 logger.debug(f"Indexer {indexer.name} is anime only, skipping")
                 return {}
 
-        try:
-            params = self.build_search_params(indexer, item)
-        except ValueError as exc:
-            logger.error(f"Failed to build search params for {indexer.name}: {exc}")
-            return {}
+        # Get strategies to try for this item
+        strategies = self.get_query_strategies(item)
+        strategies = [s for s in strategies if s is not None]  # Filter out None values
 
-        start_time = time.time()
+        if not strategies:
+            strategies = [QueryStrategy.STANDARD]
 
-        try:
-            response = self._perform_search_request(indexer, params)
+        all_streams: dict[str, str] = {}
+        
+        # Minimum acceptable results before stopping fallback attempts
+        # If failed_attempts > 5, we're more lenient and accept fewer results
+        min_acceptable_results = max(2, 10 - (item.failed_attempts or 0))
 
-            if not getattr(response, "ok", False):
-                message = "Unknown error"
-                data = getattr(response, "data", None)
-                if hasattr(data, "message"):
-                    message = data.message or message
-                elif isinstance(data, dict):
-                    message = data.get("message") or data.get("error") or message
+        for strategy_idx, strategy in enumerate(strategies):
+            try:
+                params = self.build_search_params(indexer, item, strategy)
+            except ValueError as exc:
+                logger.error(
+                    f"Failed to build search params for {indexer.name} with strategy {strategy.value}: {exc}"
+                )
+                continue
 
-                status_code = getattr(response, "status_code", None)
-                lower_message = (message or "").lower()
-
-                remove_indexer = True
-                if status_code == 400 and "all selected indexers" in lower_message:
-                    remove_indexer = False
-
-                raise IndexerError(
-                    f"[{status_code if status_code is not None else 'N/A'}] {message}",
-                    remove_indexer=remove_indexer,
+            try:
+                strategy_streams = self._execute_search_strategy(
+                    indexer, item, params, strategy
                 )
 
-            data = getattr(response, "data", None)
-            if not data:
-                logger.debug(f"Indexer {indexer.name} returned empty data set")
-                return {}
-
-            streams: dict[str, str] = {}
-            urls_to_fetch: list[tuple[object, str]] = []
-
-            for torrent in data:
-                title = getattr(torrent, "title", None)
-                if not title:
-                    continue
-
-                # Log all available attributes from the torrent object for debugging
-                logger.debug(
-                    f"Prowlarr torrent object attributes: {vars(torrent) if hasattr(torrent, '__dict__') else str(torrent)}"
-                )
-
-                infohash = None
-                if hasattr(torrent, "infoHash") and torrent.infoHash:
-                    infohash = normalize_infohash(torrent.infoHash)
-                if not infohash and hasattr(torrent, "guid") and torrent.guid:
-                    infohash = extract_infohash(torrent.guid)
-
-                if (
-                    not infohash
-                    and hasattr(torrent, "downloadUrl")
-                    and torrent.downloadUrl
-                ):
-                    urls_to_fetch.append((torrent, title))
-                elif infohash:
-                    streams[infohash] = title
-
-            if urls_to_fetch:
-                try:
-                    with concurrent.futures.ThreadPoolExecutor(
-                        thread_name_prefix="ProwlarrHashExtract", max_workers=10
-                    ) as executor:
-                        future_to_torrent = {
-                            executor.submit(
-                                self.get_infohash_from_url, torrent.downloadUrl
-                            ): (torrent, title)
-                            for torrent, title in urls_to_fetch
-                        }
-
-                        done, pending = concurrent.futures.wait(
-                            future_to_torrent.keys(),
-                            timeout=self.settings.infohash_fetch_timeout,
+                # Merge streams from this strategy
+                if strategy_streams:
+                    all_streams.update(strategy_streams)
+                    strategy_quality = self._validate_result_quality(strategy_streams, item)
+                    
+                    if strategy_idx == 0:
+                        # First strategy: only stop if we have enough good results
+                        if len(strategy_streams) >= min_acceptable_results and strategy_quality > 0.3:
+                            logger.debug(
+                                f"First strategy '{strategy.value}' succeeded with {len(strategy_streams)} results (quality: {strategy_quality:.2f}), sufficient for {item.log_string}"
+                            )
+                            break
+                        elif len(strategy_streams) > 0:
+                            logger.debug(
+                                f"First strategy '{strategy.value}' found {len(strategy_streams)} results (quality: {strategy_quality:.2f}) for {item.log_string}, below threshold ({min_acceptable_results}), trying fallback strategies"
+                            )
+                    else:
+                        logger.debug(
+                            f"Fallback strategy '{strategy.value}' added {len(strategy_streams)} results (quality: {strategy_quality:.2f})"
+                        )
+                else:
+                    # No results with this strategy, try next one
+                    if strategy_idx == 0:
+                        logger.debug(
+                            f"First strategy '{strategy.value}' found no results, trying fallback strategies"
+                        )
+                    else:
+                        logger.debug(
+                            f"Fallback strategy '{strategy.value}' also found no results"
                         )
 
-                        for future in done:
-                            torrent, title = future_to_torrent[future]
-                            try:
-                                infohash = future.result()
-                                if infohash:
-                                    streams[infohash] = title
-                            except Exception as exc:
-                                logger.debug(
-                                    f"Failed to get infohash from downloadUrl for {title}: {exc}"
-                                )
+            except IndexerError:
+                # Don't try fallback strategies if we got an indexer error
+                raise
+            except Exception as exc:
+                logger.warning(
+                    f"Error executing strategy '{strategy.value}' for {indexer.name}: {exc}"
+                )
+                # Try next strategy on error
 
-                        for future in pending:
-                            torrent, title = future_to_torrent[future]
-                            future.cancel()
-                            logger.debug(
-                                f"Timeout getting infohash from downloadUrl for {title}"
-                            )
-                except Exception as exc:
-                    logger.error(
-                        f"Error during parallel infohash fetching for {indexer.name}: {exc}"
-                    )
+        return all_streams
 
-            logger.debug(
-                f"Indexer {indexer.name} found {len(streams)} streams for {item.log_string} in {time.time() - start_time:.2f} seconds"
-            )
-            return streams
-
-        except IndexerError:
-            raise
+    def _validate_result_quality(self, streams: dict[str, str], item: MediaItem) -> float:
+        """Validate result quality using RTN parsing to determine if results are usable.
+        
+        Returns a quality score from 0.0 to 1.0 indicating how many of the results
+        appear to be valid for the given item based on RTN parsing.
+        """
+        from program.services.scrapers.shared import _parse_results
+        
+        if not streams:
+            return 0.0
+        
+        # Parse results to see how many pass RTN validation
+        try:
+            parsed = _parse_results(item, streams, log_msg=False)
+            quality_ratio = len(parsed) / len(streams) if streams else 0.0
+            return quality_ratio
         except Exception as exc:
-            raise IndexerError(
-                f"Unexpected error scraping {indexer.name}: {exc}",
-                remove_indexer=False,
-            ) from exc
+            logger.debug(f"Error during result quality validation: {exc}")
+            # If parsing fails, assume moderate quality
+            return 0.5

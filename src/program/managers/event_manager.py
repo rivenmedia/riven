@@ -2,7 +2,7 @@ import json
 import threading
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from queue import Empty
 from threading import Lock
 from typing import Dict, List, Optional
@@ -17,7 +17,6 @@ from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.types import Event
 from program.settings.manager import settings_manager
-from program.services.scrapers import Scraping
 
 
 class EventUpdate(BaseModel):
@@ -59,7 +58,7 @@ class EventManager:
         workers = 1
 
         # Allow scraping (which includes VFS reads) to be concurrent
-        if service_cls == Scraping:
+        if service_name == "Scraping":
             try:
                 workers = settings_manager.settings.scraping.max_workers
                 if workers > 1:
@@ -67,6 +66,18 @@ class EventManager:
             except Exception:
                 logger.warning(
                     "Could not read scraping.max_workers setting. Defaulting to 1."
+                )
+                workers = 1
+
+        # Add a dedicated executor for VFS operations
+        elif service_name == "VFS":
+            try:
+                workers = settings_manager.settings.filesystem.max_workers
+                if workers > 1:
+                    logger.info(f"Using {workers} workers for VFS service.")
+            except Exception:
+                logger.warning(
+                    "Could not read filesystem.max_workers setting. Defaulting to 1."
                 )
                 workers = 1
 
@@ -85,6 +96,10 @@ class EventManager:
             future (concurrent.futures.Future): The future to process.
             service (type): The service class associated with the future.
         """
+
+        # Bail immediately if we're shutting down; don't touch queues or executors.
+        if self._shutting_down:
+            return
 
         if future.cancelled():
             if hasattr(future, "event") and future.event:
@@ -118,8 +133,25 @@ class EventManager:
         except Exception as e:
             logger.error(f"Error in future for {future}: {e}")
             logger.exception(traceback.format_exc())
-            # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
-            # self.remove_event_from_queue(future.event)
+
+            # Ensure future bookkeeping is cleaned up
+            if future in self._futures:
+                self._futures.remove(future)
+
+            # If we had an event, remove it from "running" and retry with backoff
+            ev = getattr(future, "event", None)
+            if ev:
+                # Remove from running to avoid deadlock
+                self.remove_event_from_running(ev)
+
+                if not self._shutting_down:
+                    # Basic per-item backoff: if caller returned a tuple normally we would honor it,
+                    # but on exception we retry after a small delay (e.g., 60s), capped separately by service logic.
+                    retry_at = datetime.now() + timedelta(seconds=60)
+                    logger.debug(
+                        f"Retrying {ev.log_message} at {retry_at.isoformat()} after error"
+                    )
+                    self.add_event(Event(emitted_by=service, item_id=ev.item_id, run_at=retry_at))
         log_message = f"Service {service.__name__} executed"
         if hasattr(future, "event"):
             log_message += f" with {future.event.log_message}"
@@ -137,7 +169,16 @@ class EventManager:
             return
 
         with self.mutex:
+            # CRITICAL: Prevent duplicate items in queue from being added
+            # If an item is already queued or running, don't add it again
             if event.item_id:
+                if self._id_in_queue(event.item_id):
+                    logger.debug(f"Item {event.item_id} already in queue, skipping duplicate")
+                    return
+                if self._id_in_running_events(event.item_id):
+                    logger.debug(f"Item {event.item_id} already running, skipping duplicate")
+                    return
+                
                 with db.Session() as session:
                     try:
                         # Query just the columns we need, avoiding relationship loading entirely
@@ -146,7 +187,7 @@ class EventManager:
                             .filter_by(id=event.item_id)
                             .options(
                                 sqlalchemy.orm.load_only(
-                                    MediaItem.id, MediaItem.last_state
+                                    MediaItem.id, MediaItem.last_state, MediaItem.requested_at
                                 )
                             )
                             .one_or_none()
@@ -168,6 +209,16 @@ class EventManager:
                     # Cache the item state in the event for efficient priority sorting
                     if item and item.last_state:
                         event.item_state = item.last_state.name
+                    
+                    # Cache requested_at for wait-time based prioritization
+                    # Items requested earlier should be attempted first (FIFO-like within same state)
+                    if item and item.requested_at:
+                        event.requested_at = item.requested_at
+            
+            # If content_item is provided, also cache its requested_at
+            if event.content_item and not event.requested_at:
+                if hasattr(event.content_item, 'requested_at'):
+                    event.requested_at = event.content_item.requested_at
 
             self._queued_events.append(event)
             if log_message:
@@ -262,6 +313,8 @@ class EventManager:
 
         cancellation_event = threading.Event()
         executor = self._find_or_create_executor(service)
+        if event:
+            self.add_event_to_running(event) # Keeps running/queued dedupe accurate and enables proper cleanup on success/failure.
         future = executor.submit(
             db_functions.run_thread_with_db_item,
             program.all_services[service].run,
@@ -315,17 +368,20 @@ class EventManager:
 
     def next(self) -> Event:
         """
-        Get the next event in the queue, prioritizing items closest to completion.
+        Get the next event in the queue with intelligent prioritization.
 
-        Priority order (highest to lowest):
-        0. Items in Completed state (closest to completion)
-        1. Items in Symlinked state
-        2. Items in Downloaded state
-        3. Items in Scraped state
-        4. Items in Indexed state
-        5. All other states
+        Priority order (in order of evaluation):
+        1. Items ready to run (run_at <= now) are prioritized over items still waiting for backoff delays
+        2. Within ready items: Sort by how long they've been in the system (oldest requested_at first)
+        3. Within ready items of same age: Sort by state priority (Completed > Symlinked > Downloaded > Scraped > Indexed)
+        4. If no ready items exist: Sort future events by:
+           - How long the item has been in the system (oldest requested_at first)
+           - This ensures items stuck in backoff don't starve other items
 
-        Within each priority level, events are sorted by run_at timestamp.
+        This prevents situations where:
+        - A single failing item with 60s backoff blocks all other items
+        - Items requested 2 hours ago are delayed by items requested 2 minutes ago
+        - Stuck items accumulate indefinitely without progress on fresher items
 
         Performance: Uses cached item_state from Event object to avoid database queries.
 
@@ -340,12 +396,20 @@ class EventManager:
                 with self.mutex:
                     now = datetime.now()
 
-                    # Filter events that are ready to run (run_at <= now)
+                    # Separate events into two groups:
+                    # 1. Ready events (run_at <= now) - prioritize these
+                    # 2. Future events (run_at > now) - pick these only if no ready events exist
                     ready_events = [
                         event for event in self._queued_events if event.run_at <= now
                     ]
+                    future_events = [
+                        event for event in self._queued_events if event.run_at > now
+                    ]
 
-                    if not ready_events:
+                    # If we have ready events, use only those. Otherwise try the soonest future event.
+                    events_to_consider = ready_events if ready_events else future_events
+
+                    if not events_to_consider:
                         raise Empty
 
                     # Define state priority (lower number = higher priority)
@@ -360,22 +424,32 @@ class EventManager:
 
                     def get_event_priority(event: Event) -> tuple:
                         """
-                        Returns a tuple for sorting: (state_priority, run_at)
-                        Items with higher priority states come first, then sorted by run_at.
-                        Uses cached item_state to avoid database queries.
+                        Returns a tuple for sorting.
+                        Primary sort: requested_at (oldest first) - items waiting longest should be attempted first
+                        Secondary sort: state_priority (completion progress)
+                        Tertiary sort: run_at (for tie-breaking)
+
+                        This ensures:
+                        - Items stuck in backoff don't prevent other items from progressing
+                        - Items that have been in the system longest get priority
+                        - Items further along in state progression take slight priority if requested at same time
                         """
+                        # requested_at may not be set if it's a content-only event
+                        requested_at = getattr(event, 'requested_at', None) or datetime.now()
+                        
                         if event.item_state:
-                            priority = state_priority.get(event.item_state, 999)
-                            return (priority, event.run_at)
+                            state_prio = state_priority.get(event.item_state, 999)
+                        else:
+                            state_prio = 999
 
-                        # Default priority for items without state or content-only events
-                        return (0, event.run_at)
+                        # Sort by: (oldest requested first, then state priority, then run_at)
+                        return (requested_at, state_prio, event.run_at)
 
-                    # Sort by priority (state first, then run_at)
-                    ready_events.sort(key=get_event_priority)
+                    # Sort by priority
+                    events_to_consider.sort(key=get_event_priority)
 
                     # Get the highest priority event
-                    event = ready_events[0]
+                    event = events_to_consider[0]
                     self._queued_events.remove(event)
                     return event
             raise Empty

@@ -242,6 +242,7 @@ class PrefetchScheduler:
                 trio.lowlevel.spawn_system_task(
                     self._run_scheduler, cache_manager, fetch_func
                 )
+                self._scheduler_started = True
 
     async def _run_scheduler(self, cache_manager: Cache, fetch_func):
         """Main scheduler loop that processes chunks fairly."""
@@ -2697,6 +2698,9 @@ class RivenVFS(pyfuse3.Operations):
     ) -> bytes:
         headers = self._get_range_request_headers(start, end)
 
+        # Track retry counts for backoff logic
+        retry_count = self._range_waits.get(path, 0)
+
         try:
             # Serialize preflight checks per file to prevent concurrent HEAD requests
             # This prevents hammering the provider API when multiple clients request the same file
@@ -2713,6 +2717,17 @@ class RivenVFS(pyfuse3.Operations):
             log.debug(
                 f"Range preflight pending (retry in {pending.retry_after:.1f}s): path={path}"
             )
+
+            # Increment retry count and check against maximum
+            retry_count += 1
+            self._range_waits[path] = retry_count
+
+            if retry_count > 5:  # Maximum retry limit
+                log.error(
+                    f"Maximum retries reached for {path}. Escalating error permanently."
+                )
+                raise pyfuse3.FUSEError(errno.EIO) from None
+
             raise pyfuse3.FUSEError(errno.EAGAIN) from None
         except pyfuse3.FUSEError as fuse_err:
             if fuse_err.errno == errno.ENOENT:

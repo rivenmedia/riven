@@ -352,6 +352,8 @@ class Downloader:
                                 session.close()
                             download_success = True
                             stream_failed_on_all_services = False
+                            self._service_cooldown_backoff[service.key] = SERVICE_COOLDOWN_MIN_SECONDS
+                            self._service_cooldowns.pop(service.key, None)
                             break
                         else:
                             raise NoMatchingFilesException(
@@ -359,25 +361,28 @@ class Downloader:
                             )
 
                     except CircuitBreakerOpen:
-                        # This specific service hit circuit breaker, set cooldown and try next service
-                        cooldown_seconds = self._service_cooldown_backoff[service.key]
-                        self._service_cooldowns[service.key] = (
-                            datetime.now() + timedelta(seconds=cooldown_seconds)
+                        # Seed/extend per-service backoff safely
+                        cooldown_seconds = self._service_cooldown_backoff.setdefault(
+                            service.key, SERVICE_COOLDOWN_MIN_SECONDS
                         )
+                        self._service_cooldowns[service.key] = datetime.now() + timedelta(seconds=cooldown_seconds)
                         self._service_cooldown_backoff[service.key] = min(
                             cooldown_seconds * 2, SERVICE_COOLDOWN_MAX_SECONDS
                         )
+
                         logger.warning(
                             f"Circuit breaker OPEN for {service.key}, backing off {cooldown_seconds}s before retry"
                         )
+
                         stream_hit_circuit_breaker = True
                         hit_circuit_breaker = True
 
-                        # If this is the only initialized service, don't mark stream as failed
-                        # We want to retry this stream after cooldown
+                        # With a single initialized service, do not mark this stream as failed this tick;
+                        # we'll reschedule after the loop using the min cooldown.
                         if len(self.initialized_services) == 1:
                             stream_failed_on_all_services = False
-                        continue
+
+                        continue  # try next service for the same stream
 
                     except Exception as e:
                         logger.debug(
@@ -398,6 +403,25 @@ class Downloader:
                 # If stream succeeded on any service, we're done
                 if download_success:
                     break
+
+                # If we didn’t succeed on any service but at least one service hit a circuit breaker,
+                # reschedule the item for the earliest cooldown expiry instead of blacklisting.
+                if not download_success and stream_hit_circuit_breaker:
+                    if self._service_cooldowns:
+                        next_attempt = min(self._service_cooldowns.values())
+                    else:
+                        # Fallback in case cooldowns were cleared; avoid tight spin
+                        next_attempt = datetime.now() + timedelta(seconds=SERVICE_COOLDOWN_MIN_SECONDS)
+                    # Cap the reschedule horizon
+                    latest_allowed = datetime.now() + timedelta(seconds=MAX_RESCHEDULE_SECONDS)
+                    next_attempt = min(next_attempt, latest_allowed)
+
+                    logger.info(
+                        f"Rescheduling {item.log_string} due to circuit breaker(s); "
+                        f"next attempt at {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
+                    )
+                    yield (item, next_attempt)
+                    return
 
                 # Only blacklist if stream genuinely failed on ALL available services
                 # Don't blacklist if we hit circuit breaker in single-provider mode

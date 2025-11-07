@@ -290,18 +290,73 @@ class Program(threading.Thread):
                     # Event will be added to running when job actually starts in submit_job
                     self.em.submit_job(next_service, self, event)
 
-    def stop(self):
+    def stop(self, graceful: bool = False):
         if not self.initialized:
             return
 
+        # Stop the run-loop quickly so we don't call em.next() again
+        self.initialized = False
+
+        # 1) Stop accepting work, cancel queued jobs, and shut down executors
+        try:
+            # Wait so all service pools are actually down before interpreter teardown
+            # Non-blocking by default; blocking only if caller asks for graceful=True
+            self.em.shutdown(wait=graceful)
+        except Exception as e:
+            logger.debug(f"EventManager shutdown error: {e}")
+
+        pending = list(getattr(self.em, "_futures", []))
+
+        if graceful:
+            try:
+                # If you track futures, you can wait briefly for them to finish
+                if pending:
+                    # concurrent.futures.wait supports a timeout; keep it small
+                    from concurrent.futures import wait as _wait, FIRST_COMPLETED
+                    _wait(pending, timeout=2, return_when=FIRST_COMPLETED)
+                
+            except Exception:
+                pass
+        
+        remaining_pending = [f for f in getattr(self.em, "_futures", []) if not f.done()]
+        for f in remaining_pending:
+            try:
+                f.cancel()
+            except Exception:
+                pass
+        # Optionally: log how many were still in flight
+        if remaining_pending:
+            logger.debug(f"Cancelled {len(remaining_pending)} in-flight futures during {'graceful' if graceful else 'immediate'} stop")
+        
+        try:
+            getattr(self.em, "_futures", []).clear()
+        except Exception as e:
+            logger.debug(f"Clearing EventManager futures error: {e}")
+            pass
+
+        # 2) Stop the scheduler AFTER the EM has stopped accepting work
+        if hasattr(self, "scheduler_manager"):
+            try:
+                self.scheduler_manager.stop()
+            except Exception as e:
+                logger.debug(f"Scheduler stop error: {e}")
+
+        # 3) Defensive: shut down any ad-hoc executors the Program may be tracking
         if hasattr(self, "executors"):
             for executor in self.executors:
-                if not executor["_executor"]._shutdown:
-                    executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler_manager"):
-            self.scheduler_manager.stop()
+                try:
+                    _exec = executor.get("_executor")
+                    if _exec and not getattr(_exec, "_shutdown", False):
+                        _exec.shutdown(wait=False, cancel_futures=True)
+                except Exception as e:
+                    logger.debug(f"Executor shutdown error: {e}")
 
-        self.services[FilesystemService].close()
+        # 4) Close filesystem service
+        try:
+            self.services[FilesystemService].close()
+        except Exception as e:
+            logger.debug(f"FilesystemService close error: {e}")
+
         logger.log("PROGRAM", "Riven has been stopped.")
 
 

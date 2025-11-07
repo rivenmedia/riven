@@ -1,7 +1,7 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, Generator, List, TYPE_CHECKING
+from typing import Dict, List, TYPE_CHECKING
 
 from loguru import logger
 
@@ -22,6 +22,9 @@ from program.settings.manager import settings_manager
 if TYPE_CHECKING:
     from program.managers.event_manager import EventManager
 
+class TemporaryScrapeUnavailable(Exception):
+    """All providers failed temporarily; let EventManager requeue."""
+    pass
 
 class Scraping:
     def __init__(self, event_manager: "EventManager"):
@@ -53,45 +56,49 @@ class Scraping:
         """Validate that at least one scraper service is initialized."""
         return len(self.initialized_services) > 0
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """Scrape an item."""
+    def run(self, item: MediaItem):
+        """Scrape an item and yield it when complete."""
+        try:
+            sorted_streams = self.scrape(item)
+            new_streams = [
+                stream
+                for stream in sorted_streams.values()
+                if stream not in item.streams and stream not in item.blacklisted_streams
+            ]
 
-        sorted_streams = self.scrape(item)
-        new_streams = [
-            stream
-            for stream in sorted_streams.values()
-            if stream not in item.streams and stream not in item.blacklisted_streams
-        ]
-
-        if new_streams:
-            item.streams.extend(new_streams)
-            item.failed_attempts = min(
-                item.failed_attempts, 0
-            )  # Reset failed attempts on success
-            logger.log(
-                "SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}"
-            )
-        else:
-            logger.log("SCRAPER", f"No new streams added for {item.log_string}")
-
-            item.failed_attempts = getattr(item, "failed_attempts", 0) + 1
-            if (
-                self.max_failed_attempts > 0
-                and item.failed_attempts >= self.max_failed_attempts
-            ):
-                item.store_state(States.Failed)
-                logger.debug(
-                    f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}"
+            if new_streams:
+                item.streams.extend(new_streams)
+                item.failed_attempts = min(
+                    item.failed_attempts, 0
+                )  # Reset failed attempts on success
+                logger.log(
+                    "SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}"
                 )
             else:
-                logger.debug(
-                    f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries with no new streams: {item.log_string}"
-                )
+                logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
-        item.set("scraped_at", datetime.now())
-        item.set("scraped_times", item.scraped_times + 1)
+                item.failed_attempts = getattr(item, "failed_attempts", 0) + 1
+                if (
+                    self.max_failed_attempts > 0
+                    and item.failed_attempts >= self.max_failed_attempts
+                ):
+                    item.store_state(States.Failed)
+                    logger.debug(
+                        f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}"
+                    )
+                else:
+                    logger.debug(
+                        f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries with no new streams: {item.log_string}"
+                    )
 
-        yield item
+            item.set("scraped_at", datetime.now())
+            item.set("scraped_times", item.scraped_times + 1)
+
+            yield item
+        except Exception as e:
+            logger.error(f"Fatal error during scraping of {item.log_string}: {type(e).__name__}: {e}")
+            # Re-raise so EventManager can handle the retry logic
+            raise
 
     def scrape(self, item: MediaItem, verbose_logging=True) -> Dict[str, Stream]:
         """Scrape an item."""
@@ -128,45 +135,60 @@ class Scraping:
                 # Note: We don't re-raise here - this allows other scrapers to continue
                 # and prevents the entire scraping operation from failing
 
-        with ThreadPoolExecutor(
-            thread_name_prefix="ScraperService_",
-            max_workers=max(1, len(self.initialized_services)),
-        ) as executor:
-            if self.em._shutting_down:
+        try:
+            had_error = False
+            with ThreadPoolExecutor(
+                thread_name_prefix="ScraperService_",
+                max_workers=max(1, len(self.initialized_services)),
+            ) as executor:
+                if self.em._shutting_down:
+                    logger.debug(
+                        "EventManager is shutting down, skipping scraper sub-tasks."
+                    )
+                    return {}  # Abort before submitting new futures
+                futures = {
+                    executor.submit(run_service, service, item): service.key
+                    for service in self.initialized_services
+                }
+                for future in as_completed(futures):
+                    svc_key = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        had_error = True
+                        logger.error(f"Exception occurred while running service {svc_key}: {e}")
+                        # keep going to collect other providers
+                        continue
+
+            if not results and had_error:
                 logger.debug(
-                    "EventManager is shutting down, skipping scraper sub-tasks."
+                    f"No results, retrying due to scraper error(s) for {item.log_string}"
                 )
-                return {}  # Abort before submitting new futures
-            futures = {
-                executor.submit(run_service, service, item): service.key
-                for service in self.initialized_services
-            }
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    logger.error(
-                        f"Exception occurred while running service {futures[future]}: {e}"
+                raise TemporaryScrapeUnavailable(
+                    f"All scraper services failed temporarily for {item.log_string}"
+                )
+    
+            if not results:
+                logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
+                return {}
+
+            sorted_streams: Dict[str, Stream] = _parse_results(
+                item, results, verbose_logging
+            )
+            if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
+                top_results: List[Stream] = list(sorted_streams.values())[:10]
+                logger.debug(
+                    f"Displaying top {len(top_results)} results for {item.log_string}"
+                )
+                for stream in top_results:
+                    logger.debug(
+                        f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})"
                     )
 
-        if not results:
-            logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
+            return sorted_streams
+        except RuntimeError as re:  # Guard against shutdown-related executor errors
+            logger.debug(f"Scraper executor setup skipped: {re}")
             return {}
-
-        sorted_streams: Dict[str, Stream] = _parse_results(
-            item, results, verbose_logging
-        )
-        if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
-            top_results: List[Stream] = list(sorted_streams.values())[:10]
-            logger.debug(
-                f"Displaying top {len(top_results)} results for {item.log_string}"
-            )
-            for stream in top_results:
-                logger.debug(
-                    f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})"
-                )
-
-        return sorted_streams
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:

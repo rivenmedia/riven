@@ -176,6 +176,24 @@ def _get_item_release_language(item: MediaItem) -> Optional[str]:
     return lang if lang else None
 
 
+def _sanitize_title(title: str) -> str:
+    """Sanitize and normalize a title to improve parsing accuracy.
+    
+    This function removes scene group tags at the beginning that confuse the RTN parser,
+    but preserves episode markers and international character titles.
+    """
+    import re
+    
+    sanitized = title
+    
+    # Remove scene group tags like [ToonsHub] at the beginning
+    # Match brackets with 2-20 characters (typical for group names) but NOT episode patterns
+    # This avoids matching non-ASCII titles like [Ōbārōdo]
+    sanitized = re.sub(r"^\s*\[[A-Za-z0-9\-._]{2,20}\]\s*", "", sanitized)
+    
+    sanitized = sanitized.strip()
+    
+    return sanitized
 def _parse_results(
     item: MediaItem, results: Dict[str, str], log_msg: bool = True
 ) -> Dict[str, Stream]:
@@ -191,6 +209,53 @@ def _parse_results(
     aliases = {
         k: v for k, v in aliases.items() if k not in ranking_settings.languages.exclude
     }
+    # we should remove keys from aliases if we are requiring a language
+    if ranking_settings.languages.required and len(ranking_settings.languages.required) > 0:
+        aliases = {
+            k: v for k, v in aliases.items() if k in ranking_settings.languages.required
+        }
+    
+    # For anime, add roman numeral variants as aliases to help with matching
+    # (e.g., if looking for season 4, add "Title IV" as an alias)
+    if item.is_anime:
+        try:
+            # Get season number based on item type
+            season_num = None
+            if item.type == "season":
+                season_num = item.number
+            elif item.type == "episode":
+                season_num = item.parent.number if item.parent else None
+            # Don't add roman numeral for shows without a specific season
+            
+            if season_num:
+                # Convert to roman numeral
+                roman_vals = [
+                    (1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+                    (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+                    (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')
+                ]
+                temp_num = int(season_num) if isinstance(season_num, str) else season_num
+                roman = ''
+                for val, numeral in roman_vals:
+                    count = temp_num // val
+                    if count:
+                        roman += numeral * count
+                        temp_num -= val * count
+                
+                if roman:
+                    # Add roman numeral variant as an alias in the item's language
+                    lang_key = item.language if hasattr(item, 'language') and item.language else "en"
+                    roman_title = f"{correct_title} {roman}"
+                    if lang_key not in aliases:
+                        aliases[lang_key] = []
+                    if isinstance(aliases[lang_key], list):
+                        if roman_title not in aliases[lang_key]:
+                            aliases[lang_key].append(roman_title)
+                    elif isinstance(aliases[lang_key], str):
+                        if roman_title != aliases[lang_key]:
+                            aliases[lang_key] = [aliases[lang_key], roman_title]
+        except Exception as e:
+            logger.trace(f"Failed to add roman numeral alias: {e}")
 
     logger.debug(f"Processing {len(results)} results for {item.log_string}")
     remove_trash_default = settings_manager.settings.ranking.options["remove_all_trash"]
@@ -198,12 +263,15 @@ def _parse_results(
     rejection_reasons = {}  # Track why each torrent is rejected
 
     for infohash, raw_title in results.items():
+        # Sanitize the raw title before parsing
+        sanitized_title = _sanitize_title(raw_title)
+
         if infohash in processed_infohashes:
             continue
 
         try:
-            # Parse title with PTT first
-            parsed_data: ParsedData = parse(raw_title)
+            # Parse the sanitized title
+            parsed_data: ParsedData = parse(sanitized_title)
 
             # Enrich parsed data with TMDB language so ranking can evaluate it
             _enrich_parsed_data_with_tmdb_language(parsed_data, item)
@@ -211,12 +279,41 @@ def _parse_results(
             # Calculate metrics with enriched data
             lev_ratio = 0.0
             if correct_title:
-                lev_ratio = get_lev_ratio(
-                    correct_title,
-                    parsed_data.parsed_title,
-                    rtn.lev_threshold,
-                    aliases,
-                )
+                # For comparison, we need to normalize both titles to lowercase
+                # but we only do this for the comparison, not for parsing
+                correct_title_lower = correct_title.lower()
+                parsed_title_lower = parsed_data.parsed_title.lower() if parsed_data.parsed_title else ""
+                
+                # Check if parsed title starts with correct title (common with spin-offs/extras)
+                # e.g., "Overlord II - Ple Ple Pleiades" starts with "Overlord II"
+                if parsed_title_lower.startswith(correct_title_lower):
+                    lev_ratio = 1.0
+                else:
+                    # Check if parsed title starts with any alias
+                    matches_alias = False
+                    for lang_key, alias_list in aliases.items():
+                        if isinstance(alias_list, list):
+                            for alias in alias_list:
+                                if parsed_title_lower.startswith(alias.lower()):
+                                    lev_ratio = 1.0
+                                    matches_alias = True
+                                    break
+                        elif isinstance(alias_list, str):
+                            if parsed_title_lower.startswith(alias_list.lower()):
+                                lev_ratio = 1.0
+                                matches_alias = True
+                                break
+                        if matches_alias:
+                            break
+                    
+                    # If no prefix match, use Levenshtein ratio
+                    if lev_ratio == 0.0:
+                        lev_ratio = get_lev_ratio(
+                            correct_title_lower,
+                            parsed_title_lower,
+                            rtn.lev_threshold,
+                            aliases,
+                        )
 
             # Check if torrent is fetchable with enriched data
             is_fetchable, failed_keys = check_fetch(
@@ -379,6 +476,13 @@ def _parse_results(
                                 f"Episode number mismatch but title contains expected season/episode format, allowing: {raw_title}"
                             )
                             skip = False
+                        # For anime, be more lenient - if parsing only found episodes with no season data,
+                        # and the title format looks right, accept it (indexers may have incorrect metadata)
+                        elif item.is_anime and not torrent.data.seasons and item.number in torrent.data.episodes:
+                            logger.debug(
+                                f"Anime episode match without season data, allowing (indexer metadata may be incomplete): {raw_title}"
+                            )
+                            skip = False
                         else:
                             skip = True
                             rejection_reasons[raw_title] = (
@@ -392,6 +496,13 @@ def _parse_results(
                         if title_has_expected:
                             logger.debug(
                                 f"Season mismatch in parsed data but title contains correct format, allowing: {raw_title}"
+                            )
+                            skip = False
+                        # For anime, be lenient about season mismatches if title looks right
+                        # (anime indexers often have season metadata mixed up)
+                        elif item.is_anime and not torrent.data.seasons:
+                            logger.debug(
+                                f"Anime season mismatch but torrent has no season data, being lenient: {raw_title}"
                             )
                             skip = False
                         else:

@@ -36,6 +36,7 @@ class Event:
     content_item: Optional[MediaItem] = None
     run_at: datetime = datetime.now()
     item_state: Optional[str] = None  # Cached state for priority sorting
+    requested_at: datetime = None  # When the item was originally requested/added (for wait-time priority)
 
     @property
     def log_message(self) -> str:
