@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import time
 from ordered_set import OrderedSet
+import trio
 import trio_util
 
 from program.services.streaming.chunker import Chunk, ChunkRange
@@ -18,7 +19,7 @@ class Read:
 
     chunk_range: ChunkRange
     read_type: "ReadType"
-    timestamp: float = field(default_factory=time.monotonic)
+    timestamp: float = field(default_factory=trio.current_time)
 
     @property
     def uncached_chunks(self) -> OrderedSet[Chunk]:
