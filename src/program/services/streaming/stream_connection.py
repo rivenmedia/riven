@@ -66,10 +66,13 @@ class StreamConnection:
         if value < 0:
             raise ValueError("Start position cannot be negative")
 
-        if value > self.current_read_position:
-            raise ValueError(
-                "Start position cannot be greater than current read position"
-            )
+        try:
+            if value > self.current_read_position:
+                raise ValueError(
+                    "Start position cannot be greater than current read position"
+                )
+        except AttributeError:
+            pass
 
         self._start_position = value
 
