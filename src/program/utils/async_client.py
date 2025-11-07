@@ -8,15 +8,6 @@ class AsyncClient(httpx.AsyncClient):
     def __init__(self) -> None:
         enable_network_tracing = settings_manager.settings.enable_network_tracing
 
-        hooks = (
-            {
-                "request": [self.log_request],
-                "response": [self.log_response, self.raise_on_4xx_5xx],
-            }
-            if enable_network_tracing
-            else None
-        )
-
         super().__init__(
             http2=True,
             follow_redirects=True,
@@ -25,8 +16,12 @@ class AsyncClient(httpx.AsyncClient):
                 max_connections=1000,
                 keepalive_expiry=60,
             ),
-            event_hooks=hooks,
+            event_hooks={"response": [self.raise_on_4xx_5xx]},
         )
+
+        if enable_network_tracing:
+            self.event_hooks["request"].append(self.log_request)
+            self.event_hooks["response"].append(self.log_response)
 
     async def raise_on_4xx_5xx(self, response: httpx.Response) -> None:
         """Raise an error if the response status code indicates an error."""
