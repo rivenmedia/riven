@@ -231,7 +231,7 @@ class MediaStream:
 
             timeout_seconds = 60
 
-            while True:
+            while self.is_streaming.value:
                 if not self.recent_reads.current_read.value:
                     await trio.sleep(1)
                     continue
@@ -240,17 +240,23 @@ class MediaStream:
                     trio.current_time() - self.recent_reads.current_read.value.timestamp
                     > timeout_seconds
                 ):
-                    logger.debug(
+                    logger.log(
+                        "STREAM",
                         self._build_log_message(
                             f"Stream timed out after {timeout_seconds} seconds"
-                        )
+                        ),
                     )
 
-                    break
+                    self.is_timed_out.value = True
+
+                    return
 
                 await trio.sleep(1)
 
-            self.is_timed_out.value = True
+            logger.log(
+                "STREAM",
+                f"Stream ended, stopping timeout handler",
+            )
 
         async with self.stream_lifecycle():
             async with trio_util.run_and_cancelling(_handle_timeout):
