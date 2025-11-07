@@ -1836,23 +1836,12 @@ class RivenVFS(pyfuse3.Operations):
                         if node:
                             path = node.path
 
-                # Clean up per-path state if no other handles are using this path
                 if path:
-                    # Check if any other handles reference the same inode
-                    remaining_handles = [
-                        h
-                        for h in self._file_handles.values()
-                        if h.get("inode") == inode
-                    ]
+                    stream_key = self._stream_key(path, fh)
+                    active_stream = self._active_streams.pop(stream_key, None)
 
-                    if not remaining_handles:
-                        stream_key = self._stream_key(path, fh)
-
-                        # No other handles for this inode, clean up shared path state
-                        active_stream = self._active_streams.pop(stream_key, None)
-
-                        if active_stream:
-                            await active_stream.close()
+                    if active_stream:
+                        await active_stream.close()
 
             logger.trace(f"release: fh={fh} path={path}")
         except pyfuse3.FUSEError:
