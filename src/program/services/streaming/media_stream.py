@@ -413,6 +413,13 @@ class MediaStream:
                                         if len(uncached_chunks) == 0:
                                             continue
 
+                                        logger.log(
+                                            "STREAM",
+                                            self._build_log_message(
+                                                f"Received read event: {read} with uncached_chunks {uncached_chunks}"
+                                            ),
+                                        )
+
                                         request_start, _ = (
                                             read.chunk_range.request_range
                                         )
