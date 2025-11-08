@@ -145,10 +145,11 @@ def upgrade() -> None:
             media_metadata["is_repack"] = parsed_data.get("repack", False)
             media_metadata["is_upscaled"] = parsed_data.get("upscaled", False)
 
-            _edition = parsed_data.get("edition", "").lower()
-            media_metadata["is_remastered"] = _edition == "remastered"
-            media_metadata["is_directors_cut"] = _edition == "directors cut"
-            media_metadata["is_extended"] = _edition == "extended cut"
+            if parsed_data.get("edition"):
+                _edition = parsed_data.get("edition", "").lower()
+                media_metadata["is_remastered"] = _edition == "remastered"
+                media_metadata["is_directors_cut"] = _edition == "directors cut"
+                media_metadata["is_extended"] = _edition == "extended cut"
 
             # Episode information
             media_metadata["seasons"] = parsed_data.get("season", [])
