@@ -243,55 +243,6 @@ def get_item_ids(session: Session, item_id: int) -> Tuple[int, List[int]]:
 # --------------------------------------------------------------------------- #
 
 
-def update_ongoing(session: Optional[Session] = None) -> List[int]:
-    """
-    Update state for ongoing/unreleased items with one commit.
-    Calls store_state() per item (state machine), aggregates changed IDs.
-    """
-    from program.media.item import MediaItem
-
-    with _maybe_session(session) as (s, owns):
-        item_ids = (
-            s.execute(
-                select(MediaItem.id)
-                .where(MediaItem.type.in_(["movie", "episode"]))
-                .where(MediaItem.last_state.in_([States.Ongoing, States.Unreleased]))
-            )
-            .scalars()
-            .all()
-        )
-
-        if not item_ids:
-            logger.debug("No ongoing or unreleased items to update.")
-            return []
-
-        logger.debug(
-            f"Updating state for {len(item_ids)} ongoing and unreleased items."
-        )
-
-        changed: List[int] = []
-        items = (
-            s.execute(select(MediaItem).where(MediaItem.id.in_(item_ids)))
-            .unique()
-            .scalars()
-            .all()
-        )
-        for item in items:
-            try:
-                previous_state, new_state = item.store_state()
-                if previous_state != new_state:
-                    changed.append(item.id)
-            except Exception as e:
-                logger.error(f"Failed to update state for item with ID {item.id}: {e}")
-
-        if changed:
-            s.commit()
-            for iid in changed:
-                logger.log("PROGRAM", f"Updated state for {iid}.")
-
-        return changed
-
-
 def retry_library(session: Optional[Session] = None) -> List[int]:
     """
     Return IDs of items that should be retried. Single query, no pre-count.
@@ -333,7 +284,6 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
     result = session.execute(
         select(MediaItem)
         .options(selectinload(Show.seasons).selectinload(Season.episodes))
-        .where(MediaItem.last_state != States.Completed)
         .where(MediaItem.aired_at.is_not(None))
         .where(MediaItem.aired_at >= datetime.now() - timedelta(days=30))
         .execution_options(stream_results=True)
@@ -345,6 +295,7 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
         calendar[item.id] = {
             "item_id": item.id,
             "tvdb_id": item.tvdb_id,
+            "tmdb_id": item.tmdb_id,
             "show_title": title,
             "item_type": item.type,
             "aired_at": item.aired_at,
