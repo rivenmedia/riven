@@ -31,6 +31,8 @@ Usage:
 """
 
 from __future__ import annotations
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager, contextmanager
 
 import pyfuse3
 import trio
@@ -201,38 +203,18 @@ class RivenVFS(pyfuse3.Operations):
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)
         self._thread = None
-        self._mounted = False
-        self._is_unmounting = False
+        self._unmount_requested: trio_util.AsyncBool = trio_util.AsyncBool(False)
         self.stream_nursery: trio.Nursery
-
-        # Prepare mountpoint (unmount, create directory)
-        self._prepare_mountpoint(self._mountpoint)
-
-        # Initialize pyfuse3 and start main loop in background thread
-        fuse_options = set(pyfuse3.default_options)
-        fuse_options |= {
-            "fsname=rivenvfs",
-            "allow_other",
-        }
-
-        pyfuse3.init(self, self._mountpoint, fuse_options)
-        self._mounted = True
 
         def _fuse_runner():
             async def _async_main() -> NoReturn:
-                # Open stream nursery for handling streaming operations.
-                # This is separate from the main FUSE loop,
-                # to prevent stream errors from crashing the entire filesystem.
-                async with trio_util.run_and_cancelling(pyfuse3.main):
-                    async with trio.open_nursery() as nursery:
-                        self.stream_nursery = nursery
-
-                        logger.trace(f"Stream nursery ready and waiting for tasks")
-
-                        # Keep the stream nursery alive and ready to spawn tasks
+                async with self.mountpoint_lifecycle():
+                    async with trio_util.move_on_when(
+                        lambda: self._unmount_requested.wait_value(True)
+                    ):
                         await trio.sleep_forever()
 
-            while not self._is_unmounting:
+            while not self._unmount_requested.value:
                 logger.trace("Starting FUSE main loop")
 
                 try:
@@ -250,6 +232,39 @@ class RivenVFS(pyfuse3.Operations):
 
         # Synchronize library profiles with VFS structure
         self.sync()
+
+    @asynccontextmanager
+    async def mountpoint_lifecycle(self) -> AsyncGenerator[None]:
+        """Context manager for mountpoint lifecycle management."""
+
+        try:
+            self._prepare_mountpoint(self._mountpoint)
+
+            # Initialize pyfuse3 and start main loop in background thread
+            fuse_options = set(pyfuse3.default_options)
+            fuse_options |= {
+                "fsname=rivenvfs",
+                "allow_other",
+            }
+
+            pyfuse3.init(self, self._mountpoint, fuse_options)
+
+            self._mounted = True
+
+            # Open stream nursery for handling streaming operations.
+            # This is separate from the main FUSE loop,
+            # to prevent stream errors from crashing the entire filesystem.
+            async with trio_util.run_and_cancelling(pyfuse3.main):
+                async with trio.open_nursery() as nursery:
+                    self.stream_nursery = nursery
+
+                    logger.trace(f"Stream nursery ready and waiting for tasks")
+
+                    # Keep the stream nursery alive and ready to spawn tasks
+                    yield
+        finally:
+            self._cleanup_mountpoint(self._mountpoint)
+            self._mounted = False
 
     def _stream_key(self, path: str, fh: int) -> str:
         """Generate unique key for stream tracking."""
@@ -545,12 +560,16 @@ class RivenVFS(pyfuse3.Operations):
 
     def close(self) -> None:
         """Clean up and unmount the filesystem."""
-        if self._mounted:
+
+        async def _request_unmount():
             logger.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
-            self._is_unmounting = True
-            self.stream_nursery.cancel_scope.cancel()
-            self._cleanup_mountpoint(self._mountpoint)
-            self._mounted = False
+
+            self._unmount_requested.value = True
+
+        trio.from_thread.run(
+            _request_unmount,
+            trio_token=pyfuse3.trio_token,
+        )
 
     # Helper methods
 
@@ -606,25 +625,9 @@ class RivenVFS(pyfuse3.Operations):
 
     def _cleanup_mountpoint(self, mountpoint: str) -> None:
         """Clean up mountpoint after unmounting."""
+
         if not self._mounted:
             return
-
-        try:
-            # Terminate FUSE main loop from the Trio event loop context
-            if pyfuse3.trio_token is not None:
-                try:
-                    trio.from_thread.run(
-                        self._terminate_async, trio_token=pyfuse3.trio_token
-                    )
-                except Exception:
-                    logger.exception(f"Error requesting FUSE termination")
-            else:
-                logger.warning("No Trio token available; skipping graceful terminate")
-
-            if self._thread and self._thread.is_alive():
-                self._thread.join(timeout=5)
-        except Exception:
-            logger.exception("Error terminating FUSE")
 
         try:
             # Close FUSE session after main loop has exited
