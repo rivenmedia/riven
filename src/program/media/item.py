@@ -520,7 +520,7 @@ class MediaItem(db.Model):
                 "subtitle_tracks", []
             )
             if embedded_subs:
-                dict["subtitles"].append(embedded_subs)
+                dict["subtitles"].extend(embedded_subs)
         return dict
 
     def __iter__(self):

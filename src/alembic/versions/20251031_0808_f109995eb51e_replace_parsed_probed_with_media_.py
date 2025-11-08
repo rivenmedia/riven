@@ -20,6 +20,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import Table, MetaData
 
 
 # revision identifiers, used by Alembic.
@@ -76,12 +77,23 @@ def upgrade() -> None:
         # Old columns don't exist - nothing to migrate
         return
 
-    # Get all MediaEntry rows with parsed_data or probed_data
-    result = connection.execute(
-        sa.text(
-            f'SELECT id, original_filename, parsed_data, probed_data FROM "{actual_table_name}" WHERE parsed_data IS NOT NULL OR probed_data IS NOT NULL'
+    # Reflect the MediaEntry table and select rows with parsed/probed data
+    metadata = MetaData()
+    media_entry_table = Table(actual_table_name, metadata, autoload_with=connection)
+
+    stmt = sa.select(
+        media_entry_table.c.id,
+        media_entry_table.c.original_filename,
+        media_entry_table.c.parsed_data,
+        media_entry_table.c.probed_data,
+    ).where(
+        sa.or_(
+            media_entry_table.c.parsed_data.isnot(None),
+            media_entry_table.c.probed_data.isnot(None),
         )
     )
+
+    result = connection.execute(stmt)
 
     for row in result:
         entry_id = row[0]
@@ -219,10 +231,9 @@ def upgrade() -> None:
         # Update the row with migrated data
         if media_metadata:
             connection.execute(
-                sa.text(
-                    f'UPDATE "{actual_table_name}" SET media_metadata = :metadata WHERE id = :id'
-                ),
-                {"metadata": json.dumps(media_metadata), "id": entry_id},
+                sa.update(media_entry_table)
+                .where(media_entry_table.c.id == entry_id)
+                .values(media_metadata=json.dumps(media_metadata))
             )
 
     # Drop old columns (only if they exist)
@@ -234,30 +245,50 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Restore parsed_data and probed_data columns, drop media_metadata."""
-    # Add back old columns
-    op.add_column(
-        "MediaEntry",
-        sa.Column(
-            "probed_data",
-            sa.JSON(),
-            nullable=True,
-            comment="Cached ffprobe media analysis data (video, audio, subtitles, etc.)",
-        ),
+    """Restore parsed_data and probed_data columns if missing, and drop media_metadata if present."""
+    # Use the same connection/inspector pattern as in upgrade for safety
+    connection = op.get_bind()
+    inspector = sa.inspect(connection)
+    tables = inspector.get_table_names()
+
+    # Case-insensitive check for table existence
+    mediaentry_exists = any(t.lower() == "mediaentry" for t in tables)
+    if not mediaentry_exists:
+        # Nothing to do if the table doesn't exist (fresh DB or already removed)
+        return
+
+    # Preserve actual casing of the table name
+    actual_table_name = next(
+        (t for t in tables if t.lower() == "mediaentry"), "MediaEntry"
     )
-    op.add_column(
-        "MediaEntry",
-        sa.Column(
-            "parsed_data",
-            sa.JSON(),
-            nullable=True,
-            comment="Cached parsed filename data from PTT (item_type, season, episodes)",
-        ),
-    )
+    columns = [col["name"] for col in inspector.get_columns(actual_table_name)]
+
+    # Add back old columns only if they don't already exist
+    with op.batch_alter_table(actual_table_name, schema=None) as batch_op:
+        if "probed_data" not in columns:
+            batch_op.add_column(
+                sa.Column(
+                    "probed_data",
+                    sa.JSON(),
+                    nullable=True,
+                    comment="Cached ffprobe media analysis data (video, audio, subtitles, etc.)",
+                )
+            )
+        if "parsed_data" not in columns:
+            batch_op.add_column(
+                sa.Column(
+                    "parsed_data",
+                    sa.JSON(),
+                    nullable=True,
+                    comment="Cached parsed filename data from PTT (item_type, season, episodes)",
+                )
+            )
 
     # Note: Data migration on downgrade is not supported
     # Downgrading will lose all media_metadata data
 
-    # Drop new column
-    with op.batch_alter_table("MediaEntry", schema=None) as batch_op:
-        batch_op.drop_column("media_metadata")
+    # Drop the new column only if it exists
+    columns = [col["name"] for col in inspector.get_columns(actual_table_name)]
+    if "media_metadata" in columns:
+        with op.batch_alter_table(actual_table_name, schema=None) as batch_op:
+            batch_op.drop_column("media_metadata")

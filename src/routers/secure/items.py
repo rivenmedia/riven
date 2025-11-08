@@ -1067,4 +1067,10 @@ async def get_item_metadata(
             status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
         )
 
+    if not item.filesystem_entry or not item.filesystem_entry.media_metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No metadata available for this item",
+        )
+
     return item.filesystem_entry.media_metadata
