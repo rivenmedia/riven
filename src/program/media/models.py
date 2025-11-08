@@ -192,9 +192,9 @@ class MediaMetadata(BaseModel):
             if bd:
                 try:
                     bit_depth = int(bd.replace("bit", ""))
-                except:
+                except (ValueError, TypeError):
                     # PTT/RTN should only return `10bit` or `8bit` 99% of the time
-                    # buit lets add a failsafe just in case
+                    # but let's add a failsafe just in case
                     from program.utils import logger
 
                     logger.debug(f"Failed to parse bit_depth '{bd}' as int")

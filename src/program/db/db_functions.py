@@ -297,6 +297,7 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
         calendar[item.id] = {
             "item_id": item.id,
             "tvdb_id": item.tvdb_id,
+            "tmdb_id": item.tmdb_id,
             "show_title": title,
             "item_type": item.type,
             "aired_at": item.aired_at,
