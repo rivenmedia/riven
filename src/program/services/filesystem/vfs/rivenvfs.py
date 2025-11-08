@@ -292,7 +292,7 @@ class RivenVFS(pyfuse3.Operations):
                     except Exception:
                         logger.exception("Error during stream timeout check")
 
-            await trio.sleep(1)
+            await trio.sleep(60)
 
     def _stream_key(self, path: str, fh: int) -> str:
         """Generate unique key for stream tracking."""
