@@ -591,6 +591,21 @@ class NamingService:
         while "  " in name:
             name = name.replace("  ", " ")
 
+        # Remove empty brackets/parens/braces
+        _cleanup_chars = ["[ ]", "[]", "( )", "()", "{ }", "{}"]
+        if any(x in name for x in _cleanup_chars):
+            for x in _cleanup_chars:
+                name = name.replace(x, "")
+
+        # Close gaps around brackets/parens/braces
+        _cleanup_chars = ["[ ", " ]", "( ", " )", "{ ", " }"]
+        if any(x in name for x in _cleanup_chars):
+            for x in _cleanup_chars:
+                name = name.replace(x, x.strip())
+
+        if "  " in name:
+            name = name.replace("  ", " ")
+
         # Trim whitespace
         name = name.strip()
 

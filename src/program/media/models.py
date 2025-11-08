@@ -33,36 +33,34 @@ class VideoMetadata(BaseModel):
     @property
     def resolution_label(self) -> Optional[str]:
         """
-        Get resolution label (e.g., '1080p', '4K').
+        Return a standardized resolution label: "4K", "1440p", "1080p", or "720p".
 
-        Uses width for better ultrawide detection - ultrawide 4K videos
-        (e.g., 3840×1600) are correctly identified as 4K instead of 1440p.
+        Logic:
+        - Use the longer pixel dimension (max(width, height)) to classify.
+        This correctly treats ultrawide 3840×1600 as 4K.
+        - Return "" when the resolution is known but below 720p.
+        - Return None when neither width nor height is known.
         """
-        if self.resolution_width and self.resolution_height:
-            # Use width for better ultrawide detection
-            # Ultrawide 4K is typically 3840×1600-1800
-            if self.resolution_width >= 3840 or self.resolution_height >= 2160:
-                return "4K"
-            elif self.resolution_width >= 2560 or self.resolution_height >= 1440:
-                return "1440p"
-            elif self.resolution_width >= 1920 or self.resolution_height >= 1080:
-                return "1080p"
-            elif self.resolution_width >= 1280 or self.resolution_height >= 720:
-                return "720p"
-            else:
-                return "SD"
-        elif self.resolution_height:
-            # Fallback to height-only detection
-            if self.resolution_height >= 2160:
-                return "4K"
-            elif self.resolution_height >= 1440:
-                return "1440p"
-            elif self.resolution_height >= 1080:
-                return "1080p"
-            elif self.resolution_height >= 720:
-                return "720p"
-            else:
-                return "SD"
+        w = int(self.resolution_width or 0)
+        h = int(self.resolution_height or 0)
+        longest = max(w, h)
+
+        if longest == 0:
+            return None
+
+        thresholds: list[tuple[int, str]] = [
+            (3840, "4K"),
+            (2560, "1440p"),
+            (1920, "1080p"),
+            (1280, "720p"),
+            (640, "480p"),
+            (0, None),
+        ]
+
+        for cutoff, label in thresholds:
+            if longest >= cutoff:
+                return label
+
         return None
 
 
@@ -171,20 +169,28 @@ class MediaMetadata(BaseModel):
         Returns:
             MediaMetadata instance with parsed data populated
         """
+
+        resolution_width = None
         resolution_height = None
-        if parsed_data.get("resolution", "unknown"):
-            res = parsed_data["resolution"].lower()
-            match res:
-                case "2160p" | "2160i":
-                    resolution_height = 2160
-                case "1440p" | "1440i":
-                    resolution_height = 1440
-                case "1080p" | "1080i":
-                    resolution_height = 1080
-                case "720p" | "720i":
-                    resolution_height = 720
-                case "480p" | "480i":
-                    resolution_height = 480
+        res = parsed_data.get("resolution", "unknown").lower()
+        if res == "2160p":
+            resolution_width = 3840
+            resolution_height = 2160
+        elif res == "1440p":
+            resolution_width = 2560
+            resolution_height = 1440
+        elif res == "1080p":
+            resolution_width = 1920
+            resolution_height = 1080
+        elif res == "720p":
+            resolution_width = 1280
+            resolution_height = 720
+        elif res == "480p":
+            resolution_width = 640
+            resolution_height = 480
+        elif res == "360p":
+            resolution_width = 480
+            resolution_height = 360
 
         bit_depth = None
         if parsed_data.get("bit_depth"):
@@ -213,6 +219,7 @@ class MediaMetadata(BaseModel):
         if resolution_height or codec or bit_depth or hdr_type:
             video = VideoMetadata(
                 codec=codec,
+                resolution_width=resolution_width,
                 resolution_height=resolution_height,
                 bit_depth=bit_depth,
                 hdr_type=hdr_type,
