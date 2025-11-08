@@ -255,16 +255,44 @@ class RivenVFS(pyfuse3.Operations):
             # This is separate from the main FUSE loop,
             # to prevent stream errors from crashing the entire filesystem.
             async with trio_util.run_and_cancelling(pyfuse3.main):
-                async with trio.open_nursery() as nursery:
-                    self.stream_nursery = nursery
+                async with trio_util.run_and_cancelling(self._monitor_stream_timeouts):
+                    async with trio.open_nursery() as nursery:
+                        self.stream_nursery = nursery
 
-                    logger.trace(f"Stream nursery ready and waiting for tasks")
+                        # Keep the stream nursery alive and ready to spawn tasks
+                        yield
 
-                    # Keep the stream nursery alive and ready to spawn tasks
-                    yield
+                        # Cancel streams on exit
+                        nursery.cancel_scope.cancel()
         finally:
             self._cleanup_mountpoint(self._mountpoint)
             self._mounted = False
+
+    async def _monitor_stream_timeouts(self) -> None:
+        while True:
+            timed_out_streams = {
+                stream_key: stream
+                for stream_key, stream in self._active_streams.items()
+                if stream.is_timed_out
+            }
+
+            if len(timed_out_streams) > 0:
+                logger.debug(
+                    f"Found {len(timed_out_streams)} timed-out stream(s) to close"
+                )
+
+                for stream_key, stream in timed_out_streams.items():
+                    try:
+                        if stream.is_timed_out:
+                            logger.debug(f"Closing timed-out stream: {stream_key}")
+
+                            await stream.close()
+
+                            self._active_streams.pop(stream_key)
+                    except Exception:
+                        logger.exception("Error during stream timeout check")
+
+            await trio.sleep(1)
 
     def _stream_key(self, path: str, fh: int) -> str:
         """Generate unique key for stream tracking."""
