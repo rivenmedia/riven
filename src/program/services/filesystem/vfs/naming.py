@@ -603,9 +603,6 @@ class NamingService:
             for x in _cleanup_chars:
                 name = name.replace(x, x.strip())
 
-        if "  " in name:
-            name = name.replace("  ", " ")
-
         # Trim whitespace
         name = name.strip()
 
