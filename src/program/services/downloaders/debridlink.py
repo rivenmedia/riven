@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import requests
 from loguru import logger
@@ -42,15 +42,17 @@ class DebridLinkAPI:
         # Conservative rate limiting - Debrid-Link doesn't specify exact limits
         # Using 60 req/min as a safe default
         rate_limits = {"debrid-link.com": {"rate": 1, "capacity": 60}}
+        proxies = None
+        if proxy_url:
+            proxies = {"http": proxy_url, "https": proxy_url}
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
+            proxies=proxies,
             retries=2,
             backoff_factor=0.5,
         )
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
-        if proxy_url:
-            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
 
 
 class DebridLinkDownloader(DownloaderBase):
@@ -79,7 +81,7 @@ class DebridLinkDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
-        proxy_url = getattr(self, "PROXY_URL", None) or None
+        proxy_url = self.PROXY_URL or None
         self.api = DebridLinkAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
         return self._validate_premium()
 
@@ -396,12 +398,31 @@ class DebridLinkDownloader(DownloaderBase):
         if not resp.ok:
             raise DebridLinkError(self._handle_error(resp))
 
-    def resolve_link(self, link: str) -> Optional[Dict]:
-        return {
-            "download_url": link,
-            "name": "file",
-            "size": 0,
-        }
+    def unrestrict_link(self, link: str) -> Optional[object]:
+        """
+        Unrestrict a link using Debrid-Link.
+
+        For Debrid-Link, links are already direct download URLs, so we just return them.
+
+        Args:
+            link: The link to unrestrict.
+
+        Returns:
+            Object with 'download', 'filename', 'filesize' attributes, or None on error.
+        """
+
+        # Debrid-Link provides direct download URLs, no unrestricting needed
+        class UnrestrictedLink:
+            def __init__(self, download, filename, filesize):
+                self.download = download
+                self.filename = filename
+                self.filesize = filesize
+
+        return UnrestrictedLink(
+            download=link,
+            filename="file",
+            filesize=0,
+        )
 
     def get_user_info(self) -> Optional[UserInfo]:
         """

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from kink import di
 from loguru import logger
 from pydantic import BaseModel, Field, HttpUrl
-from sqlalchemy import func, select
+from sqlalchemy import Date, cast, func, select
 
 from program.apis import TraktAPI
 from program.db import db_functions
@@ -34,7 +34,7 @@ async def health(request: Request) -> MessageResponse:
 class DownloaderUserInfo(BaseModel):
     """Normalized downloader user information response"""
 
-    service: Literal["realdebrid", "torbox", "alldebrid", "debridlink"]
+    service: Literal["realdebrid", "alldebrid", "debridlink"]
     username: Optional[str] = None
     email: Optional[str] = None
     user_id: int | str
@@ -58,7 +58,7 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
     Get normalized user information from all initialized downloader services.
 
     Returns user info including premium status, expiration, and service-specific details
-    for all active downloader services (Real-Debrid, TorBox, AllDebrid, etc.)
+    for all active downloader services (Real-Debrid, Debrid-Link, AllDebrid, etc.)
     """
     try:
         # Get the downloader service from the program
@@ -184,10 +184,13 @@ class StatsResponse(BaseModel):
     total_episodes: int
     total_symlinks: int
     incomplete_items: int
-    incomplete_retries: dict[int, int] = Field(
-        description="Media item log string: number of retries"
-    )
     states: dict[States, int]
+    activity: dict[str, int] = Field(
+        description="Dictionary mapping date strings to count of items requested on that day"
+    )
+    media_year_releases: list[dict[str, Optional[int]]] = Field(
+        description="List of dictionaries with 'year' and 'count' keys representing media item releases per year"
+    )
 
 
 @router.get("/stats", operation_id="stats")
@@ -225,9 +228,34 @@ async def get_stats(_: Request) -> StatsResponse:
             total_episodes = conn.execute(select(func.count(Episode.id))).scalar_one()
             total_items = conn.execute(select(func.count(MediaItem.id))).scalar_one()
 
+            activity = {}
+
+            activity_result = conn.execute(
+                select(
+                    cast(MediaItem.requested_at, Date).label("date"),
+                    func.count(MediaItem.id).label("count"),
+                )
+                .where(MediaItem.requested_at.isnot(None))
+                .group_by(cast(MediaItem.requested_at, Date))
+                .order_by(cast(MediaItem.requested_at, Date))
+            )
+
+            for date, count in activity_result:
+                activity[date.isoformat()] = count
+
+            media_year_releases = []
+
+            media_year_result = conn.execute(
+                select(MediaItem.year, func.count(MediaItem.id)).group_by(
+                    MediaItem.year
+                )
+            )
+            for year, count in media_year_result:
+                media_year_releases.append({"year": year, "count": count})
+
             # Use a server-side cursor for batch processing
-            incomplete_retries = {}
             batch_size = 1000
+            incomplete_retries = {}
 
             result = conn.execute(
                 select(MediaItem.id, MediaItem.scraped_times).where(
@@ -258,8 +286,9 @@ async def get_stats(_: Request) -> StatsResponse:
             payload["total_episodes"] = total_episodes
             payload["total_symlinks"] = total_symlinks
             payload["incomplete_items"] = len(incomplete_retries)
-            payload["incomplete_retries"] = incomplete_retries
             payload["states"] = states
+            payload["activity"] = activity
+            payload["media_year_releases"] = media_year_releases
 
     return StatsResponse(**payload)
 

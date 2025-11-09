@@ -202,7 +202,7 @@ class DownloadedTorrent(BaseModel):
 class UserInfo(BaseModel):
     """Normalized user information across different debrid services"""
 
-    service: Literal["realdebrid", "torbox", "debridlink"]
+    service: Literal["realdebrid", "debridlink", "alldebrid"]
     username: Optional[str] = None
     email: Optional[str] = None
     user_id: Union[int, str]
@@ -212,5 +212,5 @@ class UserInfo(BaseModel):
 
     # Service-specific fields (optional)
     points: Optional[int] = None  # Real-Debrid
-    total_downloaded_bytes: Optional[int] = None  # TorBox
-    cooldown_until: Optional[datetime] = None  # TorBox
+    total_downloaded_bytes: Optional[int] = None
+    cooldown_until: Optional[datetime] = None
