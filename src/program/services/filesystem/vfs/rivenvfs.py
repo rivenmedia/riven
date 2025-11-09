@@ -269,7 +269,13 @@ class RivenVFS(pyfuse3.Operations):
             self._mounted = False
 
     async def _monitor_stream_timeouts(self) -> None:
+        """Background task to monitor and close timed-out streams to clean up resources."""
+
         while True:
+            logger.trace(
+                f"Checking for timed-out streams. Active streams: {self._active_streams.values()}"
+            )
+
             timed_out_streams = {
                 stream_key: stream
                 for stream_key, stream in self._active_streams.items()

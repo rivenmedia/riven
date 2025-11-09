@@ -138,6 +138,19 @@ class MediaStream:
         else:
             self.async_client = di[AsyncClient]
 
+    def __repr__(self) -> str:
+        return (
+            f"<MediaStream[{self.provider}] "
+            f"fh={self.fh} "
+            f"path={self.file_metadata.path} "
+            f"session_statistics={self.session_statistics} "
+            f"last_read_timestamp={self.recent_reads.current_read.value.timestamp if self.recent_reads.current_read.value else None} "
+            f"is_timed_out={self.is_timed_out} "
+            f"is_streaming={self.is_streaming.value} "
+            f"file_size={self.file_metadata.file_size} "
+            ">"
+        )
+
     @cached_property
     def footer_size(self) -> int:
         """An optimal footer size for scanning based on file size."""
