@@ -128,7 +128,7 @@ class SubtitleService:
         try:
             logger.debug(f"Fetching subtitles for {item.log_string}")
 
-            # Get existing embedded subtitles from parsed_data
+            # Get existing embedded subtitles from media_metadata
             embedded_subtitle_languages = self._get_embedded_subtitle_languages(item)
             if embedded_subtitle_languages:
                 logger.debug(
@@ -148,7 +148,7 @@ class SubtitleService:
             video_hash = self._calculate_video_hash(item)
             original_filename = item.filesystem_entry.get_original_filename()
 
-            # Build search tags from parsed_data for better OpenSubtitles matching
+            # Build search tags from media_metadata for better OpenSubtitles matching
             # Tags are release group names and format identifiers (BluRay, HDTV, etc.)
             # NOT full filenames - see https://trac.opensubtitles.org/opensubtitles/wiki/XMLRPC#Supportedtags
             search_tags = self._build_search_tags(item)
@@ -202,13 +202,13 @@ class SubtitleService:
 
     def _get_embedded_subtitle_languages(self, item: MediaItem) -> set[str]:
         """
-        Extract embedded subtitle languages from probed_data.
+        Extract embedded subtitle languages from media_metadata.
 
-        Checks the probed_data.subtitles array from MediaAnalysisService
+        Checks the media_metadata.subtitle_tracks array from MediaAnalysisService
         and returns a set of ISO 639-3 language codes.
 
         Args:
-            item: MediaItem with filesystem_entry containing probed_data
+            item: MediaItem with filesystem_entry containing media_metadata
 
         Returns:
             Set of ISO 639-3 language codes (e.g., {'eng', 'spa', 'fre'})
@@ -216,11 +216,11 @@ class SubtitleService:
         embedded_languages = set()
 
         try:
-            if not item.filesystem_entry or not item.filesystem_entry.probed_data:
+            if not item.filesystem_entry or not item.filesystem_entry.media_metadata:
                 return embedded_languages
 
-            probed_data = item.filesystem_entry.probed_data
-            subtitle_tracks = probed_data.get("subtitles", [])
+            media_metadata = item.filesystem_entry.media_metadata
+            subtitle_tracks = media_metadata.get("subtitle_tracks", [])
 
             for track in subtitle_tracks:
                 lang = track.get("language")
@@ -239,7 +239,7 @@ class SubtitleService:
 
     def _build_search_tags(self, item: MediaItem) -> Optional[str]:
         """
-        Build comma-separated search tags from parsed_data for OpenSubtitles.
+        Build comma-separated search tags from media_metadata for OpenSubtitles.
 
         Tags are specific identifiers like release groups (AXXO, KILLERS) and
         format tags (BluRay, HDTV, DVD, etc.), NOT full filenames.
@@ -247,7 +247,7 @@ class SubtitleService:
         See: https://trac.opensubtitles.org/opensubtitles/wiki/XMLRPC#Supportedtags
 
         Args:
-            item: MediaItem with parsed_data
+            item: MediaItem with media_metadata
 
         Returns:
             Comma-separated tags string (e.g., "BluRay,ETRG") or None
@@ -255,33 +255,43 @@ class SubtitleService:
         tags = []
 
         try:
-            if not item.filesystem_entry or not item.filesystem_entry.parsed_data:
+            if not item.filesystem_entry or not item.filesystem_entry.media_metadata:
                 return None
 
-            parsed_filename = item.filesystem_entry.parsed_data.get(
-                "parsed_filename", {}
-            )
+            # MediaMetadata stores parsed data from RTN at the top level
+            # No need to access nested parsed_filename - fields are directly accessible
+            from RTN import parse
+
+            # Re-parse the original filename to get release group and quality info
+            # This is necessary because MediaMetadata doesn't store all RTN fields
+            original_filename = item.filesystem_entry.original_filename
+            if not original_filename:
+                return None
+
+            parsed = parse(original_filename)
+            if not parsed:
+                return None
 
             # Add release group if available
-            release_group = parsed_filename.get("group")
+            release_group = parsed.group
             if release_group:
                 tags.append(release_group)
 
             # Add quality/format tag (BluRay, HDTV, DVD, etc.)
-            quality = parsed_filename.get("quality")
+            quality = parsed.quality
             if quality:
                 tags.append(quality)
 
             # Add other relevant tags
-            if parsed_filename.get("proper"):
+            if parsed.proper:
                 tags.append("Proper")
-            if parsed_filename.get("repack"):
+            if parsed.repack:
                 tags.append("Repack")
-            if parsed_filename.get("remux"):
+            if parsed.remux:
                 tags.append("Remux")
-            if parsed_filename.get("extended"):
+            if parsed.extended:
                 tags.append("Extended")
-            if parsed_filename.get("unrated"):
+            if parsed.unrated:
                 tags.append("Unrated")
 
             if tags:
@@ -537,7 +547,7 @@ class SubtitleService:
         if not self.enabled:
             return False
 
-        # Get embedded subtitle languages from parsed_data (ffprobe)
+        # Get embedded subtitle languages from media_metadata (ffprobe)
         embedded_languages = self._get_embedded_subtitle_languages(item)
 
         # Get already downloaded subtitle languages from database

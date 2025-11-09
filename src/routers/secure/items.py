@@ -1072,3 +1072,34 @@ async def get_item_aliases(
 
     aliases = item.aliases or {}
     return ItemAliasesResponse(aliases=aliases)
+
+
+# MediaMetadata return
+@router.get(
+    "/{item_id}/metadata",
+    summary="Get Media Item Metadata",
+    description="Get metadata for a media item using item ID",
+    operation_id="get_item_metadata",
+)
+async def get_item_metadata(
+    _: Request, item_id: int, db: Session = Depends(get_db)
+) -> dict:
+    """Get all metadata for a media item using item ID"""
+    item: MediaItem = (
+        db.execute(select(MediaItem).where(MediaItem.id == item_id))
+        .unique()
+        .scalar_one_or_none()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
+
+    if not item.filesystem_entry or not item.filesystem_entry.media_metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No metadata available for this item",
+        )
+
+    return item.filesystem_entry.media_metadata

@@ -252,6 +252,83 @@ Library profiles allow you to organize media into different virtual libraries ba
 - List filters (genres, networks, etc.) match if ANY value matches (OR logic)
 - Shows/Seasons inherit metadata from parent for filtering purposes
 
+### VFS Naming Templates
+
+Riven allows you to customize how files and directories are named in the VFS using configurable templates. Edit these in `settings.json` under the `filesystem` section.
+
+**Available Templates**:
+
+| Template | Default | Description |
+|----------|---------|-------------|
+| `movie_dir_template` | `{title} ({year}) {{tmdb-{tmdb_id}}}` | Movie directory names |
+| `movie_file_template` | `{title} ({year})` | Movie file names (without extension) |
+| `show_dir_template` | `{title} ({year}) {{tvdb-{tvdb_id}}}` | Show directory names |
+| `season_dir_template` | `Season {season:02d}` | Season directory names |
+| `episode_file_template` | `{show[title]} - s{season:02d}e{episode:02d}` | Episode file names (without extension) |
+
+**Template Syntax**:
+- `{variable}` - Simple variable substitution
+- `{variable:02d}` - Format specification (e.g., zero-padded 2-digit number)
+- `{parent[field]}` - Nested access (e.g., `{show[title]}` for episode's show title)
+- `{list[0]}`, `{list[-1]}` - List indexing (first/last element)
+
+**Available Variables**:
+
+*Core variables (all templates)*:
+- `title` - Media title
+- `year` - Release year
+- `imdb_id` - IMDb ID
+- `tmdb_id` - TMDb ID (movies)
+- `tvdb_id` - TVDB ID (shows)
+- `type` - Media type (`movie`, `show`, `season`, `episode`)
+
+*Episode-specific*:
+- `season` - Season number
+- `episode` - Episode number/range (for multi-episode files)
+- `show` - Parent show data (access with `{show[title]}`, `{show[year]}`, etc.)
+
+*Media metadata (movies/episodes with analyzed files)*:
+- `resolution` - Video resolution (e.g., `1080p`, `2160p`)
+- `codec` - Video codec (e.g., `h264`, `hevc`)
+- `hdr` - HDR formats (list, e.g., `["HDR10"]`)
+- `audio` - Audio codec (e.g., `aac`, `dts`)
+- `quality` - Quality source (e.g., `BluRay`, `WEB-DL`)
+- `container` - Container format (list, e.g., `["mkv"]`)
+- `remux` - String "REMUX" if remux release, empty otherwise
+- `proper` - String "PROPER" if proper release, empty otherwise
+- `repack` - String "REPACK" if repack release, empty otherwise
+- `extended` - String "Extended" if extended cut, empty otherwise
+- `directors_cut` - String "Director's Cut" if director's cut, empty otherwise
+- `edition` - Combined edition string (e.g., "Extended Director's Cut")
+
+**Example Templates**:
+
+*Plex/JF/Emby naming convention*:
+```json
+{
+  "movie_dir_template": "{title} ({year}) {{tmdb-{tmdb_id}}}",
+  "movie_file_template": "{title} ({year}) {{tmdb-{tmdb_id}}} [{resolution} {quality} {extended}]",
+  "show_dir_template": "{title} ({year}) {{tvdb-{tvdb_id}}}",
+  "season_dir_template": "Season {season:02d}",
+  "episode_file_template": "{show[title]} ({show[year]}) - s{season:02d}e{episode:02d} [{resolution} {quality} {extended}]"
+}
+```
+
+**Multi-Episode Files**:
+
+Multi-episode files are automatically detected and formatted using the episode number format from your template. For example:
+
+- Template: `"{show[title]} - s{season:02d}e{episode:02d}"` → Multi-episode: `Show - s01e01-05.mkv`
+- Template: `"S{season}E{episode}"` → Multi-episode: `S1E1-5.mkv`
+
+The range format (e.g., `e01-05` or `E1-5`) is automatically applied based on your episode number formatting.
+
+**Notes**:
+- Missing variables render as empty strings (no errors)
+- Templates are validated on settings save
+- File extensions are added automatically
+- All names are sanitized for filesystem compatibility
+
 
 ## Contributing
 

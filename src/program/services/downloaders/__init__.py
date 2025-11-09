@@ -7,6 +7,7 @@ from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
 from program.media.stream import Stream
 from program.media.media_entry import MediaEntry
+from program.media.models import MediaMetadata
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
@@ -503,14 +504,21 @@ class Downloader:
 
             # Create MediaEntry with original_filename as source of truth
             # Path generation is now handled by RivenVFS during registration
-            # Pass parsed_data to avoid re-parsing the filename later
+            # Convert parsed file_data to MediaMetadata if available
+            media_metadata = None
+            if file_data:
+                metadata = MediaMetadata.from_parsed_data(
+                    file_data.model_dump(), filename=debrid_file.filename
+                )
+                media_metadata = metadata.model_dump(mode="json")
+
             entry = MediaEntry.create_virtual_entry(
                 original_filename=debrid_file.filename,
                 download_url=debrid_file.download_url,
                 provider=service.key,
                 provider_download_id=str(download_result.info.id),
                 file_size=debrid_file.filesize or 0,
-                parsed_data=file_data.model_dump() if file_data else None,
+                media_metadata=media_metadata,
             )
 
             # Populate library profiles
