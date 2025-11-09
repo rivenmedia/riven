@@ -1182,7 +1182,7 @@ class RivenVFS(pyfuse3.Operations):
             nodes_to_remove = []
             for node in self._inode_to_node.values():
                 if (
-                    not node.is_directory
+                    isinstance(node, VFSFile)
                     and node.original_filename == original_filename
                 ):
                     nodes_to_remove.append(node)
