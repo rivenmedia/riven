@@ -1179,7 +1179,8 @@ class RivenVFS(pyfuse3.Operations):
 
         with self._tree_lock:
             # Find all nodes with matching original_filename
-            nodes_to_remove = []
+            nodes_to_remove: list[VFSFile] = []
+
             for node in self._inode_to_node.values():
                 if (
                     isinstance(node, VFSFile)
@@ -1189,9 +1190,8 @@ class RivenVFS(pyfuse3.Operations):
 
         # Unregister each matching node (outside the lock to avoid deadlock)
         for node in nodes_to_remove:
-            path = node.get_full_path()
-            if self._unregister_clean_path(path):
-                unregistered_paths.append(path)
+            if self._unregister_clean_path(node.path):
+                unregistered_paths.append(node.path)
 
         return unregistered_paths
 
