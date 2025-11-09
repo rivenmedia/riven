@@ -172,7 +172,7 @@ class MediaMetadata(BaseModel):
 
         resolution_width = None
         resolution_height = None
-        res = parsed_data.get("resolution", "unknown").lower()
+        res = parsed_data.get("resolution", None)
         if res == "2160p":
             resolution_width = 3840
             resolution_height = 2160
@@ -237,8 +237,14 @@ class MediaMetadata(BaseModel):
             for lang in parsed_data["languages"]:
                 subtitle_tracks.append(SubtitleMetadata(language=lang))
 
-        quality_source = parsed_data["quality"]
-        _edition = parsed_data.get("edition", "").lower()
+        quality_source = parsed_data.get("quality") or None
+        qs = None
+        if quality_source:
+            qs = quality_source.lower()
+
+        _edition = parsed_data.get("edition", "")
+        if _edition:
+            _edition = _edition.lower()
 
         return cls(
             filename=filename or parsed_data.get("raw_title"),
@@ -248,13 +254,13 @@ class MediaMetadata(BaseModel):
             audio_tracks=audio_tracks,
             subtitle_tracks=subtitle_tracks,
             quality_source=quality_source,
-            is_remux="remux" in quality_source.lower(),
+            is_remux="remux" in qs if qs else False,
             is_proper=parsed_data.get("proper", False),
             is_repack=parsed_data.get("repack", False),
-            is_remastered="remastered" in _edition,
+            is_remastered="remastered" in _edition if _edition else False,
             is_upscaled=parsed_data.get("upscaled", False),
-            is_directors_cut="directors" in _edition,
-            is_extended="extended" in _edition,
+            is_directors_cut="directors" in _edition if _edition else False,
+            is_extended="extended" in _edition if _edition else False,
             seasons=parsed_data.get("season", []),
             episodes=parsed_data.get("episode", []),
             data_source=DataSource.PARSED,

@@ -122,7 +122,6 @@ class TraktAPI:
         url = f"{self.BASE_URL}/users/{user}/collection/{media_type}"
         return self._fetch_data(url, {})
 
-    # UNUSED
     def get_liked_lists(self):
         """Get liked lists from Trakt with pagination support."""
         url = f"{self.BASE_URL}/users/likes/lists"
@@ -143,11 +142,15 @@ class TraktAPI:
         url = f"{self.BASE_URL}/{media_type}/watched/{period}"
         return self._fetch_data(url, {"limit": limit})
 
-    # UNUSED
     def get_favorited_items(self, user, limit=10):
         """Get favorited items from Trakt with pagination support."""
         url = f"{self.BASE_URL}/users/{user}/favorites"
         return self._fetch_data(url, {"limit": limit})
+
+    def get_movie_release_dates(self, imdb_id: str):  # takes 2-char country code
+        """Get release dates for a movie from Trakt"""
+        url = f"{self.BASE_URL}/movies/{imdb_id}/releases"
+        return self._fetch_data(url, {})
 
     def extract_user_list_from_url(self, url) -> tuple:
         """Extract user and list name from Trakt URL"""
