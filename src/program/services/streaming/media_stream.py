@@ -77,6 +77,7 @@ class MediaStream:
         provider: str,
         initial_url: str,
     ) -> None:
+        stream_settings = settings_manager.settings.stream
         fs = settings_manager.settings.filesystem
 
         self.fh = fh
@@ -92,7 +93,12 @@ class MediaStream:
         # Store initial URL to avoid redundant unrestrict calls
         self.target_url: trio_util.AsyncValue[str] = trio_util.AsyncValue(initial_url)
 
-        self.config = Config()
+        self.config = Config(
+            chunk_size=stream_settings.chunk_size_mb * 1024 * 1024,
+            stream_timeout_seconds=stream_settings.timeout_seconds,
+            chunk_wait_timeout_seconds=stream_settings.chunk_wait_timeout_seconds,
+            connect_timeout_seconds=stream_settings.connect_timeout_seconds,
+        )
 
         self.session_statistics = SessionStatistics()
 
@@ -629,7 +635,7 @@ class MediaStream:
             # This MUST be done before assigning a value to current_read,
             # or else the stream will not receive the value.
             if read_type == "body_read" and not self.is_streaming.value:
-                with trio.fail_after(10):
+                with trio.fail_after(self.config.connect_timeout_seconds):
                     await self.nursery.start(self.run, chunk_range.position)
 
             self.recent_reads.current_read.value = Read(

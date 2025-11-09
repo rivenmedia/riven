@@ -792,6 +792,29 @@ class LoggingModel(Observable):
         return v
 
 
+class StreamModel(Observable):
+    chunk_size_mb: int = Field(
+        default=1,
+        ge=1,
+        description="Chunk size in MB for streaming downloads (1 MB default). Note: Smaller chunks are generally more efficient, as the entire chunk must be read before it can be read.",
+    )
+    connect_timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        description="Timeout in seconds for establishing a connection to the streaming service (10 seconds default)",
+    )
+    chunk_wait_timeout_seconds: int = Field(
+        default=10,
+        ge=1,
+        description="Timeout in seconds for reading a chunk during streaming (10 seconds default)",
+    )
+    timeout_seconds: int = Field(
+        default=60,
+        ge=1,
+        description="Timeout in seconds before a stream is considered inactive during resource cleanup (60 seconds default)",
+    )
+
+
 class AppModel(Observable):
     version: str = Field(default_factory=get_version, description="Application version")
     api_key: str = Field(default="", description="API key for Riven API access")
@@ -849,6 +872,9 @@ class AppModel(Observable):
     )
     logging: LoggingModel = Field(
         default_factory=lambda: LoggingModel(), description="Logging configuration"
+    )
+    stream: StreamModel = Field(
+        default_factory=lambda: StreamModel(), description="Stream configuration"
     )
 
     @field_validator("log_level", mode="before")

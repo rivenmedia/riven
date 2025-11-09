@@ -5,6 +5,18 @@ from dataclasses import dataclass
 class Config:
     """Configuration for the media stream."""
 
+    # Chunk size (in bytes) used for streaming calculations.
+    chunk_size: int
+
+    # Timeout for detecting stalled streams.
+    stream_timeout_seconds: int
+
+    # Timeout for waiting for a chunk to become available.
+    chunk_wait_timeout_seconds: int
+
+    # Timeout for establishing a connection to the streaming service.
+    connect_timeout_seconds: int
+
     # Reads don't always come in exactly sequentially;
     # they may be interleaved with other reads (e.g. 1 -> 3 -> 2 -> 4).
     #
@@ -13,12 +25,6 @@ class Config:
 
     # Tolerance for detecting scan reads. Any read that jumps more than this value is considered a scan.
     scan_tolerance_blocks: int = 25
-
-    # Timeout for waiting for a chunk to become available.
-    chunk_wait_timeout_seconds: int = 10
-
-    # Chunk size (in bytes) used for streaming calculations.
-    chunk_size: int = 1 * 1024 * 1024  # 1 MiB
 
     @property
     def block_size(self) -> int:

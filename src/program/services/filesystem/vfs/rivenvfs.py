@@ -276,27 +276,36 @@ class RivenVFS(pyfuse3.Operations):
                 f"Checking for timed-out streams. Active streams: {self._active_streams.values()}"
             )
 
-            timed_out_streams = {
-                stream_key: stream
-                for stream_key, stream in self._active_streams.items()
-                if stream.is_timed_out
-            }
+            active_stream_count = len(self._active_streams)
 
-            if len(timed_out_streams) > 0:
-                logger.debug(
-                    f"Found {len(timed_out_streams)} timed-out stream(s) to close"
-                )
+            if active_stream_count == 0:
+                logger.trace("No active streams to monitor")
+            else:
+                timed_out_streams = {
+                    stream_key: stream
+                    for stream_key, stream in self._active_streams.items()
+                    if stream.is_timed_out
+                }
 
-                for stream_key, stream in timed_out_streams.items():
-                    try:
-                        if stream.is_timed_out:
-                            logger.debug(f"Closing timed-out stream: {stream_key}")
+                if len(timed_out_streams) > 0:
+                    logger.debug(
+                        f"Found {len(timed_out_streams)} timed-out stream(s) to close"
+                    )
 
-                            await stream.close()
+                    for stream_key, stream in timed_out_streams.items():
+                        try:
+                            if stream.is_timed_out:
+                                logger.debug(f"Closing timed-out stream: {stream_key}")
 
-                            self._active_streams.pop(stream_key)
-                    except Exception:
-                        logger.exception("Error during stream timeout check")
+                                await stream.close()
+
+                                self._active_streams.pop(stream_key)
+                        except Exception:
+                            logger.exception("Error during stream timeout check")
+                else:
+                    logger.trace("All streams appear to be active")
+
+            logger.trace("Stream timeout check complete, sleeping for 60 seconds")
 
             await trio.sleep(60)
 
@@ -2001,19 +2010,14 @@ class RivenVFS(pyfuse3.Operations):
                 if not entry_info:
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
-                provider = entry_info["provider"]
-                initial_url = entry_info["url"]
-
-                stream = MediaStream(
+                self._active_streams[stream_key] = MediaStream(
                     fh=fh,
                     file_size=file_size,
                     path=path,
                     original_filename=original_filename,
-                    provider=provider,
-                    initial_url=initial_url,
+                    provider=entry_info["provider"],
+                    initial_url=entry_info["url"],
                     nursery=self.stream_nursery,
                 )
-
-                self._active_streams[stream_key] = stream
 
         return self._active_streams[stream_key]
