@@ -65,7 +65,6 @@ from program.settings.manager import settings_manager
 from program.services.filesystem.vfs.db import VFSDatabase
 from program.services.streaming.exceptions import (
     MediaStreamDataException,
-    FatalMediaStreamException,
     DebridServiceException,
     DebridServiceForbiddenException,
     DebridServiceRangeNotSatisfiableException,
@@ -73,7 +72,6 @@ from program.services.streaming.exceptions import (
     DebridServiceUnableToConnectException,
     DebridServiceClosedConnectionException,
     DebridServiceRefusedRangeRequestException,
-    CacheDataNotFoundException,
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
@@ -1647,8 +1645,6 @@ class RivenVFS(pyfuse3.Operations):
             Bytes read from file (may be less than size at EOF)
         """
 
-        stream = None
-
         try:
             # Log cache stats asynchronously (don't block on trim/I/O)
             try:
@@ -1773,23 +1769,6 @@ class RivenVFS(pyfuse3.Operations):
                     )
 
                 raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
-            except* (MediaStreamDataException, FatalMediaStreamException) as e:
-                for exc in e.exceptions:
-                    logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
-                    )
-
-                handle_info = self._file_handles.get(fh)
-
-                if handle_info:
-                    # On media stream errors, something extremely bad happened during the streaming process
-                    # which broke the integrity of the bytes being served to the client.
-                    # This usually leads to playback issues, player hangs, and overall glitchiness.
-                    #
-                    # Mark that this handle has encountered a fatal stream error so that it can be killed.
-                    handle_info["has_stream_error"] = True
-
-                raise pyfuse3.FUSEError(errno.EIO) from e.exceptions[0]
             except* (
                 DebridServiceLinkUnavailable,
                 DebridServiceUnableToConnectException,
@@ -1838,7 +1817,10 @@ class RivenVFS(pyfuse3.Operations):
                     )
 
                 raise pyfuse3.FUSEError(errno.ECONNABORTED) from e
-            except* (DebridServiceException, CacheDataNotFoundException) as e:
+            except* (
+                DebridServiceException,
+                MediaStreamDataException,
+            ) as e:
                 for exc in e.exceptions:
                     logger.error(
                         stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
