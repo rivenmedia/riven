@@ -95,7 +95,7 @@ class MediaStream:
 
         self.config = Config(
             chunk_size=stream_settings.chunk_size_mb * 1024 * 1024,
-            stream_timeout_seconds=stream_settings.timeout_seconds,
+            activity_timeout_seconds=stream_settings.activity_timeout_seconds,
             chunk_wait_timeout_seconds=stream_settings.chunk_wait_timeout_seconds,
             connect_timeout_seconds=stream_settings.connect_timeout_seconds,
         )
@@ -179,14 +179,12 @@ class MediaStream:
 
     @property
     def is_timed_out(self) -> bool:
-        timeout_seconds = 60
-
         if not self.recent_reads.current_read.value:
             return False
 
         return (
             trio.current_time() - self.recent_reads.current_read.value.timestamp
-            > timeout_seconds
+            > self.config.activity_timeout_seconds
         )
 
     @asynccontextmanager

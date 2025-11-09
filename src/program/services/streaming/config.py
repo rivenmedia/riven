@@ -9,7 +9,7 @@ class Config:
     chunk_size: int
 
     # Timeout for detecting stalled streams.
-    stream_timeout_seconds: int
+    activity_timeout_seconds: int
 
     # Timeout for waiting for a chunk to become available.
     chunk_wait_timeout_seconds: int

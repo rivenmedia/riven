@@ -796,7 +796,7 @@ class StreamModel(Observable):
     chunk_size_mb: int = Field(
         default=1,
         ge=1,
-        description="Chunk size in MB for streaming downloads (1 MB default). Note: Smaller chunks are generally more efficient, as the entire chunk must be read before it can be read.",
+        description="Chunk size in MB for streaming downloads (1 MB default). Note: Smaller chunks are generally more efficient, as the entire chunk must be downloaded before it can be read.",
     )
     connect_timeout_seconds: int = Field(
         default=10,
@@ -808,7 +808,7 @@ class StreamModel(Observable):
         ge=1,
         description="Timeout in seconds for reading a chunk during streaming (10 seconds default)",
     )
-    timeout_seconds: int = Field(
+    activity_timeout_seconds: int = Field(
         default=60,
         ge=1,
         description="Timeout in seconds before a stream is considered inactive during resource cleanup (60 seconds default)",
