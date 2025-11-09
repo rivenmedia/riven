@@ -604,29 +604,6 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
     }
 
 
-# TODO: reimplement later
-# class UpdateNewReleasesResponse(BaseModel):
-#     message: str
-#     updated_items: list[dict]
-
-# @router.post(
-#     "/update_new_releases",
-#     summary="Update New Releases",
-#     description="Update state for new releases",
-#     operation_id="update_new_releases_items",
-# )
-# async def update_new_releases_items(request: Request, update_type: Literal["series", "seasons", "episodes"] = "episodes", hours: Optional[int] = 24) -> UpdateNewReleasesResponse:
-#     with db.Session() as session:
-#         updated_items = db_functions.update_new_releases(session, update_type=update_type, hours=hours)
-#         for item_id in updated_items:
-#             request.app.program.em.add_event(Event(emitted_by="UpdateNewReleases", item_id=item_id))
-#         if updated_items:
-#             logger.log("API", f"Successfully updated {len(updated_items)} items")
-#         else:
-#             logger.log("API", "No items required state updates")
-#     return {"message": f"Updated {len(updated_items)} items", "updated_items": updated_items}
-
-
 class RemoveResponse(BaseModel):
     message: str
     ids: list[int]
@@ -1095,3 +1072,33 @@ async def get_item_aliases(
 
     aliases = item.aliases or {}
     return ItemAliasesResponse(aliases=aliases)
+
+
+@router.get(
+    "/{item_id}/metadata",
+    summary="Get Media Item Metadata",
+    description="Get metadata for a media item using item ID",
+    operation_id="get_item_metadata",
+)
+async def get_item_metadata(
+    _: Request, item_id: int, db: Session = Depends(get_db)
+) -> dict:
+    """Get all metadata for a media item using item ID"""
+    item: MediaItem = (
+        db.execute(select(MediaItem).where(MediaItem.id == item_id))
+        .unique()
+        .scalar_one_or_none()
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
+
+    if not item.filesystem_entry or not item.filesystem_entry.media_metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No metadata available for this item",
+        )
+
+    return item.filesystem_entry.media_metadata

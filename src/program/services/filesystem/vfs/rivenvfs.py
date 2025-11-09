@@ -799,7 +799,7 @@ class RivenVFS(pyfuse3.Operations):
                     if self.add(item):
                         registered_count += 1
                 except Exception as e:
-                    logger.error(f"Failed to register item {item_id}: {e}")
+                    logger.exception(f"Failed to register item {item_id}: {e}")
             if registered_count > 0:
                 session.commit()
 
@@ -861,13 +861,14 @@ class RivenVFS(pyfuse3.Operations):
 
         if existing_session:
             # Item is in an active session - refresh relationships to get latest data
-            # This is crucial when subtitles were just added in the same session
-            existing_session.refresh(item, attribute_names=["subtitles"])
+            existing_session.refresh(
+                item, attribute_names=["subtitles", "filesystem_entries"]
+            )
 
             # Step 1: Remove existing VFS nodes for this item
             self.remove(item)
 
-            # Step 2: Re-add the item with current state (including new subtitles)
+            # Step 2: Re-add the item with current state (including new subtitles/metadata)
             self.add(item)
         else:
             # Item is detached - fetch it in a new session
@@ -1033,14 +1034,10 @@ class RivenVFS(pyfuse3.Operations):
         import os
 
         if isinstance(entry, MediaEntry):
-            # Unregister MediaEntry (video file)
-            all_paths = entry.get_all_vfs_paths()
-            unregistered_paths = []
-
-            for path in all_paths:
-                if self._unregister_clean_path(path):
-                    unregistered_paths.append(path)
-
+            # Unregister MediaEntry (video file) by original_filename
+            unregistered_paths = self._unregister_by_original_filename(
+                entry.original_filename
+            )
             return unregistered_paths
 
         elif isinstance(entry, SubtitleEntry):
@@ -1164,6 +1161,39 @@ class RivenVFS(pyfuse3.Operations):
                     pass
 
         return False
+
+    def _unregister_by_original_filename(self, original_filename: str) -> list[str]:
+        """
+        Find and unregister all VFS nodes with matching original_filename.
+
+        This is more reliable than path-based lookup because paths can change
+        when metadata is updated (e.g., after ffprobe updates resolution).
+
+        Args:
+            original_filename: Original filename to search for
+
+        Returns:
+            List of unregistered VFS paths
+        """
+        unregistered_paths = []
+
+        with self._tree_lock:
+            # Find all nodes with matching original_filename
+            nodes_to_remove = []
+            for node in self._inode_to_node.values():
+                if (
+                    not node.is_directory
+                    and node.original_filename == original_filename
+                ):
+                    nodes_to_remove.append(node)
+
+        # Unregister each matching node (outside the lock to avoid deadlock)
+        for node in nodes_to_remove:
+            path = node.get_full_path()
+            if self._unregister_clean_path(path):
+                unregistered_paths.append(path)
+
+        return unregistered_paths
 
     def _unregister_clean_path(self, path: str) -> bool:
         """

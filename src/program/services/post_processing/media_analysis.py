@@ -1,7 +1,7 @@
 """
 Media Analysis Service for Riven.
 
-Analyzes media files using ffprobe and PTT to extract:
+Analyzes media files using ffprobe and RTN to extract:
 - Video/audio codec information
 - Embedded subtitle tracks
 - Parsed metadata from filename (resolution, codec, audio, etc.)
@@ -14,10 +14,9 @@ upgrade decisions.
 import os
 import traceback
 
-from typing import Any
-
 from loguru import logger
 from program.utils.ffprobe import parse_media_file
+from program.media.models import MediaMetadata
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -43,7 +42,7 @@ class MediaAnalysisService:
 
         Only runs once per item when:
         - Item has a filesystem entry
-        - Entry hasn't been probed yet (no probed_data in MediaEntry)
+        - Entry hasn't been analyzed yet (no media_metadata with probed_at timestamp)
         - Item type is movie or episode
 
         Args:
@@ -58,9 +57,11 @@ class MediaAnalysisService:
         if not item.filesystem_entry:
             return False
 
-        # Skip if already probed
-        if item.filesystem_entry.probed_data:
-            return False
+        # Skip if already probed (check for probed_at timestamp in media_metadata)
+        if item.filesystem_entry.media_metadata:
+            metadata = item.filesystem_entry.media_metadata
+            if metadata.get("probed_at"):
+                return False
 
         return True
 
@@ -69,11 +70,11 @@ class MediaAnalysisService:
         Analyze media file and store metadata.
 
         Performs:
-        1. PTT filename parsing (resolution, codec, audio, release group, etc.) - only if not already parsed
-        2. FFprobe analysis (video/audio codecs, embedded subtitles) - only if not already probed
-        3. Stores PTT results in MediaEntry.parsed_data
-        4. Stores ffprobe results in MediaEntry.probed_data
+        1. FFprobe analysis (video/audio codecs, embedded subtitles, actual resolution)
+        2. Updates existing MediaMetadata (created by downloader) with probed data
+        3. Syncs VFS to update filenames with new metadata
 
+        Note: RTN parsing is done by the downloader, not here.
         Note: Does not handle database commits - caller is responsible for persistence.
 
         Args:
@@ -87,48 +88,36 @@ class MediaAnalysisService:
 
         try:
             logger.debug(f"Analyzing media file for {item.log_string}")
+            # Get the mounted VFS path for ffprobe
+            # Note: We use mount_path (host VFS mount) not library_path (container path)
+            mount_path = settings_manager.settings.filesystem.mount_path
 
-            # Get original filename for PTT parsing
-            original_filename = entry.original_filename
+            # Generate VFS path from entry
+            vfs_paths = entry.get_all_vfs_paths()
+            if not vfs_paths:
+                logger.warning(
+                    f"No VFS paths for {item.log_string}, cannot run ffprobe"
+                )
+                return
 
-            # 1. Parse filename with PTT (skip if already parsed by downloader)
-            if not entry.parsed_data and original_filename:
-                from RTN import parse
+            # Use the first (base) path for ffprobe
+            vfs_path = vfs_paths[0]
+            full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
 
-                try:
-                    parsed = parse(original_filename)
-                    if parsed:
-                        entry.parsed_data = parsed.model_dump()
-                        logger.debug(f"Parsed filename for {item.log_string}")
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to parse filename for {item.log_string}: {e}"
+            # Run ffprobe analysis
+            metadata_updated = self._analyze_with_ffprobe(full_path, item)
+
+            # Sync VFS to update filenames with new metadata (resolution, codec, etc.)
+            if metadata_updated:
+                from program.program import riven
+                from program.services.filesystem import FilesystemService
+
+                filesystem_service = riven.services.get(FilesystemService)
+                if filesystem_service and filesystem_service.riven_vfs:
+                    filesystem_service.riven_vfs.sync(item)
+                    logger.debug(
+                        f"VFS synced after media analysis for {item.log_string}"
                     )
-
-            # 2. Run ffprobe analysis (skip if already probed)
-            if not entry.probed_data:
-                # Get the mounted VFS path for ffprobe
-                # Note: We use mount_path (host VFS mount) not library_path (container path)
-                mount_path = settings_manager.settings.filesystem.mount_path
-
-                # Generate VFS path from entry
-                vfs_paths = entry.get_all_vfs_paths()
-                if not vfs_paths:
-                    logger.warning(
-                        f"No VFS paths for {item.log_string}, cannot run ffprobe"
-                    )
-                    return
-
-                # Use the first (base) path for ffprobe
-                vfs_path = vfs_paths[0]
-                full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
-
-                # Run ffprobe analysis
-                ffprobe_data = self._analyze_with_ffprobe(full_path, item)
-
-                # Store ffprobe results if we got any
-                if ffprobe_data:
-                    logger.debug(f"FFprobe analysis completed for {item.log_string}")
 
             logger.debug(f"Media analysis completed for {item.log_string}")
 
@@ -137,37 +126,51 @@ class MediaAnalysisService:
         except Exception as e:
             logger.error(f"Failed to analyze media file for {item.log_string}: {e}")
 
-    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> dict[str, Any]:
+    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> bool:
         """
-        Analyze media file with ffprobe.
+        Analyze media file with ffprobe and update MediaMetadata.
 
         Args:
             file_path: Full path to the media file
             item: MediaItem being analyzed
 
         Returns:
-            Dictionary with ffprobe data or None if analysis fails
+            True if metadata was updated, False otherwise
         """
         try:
             if not os.path.exists(file_path):
                 logger.debug(f"File not found for ffprobe: {file_path}")
-                return {}
+                return False
 
-            media_metadata = parse_media_file(file_path)
-            if media_metadata:
-                ffprobe_dict = media_metadata.model_dump(mode="json")
+            ffprobe_metadata = parse_media_file(file_path)
+            if ffprobe_metadata:
+                ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
 
-                # Store ffprobe data in filesystem_entry.probed_data
-                if item.filesystem_entry:
-                    item.filesystem_entry.probed_data = ffprobe_dict
+                # Get or create MediaMetadata
+                if item.filesystem_entry.media_metadata:
+                    # Update existing metadata with probed data
+                    metadata = MediaMetadata(**item.filesystem_entry.media_metadata)
+                    metadata.update_from_probed_data(ffprobe_dict)
+                else:
+                    # Create new metadata from probed data only
+                    # This shouldn't happen since downloader creates it, but handle it anyway
+                    logger.warning(
+                        f"No existing metadata for {item.log_string}, creating from probed data only"
+                    )
+                    metadata = MediaMetadata(
+                        filename=ffprobe_dict.get("filename"), data_source="probed"
+                    )
+                    metadata.update_from_probed_data(ffprobe_dict)
 
+                # Store updated metadata
+                item.filesystem_entry.media_metadata = metadata.model_dump(mode="json")
                 logger.debug(f"ffprobe analysis successful for {item.log_string}")
-                return ffprobe_dict
+                return True
 
             logger.warning(f"ffprobe returned no data for {item.log_string}")
-            return {}
+            return False
         except Exception:
             logger.error(
                 f"FFprobe analysis failed for {item.log_string}: {traceback.format_exc()}"
             )
-            return {}
+            return False
