@@ -233,7 +233,7 @@ def upgrade() -> None:
             connection.execute(
                 sa.update(media_entry_table)
                 .where(media_entry_table.c.id == entry_id)
-                .values(media_metadata=json.dumps(media_metadata))
+                .values(media_metadata=media_metadata)
             )
 
     # Drop old columns (only if they exist)
