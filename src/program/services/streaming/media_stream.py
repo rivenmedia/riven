@@ -976,7 +976,7 @@ class MediaStream:
         ) and file_size - self.footer_size <= start <= file_size:
             return "footer_scan"
 
-        if self.recent_reads.last_read_end and (
+        if self.recent_reads.last_read_end is not None and (
             (
                 # This behaviour is seen during scanning
                 # and captures large jumps in read position
