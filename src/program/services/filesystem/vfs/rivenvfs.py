@@ -1003,7 +1003,12 @@ class RivenVFS(pyfuse3.Operations):
                     if self.add(item):
                         registered_count += 1
                 except Exception as e:
-                    log.error(f"Failed to register item {item_id}: {e}")
+                    import traceback
+
+                    log.error(
+                        f"Failed to register item {item_id}: {traceback.format_exc()}"
+                    )
+
             if registered_count > 0:
                 session.commit()
 

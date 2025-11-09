@@ -1074,7 +1074,6 @@ async def get_item_aliases(
     return ItemAliasesResponse(aliases=aliases)
 
 
-# MediaMetadata return
 @router.get(
     "/{item_id}/metadata",
     summary="Get Media Item Metadata",

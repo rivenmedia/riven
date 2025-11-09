@@ -485,7 +485,7 @@ class NamingService:
         if not media_entry or not hasattr(media_entry, "media_metadata"):
             return metadata
 
-        media_metadata = getattr(media_entry, "media_metadata", None)
+        media_metadata = getattr(media_entry, "media_metadata", {})
         if not media_metadata:
             return metadata
 
