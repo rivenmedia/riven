@@ -52,6 +52,8 @@ def setup_logger(level):
         "JELLYFIN": (20, "DAD3BE", "📽️ "),
         "EMBY": (20, "DAD3BE", "📽️ "),
         "TRAKT": (20, "006989", "🍿"),
+        "STREAM": (5, "9B59B6", "▶️ "),  # trace
+        "NETWORK": (5, "235789", "🌐"),  # debug
     }
 
     # Set log levels

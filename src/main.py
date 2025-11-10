@@ -9,9 +9,10 @@ from kink import di
 import uvicorn
 from dotenv import load_dotenv
 
-load_dotenv()  # import required here to support SETTINGS_FILENAME
+from program.utils.proxy_client import ProxyClient
+from program.utils.async_client import AsyncClient
 
-from program.db.db import db  # noqa
+load_dotenv()  # import required here to support SETTINGS_FILENAME
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,8 @@ from starlette.requests import Request
 
 from program.program import riven
 from program.settings.models import get_version
+from program.settings.manager import settings_manager
+from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
 from program.utils.cli import handle_args
 from routers import app_router
 
@@ -48,9 +51,19 @@ args = handle_args()
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
-    di[httpx.AsyncClient] = httpx.AsyncClient(http2=True)
+    di[AsyncClient] = AsyncClient()
+
+    proxy_url = settings_manager.settings.downloaders.proxy_url
+
+    if proxy_url:
+        di[ProxyClient] = ProxyClient(proxy_url=proxy_url)
+
     yield
-    await di[httpx.AsyncClient].aclose()
+
+    await di[AsyncClient].aclose()
+
+    if ProxyClient in di:
+        await di[ProxyClient].aclose()
 
 
 app = FastAPI(

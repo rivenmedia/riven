@@ -17,6 +17,9 @@ from program.services.downloaders.models import (
 )
 from program.settings.manager import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.streaming.exceptions.debrid_service_exception import (
+    DebridServiceLinkUnavailable,
+)
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -492,10 +495,48 @@ class RealDebridDownloader(DownloaderBase):
                 logger.debug(
                     f"Direct unrestrict failed with status {response.status_code}: {response.text}"
                 )
-                return None
+
+                raise DebridServiceLinkUnavailable(provider=self.key, link=link)
+        except DebridServiceLinkUnavailable:
+            raise
         except Exception as e:
             logger.debug(f"Direct unrestrict_link failed for {link}: {e}")
             return None
+
+    def unrestrict_check(self, link: str) -> bool:
+        """
+        Checks a link using direct requests library, bypassing SmartSession rate limiting.
+
+        When a link cannot be unrestricted, this is used to determine whether the download URL
+        is valid or not.
+
+        Returns:
+            bool: True if the link is valid, False otherwise
+        """
+        try:
+            headers = {"Authorization": f"Bearer {self.api.api_key}"}
+            proxies = None
+            if self.api.proxy_url:
+                proxies = {"http": self.api.proxy_url, "https": self.api.proxy_url}
+
+            response = requests.post(
+                f"{self.api.BASE_URL}/unrestrict/check",
+                data={"link": link},
+                headers=headers,
+                proxies=proxies,
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                return True
+            else:
+                logger.debug(
+                    f"Unrestrict check failed with status {response.status_code}: {response.text}"
+                )
+                return False
+        except Exception as e:
+            logger.debug(f"Unrestrict check failed for {link}: {e}")
+            return False
 
     def get_user_info(self) -> Optional[UserInfo]:
         """

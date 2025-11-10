@@ -24,19 +24,17 @@ class MediaEntry(FilesystemEntry):
     )
 
     # Debrid service fields
-    download_url: Mapped[Optional[str]] = mapped_column(
+    download_url: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
+    unrestricted_url: Mapped[str | None] = mapped_column(
         sqlalchemy.String, nullable=True
     )
-    unrestricted_url: Mapped[Optional[str]] = mapped_column(
-        sqlalchemy.String, nullable=True
-    )
-    provider: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    provider_download_id: Mapped[Optional[str]] = mapped_column(
+    provider: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
+    provider_download_id: Mapped[str | None] = mapped_column(
         sqlalchemy.String, nullable=True
     )
 
     # Library Profile References (list of profile keys from settings.json)
-    library_profiles: Mapped[Optional[list[str]]] = mapped_column(
+    library_profiles: Mapped[list[str] | None] = mapped_column(
         sqlalchemy.JSON,
         nullable=True,
         default=list,
@@ -45,7 +43,7 @@ class MediaEntry(FilesystemEntry):
 
     # Unified media metadata (combines parsed and probed data)
     # Stores MediaMetadata model: {video, audio_tracks, subtitle_tracks, quality_source, etc.}
-    media_metadata: Mapped[Optional[dict]] = mapped_column(
+    media_metadata: Mapped[dict | None] = mapped_column(
         sqlalchemy.JSON,
         nullable=True,
         comment="Unified media metadata combining parsed (RTN) and probed (ffprobe) data",

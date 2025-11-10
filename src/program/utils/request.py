@@ -5,7 +5,6 @@ import time
 import threading
 from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
-from typing import Dict, Optional
 from urllib.parse import urlparse
 from contextlib import closing
 
@@ -28,7 +27,7 @@ class TokenBucket:
         last_refill (float): Timestamp of last refill (monotonic seconds).
     """
 
-    def __init__(self, rate: float, capacity: int, name: Optional[str] = None):
+    def __init__(self, rate: float, capacity: int, name: str | None = None):
         """Initialize the token bucket."""
         self.name = name
         self.rate: float = float(rate)
@@ -114,7 +113,7 @@ class CircuitBreaker:
         self.failure_threshold = failure_threshold
         self.recovery_time = recovery_time
         self.failures = 0
-        self.last_failure_time: Optional[float] = None
+        self.last_failure_time: float | None = None
         self.state = "CLOSED"
         self.name = name
 
@@ -289,9 +288,9 @@ class SmartSession:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        rate_limits: Optional[Dict[str, Dict[str, int]]] = None,
-        proxies: Optional[Dict[str, str]] = None,
+        base_url: str | None = None,
+        rate_limits: dict[str, dict[str, int]] | None = None,
+        proxies: dict[str, str] | None = None,
         retries: int = 3,
         backoff_factor: float = 0.3,
     ):
@@ -337,13 +336,13 @@ class SmartSession:
         )
 
         self.base_url = base_url.rstrip("/") if base_url else None
-        self.limiters: Dict[str, TokenBucket] = {}
-        self.breakers: Dict[str, CircuitBreaker] = {}
+        self.limiters: dict[str, TokenBucket] = {}
+        self.breakers: dict[str, CircuitBreaker] = {}
         self.retries = int(retries)
         self.backoff_factor = float(backoff_factor)
         # requests-compatible attributes that callers may set
         self.proxies = proxies or {}
-        self.headers: Dict[str, str] = {}
+        self.headers: dict[str, str] = {}
         self.auth = None
         self.cookies = None
 

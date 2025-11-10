@@ -3,7 +3,7 @@ name = "riven"
 version = "1.0.0"
 description = "Plex torrent streaming through Real Debrid and 3rd party services like Overseerr, Mdblist, etc."
 authors = [{ name = "Riven Developers" }]
-requires-python = "~=3.13"
+requires-python = "~=3.13.0"
 readme = "README.md"
 license = "GPL-3.0"
 dependencies = [
@@ -37,12 +37,13 @@ dependencies = [
     "bencodepy>=0.9.5,<0.10",
     "plexapi>=4.17.1,<5",
     "pyfuse3>=3.4.0,<4",
-    "pycurl>=7.45.6,<8",
     "babel>=2.17.0,<3",
-    "httpx[http2]>=0.28.1,<0.29",
+    "httpx[http2,socks]>=0.28.1,<0.29",
     "starlette>=0.37.2",
     "rank-torrent-name>=1.9.3,<2",
     "parsett>=1.8.2,<2",
+    "trio-util>=0.8.0",
+    "ordered-set>=4.1.0"
 ]
 
 [dependency-groups]

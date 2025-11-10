@@ -8,7 +8,7 @@ from typing import List, Optional
 from loguru import logger
 
 from program.media.item import MediaItem
-from program.settings.models import LibraryProfile, LibraryProfileFilterRules
+from program.settings.models import LibraryProfileFilterRules
 from program.settings.manager import settings_manager
 
 
