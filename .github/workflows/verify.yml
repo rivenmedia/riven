@@ -21,8 +21,8 @@ jobs:
 
       - name: Install pre-requisites
         run: |
-          sudo apt update
-          sudo apt install fuse3 fuse3-dev pkgconf
+          sudo apt-get update
+          sudo apt-get install fuse3 fuse3-dev pkgconf
 
       - name: Install the project
         run: uv sync --locked --all-extras --dev
