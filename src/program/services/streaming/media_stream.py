@@ -894,7 +894,9 @@ class MediaStream:
                 httpx.InvalidURL,
             ) as e:
                 logger.warning(
-                    f"Encountered {e.__class__.__name__}: {e} (attempt {attempt + 1}/{max_attempts})"
+                    self._build_log_message(
+                        f"Encountered {e.__class__.__name__}: {e} (attempt {attempt + 1}/{max_attempts})"
+                    )
                 )
 
                 if attempt == 0:
