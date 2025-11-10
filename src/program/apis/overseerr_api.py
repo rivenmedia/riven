@@ -158,19 +158,6 @@ class OverseerrAPI:
 
             return False
 
-    def mark_processing(self, mediaId: int) -> bool:
-        """Mark item as processing in overseerr"""
-        try:
-            response = self.session.put(f"api/v1/request/{mediaId}", json={"status": 3})
-
-            logger.debug(f"Marked request {mediaId} as processing in overseerr")
-
-            return response.ok
-        except Exception as e:
-            logger.error(f"Failed to mark request as processing in overseerr: {str(e)}")
-
-            return False
-
 
 # Statuses for Media Requests endpoint /api/v1/request:
 # item.status:
