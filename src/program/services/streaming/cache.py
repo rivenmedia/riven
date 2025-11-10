@@ -2,6 +2,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from kink import di
 import trio
 import hashlib
 import os
@@ -16,6 +17,8 @@ from typing import Literal, NotRequired, Required, TypedDict
 
 
 from loguru import logger
+
+from program.utils.nursery import Nursery
 
 
 class CacheSnapshot(TypedDict):
@@ -91,7 +94,7 @@ class Cache:
                 f"Disk cache directory init warning for {self.cfg.cache_dir}: {e}"
             )
 
-        trio.run(self._initialize)
+        di[Nursery].nursery.start_soon(self._initialize)
 
     @asynccontextmanager
     async def locks(self) -> AsyncGenerator[None, None]:

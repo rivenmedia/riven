@@ -12,7 +12,7 @@ from clients.listrr.listrr_pro_v1_client.models import (
     ListrrContractsModelsAPIShowDto,
 )
 from clients.listrr.listrr_pro_v1_client.types import Unset
-from program.utils.rate_limited_client import RateLimitedClient
+from program.utils.rate_limited_async_client import RateLimitedAsyncClient
 
 
 class ListrrAPIError(Exception):
@@ -30,7 +30,7 @@ class ListrrAPI:
         )
 
         self.client.set_async_httpx_client(
-            RateLimitedClient(
+            RateLimitedAsyncClient(
                 rate_limit=Rate.create(magnitude=50, duration=10),
                 retry=Retry(total=3, backoff_factor=0.3),
             )

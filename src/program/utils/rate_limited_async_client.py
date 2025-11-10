@@ -10,7 +10,7 @@ from httpx_limiter.rate import Rate
 from program.settings.manager import settings_manager
 
 
-class RateLimitedClient(httpx.Client):
+class RateLimitedAsyncClient(httpx.AsyncClient):
     def __init__(
         self,
         *,

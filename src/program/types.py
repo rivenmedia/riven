@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generator, Optional, Union
+from typing import Generator, Literal, Optional, Union
 
 from program.media.item import MediaItem
 from program.services.content import (
@@ -33,11 +33,11 @@ class ProcessedEvent:
 
 @dataclass
 class Event:
-    emitted_by: Service
-    item_id: Optional[str] = None
-    content_item: Optional[MediaItem] = None
+    emitted_by: Service | Literal["StateTransition", "RetryLibrary"]
+    item_id: int | None = None
+    content_item: MediaItem | None = None
     run_at: datetime = datetime.now()
-    item_state: Optional[str] = None  # Cached state for priority sorting
+    item_state: str | None = None  # Cached state for priority sorting
 
     @property
     def log_message(self) -> str:

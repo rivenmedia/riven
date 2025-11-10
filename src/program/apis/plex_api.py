@@ -13,7 +13,6 @@ from plexapi.server import PlexServer
 
 
 from program.settings.manager import settings_manager
-from program.utils.request import SmartSession
 from program.utils.rate_limited_client import RateLimitedClient
 
 TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")
@@ -62,7 +61,10 @@ class PlexAPI:
 
     def validate_server(self):
         self.plex_server = PlexServer(
-            self.client.base_url, token=self.token, session=self.client, timeout=60
+            str(self.client.base_url),
+            token=self.token,
+            session=self.client,
+            timeout=60,
         )
 
     def set_rss_urls(self, rss_urls: list[str]):
@@ -84,7 +86,7 @@ class PlexAPI:
         )
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
 
-        response = await self.client.get(url)
+        response = self.client.get(url)
 
         @dataclass
         class ResponseData:
@@ -130,10 +132,7 @@ class PlexAPI:
         if self.rss_urls:
             for rss_url in self.rss_urls:
                 try:
-                    response = await self.client.get(
-                        rss_url + "?format=json",
-                        timeout=60,
-                    )
+                    response = self.client.get(rss_url + "?format=json", timeout=60)
 
                     if not response.is_success or not hasattr(response.json(), "items"):
                         logger.error(f"Failed to fetch Plex RSS feed from {rss_url}")

@@ -75,6 +75,7 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
+from program.utils.nursery import Nursery
 
 from ...streaming import (
     Cache,
@@ -204,32 +205,30 @@ class RivenVFS(pyfuse3.Operations):
         self._unmount_requested: trio_util.AsyncBool = trio_util.AsyncBool(False)
         self.stream_nursery: trio.Nursery
 
-        def _fuse_runner():
-            async def _async_main() -> NoReturn:
-                async with self.mountpoint_lifecycle():
-                    async with trio_util.move_on_when(
-                        lambda: self._unmount_requested.wait_value(True)
-                    ):
-                        await trio.sleep_forever()
-
+    async def run(self) -> None:
+        async def _fuse_runner(*, task_status: trio.TaskStatus[None]) -> None:
             while not self._unmount_requested.value:
                 logger.trace("Starting FUSE main loop")
 
                 try:
-                    # pyfuse3.main is a coroutine that needs to run in its own trio event loop
-                    trio.run(_async_main)
+                    async with self.mountpoint_lifecycle():
+                        async with trio_util.move_on_when(
+                            lambda: self._unmount_requested.wait_value(True)
+                        ):
+                            task_status.started()
+
+                            await trio.sleep_forever()
                 except Exception:
                     logger.exception("FUSE main loop error, restarting")
 
             logger.trace(f"FUSE main loop exited")
 
-        self._thread = threading.Thread(target=_fuse_runner, daemon=True)
-        self._thread.start()
+        await di[Nursery].nursery.start(_fuse_runner)
 
         logger.log("VFS", f"RivenVFS mounted at {self._mountpoint}")
 
         # Synchronize library profiles with VFS structure
-        self.sync()
+        await trio.to_thread.run_sync(self.sync)
 
     @asynccontextmanager
     async def mountpoint_lifecycle(self) -> AsyncGenerator[None]:
