@@ -1,14 +1,16 @@
 ﻿"""Overseerr API client"""
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
 
-from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
+
+type ItemType = Literal["tv", "movie"]
 
 
 class OverseerrAPIError(Exception):
@@ -22,68 +24,107 @@ class OverseerrAPI:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
 
-        rate_limits = {
-            get_hostname_from_url(self.base_url): {
-                "rate": 1000 / 300,
-                "capacity": 1000,
-            }  # 1000 calls per 5 minutes
-        }
-
         self.session = SmartSession(
-            base_url=base_url, rate_limits=rate_limits, retries=3, backoff_factor=0.3
+            base_url=base_url,
+            rate_limits={
+                # 1000 calls per 5 minutes, retries=3, backoff_factor=0.3
+                get_hostname_from_url(self.base_url): {
+                    "rate": 1000 // 300,
+                    "capacity": 1000,
+                }
+            },
         )
+
         self.session.headers.update({"X-Api-Key": self.api_key})
 
     def validate(self):
         """Validate API connection"""
+
         try:
             response = self.session.get("api/v1/auth/me", timeout=15)
+
             return response
         except Exception as e:
             logger.error(f"Overseerr validation failed: {e}")
+
             return None
 
     def get_media_requests(
         self, service_key: str, filter: str = "approved", take: int = 10000
     ) -> list["MediaItem"]:
         """Get media requests from `Overseerr`"""
+
         from program.media.item import MediaItem
 
         url = f"api/v1/request?take={take}&sort=added"
+
         if filter:
             url += f"&filter={filter}"
 
         try:
             response = self.session.get(url)
-            if (
-                not response.ok
-                or not hasattr(response.data, "pageInfo")
-                or getattr(response.data.pageInfo, "results", 0) == 0
-            ):
-                if not response.ok:
-                    logger.error(
-                        f"Failed to get response from overseerr: {response.data}"
-                    )
-                elif (
-                    not hasattr(response.data, "pageInfo")
-                    or getattr(response.data.pageInfo, "results", 0) == 0
-                ):
-                    logger.debug("No user approved requests found from overseerr")
+
+            @dataclass
+            class ResponseData:
+                """Response data structure from Overseerr API"""
+
+                @dataclass
+                class Item:
+                    """Item structure from Overseerr API"""
+
+                    @dataclass
+                    class Media:
+                        """Media structure from Overseerr API"""
+
+                        tmdbId: int
+                        tvdbId: int
+                        status: int
+
+                    type: ItemType
+                    media: Media
+                    status: int
+
+                @dataclass
+                class PageInfo:
+                    """PageInfo structure from Overseerr API"""
+
+                    totalResults: int
+                    results: int
+                    page: int
+                    totalPages: int
+
+                pageInfo: PageInfo
+                results: list[Item]
+
+            if not response.ok:
+                logger.error(f"Failed to get response from overseerr: {response.data}")
+
                 return []
+
+            response_data = ResponseData(**response.json())
+
+            if response_data.pageInfo.results == 0:
+                logger.debug("No user approved requests found from overseerr")
+
+                return []
+
         except Exception as e:
             logger.error(f"Failed to get response from overseerr: {str(e)}")
+
             return []
 
         # Lets look at approved items only that are only in the pending state
-        pending_items = response.data.results
+        pending_items = response_data.results
+
         if filter == "approved":
             pending_items = [
                 item
-                for item in response.data.results
+                for item in response_data.results
                 if item.status == 2 and item.media.status == 3
             ]
 
         media_items: list[MediaItem] = []
+
         for item in pending_items:
             media_type = item.type
             tmdb_id = item.media.tmdbId
@@ -105,23 +146,29 @@ class OverseerrAPI:
 
     def delete_request(self, mediaId: int) -> bool:
         """Delete request from `Overseerr`"""
-        settings = settings_manager.settings.content.overseerr
+
         try:
             response = self.session.delete(f"api/v1/request/{mediaId}")
+
             logger.debug(f"Deleted request {mediaId} from overseerr")
+
             return response.ok
         except Exception as e:
             logger.error(f"Failed to delete request from overseerr: {str(e)}")
+
             return False
 
     def mark_processing(self, mediaId: int) -> bool:
         """Mark item as processing in overseerr"""
         try:
             response = self.session.put(f"api/v1/request/{mediaId}", json={"status": 3})
+
             logger.debug(f"Marked request {mediaId} as processing in overseerr")
+
             return response.ok
         except Exception as e:
             logger.error(f"Failed to mark request as processing in overseerr: {str(e)}")
+
             return False
 
 

@@ -1,7 +1,6 @@
 ﻿"""Listrr API"""
 
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Literal
 from program.utils.request import SmartSession
 
@@ -45,17 +44,21 @@ class ListrrAPI:
             return list()
 
         @dataclass
-        class Item:
-            id: str | None
-            name: str | None
-            firstAirDate: str | None
-            releaseDate: str | None
-            imDbId: str | None
-            tmDbId: int
-            tvDbId: int
-
-        @dataclass
         class ResponseData:
+            """Response data structure from Listrr API"""
+
+            @dataclass
+            class Item:
+                """Item structure from Listrr API"""
+
+                id: str | None
+                name: str | None
+                firstAirDate: str | None
+                releaseDate: str | None
+                imDbId: str | None
+                tmDbId: int
+                tvDbId: int
+
             items: list[Item] | None
             pages: int
             count: int
