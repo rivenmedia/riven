@@ -995,27 +995,27 @@ class MediaStream:
         ) and file_size - self.footer_size <= start <= file_size:
             return "footer_scan"
 
-        if self.recent_reads.last_read_end is not None and (
-            (
-                # This behaviour is seen during scanning
-                # and captures large jumps in read position
-                # generally observed when the player is reading the footer
-                # for cues or metadata after initial playback start.
-                #
-                # Scans typically read less than a single block.
+        if (
+            # This behaviour is seen during scanning
+            # and captures large jumps in read position
+            # generally observed when the player is reading the footer
+            # for cues or metadata after initial playback start.
+            #
+            # Scans typically read less than a single block.
+            self.recent_reads.last_read_end is not None
+            and (
                 abs(self.recent_reads.last_read_end - start)
                 > self.config.scan_tolerance
-                and start != self.config.header_size
-                and size < self.config.block_size
             )
-            or (
-                # This behaviour is seen when seeking.
-                # Playback has already begun, so the header has been served
-                # for this file, but the scan happens on a new file handle
-                # and is the first request to be made.
-                start > self.config.header_size
-                and self.recent_reads.last_read_end == 0
-            )
+            and start != self.config.header_size
+            and size < self.config.block_size
+        ) or (
+            # This behaviour is seen when seeking.
+            # Playback has already begun, so the header has been served
+            # for this file, but the scan happens on a new file handle
+            # and is the first request to be made.
+            start > self.config.header_size
+            and self.recent_reads.last_read_end is None
         ):
             return "general_scan"
 
