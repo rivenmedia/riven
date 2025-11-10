@@ -19,6 +19,11 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install pre-requisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install fuse
+
       - name: Install the project
         run: uv sync --locked --all-extras --dev
 
