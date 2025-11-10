@@ -1,8 +1,18 @@
 ﻿"""Listrr API"""
 
-from dataclasses import dataclass
 from typing import Literal
-from program.utils.request import SmartSession
+from httpx_limiter.rate import Rate
+from httpx_retries import Retry
+
+from clients.listrr.listrr_pro_v1_client.client import AuthenticatedClient
+from clients.listrr.listrr_pro_v1_client.models import (
+    ListrrContractsEnumControllersListControllerShowListSortEnum,
+    ListrrContractsEnumSortByDirectionEnum,
+    ListrrContractsModelsAPIMovieDto,
+    ListrrContractsModelsAPIShowDto,
+)
+from clients.listrr.listrr_pro_v1_client.types import Unset
+from program.utils.rate_limited_client import RateLimitedClient
 
 
 class ListrrAPIError(Exception):
@@ -13,55 +23,45 @@ class ListrrAPI:
     """Handles Listrr API communication"""
 
     def __init__(self, api_key: str):
-        self.BASE_URL = "https://listrr.pro/api"
-        self.api_key = api_key
-        self.headers = {"X-Api-Key": self.api_key}
-        self.session = SmartSession(
-            base_url=self.BASE_URL,
-            rate_limits={
-                "listrr.pro": {
-                    "rate": 10,
-                    "capacity": 50,
-                },
-            },
-            retries=3,
-            backoff_factor=0.3,
+        self.client = AuthenticatedClient(
+            base_url="https://listrr.pro/api",
+            token=api_key,
+            auth_header_name="X-Api-Key",
         )
-        self.session.headers.update(self.headers)
+
+        self.client.set_async_httpx_client(
+            RateLimitedClient(
+                rate_limit=Rate.create(magnitude=50, duration=10),
+                retry=Retry(total=3, backoff_factor=0.3),
+            )
+        )
 
     def validate(self):
-        return self.session.get("/List/My")
+        from clients.listrr.listrr_pro_v1_client.api.list_.get_api_list_my_page import (
+            sync_detailed as get_my_lists_sync,
+        )
+
+        return get_my_lists_sync(client=self.client)
 
     def get_items_from_Listrr(
         self,
         content_type: Literal["Movies", "Shows"],
         content_lists: list[str],
-    ) -> list[tuple[str | None, int]]:  # noqa: C901, PLR0912
+    ) -> list[tuple[str | Unset | None, int | Unset]]:  # noqa: C901, PLR0912
         """Fetch unique IMDb IDs from Listrr for a given type and list of content."""
-        unique_ids: set[tuple[str | None, int]] = set()
+        unique_ids: set[tuple[str | Unset | None, int | Unset]] = set()
 
         if not content_lists:
             return list()
 
-        @dataclass
-        class ResponseData:
-            """Response data structure from Listrr API"""
-
-            @dataclass
-            class Item:
-                """Item structure from Listrr API"""
-
-                id: str | None
-                name: str | None
-                firstAirDate: str | None
-                releaseDate: str | None
-                imDbId: str | None
-                tmDbId: int
-                tvDbId: int
-
-            items: list[Item] | None
-            pages: int
-            count: int
+        if content_type == "Movies":
+            from clients.listrr.listrr_pro_v1_client.api.list_.get_api_list_movies_id_sort_by_sort_by_direction_page import (
+                sync as get_page,
+            )
+        elif content_type == "Shows":
+            from clients.listrr.listrr_pro_v1_client.api.list_.get_api_list_shows_id_sort_by_sort_by_direction_page import (
+                sync as get_page,
+            )
 
         for list_id in content_lists:
             if not list_id or len(list_id) != 24:
@@ -70,19 +70,26 @@ class ListrrAPI:
             page, total_pages = 1, 1
 
             while page <= total_pages:
-                url = f"/List/{content_type}/{list_id}/ReleaseDate/Descending/{page}"
-                response = self.session.get(url)
-                data = ResponseData(**response.json())
+                response = get_page(
+                    list_id,
+                    sort_by=ListrrContractsEnumControllersListControllerShowListSortEnum.RELEASEDATE,
+                    sort_by_direction=ListrrContractsEnumSortByDirectionEnum.DESCENDING,
+                    page=page,
+                    client=self.client,
+                )
 
-                total_pages = data.pages
+                if not response:
+                    break
 
-                if data.items:
-                    for item in data.items:
-                        if content_type == "Movies":
-                            unique_ids.add((item.imDbId, item.tmDbId))
-                        elif content_type == "Shows":
-                            unique_ids.add((item.imDbId, item.tvDbId))
+                if response.items:
+                    for item in response.items:
+                        if isinstance(item, ListrrContractsModelsAPIMovieDto):
+                            unique_ids.add((item.im_db_id, item.tm_db_id))
+                        elif isinstance(item, ListrrContractsModelsAPIShowDto):
+                            unique_ids.add((item.im_db_id, item.tv_db_id))
 
                     page += 1
+
+                total_pages = response.pages or 0
 
         return list(unique_ids)

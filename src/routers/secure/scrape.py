@@ -3,6 +3,7 @@ from typing import Any, Dict, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from kink import di
 from loguru import logger
 from PTT import parse_title
 from pydantic import BaseModel, RootModel
@@ -25,6 +26,7 @@ from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
+from program.program import Program
 from ..models.shared import MessageResponse
 
 
@@ -241,7 +243,7 @@ def scrape_item(
 ) -> ScrapeItemResponse:
     """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
-    if services := request.app.program.services:
+    if services := di[Program].services:
         indexer = services[IndexerService]
         scraper = services[Scraping]
     else:
@@ -317,7 +319,7 @@ async def start_manual_session(
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
-    if services := request.app.program.services:
+    if services := di[Program].services:
         indexer = services[IndexerService]
         downloader = services[Downloader]
     else:
@@ -409,7 +411,7 @@ async def start_manual_session(
 def manual_select_files(
     request: Request, session_id: str, files: Container
 ) -> SelectFilesResponse:
-    downloader: Downloader = request.app.program.services.get(Downloader)
+    downloader: Downloader = di[Program].services.get(Downloader)
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -512,7 +514,7 @@ async def manual_update_attributes(
                 data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
                 session (ScrapingSession): Scraping session containing the magnet and torrent_info used to set active_stream and rank the stream.
             """
-            request.app.program.em.cancel_job(item.id)
+            di[Program].em.cancel_job(item.id)
             item.reset()
 
             # Ensure a staging MediaEntry exists and is linked
@@ -605,13 +607,13 @@ async def manual_update_attributes(
     # Must happen AFTER commit so the database reflects the changes
     from program.services.filesystem import FilesystemService
 
-    filesystem_service = request.app.program.services.get(FilesystemService)
+    filesystem_service = di[Program].services.get(FilesystemService)
     if filesystem_service and filesystem_service.riven_vfs:
         filesystem_service.riven_vfs.sync(item)
         logger.debug("VFS synced after manual scraping update")
 
     for item_id in item_ids_to_submit:
-        request.app.program.em.add_event(Event("ManualAPI", item_id))
+        di[Program].em.add_event(Event("ManualAPI", item_id))
 
     return {"message": f"Updated given data to {log_string}"}
 
@@ -722,6 +724,6 @@ async def overseerr_requests(
         db.commit()
 
         for persisted in persisted_items:
-            request.app.program.em.add_item(persisted, service="Overseerr")
+            di[Program].em.add_item(persisted, service="Overseerr")
 
     return MessageResponse(message="Submitted overseerr requests to the queue")

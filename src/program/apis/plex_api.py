@@ -2,23 +2,22 @@
 from typing import Literal
 
 import regex
+
+from httpx_limiter.rate import Rate
 from loguru import logger
+from plexapi.media import Guid
+from plexapi.video import Movie, Show
 from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
 
+
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
+from program.utils.rate_limited_client import RateLimitedClient
 
 TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")
 TVDBID_REGEX = regex.compile(r"tvdb://(\d+)")
-
-
-@dataclass
-class Guid:
-    """Dataclass for Plex GUID"""
-
-    id: str
 
 
 @dataclass
@@ -43,17 +42,10 @@ class PlexAPI:
     def __init__(self, token: str, base_url: str):
         self.rss_urls: list[str] | None = None
         self.token = token
-        self.BASE_URL = base_url
 
-        rate_limits = {
-            "metadata.provider.plex.tv": {
-                "rate": 1,
-                "capacity": 60,
-            },  # 1 call per second, 60 calls per minute
-        }
-
-        self.session = SmartSession(
-            rate_limits=rate_limits, retries=3, backoff_factor=0.3
+        self.client = RateLimitedClient(
+            base_url=base_url,
+            rate_limit=Rate.create(magnitude=60, duration=1),
         )
 
         self.account = None
@@ -62,7 +54,7 @@ class PlexAPI:
 
     def validate_account(self):
         try:
-            self.account = MyPlexAccount(session=self.session, token=self.token)
+            self.account = MyPlexAccount(session=self.client, token=self.token)
         except Exception as e:
             logger.error(f"Failed to authenticate Plex account: {e}")
             return False
@@ -70,7 +62,7 @@ class PlexAPI:
 
     def validate_server(self):
         self.plex_server = PlexServer(
-            self.BASE_URL, token=self.token, session=self.session, timeout=60
+            self.client.base_url, token=self.token, session=self.client, timeout=60
         )
 
     def set_rss_urls(self, rss_urls: list[str]):
@@ -81,9 +73,9 @@ class PlexAPI:
         self.rss_enabled = False
 
     def validate_rss(self, url: str):
-        return self.session.get(url)
+        return self.client.get(url)
 
-    def ratingkey_to_imdbid(self, ratingKey: str) -> str | None:
+    async def ratingkey_to_imdbid(self, ratingKey: str) -> str | None:
         """Convert Plex rating key to IMDb ID"""
 
         token = settings_manager.settings.updaters.plex.token
@@ -92,7 +84,7 @@ class PlexAPI:
         )
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
 
-        response = self.session.get(url)
+        response = await self.client.get(url)
 
         @dataclass
         class ResponseData:
@@ -112,9 +104,9 @@ class PlexAPI:
 
             MediaContainer: _MediaContainer
 
-        response_data = ResponseData(**response.json())
+        response_data = ResponseData(response.json())
 
-        if response.ok and response_data.MediaContainer:
+        if response.is_success and response_data.MediaContainer:
             metadata = response_data.MediaContainer.Metadata[0]
 
             return next(
@@ -130,7 +122,7 @@ class PlexAPI:
 
         return None
 
-    def get_items_from_rss(self) -> list[tuple[ItemType, str]]:
+    async def get_items_from_rss(self) -> list[tuple[ItemType, str]]:
         """Fetch media from Plex RSS Feeds."""
 
         rss_items: list[tuple[ItemType, str]] = []
@@ -138,9 +130,12 @@ class PlexAPI:
         if self.rss_urls:
             for rss_url in self.rss_urls:
                 try:
-                    response = self.session.get(rss_url + "?format=json", timeout=60)
+                    response = await self.client.get(
+                        rss_url + "?format=json",
+                        timeout=60,
+                    )
 
-                    if not response.ok or not hasattr(response.data, "items"):
+                    if not response.is_success or not hasattr(response.json(), "items"):
                         logger.error(f"Failed to fetch Plex RSS feed from {rss_url}")
 
                         continue
@@ -159,7 +154,7 @@ class PlexAPI:
 
                         items: list[Item]
 
-                    response_data = ResponseData(**response.json())
+                    response_data = ResponseData(response.json())
 
                     for _item in response_data.items:
                         if _item.category == "movie":
@@ -208,49 +203,39 @@ class PlexAPI:
 
         assert self.account
 
-        items = self.account.watchlist()
+        items: list[Movie | Show] = self.account.watchlist()
         watchlist_items: list[WatchlistItem] = []
-
-        @dataclass
-        class Item:
-            """Dataclass for Plex watchlist item"""
-
-            title: str
-            year: int
-            TYPE: ItemType
-            guids: list[Guid]
 
         for item in items:
             try:
-                item_data = Item(**item)
-
                 imdb_id = None
                 tmdb_id = None
                 tvdb_id = None
 
-                if item_data.guids:
+                if item.guids:
                     imdb_id = next(
                         (
                             guid.id.split("//")[-1]
-                            for guid in item_data.guids
+                            for guid in item.guids
                             if guid.id.startswith("imdb://")
                         ),
                         "",
                     )
-                    if item_data.TYPE == "movie":
+
+                    if isinstance(item, Movie):
                         tmdb_id = next(
                             (
                                 guid.id.split("//")[-1]
-                                for guid in item_data.guids
+                                for guid in item.guids
                                 if guid.id.startswith("tmdb://")
                             ),
                             "",
                         )
-                    elif item_data.TYPE == "show":
+                    elif isinstance(item, Show):
                         tvdb_id = next(
                             (
                                 guid.id.split("//")[-1]
-                                for guid in item_data.guids
+                                for guid in item.guids
                                 if guid.id.startswith("tvdb://")
                             ),
                             "",
@@ -259,7 +244,7 @@ class PlexAPI:
                     if not any([imdb_id, tmdb_id, tvdb_id]):
                         logger.log(
                             "NOT_FOUND",
-                            f"Unable to extract IMDb ID from {item_data.title} ({item_data.year}) with data id: {imdb_id}",
+                            f"Unable to extract IMDb ID from {item.title} ({item.year}) with data id: {imdb_id}",
                         )
 
                         continue

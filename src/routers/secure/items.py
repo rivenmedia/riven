@@ -3,8 +3,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Callable, List, Literal, Optional, Set, Union
 
-import Levenshtein
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from kink import di
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select
@@ -18,6 +18,7 @@ from program.services.content import Overseerr
 from program.services.filesystem.filesystem_service import FilesystemService
 from program.services.updaters import Updater
 from program.types import Event
+from program.program import Program
 
 from ..models.shared import MessageResponse
 
@@ -350,7 +351,7 @@ async def add_items(
 
         if items:
             for item in items:
-                request.app.program.em.add_item(item)
+                di[Program].em.add_item(item)
                 added_count += 1
 
     return {"message": f"Added {added_count} item(s) to the queue"}
@@ -445,7 +446,7 @@ async def reset_items(
     ids: list[int] = handle_ids(ids)
 
     # Get updater service for media server refresh
-    updater: Updater | None = request.app.program.services.get(Updater)
+    updater: Updater | None = di[Program].services.get(Updater)
 
     try:
         # Load items using ORM
@@ -486,7 +487,7 @@ async def reset_items(
                     i.reset()
 
                 apply_item_mutation(
-                    request.app.program,
+                    di[Program],
                     session,
                     media_item,
                     mutation,
@@ -542,14 +543,14 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
                         i.scraped_times = 1
 
                     apply_item_mutation(
-                        request.app.program,
+                        di[Program],
                         session,
                         item,
                         mutation,
                         bubble_parents=True,
                     )
                     session.commit()
-                    request.app.program.em.add_event(Event("RetryItem", id))
+                    di[Program].em.add_event(Event("RetryItem", id))
             except ValueError as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
@@ -567,9 +568,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
 async def retry_library_items(request: Request) -> RetryResponse:
     item_ids = db_functions.retry_library()
     for item_id in item_ids:
-        request.app.program.em.add_event(
-            Event(emitted_by="RetryLibrary", item_id=item_id)
-        )
+        di[Program].em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
     return {"message": f"Retried {len(item_ids)} items", "ids": item_ids}
 
 
@@ -588,9 +587,7 @@ async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
     with db.Session() as session:
         updated_items = db_functions.update_ongoing(session)
         for item_id, previous_state, new_state in updated_items:
-            request.app.program.em.add_event(
-                Event(emitted_by="UpdateOngoing", item_id=item_id)
-            )
+            di[Program].em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
     return {
         "message": f"Updated {len(updated_items)} items",
         "updated_items": [
@@ -641,8 +638,8 @@ async def remove_item(
         )
 
     # Get services
-    overseerr: Overseerr | None = request.app.program.services.get(Overseerr)
-    updater: Updater | None = request.app.program.services.get(Updater)
+    overseerr: Overseerr | None = di[Program].services.get(Overseerr)
+    updater: Updater | None = di[Program].services.get(Updater)
 
     removed_ids = []
 
@@ -663,7 +660,7 @@ async def remove_item(
         logger.debug(f"Removing item with ID {item.id}")
 
         # 1. Cancel active jobs (EventManager cancels children too)
-        request.app.program.em.cancel_job(item.id)
+        di[Program].em.cancel_job(item.id)
 
         # 2. Gather all refresh paths before deletion (entry may appear at multiple VFS paths)
         refresh_paths = []
@@ -709,7 +706,7 @@ async def remove_item(
                 )
 
         # 4. Remove from VFS
-        filesystem_service = request.app.program.services.get(FilesystemService)
+        filesystem_service = di[Program].services.get(FilesystemService)
         if filesystem_service and filesystem_service.riven_vfs:
             filesystem_service.riven_vfs.remove(item)
 
@@ -770,7 +767,7 @@ async def blacklist_stream(
     def mutation(i: MediaItem, s: Session):
         i.blacklist_stream(stream)
 
-    apply_item_mutation(request.app.program, db, item, mutation, bubble_parents=True)
+    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
     db.commit()
 
     return {
@@ -800,7 +797,7 @@ async def unblacklist_stream(
     def mutation(i: MediaItem, s: Session):
         i.unblacklist_stream(stream)
 
-    apply_item_mutation(request.app.program, db, item, mutation, bubble_parents=True)
+    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
     db.commit()
 
     return {
@@ -833,7 +830,7 @@ async def reset_item_streams(
         i.blacklisted_streams.clear()
         i.active_stream = {}
 
-    apply_item_mutation(request.app.program, db, item, mutation, bubble_parents=True)
+    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
     db.commit()
 
     return {
@@ -873,8 +870,8 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
 
                     # Cancel all related jobs
                     for id in all_ids:
-                        request.app.program.em.cancel_job(id)
-                        request.app.program.em.remove_id_from_queues(id)
+                        di[Program].em.cancel_job(id)
+                        di[Program].em.remove_id_from_queues(id)
 
                     if media_item.last_state not in [
                         States.Paused,
@@ -886,7 +883,7 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
                             i.store_state(States.Paused)
 
                         apply_item_mutation(
-                            request.app.program,
+                            di[Program],
                             session,
                             media_item,
                             mutation,
@@ -930,16 +927,14 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
                             i.store_state(States.Requested)
 
                         apply_item_mutation(
-                            request.app.program,
+                            di[Program],
                             session,
                             media_item,
                             mutation,
                             bubble_parents=True,
                         )
                         session.commit()
-                        request.app.program.em.add_event(
-                            Event("RetryItem", media_item.id)
-                        )
+                        di[Program].em.add_event(Event("RetryItem", media_item.id))
                         logger.info(f"Successfully unpaused {media_item.log_string}")
                     else:
                         logger.debug(
@@ -1010,7 +1005,7 @@ async def reindex_item(
         try:
             from program.services.indexers import IndexerService
 
-            c_indexer = request.app.program.all_services[IndexerService]
+            c_indexer = di[Program].all_services[IndexerService]
 
             def mutation(i: MediaItem, s: Session):
                 # Reset indexed_at to trigger reindexing
@@ -1031,11 +1026,11 @@ async def reindex_item(
                     s.merge(reindexed_item)
 
             apply_item_mutation(
-                request.app.program, session, item, mutation, bubble_parents=True
+                di[Program], session, item, mutation, bubble_parents=True
             )
 
             logger.info(f"Successfully reindexed {item.log_string}")
-            request.app.program.em.add_event(Event("RetryItem", item.id))
+            di[Program].em.add_event(Event("RetryItem", item.id))
             return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
         except Exception as e:
             logger.error(f"Failed to reindex {item.log_string}: {str(e)}")

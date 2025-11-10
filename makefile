@@ -116,3 +116,10 @@ coverage: clean
 
 # Run the linter and tests
 pr-ready: clean lint test
+
+# OAPI generation
+
+generate-clients:
+	@echo "Generating third-party models from OpenAPI specifications..."
+	@uv run openapi-python-client generate --url https://listrr.pro/swagger/v1/swagger.json --output-path src/clients/listrr --overwrite
+	@echo "OpenAPI client models generated"

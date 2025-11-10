@@ -1,11 +1,13 @@
 from typing import Any, Dict
 
+from kink import di
 import pydantic
 from fastapi import APIRouter, Request
 from loguru import logger
 
 from program.media.item import MediaItem
 from program.services.content.overseerr import Overseerr
+from program.program import Program
 
 from ..models.overseerr import OverseerrWebhook
 
@@ -30,7 +32,7 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         logger.error(f"Failed to process request: {e}")
         return {"success": False, "message": str(e)}
 
-    overseerr: Overseerr = request.app.program.all_services[Overseerr]
+    overseerr: Overseerr = di[Program].all_services[Overseerr]
     if not overseerr.initialized:
         logger.error("Overseerr not initialized")
         return {"success": False, "message": "Overseerr not initialized"}
@@ -63,5 +65,5 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         )
         return {"success": False, "message": "Failed to create new item"}
 
-    request.app.program.em.add_item(new_item, service="Overseerr")
+    di[Program].em.add_item(new_item, service="Overseerr")
     return {"success": True}
