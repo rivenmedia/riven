@@ -4,7 +4,6 @@ import sys
 import threading
 import time
 
-import httpx
 from kink import di
 import uvicorn
 from dotenv import load_dotenv
@@ -21,7 +20,7 @@ from scalar_fastapi import get_scalar_api_reference
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from program.program import riven
+from program.program import Program, riven
 from program.settings.models import get_version
 from program.settings.manager import settings_manager
 from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
@@ -32,6 +31,9 @@ from routers import app_router
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
+
+        response = None
+
         try:
             response = await call_next(request)
         except Exception as e:
@@ -41,8 +43,9 @@ class LoguruMiddleware(BaseHTTPMiddleware):
             process_time = time.time() - start_time
             logger.log(
                 "API",
-                f"{request.method} {request.url.path} - {response.status_code if 'response' in locals() else '500'} - {process_time:.2f}s",
+                f"{request.method} {request.url.path} - {response.status_code if response else '500'} - {process_time:.2f}s",
             )
+
         return response
 
 
@@ -76,6 +79,7 @@ app = FastAPI(
         "url": "https://www.gnu.org/licenses/gpl-3.0.en.html",
     },
     lifespan=lifespan,
+    extra={"program": riven},
 )
 
 
@@ -87,7 +91,8 @@ async def scalar_html():
     )
 
 
-app.program = riven
+di[Program] = riven
+
 app.add_middleware(LoguruMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -122,7 +127,7 @@ class Server(uvicorn.Server):
 
 def signal_handler(signum, frame):
     logger.log("PROGRAM", "Exiting Gracefully.")
-    app.program.stop()
+    di[Program].stop()
     sys.exit(0)
 
 
@@ -135,8 +140,8 @@ server = Server(config=config)
 
 with server.run_in_thread():
     try:
-        app.program.start()
-        app.program.run()
+        di[Program].start()
+        di[Program].run()
     except Exception:
         logger.exception("Error in main thread")
     finally:
