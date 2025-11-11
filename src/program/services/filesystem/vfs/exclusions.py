@@ -5,8 +5,8 @@ from program.settings.manager import settings_manager
 
 
 class Exclusions:
-    excluded_shows: list[str]
-    excluded_movies: list[str]
+    excluded_shows: set[str]
+    excluded_movies: set[str]
 
     def __init__(self):
         excluded_items = settings_manager.settings.filesystem.excluded_items

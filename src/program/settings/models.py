@@ -239,8 +239,8 @@ class LibraryProfile(BaseModel):
 
 
 class ExcludedItems(BaseModel):
-    shows: list[str] = Field(default_factory=list)
-    movies: list[str] = Field(default_factory=list)
+    shows: set[str] = Field(default_factory=set)
+    movies: set[str] = Field(default_factory=set)
 
 
 class FilesystemModel(Observable):

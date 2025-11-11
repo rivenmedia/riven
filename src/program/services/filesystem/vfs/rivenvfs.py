@@ -729,7 +729,6 @@ class RivenVFS(pyfuse3.Operations):
 
         try:
             profiles = settings_manager.settings.filesystem.library_profiles or {}
-            excluded_items = settings_manager.settings.filesystem.excluded_items
             current_profile_hash = hash(
                 frozenset(
                     (k, hash(frozenset(v.filter_rules.model_dump().items())))
