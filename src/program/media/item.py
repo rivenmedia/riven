@@ -743,7 +743,7 @@ class Movie(MediaItem):
         super().__init__(item)
 
     def __repr__(self):
-        return f"Movie:{self.log_string}:{self.state.name}"
+        return f"Movie [tmdb: {self.tmdb_id} | imdb: {self.imdb_id}]: {self.log_string} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
@@ -823,7 +823,7 @@ class Show(MediaItem):
         return super().store_state(given_state)
 
     def __repr__(self):
-        return f"Show:{self.log_string}:{self.state.name}"
+        return f"Show [tvdb: {self.tvdb_id}]: #{self.log_string} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
@@ -970,7 +970,7 @@ class Season(MediaItem):
         return value
 
     def __repr__(self):
-        return f"Season:{self.number}:{self.state.name}"
+        return f"Season [tvdb: {self.tvdb_id}]: {self.log_string} #{self.number} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
@@ -1037,7 +1037,7 @@ class Episode(MediaItem):
         super().__init__(item)
 
     def __repr__(self):
-        return f"Episode:{self.number}:{self.state.name}"
+        return f"Episode [tvdb: {self.tvdb_id}]: {self.log_string} #{self.number} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()

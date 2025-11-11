@@ -1,6 +1,6 @@
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 
 
@@ -19,21 +19,24 @@ class Exclusions:
         )
 
     def is_excluded(self, item: MediaItem) -> bool:
-        if item.type == "show":
-            return self._is_excluded_show(item.tvdb_id)
-        elif item.type == "movie":
-            return self._is_excluded_movie(item.tmdb_id)
+        if isinstance(item, Show | Episode):
+            return self._is_excluded_show(item._get_top_parent())
+
+        if isinstance(item, Movie):
+            return self._is_excluded_movie(item)
 
         return False
 
-    def _is_excluded_show(self, show_id: str | None) -> bool:
-        if show_id is None:
+    def _is_excluded_show(self, item: Show) -> bool:
+        if item.tvdb_id is None:
             return False
 
-        return show_id in self.excluded_shows
+        return item.tvdb_id in self.excluded_shows
 
-    def _is_excluded_movie(self, movie_id: str | None) -> bool:
-        if movie_id is None:
+    def _is_excluded_movie(self, item: Movie) -> bool:
+        if item.tmdb_id is None and item.imdb_id is None:
             return False
 
-        return movie_id in self.excluded_movies
+        return (
+            item.tmdb_id in self.excluded_movies or item.imdb_id in self.excluded_movies
+        )

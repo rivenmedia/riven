@@ -790,8 +790,9 @@ class RivenVFS(pyfuse3.Operations):
                     item_ids.append(item.id)
 
             session.commit()
+
             logger.debug(
-                f"Re-matched {rematched_count} entries with updated profiles; excluded {len(excluded_item_ids)} items"
+                f"Re-matched {rematched_count} entries with updated profiles; excluded {len(excluded_item_ids)} items due to excluded_items settings."
             )
 
         # Step 2: Clear VFS tree and rebuild from scratch
