@@ -14,8 +14,10 @@ class Exclusions:
         self.excluded_movies = excluded_items.movies
         self.excluded_shows = excluded_items.shows
 
-        logger.debug(
-            f"excluded shows: {self.excluded_shows}, excluded movies: {self.excluded_movies}"
+        logger.log(
+            "VFS",
+            f"Excluded shows: {self.excluded_shows}. "
+            f"Excluded movies: {self.excluded_movies}",
         )
 
     def is_excluded(self, item: MediaItem) -> bool:
