@@ -173,7 +173,7 @@ class MediaItem(db.Model):
         # Post-processing
         self.subtitles = item.get("subtitles", [])
 
-    def store_state(self, given_state=None) -> tuple[States, States]:
+    def store_state(self, given_state=None) -> tuple[States | None, States]:
         """Store the state of the item and notify about state changes."""
         previous_state = self.last_state
         new_state = given_state if given_state else self._determine_state()
@@ -188,7 +188,9 @@ class MediaItem(db.Model):
                 notification_service = riven.all_services.get(NotificationService)
                 if notification_service:
                     notification_service.run(
-                        self, previous_state=previous_state, new_state=new_state
+                        self,
+                        previous_state=previous_state,
+                        new_state=new_state,
                     )
             except Exception as e:
                 # Fallback: log error but don't break state storage
