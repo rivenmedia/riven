@@ -380,6 +380,7 @@ class VFSDatabase:
 
                             # If unrestricting fails, reset the MediaItem to trigger a new download
                             if entry.media_item:
+                                item_id = entry.media_item.id
 
                                 def mutation(i: MediaItem, s: Session):
                                     i.blacklist_active_stream()
@@ -394,6 +395,13 @@ class VFSDatabase:
                                 )
 
                                 s.commit()
+
+                                di[Program].em.add_event(
+                                    Event(
+                                        "RetryLibrary",
+                                        str(item_id),
+                                    )
+                                )
 
                             raise
                         except Exception as e:
