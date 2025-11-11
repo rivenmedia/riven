@@ -1687,13 +1687,19 @@ class RivenVFS(pyfuse3.Operations):
                 )
 
                 try:
+                    original_inode = node.inode
+
                     with trio.fail_after(30):
                         while True:
-                            new_nodes = self._get_nodes_by_original_filename(
-                                node.original_filename
-                            )
+                            new_nodes = [
+                                candidate
+                                for candidate in self._get_nodes_by_original_filename(
+                                    node.original_filename
+                                )
+                                if candidate.inode != original_inode
+                            ]
 
-                            if len(new_nodes) > 0:
+                            if new_nodes:
                                 logger.trace(
                                     f"Found new file for {node.original_filename}"
                                 )
