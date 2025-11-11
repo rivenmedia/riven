@@ -1712,7 +1712,7 @@ class RivenVFS(pyfuse3.Operations):
                         f"Timeout waiting for new link to become available for path={node.path}"
                     )
 
-                    raise pyfuse3.FUSEError(errno.ENOENT)
+                    raise pyfuse3.FUSEError(errno.ENOENT) from None
 
                 logger.trace(f"Found new nodes after redownload: {new_nodes}")
 
