@@ -1,7 +1,7 @@
 ---
 name: "\U0001F4A1 Feature Request"
 about: Suggest an idea for Riven
-title: "[feaure]"
+title: "[feature]"
 labels: ''
 assignees: ''
 
