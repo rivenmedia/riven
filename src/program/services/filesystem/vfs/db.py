@@ -384,8 +384,9 @@ class VFSDatabase:
 
                                 def mutation(i: MediaItem, s: Session):
                                     i.blacklist_active_stream()
-                                    i._reset()
-                                    i.store_state()
+                                    i.reset()
+
+                                    s.commit()
 
                                 apply_item_mutation(
                                     program=di[Program],
@@ -393,8 +394,6 @@ class VFSDatabase:
                                     mutation_fn=mutation,
                                     session=s,
                                 )
-
-                                s.commit()
 
                                 di[Program].em.add_event(
                                     Event(
