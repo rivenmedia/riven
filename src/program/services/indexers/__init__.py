@@ -11,16 +11,17 @@ from program.media.state import States
 from program.services.indexers.base import BaseIndexer
 from program.services.indexers.tmdb_indexer import TMDBIndexer
 from program.services.indexers.tvdb_indexer import TVDBIndexer
+from program.services.exclusions import Exclusions
 
 
 class IndexerService(BaseIndexer):
     """Entry point to indexing. Composite indexer that delegates to appropriate service based on media type."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *, exclusions: Exclusions):
+        super().__init__(exclusions=exclusions)
         self.key = "indexerservice"
-        self.tmdb_indexer = TMDBIndexer()
-        self.tvdb_indexer = TVDBIndexer()
+        self.tmdb_indexer = TMDBIndexer(exclusions=exclusions)
+        self.tvdb_indexer = TVDBIndexer(exclusions=exclusions)
 
     def run(
         self, in_item: MediaItem, log_msg: bool = True
