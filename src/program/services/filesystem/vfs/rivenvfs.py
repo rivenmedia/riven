@@ -78,6 +78,7 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
+from .exclusions import Exclusions
 
 from ...streaming import (
     Cache,
@@ -205,6 +206,8 @@ class RivenVFS(pyfuse3.Operations):
         self._thread = None
         self._unmount_requested: trio_util.AsyncBool = trio_util.AsyncBool(False)
         self.stream_nursery: trio.Nursery
+
+        self.exclusions = Exclusions()
 
         def _fuse_runner():
             async def _async_main() -> NoReturn:
@@ -520,6 +523,14 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully added, False otherwise
         """
+
+        if self.exclusions.is_excluded(item):
+            logger.info(
+                f"Excluding {item.log_string} from VFS add based on exclusion rules"
+            )
+
+            return False
+
         from program.media.media_entry import MediaEntry
 
         # Only process if this item has a filesystem entry
@@ -718,6 +729,7 @@ class RivenVFS(pyfuse3.Operations):
 
         try:
             profiles = settings_manager.settings.filesystem.library_profiles or {}
+            excluded_items = settings_manager.settings.filesystem.excluded_items
             current_profile_hash = hash(
                 frozenset(
                     (k, hash(frozenset(v.filter_rules.model_dump().items())))
@@ -744,6 +756,7 @@ class RivenVFS(pyfuse3.Operations):
 
         item_ids = []
         rematched_count = 0
+        excluded_item_ids = set()
 
         with db_module.Session() as session:
             entries = (
@@ -757,6 +770,10 @@ class RivenVFS(pyfuse3.Operations):
                     logger.warning(
                         f"MediaEntry {entry.id} has no associated MediaItem, skipping"
                     )
+                    continue
+
+                if self.exclusions.is_excluded(item):
+                    excluded_item_ids.add(item.id)
                     continue
 
                 # Re-match library profiles based on current settings
@@ -773,10 +790,13 @@ class RivenVFS(pyfuse3.Operations):
                     item_ids.append(item.id)
 
             session.commit()
-            logger.debug(f"Re-matched {rematched_count} entries with updated profiles")
+            logger.debug(
+                f"Re-matched {rematched_count} entries with updated profiles; excluded {len(excluded_item_ids)} items"
+            )
 
         # Step 2: Clear VFS tree and rebuild from scratch
         logger.debug("Clearing VFS tree for rebuild")
+
         with self._tree_lock:
             # Create new root node
             self._root = VFSRoot()
@@ -857,6 +877,12 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             item: MediaItem to re-sync
         """
+
+        if self.exclusions.is_excluded(item):
+            logger.debug(f"Item {item.id} is excluded, skipping individual sync")
+
+            return
+
         from sqlalchemy.orm import object_session
         from program.db.db import db as db_module
 

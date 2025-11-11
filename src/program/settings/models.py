@@ -238,12 +238,17 @@ class LibraryProfile(BaseModel):
         return v
 
 
+class ExcludedItems(BaseModel):
+    shows: list[str] = Field(default_factory=list)
+    movies: list[str] = Field(default_factory=list)
+
+
 class FilesystemModel(Observable):
     mount_path: Path = Field(
         default=Path("/path/to/riven/mount"),
         description="Path where Riven will mount the virtual filesystem",
     )
-
+    excluded_items: ExcludedItems = Field(default_factory=ExcludedItems)
     library_profiles: dict[str, LibraryProfile] = Field(
         default_factory=lambda: {
             "anime": LibraryProfile(

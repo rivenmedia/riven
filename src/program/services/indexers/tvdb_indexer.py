@@ -11,7 +11,6 @@ from program.apis.tvdb_api import TVDBApi
 from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
-from program.services.exclusions import Exclusions
 
 
 class TVDBIndexer(BaseIndexer):
@@ -19,8 +18,8 @@ class TVDBIndexer(BaseIndexer):
 
     key = "TVDBIndexer"
 
-    def __init__(self, *, exclusions: Exclusions):
-        super().__init__(exclusions=exclusions)
+    def __init__(self):
+        super().__init__()
 
         self.key = "tvdbindexer"
         self.api = di[TVDBApi]
@@ -32,13 +31,6 @@ class TVDBIndexer(BaseIndexer):
         """Run the TVDB indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
-            return
-
-        if self.exclusions.is_excluded(in_item):
-            logger.info(
-                f"Item {in_item.log_string} is excluded; skipping TVDB indexing"
-            )
-
             return
 
         if in_item.type not in ["show", "mediaitem", "season", "episode"]:

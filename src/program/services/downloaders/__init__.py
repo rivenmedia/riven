@@ -20,7 +20,6 @@ from program.services.downloaders.models import (
 from RTN import ParsedData
 from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
-from program.services.exclusions import Exclusions
 
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
@@ -28,7 +27,7 @@ from .alldebrid import AllDebridDownloader
 
 
 class Downloader:
-    def __init__(self, *, exclusions: Exclusions):
+    def __init__(self):
         self.key = "downloader"
         self.initialized = False
         self.services = {
@@ -49,7 +48,6 @@ class Downloader:
         self._circuit_breaker_retries = {}
         # Track per-service cooldowns when circuit breaker is open
         self._service_cooldowns = {}  # {service.key: datetime}
-        self.exclusions = exclusions
 
     def validate(self):
         if not self.initialized_services:
@@ -63,16 +61,6 @@ class Downloader:
         return True
 
     def run(self, item: MediaItem):
-        if self.exclusions.is_excluded(item):
-            logger.log(
-                "DOWNLOADER",
-                f"Item prevented from downloading by exclusion list: {item.log_string}",
-            )
-
-            yield item
-
-            return
-
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         # Check if all services are in cooldown due to circuit breaker

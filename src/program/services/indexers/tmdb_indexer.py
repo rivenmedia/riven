@@ -10,7 +10,6 @@ from program.apis.tmdb_api import TMDBApi
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
-from program.services.exclusions import Exclusions
 
 
 class TMDBIndexer(BaseIndexer):
@@ -18,8 +17,8 @@ class TMDBIndexer(BaseIndexer):
 
     key = "TMDBIndexer"
 
-    def __init__(self, *, exclusions: Exclusions):
-        super().__init__(exclusions=exclusions)
+    def __init__(self):
+        super().__init__()
         self.key = "tmdbindexer"
         self.api = di[TMDBApi]
         self.trakt_api = di[TraktAPI]
@@ -30,13 +29,6 @@ class TMDBIndexer(BaseIndexer):
         """Run the TMDB indexer for the given item."""
         if not in_item:
             logger.error("Item is None")
-            return
-
-        if self.exclusions.is_excluded(in_item):
-            logger.info(
-                f"Item {in_item.log_string} is excluded, skipping TMDB indexing"
-            )
-
             return
 
         if not (in_item.imdb_id or in_item.tmdb_id):

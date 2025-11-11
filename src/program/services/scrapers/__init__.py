@@ -19,11 +19,10 @@ from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
-from program.services.exclusions import Exclusions
 
 
 class Scraping:
-    def __init__(self, *, exclusions: Exclusions):
+    def __init__(self):
         self.key = "scraping"
         self.initialized = False
         self.settings = settings_manager.settings.scraping
@@ -44,7 +43,6 @@ class Scraping:
             service for service in self.services if service.initialized
         ]
         self.initialized = self.validate()
-        self.exclusions = exclusions
 
         if not self.initialized:
             return
@@ -55,16 +53,6 @@ class Scraping:
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
         """Scrape an item."""
-
-        if self.exclusions.is_excluded(item):
-            logger.log(
-                "SCRAPER",
-                f"Item is excluded from scraping: {item.log_string}",
-            )
-
-            yield item
-
-            return
 
         sorted_streams = self.scrape(item)
         new_streams = [

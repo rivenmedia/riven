@@ -1,6 +1,7 @@
 from loguru import logger
 
 from program.media.item import MediaItem
+from program.settings.manager import settings_manager
 
 
 class Exclusions:
@@ -8,20 +9,10 @@ class Exclusions:
     excluded_movies: list[str]
 
     def __init__(self):
-        import yaml
-        from pathlib import Path
+        excluded_items = settings_manager.settings.filesystem.excluded_items
 
-        exclusion_file = Path("data/exclusion_list.yml")
-
-        if exclusion_file.exists():
-            with open(exclusion_file, "r") as f:
-                data = yaml.safe_load(f)
-
-                self.excluded_movies = data.get("movies", [])
-                self.excluded_shows = data.get("shows", [])
-        else:
-            self.excluded_shows = []
-            self.excluded_movies = []
+        self.excluded_movies = excluded_items.movies
+        self.excluded_shows = excluded_items.shows
 
         logger.debug(
             f"excluded shows: {self.excluded_shows}, excluded movies: {self.excluded_movies}"

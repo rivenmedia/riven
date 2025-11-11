@@ -8,16 +8,14 @@ from loguru import logger
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings.manager import settings_manager
-from program.services.exclusions import Exclusions
 
 
 class BaseIndexer(ABC):
     """Base class for all indexers"""
 
-    def __init__(self, *, exclusions: Exclusions):
+    def __init__(self):
         self.key = self.__class__.__name__.lower()
         self.settings = settings_manager.settings.indexer
-        self.exclusions = exclusions
         self.initialized = True
 
     @staticmethod

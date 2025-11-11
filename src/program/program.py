@@ -26,7 +26,6 @@ from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import logger
 from program.scheduling import ProgramScheduler
-from program.services.exclusions import Exclusions
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
@@ -55,7 +54,6 @@ class Program(threading.Thread):
         self.services = {}
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
-        self.exclusions = Exclusions()
         if self.enable_trace:
             tracemalloc.start()
             self.malloc_time = time.monotonic() - 50
@@ -75,17 +73,14 @@ class Program(threading.Thread):
         }
 
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
-        _downloader = Downloader(exclusions=self.exclusions)
+        _downloader = Downloader()
 
         self.services = {
             IndexerService: IndexerService(),
-            Scraping: Scraping(exclusions=self.exclusions),
+            Scraping: Scraping(),
             Updater: Updater(),
             Downloader: _downloader,
-            FilesystemService: FilesystemService(
-                downloader=_downloader,
-                exclusions=self.exclusions,
-            ),
+            FilesystemService: FilesystemService(downloader=_downloader),
             PostProcessing: PostProcessing(),
             NotificationService: NotificationService(),
         }
