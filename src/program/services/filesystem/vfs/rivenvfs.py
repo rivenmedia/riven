@@ -78,7 +78,6 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
-from .exclusions import Exclusions
 
 from ...streaming import (
     Cache,
@@ -206,8 +205,6 @@ class RivenVFS(pyfuse3.Operations):
         self._thread = None
         self._unmount_requested: trio_util.AsyncBool = trio_util.AsyncBool(False)
         self.stream_nursery: trio.Nursery
-
-        self.exclusions = Exclusions()
 
         def _fuse_runner():
             async def _async_main() -> NoReturn:
@@ -524,7 +521,7 @@ class RivenVFS(pyfuse3.Operations):
             True if successfully added, False otherwise
         """
 
-        if self.exclusions.is_excluded(item):
+        if item.is_excluded:
             logger.info(
                 f"Excluding {item.log_string} from VFS add based on exclusion rules"
             )
@@ -771,7 +768,7 @@ class RivenVFS(pyfuse3.Operations):
                     )
                     continue
 
-                if self.exclusions.is_excluded(item):
+                if item.is_excluded:
                     excluded_item_ids.add(item.id)
                     continue
 
@@ -878,7 +875,7 @@ class RivenVFS(pyfuse3.Operations):
             item: MediaItem to re-sync
         """
 
-        if self.exclusions.is_excluded(item):
+        if item.is_excluded:
             logger.debug(f"Item {item.id} is excluded, skipping individual sync")
 
             return

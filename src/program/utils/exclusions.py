@@ -1,7 +1,13 @@
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING
 from loguru import logger
 
-from program.media.item import Episode, MediaItem, Movie, Show
+from program.media.item import Episode, Movie, Show
 from program.settings.manager import settings_manager
+
+if TYPE_CHECKING:
+    from program.media.item import MediaItem
 
 
 class Exclusions:
@@ -14,13 +20,7 @@ class Exclusions:
         self.excluded_movies = excluded_items.movies
         self.excluded_shows = excluded_items.shows
 
-        logger.log(
-            "VFS",
-            f"Excluded shows: {self.excluded_shows}. "
-            f"Excluded movies: {self.excluded_movies}",
-        )
-
-    def is_excluded(self, item: MediaItem) -> bool:
+    def is_excluded(self, item: "MediaItem") -> bool:
         if isinstance(item, Show | Episode):
             return self._is_excluded_show(item._get_top_parent())
 
@@ -42,3 +42,26 @@ class Exclusions:
         return (
             item.tmdb_id in self.excluded_movies or item.imdb_id in self.excluded_movies
         )
+
+    @contextmanager
+    def exclusion_check(
+        self,
+        item: "MediaItem",
+        type: str,
+    ) -> Generator["MediaItem | None"]:
+        try:
+            if self.is_excluded(item):
+                logger.trace(f"Item {item.log_string} is excluded from {type}.")
+
+                yield None
+            else:
+                yield item
+        except Exception as e:
+            logger.error(
+                f"Error during exclusion check for item {item.log_string}: {e}"
+            )
+
+            yield None
+
+
+exclusions = Exclusions()

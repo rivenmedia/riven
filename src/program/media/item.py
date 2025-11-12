@@ -1,6 +1,7 @@
 """MediaItem class"""
 
 from datetime import datetime
+from functools import cached_property
 from typing import Any, List, Optional, TYPE_CHECKING
 
 import sqlalchemy
@@ -320,6 +321,23 @@ class MediaItem(db.Model):
             return False
 
         return False
+
+    @cached_property
+    def is_excluded(self) -> bool:
+        """Check if the item is excluded based on its IDs."""
+
+        from program.utils.exclusions import exclusions
+
+        is_excluded = exclusions.is_excluded(self)
+
+        if is_excluded:
+            exclusion_type = self.type if self.type in ("movie", "show") else "show"
+
+            logger.trace(
+                f"Item {self.log_string} is being excluded as the {exclusion_type} ID was found in exclusions."
+            )
+
+        return is_excluded
 
     @property
     def is_released(self) -> bool:

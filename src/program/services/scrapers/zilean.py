@@ -52,6 +52,12 @@ class Zilean(ScraperService):
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Zilean site for the given media items and update the object with scraped items"""
         try:
+            if item.is_excluded:
+                logger.debug(
+                    f"Item {item.log_string} is excluded from scraper processing, skipping."
+                )
+                return {}
+
             return self.scrape(item)
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):

@@ -223,6 +223,14 @@ class EventManager:
             program (Program): The program containing the service.
             item (Event, optional): The event item to process. Defaults to None.
         """
+
+        if event and event.content_item and event.content_item.is_excluded:
+            logger.debug(
+                f"Event {event.log_message if event else 'N/A'} is excluded from {service.__name__}, skipping submission."
+            )
+
+            return
+
         log_message = f"Submitting service {service.__name__} to be executed"
         # Content services dont provide an event.
         if event:

@@ -33,6 +33,11 @@ class TVDBIndexer(BaseIndexer):
             logger.error("Item is None")
             return
 
+        if in_item.is_excluded:
+            logger.trace(f"Item {in_item.log_string} is excluded from indexing.")
+
+            return
+
         if in_item.type not in ["show", "mediaitem", "season", "episode"]:
             logger.debug(
                 f"TVDB indexer skipping incorrect item type: {in_item.log_string}"
