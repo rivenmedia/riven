@@ -386,14 +386,14 @@ class VFSDatabase:
                                     i.blacklist_active_stream()
                                     i.reset()
 
-                                    s.commit()
-
                                 apply_item_mutation(
                                     program=di[Program],
                                     item=entry.media_item,
                                     mutation_fn=mutation,
                                     session=s,
                                 )
+
+                                s.commit()
 
                                 di[Program].em.add_event(
                                     Event(
