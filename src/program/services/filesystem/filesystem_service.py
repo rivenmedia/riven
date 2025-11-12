@@ -11,7 +11,6 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
-from program.services.post_processing.media_analysis import analyze_entry
 
 
 class FilesystemService:
@@ -90,21 +89,6 @@ class FilesystemService:
                 continue
 
             logger.debug(f"Registered {episode_or_movie.log_string} with RivenVFS")
-
-            # Analyze via VFS path, then sync names before Updaters
-            try:
-                entry = episode_or_movie.filesystem_entry
-                if entry and analyze_entry(entry):
-                    self.riven_vfs.sync(episode_or_movie)
-                    logger.debug(
-                        f"VFS synced after media analysis for {episode_or_movie.log_string}"
-                    )
-            except Exception as e:
-                import traceback
-
-                logger.error(
-                    f"Media analysis failed for {episode_or_movie.log_string}: {traceback.format_exc()}"
-                )
 
         logger.info(f"Filesystem processing complete for {item.log_string}")
 

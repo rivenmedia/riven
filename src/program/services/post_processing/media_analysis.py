@@ -15,7 +15,7 @@ import os
 import traceback
 
 from loguru import logger
-from program.utils.ffprobe import parse_media_file
+from program.utils.ffprobe import probe_media_path
 from program.media.models import MediaMetadata
 
 from program.media.item import MediaItem
@@ -26,16 +26,14 @@ from program.media.media_entry import MediaEntry
 
 
 def analyze_entry(entry: MediaEntry) -> bool:
-    """Analyze a MediaEntry via the mounted VFS path and update its media_metadata.
+    """Analyze a MediaEntry using the best available source (URL first, then VFS).
 
-    Resolves the host VFS path from the entry, runs ffprobe, and merges the
-    probed data into the entry's MediaMetadata. Returns True if metadata changed.
+    Preference order:
+    1) Direct/unrestricted URL (fast, avoids VFS race/rename)
+    2) Mounted VFS path (fallback)
 
-    Args:
-        entry: MediaEntry to analyze
-
-    Returns:
-        True if metadata was updated; False otherwise
+    Updates the entry.media_metadata in-place. Returns True on successful probe
+    (note: may return True even if values didn't materially change).
     """
     try:
         item = entry.media_item
@@ -43,24 +41,39 @@ def analyze_entry(entry: MediaEntry) -> bool:
             item, "log_string", f"MediaEntry(id={getattr(entry, 'id', '?')})"
         )
 
-        # Determine host-mounted VFS path (not the container library path)
-        mount_path = settings_manager.settings.filesystem.mount_path
-        vfs_paths = entry.get_all_vfs_paths()
-        if not vfs_paths:
-            logger.warning(f"No VFS paths for {log_name}, cannot run ffprobe")
-            return False
+        # url probe
+        url = getattr(entry, "unrestricted_url", None) or getattr(
+            entry, "download_url", None
+        )
+        ffprobe_metadata = None
+        if url:
+            try:
+                ffprobe_metadata = probe_media_path(url)
+            except Exception:
+                # URL probe can fail due to expiration or provider issues; fall back to VFS
+                logger.debug(
+                    f"URL ffprobe failed for {log_name}, falling back to VFS path"
+                )
 
-        vfs_path = vfs_paths[0]
-        full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
+        # file probe fallback
+        if ffprobe_metadata is None:
+            mount_path = settings_manager.settings.filesystem.mount_path
+            vfs_paths = entry.get_all_vfs_paths()
+            if not vfs_paths:
+                logger.warning(f"No VFS paths for {log_name}, cannot run ffprobe")
+                return False
 
-        if not os.path.exists(full_path):
-            logger.debug(f"File not found for ffprobe: {full_path}")
-            return False
+            vfs_path = vfs_paths[0]
+            full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
 
-        ffprobe_metadata = parse_media_file(full_path)
-        if not ffprobe_metadata:
-            logger.warning(f"ffprobe returned no data for {log_name}")
-            return False
+            if not os.path.exists(full_path):
+                logger.debug(f"File not found for ffprobe: {full_path}")
+                return False
+
+            ffprobe_metadata = probe_media_path(full_path)
+            if not ffprobe_metadata:
+                logger.warning(f"ffprobe returned no data for {log_name}")
+                return False
 
         ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
 
