@@ -80,7 +80,7 @@ class Program(threading.Thread):
             Scraping: Scraping(),
             Updater: Updater(),
             Downloader: _downloader,
-            FilesystemService: FilesystemService(downloader=_downloader),
+            FilesystemService: FilesystemService(_downloader),
             PostProcessing: PostProcessing(),
             NotificationService: NotificationService(),
         }

@@ -16,7 +16,7 @@ from program.services.downloaders import Downloader
 class FilesystemService:
     """Filesystem service for VFS-only mode"""
 
-    def __init__(self, *, downloader: Downloader):
+    def __init__(self, downloader: Downloader):
         # Service key matches settings category name for reinitialization logic
         self.key = "filesystem"
         # Use filesystem settings
