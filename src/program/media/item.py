@@ -331,10 +331,8 @@ class MediaItem(db.Model):
         is_excluded = exclusions.is_excluded(self)
 
         if is_excluded:
-            exclusion_type = self.type if self.type in ("movie", "show") else "show"
-
             logger.trace(
-                f"Item {self.log_string} is being excluded as the {exclusion_type} ID was found in exclusions."
+                f"Item {self.log_string} is being excluded as the ID was found in exclusions."
             )
 
         return is_excluded

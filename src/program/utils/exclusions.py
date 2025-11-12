@@ -21,26 +21,24 @@ class Exclusions:
         self.excluded_shows = excluded_items.shows
 
     def is_excluded(self, item: "MediaItem") -> bool:
-        if isinstance(item, Show | Episode):
-            return self._is_excluded_show(item._get_top_parent())
+        is_excluded_movie = self._is_excluded_movie(item)
+        is_excluded_show = self._is_excluded_show(item._get_top_parent())
 
-        if isinstance(item, Movie):
-            return self._is_excluded_movie(item)
-
-        return False
+        return is_excluded_movie or is_excluded_show
 
     def _is_excluded_show(self, item: Show) -> bool:
         if item.tvdb_id is None:
             return False
 
-        return item.tvdb_id in self.excluded_shows
+        return str(item.tvdb_id) in self.excluded_shows
 
     def _is_excluded_movie(self, item: Movie) -> bool:
         if item.tmdb_id is None and item.imdb_id is None:
             return False
 
         return (
-            item.tmdb_id in self.excluded_movies or item.imdb_id in self.excluded_movies
+            str(item.tmdb_id) in self.excluded_movies
+            or str(item.imdb_id) in self.excluded_movies
         )
 
     @contextmanager

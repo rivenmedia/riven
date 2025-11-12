@@ -31,9 +31,6 @@ class TMDBIndexer(BaseIndexer):
             logger.error("Item is None")
             return
 
-        if in_item.is_excluded:
-            return
-
         if not (in_item.imdb_id or in_item.tmdb_id):
             logger.error(
                 f"Item {in_item.log_string} does not have an imdb_id or tmdb_id, cannot index it"
@@ -44,6 +41,9 @@ class TMDBIndexer(BaseIndexer):
             logger.debug(
                 f"TMDB indexer skipping incorrect item type: {in_item.log_string}"
             )
+            return
+
+        if in_item.is_excluded:
             return
 
         # Scenario 1: Fresh indexing - create new Movie from API data
