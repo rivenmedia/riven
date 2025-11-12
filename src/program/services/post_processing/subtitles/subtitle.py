@@ -13,7 +13,6 @@ from program.db.db import db
 from program.media.item import MediaItem
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
-from program.services.filesystem.filesystem_service import FilesystemService
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
 
@@ -479,7 +478,11 @@ class SubtitleService:
                 logger.debug(
                     f"Downloaded and stored {language} subtitle for {item.log_string}"
                 )
+
                 from program.program import riven
+                from program.services.filesystem.filesystem_service import (
+                    FilesystemService,
+                )
 
                 filesystem_service = riven.services.get(FilesystemService)
                 if filesystem_service and filesystem_service.riven_vfs:

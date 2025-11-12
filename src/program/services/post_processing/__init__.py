@@ -2,7 +2,6 @@ from loguru import logger
 
 from program.media.item import MediaItem
 from program.media.state import States
-from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings.manager import settings_manager
 
@@ -12,12 +11,7 @@ class PostProcessing:
         self.key = "post_processing"
         self.initialized = False
         self.settings = settings_manager.settings.post_processing
-
-        # Initialize services in order of execution
-        # MediaAnalysisService runs first to populate metadata
-        # SubtitleService runs second and can use the metadata
         self.services = {
-            MediaAnalysisService: MediaAnalysisService(),
             SubtitleService: SubtitleService(),
         }
         self.initialized = True
@@ -51,9 +45,8 @@ class PostProcessing:
         """
         Run post-processing services on an item.
 
-        Services are executed in order:
-        1. MediaAnalysisService - Analyzes media files (ffprobe + PTT parsing)
-        2. SubtitleService - Fetches subtitles using analysis metadata
+        Services currently executed:
+        - SubtitleService - Fetches subtitles using analysis metadata
 
         Args:
             item: MediaItem to process (can be show, season, movie, or episode)
@@ -66,13 +59,8 @@ class PostProcessing:
             yield item
             return
 
-        # Process each item through the service pipeline
         for process_item in items_to_process:
-            # Run media analysis first (runs once per item)
-            if MediaAnalysisService.should_submit(process_item):
-                self.services[MediaAnalysisService].run(process_item)
-
-            # Run subtitle service second (uses metadata from analysis)
+            # Run subtitle service (uses metadata from earlier analysis)
             if self.services[SubtitleService].should_submit(process_item):
                 self.services[SubtitleService].run(process_item)
 

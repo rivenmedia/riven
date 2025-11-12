@@ -11,6 +11,9 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
+from program.services.post_processing.media_analysis import (
+    MediaAnalysisService,
+)
 
 
 class FilesystemService:
@@ -23,6 +26,8 @@ class FilesystemService:
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
         self.downloader = downloader  # Store for potential reinit
+        # Lazily created and reused to avoid repeated init logs
+        self._media_analysis_service: MediaAnalysisService = MediaAnalysisService()
         self._initialize_rivenvfs(downloader)
 
     def _initialize_rivenvfs(self, downloader: Downloader):
@@ -54,7 +59,11 @@ class FilesystemService:
         """
         Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
 
-        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via add(), and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
+        Expands parent items (shows/seasons) into leaf items (episodes/movies),
+        processes each leaf entry via add(), then runs media analysis via the mounted VFS path and syncs naming if metadata changes.
+
+        Finally yields the original input item for downstream state transitions.
+        If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
 
         Parameters:
             item (MediaItem): The media item (episode, movie, season, or show) to process.
@@ -83,6 +92,18 @@ class FilesystemService:
                 continue
 
             logger.debug(f"Registered {item.log_string} with RivenVFS")
+
+            # Analyze via VFS path, then sync names before Updaters
+            try:
+                svc = self._media_analysis_service
+                if svc and svc.should_submit(item):
+                    svc.run(item)
+            except Exception as e:
+                import traceback
+
+                logger.error(
+                    f"Media analysis failed for {item.log_string}: {traceback.format_exc()}"
+                )
 
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
