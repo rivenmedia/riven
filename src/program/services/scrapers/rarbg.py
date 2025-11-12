@@ -60,12 +60,6 @@ class Rarbg(ScraperService):
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape TheRARBG with the given media item for streams"""
         try:
-            if item.is_excluded:
-                logger.debug(
-                    f"Item {item.log_string} is excluded from scraper processing, skipping."
-                )
-                return {}
-
             return self.scrape(item)
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):

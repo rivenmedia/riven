@@ -100,9 +100,6 @@ class Mediafusion(ScraperService):
             return {}
 
         try:
-            if item.is_excluded:
-                return {}
-
             return self.scrape(item)
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):

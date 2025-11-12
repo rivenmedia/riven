@@ -24,9 +24,12 @@ rtn = RTN(ranking_settings, ranking_model)
 
 
 def _parse_results(
-    item: MediaItem, results: Dict[str, str], log_msg: bool = True
+    item: MediaItem,
+    results: Dict[str, str],
+    log_msg: bool = True,
 ) -> Dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
+
     torrents: Set[Torrent] = set()
     processed_infohashes: Set[str] = set()
     correct_title: str = item.get_top_title()
@@ -34,6 +37,7 @@ def _parse_results(
     aliases: Dict[str, list[str]] = (
         item.get_aliases() if scraping_settings.enable_aliases else {}
     )
+
     # we should remove keys from aliases if we are excluding the language
     aliases = {
         k: v for k, v in aliases.items() if k not in ranking_settings.languages.exclude
@@ -43,6 +47,13 @@ def _parse_results(
 
     for infohash, raw_title in results.items():
         if infohash in processed_infohashes:
+            continue
+
+        if infohash in settings_manager.settings.filesystem.excluded_items.infohashes:
+            logger.trace(
+                f"Skipping torrent for {item.log_string} due to excluded infohash: {infohash}"
+            )
+
             continue
 
         try:
