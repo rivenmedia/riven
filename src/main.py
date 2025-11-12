@@ -21,7 +21,7 @@ from scalar_fastapi import get_scalar_api_reference
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from program.program import riven
+from program.program import Program, riven
 from program.settings.models import get_version
 from program.settings.manager import settings_manager
 from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
@@ -86,6 +86,8 @@ async def scalar_html():
         title=app.title,
     )
 
+
+di[Program] = riven
 
 app.program = riven
 app.add_middleware(LoguruMiddleware)

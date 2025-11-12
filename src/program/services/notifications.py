@@ -55,7 +55,10 @@ class NotificationService:
         return True  # Service is always valid, even if no external services configured
 
     def run(
-        self, item: MediaItem, previous_state: States = None, new_state: States = None
+        self,
+        item: MediaItem,
+        previous_state: States | None = None,
+        new_state: States | None = None,
     ):
         """
         Main entry point for sending notifications.
