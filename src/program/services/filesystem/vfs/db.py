@@ -397,7 +397,7 @@ class VFSDatabase:
 
                                 di[Program].em.add_event(
                                     Event(
-                                        "RetryLibrary",
+                                        "VFS",
                                         str(item_id),
                                     )
                                 )
