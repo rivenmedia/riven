@@ -11,9 +11,7 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
-from program.services.post_processing.media_analysis import (
-    MediaAnalysisService,
-)
+from program.services.post_processing.media_analysis import analyze_entry
 
 
 class FilesystemService:
@@ -26,8 +24,6 @@ class FilesystemService:
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
         self.downloader = downloader  # Store for potential reinit
-        # Lazily created and reused to avoid repeated init logs
-        self._media_analysis_service: MediaAnalysisService = MediaAnalysisService()
         self._initialize_rivenvfs(downloader)
 
     def _initialize_rivenvfs(self, downloader: Downloader):
@@ -88,21 +84,26 @@ class FilesystemService:
             success = self.riven_vfs.add(episode_or_movie)
 
             if not success:
-                logger.error(f"Failed to register {item.log_string} with RivenVFS")
+                logger.error(
+                    f"Failed to register {episode_or_movie.log_string} with RivenVFS"
+                )
                 continue
 
-            logger.debug(f"Registered {item.log_string} with RivenVFS")
+            logger.debug(f"Registered {episode_or_movie.log_string} with RivenVFS")
 
             # Analyze via VFS path, then sync names before Updaters
             try:
-                svc = self._media_analysis_service
-                if svc and svc.should_submit(item):
-                    svc.run(item)
+                entry = episode_or_movie.filesystem_entry
+                if entry and analyze_entry(entry):
+                    self.riven_vfs.sync(episode_or_movie)
+                    logger.debug(
+                        f"VFS synced after media analysis for {episode_or_movie.log_string}"
+                    )
             except Exception as e:
                 import traceback
 
                 logger.error(
-                    f"Media analysis failed for {item.log_string}: {traceback.format_exc()}"
+                    f"Media analysis failed for {episode_or_movie.log_string}: {traceback.format_exc()}"
                 )
 
         logger.info(f"Filesystem processing complete for {item.log_string}")

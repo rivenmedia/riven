@@ -22,6 +22,76 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 
 
+from program.media.media_entry import MediaEntry
+
+
+def analyze_entry(entry: MediaEntry) -> bool:
+    """Analyze a MediaEntry via the mounted VFS path and update its media_metadata.
+
+    Resolves the host VFS path from the entry, runs ffprobe, and merges the
+    probed data into the entry's MediaMetadata. Returns True if metadata changed.
+
+    Args:
+        entry: MediaEntry to analyze
+
+    Returns:
+        True if metadata was updated; False otherwise
+    """
+    try:
+        item = entry.media_item
+        log_name = getattr(
+            item, "log_string", f"MediaEntry(id={getattr(entry, 'id', '?')})"
+        )
+
+        # Determine host-mounted VFS path (not the container library path)
+        mount_path = settings_manager.settings.filesystem.mount_path
+        vfs_paths = entry.get_all_vfs_paths()
+        if not vfs_paths:
+            logger.warning(f"No VFS paths for {log_name}, cannot run ffprobe")
+            return False
+
+        vfs_path = vfs_paths[0]
+        full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
+
+        if not os.path.exists(full_path):
+            logger.debug(f"File not found for ffprobe: {full_path}")
+            return False
+
+        ffprobe_metadata = parse_media_file(full_path)
+        if not ffprobe_metadata:
+            logger.warning(f"ffprobe returned no data for {log_name}")
+            return False
+
+        ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
+
+        # Update or create MediaMetadata
+        if entry.media_metadata:
+            metadata = MediaMetadata(**entry.media_metadata)
+            metadata.update_from_probed_data(ffprobe_dict)
+        else:
+            logger.warning(
+                f"No existing metadata for {log_name}, creating from probed data only"
+            )
+            metadata = MediaMetadata(
+                filename=ffprobe_dict.get("filename"), data_source="probed"
+            )
+            metadata.update_from_probed_data(ffprobe_dict)
+
+        # Persist back on entry (SQLAlchemy object; caller will commit)
+        entry.media_metadata = metadata.model_dump(mode="json")
+        logger.debug(f"ffprobe analysis successful for {log_name}")
+        return True
+
+    except FileNotFoundError:
+        logger.warning(
+            "VFS file not found for entry %s, cannot analyze", getattr(entry, "id", "?")
+        )
+        return False
+    except Exception:
+        logger.error(f"Failed to analyze media entry: {traceback.format_exc()}")
+        return False
+
+
 class MediaAnalysisService:
     """Service for analyzing media files and extracting metadata."""
 
@@ -88,24 +158,9 @@ class MediaAnalysisService:
 
         try:
             logger.debug(f"Analyzing media file for {item.log_string}")
-            # Get the mounted VFS path for ffprobe
-            # Note: We use mount_path (host VFS mount) not library_path (container path)
-            mount_path = settings_manager.settings.filesystem.mount_path
 
-            # Generate VFS path from entry
-            vfs_paths = entry.get_all_vfs_paths()
-            if not vfs_paths:
-                logger.warning(
-                    f"No VFS paths for {item.log_string}, cannot run ffprobe"
-                )
-                return
-
-            # Use the first (base) path for ffprobe
-            vfs_path = vfs_paths[0]
-            full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
-
-            # Run ffprobe analysis
-            metadata_updated = self._analyze_with_ffprobe(full_path, item)
+            # Run ffprobe analysis using entry-centric helper
+            metadata_updated = analyze_entry(entry)
 
             # Sync VFS to update filenames with new metadata (resolution, codec, etc.)
             if metadata_updated:
@@ -125,52 +180,3 @@ class MediaAnalysisService:
             logger.warning(f"VFS file not found for {item.log_string}, cannot analyze")
         except Exception as e:
             logger.error(f"Failed to analyze media file for {item.log_string}: {e}")
-
-    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> bool:
-        """
-        Analyze media file with ffprobe and update MediaMetadata.
-
-        Args:
-            file_path: Full path to the media file
-            item: MediaItem being analyzed
-
-        Returns:
-            True if metadata was updated, False otherwise
-        """
-        try:
-            if not os.path.exists(file_path):
-                logger.debug(f"File not found for ffprobe: {file_path}")
-                return False
-
-            ffprobe_metadata = parse_media_file(file_path)
-            if ffprobe_metadata:
-                ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
-
-                # Get or create MediaMetadata
-                if item.filesystem_entry.media_metadata:
-                    # Update existing metadata with probed data
-                    metadata = MediaMetadata(**item.filesystem_entry.media_metadata)
-                    metadata.update_from_probed_data(ffprobe_dict)
-                else:
-                    # Create new metadata from probed data only
-                    # This shouldn't happen since downloader creates it, but handle it anyway
-                    logger.warning(
-                        f"No existing metadata for {item.log_string}, creating from probed data only"
-                    )
-                    metadata = MediaMetadata(
-                        filename=ffprobe_dict.get("filename"), data_source="probed"
-                    )
-                    metadata.update_from_probed_data(ffprobe_dict)
-
-                # Store updated metadata
-                item.filesystem_entry.media_metadata = metadata.model_dump(mode="json")
-                logger.debug(f"ffprobe analysis successful for {item.log_string}")
-                return True
-
-            logger.warning(f"ffprobe returned no data for {item.log_string}")
-            return False
-        except Exception:
-            logger.error(
-                f"FFprobe analysis failed for {item.log_string}: {traceback.format_exc()}"
-            )
-            return False
