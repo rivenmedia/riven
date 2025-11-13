@@ -1,7 +1,6 @@
 ﻿"""Listrr API"""
 
 from program.utils.request import SmartSession
-from clients.listrr.listrr_pro_v1_client.types import Unset
 
 
 class ListrrAPIError(Exception):
@@ -31,13 +30,13 @@ class ListrrAPI:
     def validate(self):
         return self.session.get("/List/My")
 
-    def get_shows_from_Listrr(
+    def get_shows(
         self,
         content_lists,
     ) -> list[tuple[str | None, str | None]]:
         """Fetch unique show IDs from Listrr for a given list of content."""
 
-        from clients.listrr.listrr_pro_v1_client.models import (
+        from clients.listrr.openapi_client import (
             ListrrContractsModelsAPIPagedResponse1ListrrContractsModelsAPIShowDto as APIResponse,
         )
 
@@ -61,35 +60,25 @@ class ListrrAPI:
                     response.json(),
                 )
 
+                assert data
+
                 total_pages = data.pages or 1
 
                 if data.items:
                     for item in data.items:
-                        imdb_id = (
-                            item.im_db_id
-                            if not isinstance(item.im_db_id, Unset)
-                            else None
-                        )
-
-                        tvdb_id = (
-                            item.tv_db_id
-                            if not isinstance(item.tv_db_id, Unset)
-                            else None
-                        )
-
-                        unique_ids.add((imdb_id, str(tvdb_id)))
+                        unique_ids.add((item.im_db_id, str(item.tv_db_id)))
 
                 page += 1
 
         return list(unique_ids)
 
-    def get_movies_from_Listrr(
+    def get_movies(
         self,
         content_lists,
     ) -> list[tuple[str | None, str | None]]:
         """Fetch unique movie IDs from Listrr for a given list of content."""
 
-        from clients.listrr.listrr_pro_v1_client.models import (
+        from clients.listrr.openapi_client import (
             ListrrContractsModelsAPIPagedResponse1ListrrContractsModelsAPIMovieDto as APIResponse,
         )
 
@@ -113,23 +102,13 @@ class ListrrAPI:
                     response.json(),
                 )
 
+                assert data
+
                 total_pages = data.pages or 1
 
                 if data.items:
                     for item in data.items:
-                        imdb_id = (
-                            item.im_db_id
-                            if not isinstance(item.im_db_id, Unset)
-                            else None
-                        )
-
-                        tmdb_id = (
-                            item.tm_db_id
-                            if not isinstance(item.tm_db_id, Unset)
-                            else None
-                        )
-
-                        unique_ids.add((imdb_id, str(tmdb_id)))
+                        unique_ids.add((item.im_db_id, str(item.tm_db_id)))
 
                 page += 1
 

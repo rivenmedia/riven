@@ -121,5 +121,6 @@ pr-ready: clean lint test
 
 generate-clients:
 	@echo "Generating third-party models from OpenAPI specifications..."
-	@uv run openapi-python-client generate --url https://listrr.pro/swagger/v1/swagger.json --output-path src/clients/listrr --overwrite
+	@rm -rf src/clients/listrr
+	@uv run openapi-generator-cli generate -g python -i https://listrr.pro/swagger/v1/swagger.json -o src/clients/listrr --skip-validate-spec --additional-properties=generateSourceCodeOnly=true
 	@echo "OpenAPI client models generated"
