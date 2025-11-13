@@ -1,6 +1,7 @@
 """MediaItem class"""
 
 from datetime import datetime
+from functools import cached_property
 from typing import Any, List, Optional, TYPE_CHECKING
 
 import sqlalchemy
@@ -320,6 +321,21 @@ class MediaItem(db.Model):
             return False
 
         return False
+
+    @cached_property
+    def is_excluded(self) -> bool:
+        """Check if the item is excluded based on its IDs."""
+
+        from program.utils.exclusions import exclusions
+
+        is_excluded = exclusions.is_excluded(self)
+
+        if is_excluded:
+            logger.trace(
+                f"Item {self.log_string} is being excluded as the ID was found in exclusions."
+            )
+
+        return is_excluded
 
     @property
     def is_released(self) -> bool:
@@ -743,7 +759,7 @@ class Movie(MediaItem):
         super().__init__(item)
 
     def __repr__(self):
-        return f"Movie:{self.log_string}:{self.state.name}"
+        return f"Movie [tmdb: {self.tmdb_id} | imdb: {self.imdb_id}]: {self.log_string} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
@@ -823,7 +839,7 @@ class Show(MediaItem):
         return super().store_state(given_state)
 
     def __repr__(self):
-        return f"Show:{self.log_string}:{self.state.name}"
+        return f"Show [tvdb: {self.tvdb_id}]: #{self.log_string} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
@@ -970,7 +986,7 @@ class Season(MediaItem):
         return value
 
     def __repr__(self):
-        return f"Season:{self.number}:{self.state.name}"
+        return f"Season [tvdb: {self.tvdb_id}]: {self.log_string} #{self.number} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
@@ -1037,7 +1053,7 @@ class Episode(MediaItem):
         super().__init__(item)
 
     def __repr__(self):
-        return f"Episode:{self.number}:{self.state.name}"
+        return f"Episode [tvdb: {self.tvdb_id}]: {self.log_string} #{self.number} - {self.state.name}"
 
     def __hash__(self):
         return super().__hash__()

@@ -35,7 +35,7 @@ class ProcessedEvent:
 class Event:
     emitted_by: Service
     item_id: Optional[str] = None
-    content_item: Optional[MediaItem] = None
+    content_item: "MediaItem | None" = None
     run_at: datetime = datetime.now()
     item_state: Optional[str] = None  # Cached state for priority sorting
 
