@@ -310,6 +310,7 @@ async def start_manual_session(
     imdb_id: Optional[str] = None,
     media_type: Optional[Literal["movie", "tv"]] = None,
     magnet: Optional[str] = None,
+    session: Session = Depends(get_db),
 ) -> StartSessionResponse:
     session_manager.cleanup_expired(background_tasks)
 
@@ -359,6 +360,10 @@ async def start_manual_session(
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    
+    if not item_id:
+        item = session.merge(item)
+        session.commit()
 
     container = downloader.get_instant_availability(info_hash, item.type)
 
@@ -444,7 +449,7 @@ async def manual_update_attributes(
     request: Request,
     session_id,
     data: Union[DebridFile, ShowFileData],
-    session: Session = Depends(get_db),
+    db_session: Session = Depends(get_db),
 ) -> UpdateAttributesResponse:
     """
     Apply selected file attributes from a scraping session to the referenced media item(s).
@@ -492,114 +497,113 @@ async def manual_update_attributes(
             prepared_item = MediaItem(item_data)
             item = next(IndexerService().run(prepared_item), None)
             if item:
-                session.merge(item)
-                session.commit()
+                db_session.merge(item)
+                db_session.commit()
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        item = session.merge(item)
-        item_ids_to_submit = set()
+        item = db_session.merge(item)
+    item_ids_to_submit = set()
 
-        def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
-            """
-            Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
+    def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
+        """
+        Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
 
-            Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
+        Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
 
-            Parameters:
-                item (MediaItem): The media item to update; will be merged into the active DB session as needed.
-                data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
-                session (ScrapingSession): Scraping session containing the magnet and torrent_info used to set active_stream and rank the stream.
-            """
-            request.app.program.em.cancel_job(item.id)
-            item.reset()
+        Parameters:
+            item (MediaItem): The media item to update; will be merged into the active DB session as needed.
+            data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
+            session (ScrapingSession): Scraping session containing the magnet and torrent_info used to set active_stream and rank the stream.
+        """
+        request.app.program.em.cancel_job(item.id)
+        item.reset()
 
-            # Ensure a staging MediaEntry exists and is linked
-            from sqlalchemy import select
-            from program.media.media_entry import MediaEntry
+        # Ensure a staging MediaEntry exists and is linked
+        from sqlalchemy import select
+        from program.media.media_entry import MediaEntry
 
-            fs_entry = None
+        fs_entry = None
 
-            if item.filesystem_entry:
-                fs_entry = item.filesystem_entry
-                # Update source metadata on existing entry
-                fs_entry.original_filename = data.filename
-            else:
-                # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                fs_entry = MediaEntry.create_virtual_entry(
-                    original_filename=data.filename,
-                    download_url=getattr(data, "download_url", None),
-                    provider=None,
-                    provider_download_id=None,
-                    file_size=(data.filesize or 0),
-                )
-                session.add(fs_entry)
-                session.commit()
-                session.refresh(fs_entry)
-
-                # Link MediaItem to FilesystemEntry
-                # Clear existing entries and add the new one
-                item.filesystem_entries.clear()
-                item.filesystem_entries.append(fs_entry)
-                item = session.merge(item)
-
-            item.active_stream = {
-                "infohash": session.magnet,
-                "id": session.torrent_info.id,
-            }
-            torrent = rtn.rank(session.torrent_info.name, session.magnet)
-
-            # Ensure the item is properly attached to the session before adding streams
-            # This prevents SQLAlchemy warnings about detached objects
-            if object_session(item) is not session:
-                item = session.merge(item)
-
-            item.streams.append(ItemStream(torrent))
-            item_ids_to_submit.add(item.id)
-
-        if item.type == "movie":
-            update_item(item, data, session)
-
+        if item.filesystem_entry:
+            fs_entry = item.filesystem_entry
+            # Update source metadata on existing entry
+            fs_entry.original_filename = data.filename
         else:
-            for season_number, episodes in data.root.items():
-                for episode_number, episode_data in episodes.items():
-                    if item.type == "show":
-                        if episode := item.get_absolute_episode(
-                            episode_number, season_number
-                        ):
-                            update_item(episode, episode_data, session)
-                        else:
-                            logger.error(
-                                f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
-                            )
-                            continue
-                    elif item.type == "season":
-                        if episode := item.parent.get_absolute_episode(
-                            episode_number, season_number
-                        ):
-                            update_item(episode, episode_data, session)
-                        else:
-                            logger.error(
-                                f"Failed to find season {season_number} for {item.log_string}"
-                            )
-                            continue
-                    elif item.type == "episode":
-                        if (
-                            season_number != item.parent.number
-                            and episode_number != item.number
-                        ):
-                            continue
-                        update_item(item, episode_data, session)
-                        break
-                    else:
-                        logger.error(f"Failed to find item type for {item.log_string}")
-                        continue
+            # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+            fs_entry = MediaEntry.create_virtual_entry(
+                original_filename=data.filename,
+                download_url=getattr(data, "download_url", None),
+                provider=None,
+                provider_download_id=None,
+                file_size=(data.filesize or 0),
+            )
+            db_session.add(fs_entry)
+            db_session.commit()
+            db_session.refresh(fs_entry)
 
-        item.store_state()
-        log_string = item.log_string
-        session.merge(item)
-        session.commit()
+            # Link MediaItem to FilesystemEntry
+            # Clear existing entries and add the new one
+            item.filesystem_entries.clear()
+            item.filesystem_entries.append(fs_entry)
+            item = db_session.merge(item)
+
+        item.active_stream = {
+            "infohash": session.magnet,
+            "id": session.torrent_info.id,
+        }
+        torrent = rtn.rank(session.torrent_info.name, session.magnet)
+
+        # Ensure the item is properly attached to the session before adding streams
+        # This prevents SQLAlchemy warnings about detached objects
+        if object_session(item) is not db_session:
+            item = db_session.merge(item)
+
+        item.streams.append(ItemStream(torrent))
+        item_ids_to_submit.add(item.id)
+
+    if item.type == "movie":
+        update_item(item, data, session)
+    else:
+        for season_number, episodes in data.root.items():
+            for episode_number, episode_data in episodes.items():
+                if item.type == "show":
+                    if episode := item.get_absolute_episode(
+                        episode_number, season_number
+                    ):
+                        update_item(episode, episode_data, session)
+                    else:
+                        logger.error(
+                            f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
+                        )
+                        continue
+                elif item.type == "season":
+                    if episode := item.parent.get_absolute_episode(
+                        episode_number, season_number
+                    ):
+                        update_item(episode, episode_data, session)
+                    else:
+                        logger.error(
+                            f"Failed to find season {season_number} for {item.log_string}"
+                        )
+                        continue
+                elif item.type == "episode":
+                    if (
+                        season_number != item.parent.number
+                        and episode_number != item.number
+                    ):
+                        continue
+                    update_item(item, episode_data, session)
+                    break
+                else:
+                    logger.error(f"Failed to find item type for {item.log_string}")
+                    continue
+
+    item.store_state()
+    log_string = item.log_string
+    db_session.merge(item)
+    db_session.commit()
 
     # Sync VFS to reflect any deleted/updated entries
     # Must happen AFTER commit so the database reflects the changes
