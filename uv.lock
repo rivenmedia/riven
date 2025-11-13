@@ -707,6 +707,15 @@ wheels = [
 ]
 
 [[package]]
+name = "lazy-imports"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/cd/94bf4a69be8f2ffe5584562bb4f2adcbae8004ffe1803dba118750ae17d5/lazy_imports-1.1.0.tar.gz", hash = "sha256:e6ea5a1e4f09a861357e670b7aa61efcbce6fe29361785dd253df66f8ddbc36b", size = 24601, upload-time = "2025-10-31T19:06:41.948Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/9d/70a2d902d0d9530f36e60d6ef2f97a47363d2f20cac02999e29cc97b0756/lazy_imports-1.1.0-py3-none-any.whl", hash = "sha256:49fb1034ffe325fbec6e1f0e1e5b47eaaf43989b17be6c090added97c2b3ec24", size = 18964, upload-time = "2025-10-31T19:06:40.707Z" },
+]
+
+[[package]]
 name = "levenshtein"
 version = "0.27.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1542,6 +1551,7 @@ dependencies = [
     { name = "httpx-retries" },
     { name = "jsonschema" },
     { name = "kink" },
+    { name = "lazy-imports" },
     { name = "loguru" },
     { name = "lxml" },
     { name = "opentelemetry-api" },
@@ -1607,6 +1617,7 @@ requires-dist = [
     { name = "httpx-retries", specifier = ">=0.4.5" },
     { name = "jsonschema", specifier = ">=4.23.0,<5" },
     { name = "kink", specifier = ">=0.8.1,<0.9" },
+    { name = "lazy-imports", specifier = ">=1.1.0" },
     { name = "loguru", specifier = ">=0.7.2,<0.8" },
     { name = "lxml", specifier = ">=5.1.0,<6" },
     { name = "opentelemetry-api", specifier = ">=1.25.0,<2" },
