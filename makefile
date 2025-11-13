@@ -123,6 +123,7 @@ generate-listrr-schema:
 	@echo "Generating Listrr schema from OpenAPI specification..."
 	@rm -rf src/schemas/listrr
 	@uv run openapi-generator-cli generate -g python -i https://listrr.pro/swagger/v1/swagger.json -o src/schemas/listrr --skip-validate-spec --additional-properties=generateSourceCodeOnly=true
+	@black src/schemas/listrr
 	@echo "Listrr schema generated"
 
 generate-mdblist-schema:
@@ -131,6 +132,7 @@ generate-mdblist-schema:
 	@npx -y apib2openapi -i /tmp/mdblist.apib -o /tmp/mdblist_openapi.json
 	@rm -rf src/schemas/mdblist
 	@uv run openapi-generator-cli generate -g python -i /tmp/mdblist_openapi.json -o src/schemas/mdblist --skip-validate-spec --additional-properties=generateSourceCodeOnly=true
+	@black src/schemas/mdblist
 	@echo "MDBList schema generated"
 
 generate-schemas:
