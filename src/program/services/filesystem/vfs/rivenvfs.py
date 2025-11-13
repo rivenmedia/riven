@@ -33,7 +33,9 @@ Usage:
 from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, contextmanager
+from http import HTTPStatus
 
+import httpx
 import pyfuse3
 import trio
 import os
@@ -60,6 +62,7 @@ from program.services.filesystem.vfs.vfs_node import (
     VFSRoot,
 )
 
+from program.utils.async_client import AsyncClient
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
 from program.services.filesystem.vfs.db import VFSDatabase
@@ -93,7 +96,6 @@ class FileHandle(TypedDict):
     inode: pyfuse3.InodeT
     last_read_end: int
     subtitle_content: bytes | None
-    has_stream_error: bool
 
 
 class RivenVFS(pyfuse3.Operations):
@@ -559,11 +561,13 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully removed, False otherwise
         """
+
         from program.media.media_entry import MediaEntry
 
         if item.type == "show":
             for season in item.seasons:
                 self.remove(season)
+
         if item.type == "season":
             for episode in item.episodes:
                 self.remove(episode)
@@ -574,6 +578,7 @@ class RivenVFS(pyfuse3.Operations):
             return False
 
         entry = item.filesystem_entry
+
         if not isinstance(entry, MediaEntry):
             logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
             return False
@@ -595,6 +600,7 @@ class RivenVFS(pyfuse3.Operations):
             logger.debug(
                 f"Removed item {item.id} from VFS ({len(video_paths)} path(s))"
             )
+
             return True
 
         return False
@@ -1162,6 +1168,19 @@ class RivenVFS(pyfuse3.Operations):
 
         return False
 
+    def _get_nodes_by_original_filename(self, original_filename: str) -> list[VFSFile]:
+        """
+        Find all VFS nodes with matching original_filename.
+        """
+
+        with self._tree_lock:
+            return [
+                node
+                for node in self._inode_to_node.values()
+                if isinstance(node, VFSFile)
+                and node.original_filename == original_filename
+            ]
+
     def _unregister_by_original_filename(self, original_filename: str) -> list[str]:
         """
         Find and unregister all VFS nodes with matching original_filename.
@@ -1177,16 +1196,8 @@ class RivenVFS(pyfuse3.Operations):
         """
         unregistered_paths = []
 
-        with self._tree_lock:
-            # Find all nodes with matching original_filename
-            nodes_to_remove: list[VFSFile] = []
-
-            for node in self._inode_to_node.values():
-                if (
-                    isinstance(node, VFSFile)
-                    and node.original_filename == original_filename
-                ):
-                    nodes_to_remove.append(node)
+        # Find all nodes with matching original_filename
+        nodes_to_remove = self._get_nodes_by_original_filename(original_filename)
 
         # Unregister each matching node (outside the lock to avoid deadlock)
         for node in nodes_to_remove:
@@ -1575,7 +1586,7 @@ class RivenVFS(pyfuse3.Operations):
         fh: pyfuse3.FileHandleT,
         start_id: int,
         token: pyfuse3.ReaddirToken,
-    ):
+    ) -> None:
         """Read directory entries."""
         try:
             path = self._get_path_from_inode(fh)
@@ -1619,7 +1630,12 @@ class RivenVFS(pyfuse3.Operations):
             logger.exception(f"readdir error for inode={fh}")
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def open(self, inode: pyfuse3.InodeT, flags: int, ctx) -> pyfuse3.FileInfo:
+    async def open(
+        self,
+        inode: pyfuse3.InodeT,
+        flags: int,
+        ctx,
+    ) -> pyfuse3.FileInfo:
         """Open a file for reading."""
         try:
             with self._tree_lock:
@@ -1633,6 +1649,76 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.EISDIR)
 
                 path = node.path
+
+            try:
+                entry_info = await trio.to_thread.run_sync(
+                    lambda: self.vfs_db.get_entry_by_original_filename(
+                        original_filename=node.original_filename,
+                    )
+                )
+
+                if (
+                    not entry_info
+                    or not entry_info["url"]
+                    or not entry_info["provider"]
+                ):
+                    raise pyfuse3.FUSEError(errno.ENOENT)
+
+                try:
+                    # Test URL availability
+                    async with di[AsyncClient].stream(
+                        method="GET",
+                        url=entry_info["url"],
+                    ) as response:
+                        response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    status_code = e.response.status_code
+
+                    if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
+                        await trio.to_thread.run_sync(
+                            lambda: self.vfs_db.get_entry_by_original_filename(
+                                original_filename=node.original_filename,
+                                force_resolve=True,
+                            )
+                        )
+            except DebridServiceLinkUnavailable:
+                logger.warning(
+                    f"Dead link for {node.path}; attempting to download a working one..."
+                )
+
+                try:
+                    original_inode = node.inode
+
+                    with trio.fail_after(30):
+                        while True:
+                            new_nodes = [
+                                candidate
+                                for candidate in self._get_nodes_by_original_filename(
+                                    node.original_filename
+                                )
+                                if candidate.inode != original_inode
+                            ]
+
+                            if new_nodes:
+                                logger.trace(
+                                    f"Found new file for {node.original_filename}"
+                                )
+
+                                break
+
+                            await trio.sleep(1)
+                except trio.TooSlowError:
+                    logger.error(
+                        f"Timeout waiting for new link to become available for path={node.path}"
+                    )
+
+                    raise pyfuse3.FUSEError(errno.ENOENT) from None
+
+                logger.trace(f"Found new nodes after redownload: {new_nodes}")
+
+                inode = new_nodes[0].inode
+
+                return await self.open(inode, flags, ctx)
 
             logger.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
@@ -1648,10 +1734,10 @@ class RivenVFS(pyfuse3.Operations):
                 "inode": inode,  # Store inode to resolve node/metadata later
                 "last_read_end": 0,
                 "subtitle_content": None,
-                "has_stream_error": False,
             }
 
             logger.trace(f"open: path={path} fh={fh}")
+
             return pyfuse3.FileInfo(fh=pyfuse3.FileHandleT(fh))
         except pyfuse3.FUSEError:
             raise
@@ -1687,9 +1773,6 @@ class RivenVFS(pyfuse3.Operations):
             if not handle_info:
                 raise pyfuse3.FUSEError(errno.EBADF)
 
-            if handle_info["has_stream_error"]:
-                raise pyfuse3.FUSEError(errno.ECONNABORTED)
-
             # Resolve node from inode to get current metadata
             inode = handle_info.get("inode")
 
@@ -1706,10 +1789,6 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.EISDIR)
 
                 file_size = node.file_size
-
-                if file_size is None:
-                    raise pyfuse3.FUSEError(errno.EIO)
-
                 path = node.path
                 entry_type = node.entry_type
                 original_filename = node.original_filename
@@ -1774,17 +1853,12 @@ class RivenVFS(pyfuse3.Operations):
             if request_end < request_start:
                 return b""
 
-            try:
-                stream = await self._get_stream(
-                    path=path,
-                    fh=fh,
-                    file_size=file_size,
-                    original_filename=original_filename,
-                )
-            except DebridServiceLinkUnavailable as e:
-                logger.error(f"Failed to get stream URL for {path}: {e}")
-
-                raise pyfuse3.FUSEError(errno.ENOENT) from e
+            stream = await self._get_stream(
+                path=path,
+                fh=fh,
+                file_size=file_size,
+                original_filename=original_filename,
+            )
 
             try:
                 return await stream.read(
@@ -2013,13 +2087,15 @@ class RivenVFS(pyfuse3.Operations):
                 # Get provider info and URL from database
                 entry_info = await trio.to_thread.run_sync(
                     lambda: self.vfs_db.get_entry_by_original_filename(
-                        original_filename,
-                        for_http=True,
-                        force_resolve=False,
+                        original_filename=original_filename,
                     )
                 )
 
-                if not entry_info:
+                if (
+                    not entry_info
+                    or not entry_info["url"]
+                    or not entry_info["provider"]
+                ):
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
                 self._active_streams[stream_key] = MediaStream(
