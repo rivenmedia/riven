@@ -1,12 +1,12 @@
 """Plex Watchlist Module"""
 
-from collections.abc import AsyncGenerator, Sequence
+from typing import Generator
 
 from kink import di
 from loguru import logger
 from requests import HTTPError
 
-from program.apis.plex_api import PlexAPI, WatchlistItem
+from program.apis.plex_api import PlexAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -24,30 +24,24 @@ class PlexWatchlist:
             return
         logger.success("Plex Watchlist initialized!")
 
-    async def validate(self):
+    def validate(self):
         if not self.settings.enabled:
             return False
-
         if not settings_manager.settings.updaters.plex.token:
             logger.error("Plex token is not set!")
             return False
-
         try:
             self.api = di[PlexAPI]
             self.api.validate_account()
         except Exception as e:
             logger.error(f"Unable to authenticate Plex account: {e}")
-
             return False
-
         if self.settings.rss:
             self.api.set_rss_urls(self.settings.rss)
-
             for rss_url in self.settings.rss:
                 try:
-                    response = await self.api.validate_rss(rss_url)
+                    response = self.api.validate_rss(rss_url)
                     response.raise_for_status()
-
                     self.api.rss_enabled = True
                 except HTTPError as e:
                     if e.response.status_code == 404:
@@ -67,15 +61,12 @@ class PlexWatchlist:
                     return False
         return True
 
-    async def run(self) -> AsyncGenerator[list[MediaItem], None]:
+    def run(self) -> Generator[MediaItem, None, None]:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
         try:
-            assert self.api
-
-            watchlist_items: list[WatchlistItem] = self.api.get_items_from_watchlist()
-
-            rss_items: Sequence[tuple[str, str]] = (
-                await self.api.get_items_from_rss() if self.api.rss_enabled else []
+            watchlist_items: list[dict[str, str]] = self.api.get_items_from_watchlist()
+            rss_items: list[tuple[str, str]] = (
+                self.api.get_items_from_rss() if self.api.rss_enabled else []
             )
         except Exception as e:
             logger.warning(f"Error fetching items: {e}")
@@ -85,13 +76,13 @@ class PlexWatchlist:
 
         if watchlist_items:
             for d in watchlist_items:
-                if d.tvdb_id and not d.tmdb_id:  # show
+                if d["tvdb_id"] and not d["tmdb_id"]:  # show
                     items_to_yield.append(
-                        MediaItem({"tvdb_id": d.tvdb_id, "requested_by": self.key})
+                        MediaItem({"tvdb_id": d["tvdb_id"], "requested_by": self.key})
                     )
-                elif d.tmdb_id and not d.tvdb_id:  # movie
+                elif d["tmdb_id"] and not d["tvdb_id"]:  # movie
                     items_to_yield.append(
-                        MediaItem({"tmdb_id": d.tmdb_id, "requested_by": self.key})
+                        MediaItem({"tmdb_id": d["tmdb_id"], "requested_by": self.key})
                     )
 
         if rss_items:
@@ -116,5 +107,4 @@ class PlexWatchlist:
             ]
 
         logger.info(f"Fetched {len(items_to_yield)} new items from plex watchlist")
-
         yield items_to_yield
