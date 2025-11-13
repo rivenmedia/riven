@@ -119,8 +119,24 @@ pr-ready: clean lint test
 
 # OAPI generation
 
-generate-clients:
-	@echo "Generating third-party models from OpenAPI specifications..."
-	@rm -rf src/clients/listrr
-	@uv run openapi-generator-cli generate -g python -i https://listrr.pro/swagger/v1/swagger.json -o src/clients/listrr --skip-validate-spec --additional-properties=generateSourceCodeOnly=true
-	@echo "OpenAPI client models generated"
+generate-listrr-schema:
+	@echo "Generating Listrr schema from OpenAPI specification..."
+	@rm -rf src/schemas/listrr
+	@uv run openapi-generator-cli generate -g python -i https://listrr.pro/swagger/v1/swagger.json -o src/schemas/listrr --skip-validate-spec --additional-properties=generateSourceCodeOnly=true
+	@echo "Listrr schema generated"
+
+generate-mdblist-schema:
+	@echo "Generating MDBList schema from API blueprint specification..."
+	@curl -s https://raw.githubusercontent.com/linaspurinis/api.mdblist.com/refs/heads/main/apiary.apib -o /tmp/mdblist.apib
+	@npx -y apib2openapi -i /tmp/mdblist.apib -o /tmp/mdblist_openapi.json
+	@rm -rf src/schemas/mdblist
+	@uv run openapi-generator-cli generate -g python -i /tmp/mdblist_openapi.json -o src/schemas/mdblist --skip-validate-spec --additional-properties=generateSourceCodeOnly=true
+	@echo "MDBList schema generated"
+
+generate-schemas:
+	@echo "Generating all schemas..."
+
+	@make generate-listrr-schema
+	@make generate-mdblist-schema
+
+	@echo "All schemas generated"

@@ -36,7 +36,7 @@ class ListrrAPI:
     ) -> list[tuple[str | None, str | None]]:
         """Fetch unique show IDs from Listrr for a given list of content."""
 
-        from clients.listrr.openapi_client import (
+        from schemas.listrr.openapi_client import (
             ListrrContractsModelsAPIPagedResponse1ListrrContractsModelsAPIShowDto as APIResponse,
         )
 
@@ -78,7 +78,7 @@ class ListrrAPI:
     ) -> list[tuple[str | None, str | None]]:
         """Fetch unique movie IDs from Listrr for a given list of content."""
 
-        from clients.listrr.openapi_client import (
+        from schemas.listrr.openapi_client import (
             ListrrContractsModelsAPIPagedResponse1ListrrContractsModelsAPIMovieDto as APIResponse,
         )
 
