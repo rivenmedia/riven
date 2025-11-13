@@ -26,10 +26,11 @@ class PlexAPI:
         self.BASE_URL = base_url
 
         rate_limits = {
+            # 1 call per second, 60 calls per minute
             "metadata.provider.plex.tv": {
                 "rate": 1,
                 "capacity": 60,
-            },  # 1 call per second, 60 calls per minute
+            },
         }
 
         self.session = SmartSession(
