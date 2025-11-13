@@ -35,13 +35,12 @@ class TMDBApi:
             }
         )
 
-    def validate(self):
-        return self.session.get("movie/popular?page=1")
-
     def get_from_external_id(self, external_source: str, external_id: str):
         """Get TMDB item from external ID"""
 
-        return self.session.get(f"find/{external_id}?external_source={external_source}")
+        response = self.session.get(
+            f"find/{external_id}?external_source={external_source}"
+        )
 
     def get_movie_details(self, movie_id: str, params: str = ""):
         """Get movie details"""

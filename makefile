@@ -155,5 +155,6 @@ generate-schemas:
 	@make generate-listrr-schema
 	@make generate-mdblist-schema
 	@make generate-overseerr-schema
+	@make generate-tmdb-schema
 
 	@echo "All schemas generated"

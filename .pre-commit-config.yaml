@@ -27,4 +27,4 @@ repos:
         require_serial: true
       - id: check-yaml
       - id: check-added-large-files
-        args: ["--maxkb=1000"]
+        args: ["--maxkb=2000"]
