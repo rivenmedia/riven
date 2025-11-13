@@ -142,6 +142,13 @@ generate-overseerr-schema:
 	@uv run black src/schemas/overseerr
 	@echo "MDBList schema generated"
 
+generate-tmdb-schema:
+	@echo "Generating TMDB schema from OpenAPI specification..."
+	@rm -rf src/schemas/tmdb
+	@uv run openapi-generator-cli generate -g python -i https://developer.themoviedb.org/openapi/tmdb-api.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.tmdb,lazyImports=true
+	@uv run black src/schemas/tmdb
+	@echo "TMDB schema generated"
+
 generate-schemas:
 	@echo "Generating all schemas..."
 
