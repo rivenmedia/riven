@@ -1,9 +1,10 @@
 ﻿"""Overseerr API client"""
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
+from requests.exceptions import ConnectionError, RetryError
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from program.utils.request import SmartSession, get_hostname_from_url
 
@@ -41,16 +42,32 @@ class OverseerrAPI:
         """Validate API connection"""
 
         try:
-            response = self.session.get("api/v1/auth/me", timeout=15)
-
-            return response
+            return self.session.get("api/v1/auth/me", timeout=15).ok
+        except (ConnectionError, RetryError, MaxRetryError, NewConnectionError):
+            logger.error("Overseerr URL is not reachable, or it timed out")
         except Exception as e:
-            logger.error(f"Overseerr validation failed: {e}")
+            logger.error(f"Unexpected error during Overseerr validation: {str(e)}")
 
-            return None
+        return False
 
     def get_media_requests(
-        self, service_key: str, filter: str = "approved", take: int = 10000
+        self,
+        service_key: str,
+        filter: (
+            Literal[
+                "all",
+                "approved",
+                "available",
+                "pending",
+                "processing",
+                "unavailable",
+                "failed",
+                "deleted",
+                "completed",
+            ]
+            | None
+        ) = "approved",
+        take: int = 10000,
     ) -> list["MediaItem"]:
         """Get media requests from `Overseerr`"""
 
@@ -64,46 +81,18 @@ class OverseerrAPI:
         try:
             response = self.session.get(url)
 
-            @dataclass
-            class ResponseData:
-                """Response data structure from Overseerr API"""
-
-                @dataclass
-                class Item:
-                    """Item structure from Overseerr API"""
-
-                    @dataclass
-                    class Media:
-                        """Media structure from Overseerr API"""
-
-                        tmdbId: int
-                        tvdbId: int
-                        status: int
-
-                    type: ItemType
-                    media: Media
-                    status: int
-
-                @dataclass
-                class PageInfo:
-                    """PageInfo structure from Overseerr API"""
-
-                    totalResults: int
-                    results: int
-                    page: int
-                    totalPages: int
-
-                pageInfo: PageInfo
-                results: list[Item]
-
             if not response.ok:
                 logger.error(f"Failed to get response from overseerr: {response.data}")
 
                 return []
 
-            response_data = ResponseData(**response.json())
+            from schemas.overseerr import UserUserIdRequestsGet200Response
 
-            if response_data.pageInfo.results == 0:
+            response_data = UserUserIdRequestsGet200Response.from_dict(response.json())
+
+            assert response_data
+
+            if not response_data.results:
                 logger.debug("No user approved requests found from overseerr")
 
                 return []
@@ -120,41 +109,44 @@ class OverseerrAPI:
             pending_items = [
                 item
                 for item in response_data.results
-                if item.status == 2 and item.media.status == 3
+                if item.status == 2 and item.media and item.media.status == 3
             ]
 
         media_items: list[MediaItem] = []
 
         for item in pending_items:
-            media_type = item.type
-            tmdb_id = item.media.tmdbId
-            tvdb_id = item.media.tvdbId
+            tmdb_id = item.media and item.media.tmdb_id
+            tvdb_id = item.media and item.media.tvdb_id
 
-            if media_type == "tv":
-                media_type = "show"
+            if tvdb_id is not None:
+                media_items.append(
+                    MediaItem({"tvdb_id": tvdb_id, "requested_by": service_key})
+                )
 
-            if media_type == "movie":
-                new_item = MediaItem({"tmdb_id": tmdb_id, "requested_by": service_key})
-                media_items.append(new_item)
-            elif media_type == "show":
-                new_item = MediaItem({"tvdb_id": tvdb_id, "requested_by": service_key})
-                media_items.append(new_item)
-            else:
-                logger.error(f"Unknown media type: {media_type}")
+                continue
+
+            if tmdb_id is not None:
+                media_items.append(
+                    MediaItem({"tmdb_id": tmdb_id, "requested_by": service_key})
+                )
+
+                continue
+
+            logger.error(f"Could not determine ID for overseerr item: {item.id}")
 
         return media_items
 
     def delete_request(self, mediaId: int) -> bool:
-        """Delete request from `Overseerr`"""
+        """Delete request from Overseerr"""
 
         try:
             response = self.session.delete(f"api/v1/request/{mediaId}")
 
-            logger.debug(f"Deleted request {mediaId} from overseerr")
+            logger.debug(f"Deleted request {mediaId} from Overseerr")
 
             return response.ok
         except Exception as e:
-            logger.error(f"Failed to delete request from overseerr: {str(e)}")
+            logger.error(f"Failed to delete request from Overseerr: {str(e)}")
 
             return False
 

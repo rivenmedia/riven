@@ -688,11 +688,25 @@ async def parse_torrent_titles(
 )
 async def overseerr_requests(
     request: Request,
-    filter: Optional[str] = None,
+    filter: (
+        Literal[
+            "all",
+            "approved",
+            "available",
+            "pending",
+            "processing",
+            "unavailable",
+            "failed",
+            "deleted",
+            "completed",
+        ]
+        | None
+    ) = None,
     take: int = 100000,
     db: Session = Depends(get_db),
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""
+
     from program.apis.overseerr_api import OverseerrAPI
     from program.db.db_functions import item_exists_by_any_id
     from kink import di
