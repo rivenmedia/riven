@@ -30,6 +30,9 @@ class IndexerService(BaseIndexer):
             logger.error("Item is None")
             return
 
+        if in_item.is_excluded:
+            return
+
         item_type = in_item.type or "mediaitem"
 
         if item_type == "movie" or (in_item.tmdb_id and not in_item.tvdb_id):

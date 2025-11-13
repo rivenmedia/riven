@@ -45,9 +45,6 @@ class TVDBIndexer(BaseIndexer):
             )
             return
 
-        if in_item.is_excluded:
-            return
-
         # Scenario 1: Fresh indexing - create new Show from API data
         if in_item.type == "mediaitem":
             if item := self._create_show_from_id(in_item.imdb_id, in_item.tvdb_id):
