@@ -123,7 +123,7 @@ generate-listrr-schema:
 	@echo "Generating Listrr schema from OpenAPI specification..."
 	@rm -rf src/schemas/listrr
 	@uv run openapi-generator-cli generate -g python -i https://listrr.pro/swagger/v1/swagger.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.listrr,lazyImports=true
-	@black src/schemas/listrr
+	@uv run black src/schemas/listrr
 	@echo "Listrr schema generated"
 
 generate-mdblist-schema:
@@ -132,7 +132,14 @@ generate-mdblist-schema:
 	@npx -y apib2openapi -i /tmp/mdblist.apib -o /tmp/mdblist_openapi.json
 	@rm -rf src/schemas/mdblist
 	@uv run openapi-generator-cli generate -g python -i /tmp/mdblist_openapi.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.mdblist,lazyImports=true
-	@black src/schemas/mdblist
+	@uv run black src/schemas/mdblist
+	@echo "MDBList schema generated"
+
+generate-overseerr-schema:
+	@echo "Generating Overseerr schema from OpenAPI specification..."
+	@rm -rf src/schemas/overseerr
+	@uv run openapi-generator-cli generate -g python -i https://api-docs.overseerr.dev/overseerr-api.yml -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.overseerr,lazyImports=true
+	@uv run black src/schemas/overseerr
 	@echo "MDBList schema generated"
 
 generate-schemas:
@@ -140,5 +147,6 @@ generate-schemas:
 
 	@make generate-listrr-schema
 	@make generate-mdblist-schema
+	@make generate-overseerr-schema
 
 	@echo "All schemas generated"
