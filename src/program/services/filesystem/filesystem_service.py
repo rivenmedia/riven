@@ -54,7 +54,11 @@ class FilesystemService:
         """
         Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
 
-        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via add(), and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
+        Expands parent items (shows/seasons) into leaf items (episodes/movies),
+        processes each leaf entry via add(), then runs media analysis via the mounted VFS path and syncs naming if metadata changes.
+
+        Finally yields the original input item for downstream state transitions.
+        If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
 
         Parameters:
             item (MediaItem): The media item (episode, movie, season, or show) to process.
@@ -79,10 +83,14 @@ class FilesystemService:
             success = self.riven_vfs.add(episode_or_movie)
 
             if not success:
-                logger.error(f"Failed to register {item.log_string} with RivenVFS")
+                logger.error(
+                    f"Failed to register {episode_or_movie.log_string} with RivenVFS, resetting to rescrape"
+                )
+                episode_or_movie._reset()
+                episode_or_movie.store_state()
                 continue
 
-            logger.debug(f"Registered {item.log_string} with RivenVFS")
+            logger.debug(f"Registered {episode_or_movie.log_string} with RivenVFS")
 
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
