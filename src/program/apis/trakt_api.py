@@ -187,7 +187,7 @@ class TraktAPI:
 
         return None, None
 
-    def get_aliases(self, imdb_id: str, item_type: str) -> dict[str, list[str]]:
+    def get_aliases(self, imdb_id: str | None, item_type: str) -> dict[str, list[str]]:
         """
         Wrapper for trakt.tv API show method.
 

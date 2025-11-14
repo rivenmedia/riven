@@ -48,11 +48,21 @@ class TMDBApi:
 
         return FindById200Response.from_dict(response.json())
 
-    def get_movie_details(self, movie_id: str, params: str = ""):
-        """Get movie details"""
+    def get_movie_details_with_external_ids_and_release_dates(self, movie_id: str):
+        """Get movie details with external IDs and release dates appended"""
 
-        response = self.session.get(f"movie/{movie_id}?{params}")
+        response = self.session.get(
+            f"movie/{movie_id}?append_to_response=external_ids,release_dates"
+        )
 
-        from schemas.tmdb import MovieDetails200Response
+        from schemas.tmdb import (
+            MovieDetails200Response,
+            MovieExternalIds200Response,
+            MovieReleaseDates200Response,
+        )
 
-        return MovieDetails200Response.model_validate(response.json(), extra="allow")
+        class MovieDetailsWithExtras(MovieDetails200Response):
+            external_ids: MovieExternalIds200Response
+            release_dates: MovieReleaseDates200Response
+
+        return MovieDetailsWithExtras.from_dict(response.json())
