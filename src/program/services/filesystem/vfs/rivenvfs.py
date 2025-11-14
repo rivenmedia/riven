@@ -32,7 +32,7 @@ Usage:
 
 from __future__ import annotations
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 
 import httpx
@@ -62,6 +62,7 @@ from program.services.filesystem.vfs.vfs_node import (
     VFSRoot,
 )
 
+from program.services.post_processing.media_analysis import media_analysis_service
 from program.utils.async_client import AsyncClient
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
@@ -531,6 +532,14 @@ class RivenVFS(pyfuse3.Operations):
         if not isinstance(entry, MediaEntry):
             logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
             return False
+
+        # Probe media before registration
+        if media_analysis_service.should_submit(item):
+            success = media_analysis_service.run(item)
+            if not success:
+                # Probe failed - reset item to trigger rescraping for a new stream
+                logger.warning(f"Media analysis failed for {item.log_string}")
+                return False
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)

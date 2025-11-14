@@ -84,8 +84,10 @@ class FilesystemService:
 
             if not success:
                 logger.error(
-                    f"Failed to register {episode_or_movie.log_string} with RivenVFS"
+                    f"Failed to register {episode_or_movie.log_string} with RivenVFS, resetting to rescrape"
                 )
+                episode_or_movie._reset()
+                episode_or_movie.store_state()
                 continue
 
             logger.debug(f"Registered {episode_or_movie.log_string} with RivenVFS")

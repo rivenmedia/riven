@@ -11,98 +11,14 @@ metadata that can be used for intelligent subtitle selection and
 upgrade decisions.
 """
 
-import os
 import traceback
 
 from loguru import logger
-from program.utils.ffprobe import probe_media_path
+
+from program.utils.ffprobe import parse_media_url
 from program.media.models import MediaMetadata
-
 from program.media.item import MediaItem
-from program.settings.manager import settings_manager
-
-
 from program.media.media_entry import MediaEntry
-
-
-def analyze_entry(entry: MediaEntry) -> bool:
-    """Analyze a MediaEntry using the best available source (URL first, then VFS).
-
-    Preference order:
-    1) Direct/unrestricted URL (fast, avoids VFS race/rename)
-    2) Mounted VFS path (fallback)
-
-    Updates the entry.media_metadata in-place. Returns True on successful probe
-    (note: may return True even if values didn't materially change).
-    """
-    try:
-        item = entry.media_item
-        log_name = getattr(
-            item, "log_string", f"MediaEntry(id={getattr(entry, 'id', '?')})"
-        )
-
-        # url probe
-        url = getattr(entry, "unrestricted_url", None) or getattr(
-            entry, "download_url", None
-        )
-        ffprobe_metadata = None
-        if url:
-            try:
-                ffprobe_metadata = probe_media_path(url)
-            except Exception:
-                # URL probe can fail due to expiration or provider issues; fall back to VFS
-                logger.debug(
-                    f"URL ffprobe failed for {log_name}, falling back to VFS path"
-                )
-
-        # file probe fallback
-        if ffprobe_metadata is None:
-            mount_path = settings_manager.settings.filesystem.mount_path
-            vfs_paths = entry.get_all_vfs_paths()
-            if not vfs_paths:
-                logger.warning(f"No VFS paths for {log_name}, cannot run ffprobe")
-                return False
-
-            vfs_path = vfs_paths[0]
-            full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
-
-            if not os.path.exists(full_path):
-                logger.debug(f"File not found for ffprobe: {full_path}")
-                return False
-
-            ffprobe_metadata = probe_media_path(full_path)
-            if not ffprobe_metadata:
-                logger.warning(f"ffprobe returned no data for {log_name}")
-                return False
-
-        ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
-
-        # Update or create MediaMetadata
-        if entry.media_metadata:
-            metadata = MediaMetadata(**entry.media_metadata)
-            metadata.update_from_probed_data(ffprobe_dict)
-        else:
-            logger.warning(
-                f"No existing metadata for {log_name}, creating from probed data only"
-            )
-            metadata = MediaMetadata(
-                filename=ffprobe_dict.get("filename"), data_source="probed"
-            )
-            metadata.update_from_probed_data(ffprobe_dict)
-
-        # Persist back on entry (SQLAlchemy object; caller will commit)
-        entry.media_metadata = metadata.model_dump(mode="json")
-        logger.debug(f"ffprobe analysis successful for {log_name}")
-        return True
-
-    except FileNotFoundError:
-        logger.warning(
-            "VFS file not found for entry %s, cannot analyze", getattr(entry, "id", "?")
-        )
-        return False
-    except Exception:
-        logger.error(f"Failed to analyze media entry: {traceback.format_exc()}")
-        return False
 
 
 class MediaAnalysisService:
@@ -148,7 +64,7 @@ class MediaAnalysisService:
 
         return True
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> bool:
         """
         Analyze media file and store metadata.
 
@@ -162,34 +78,85 @@ class MediaAnalysisService:
 
         Args:
             item: MediaItem to analyze
+
+        Returns:
+            True if analysis succeeded, False if it failed (should retry)
         """
         if not item.filesystem_entry:
             logger.warning(f"No filesystem entry for {item.log_string}, cannot analyze")
-            return
+            return False
 
         entry = item.filesystem_entry
 
         try:
             logger.debug(f"Analyzing media file for {item.log_string}")
-
-            # Run ffprobe analysis using entry-centric helper
-            metadata_updated = analyze_entry(entry)
-
-            # Sync VFS to update filenames with new metadata (resolution, codec, etc.)
-            if metadata_updated:
-                from program.program import riven
-                from program.services.filesystem import FilesystemService
-
-                filesystem_service = riven.services.get(FilesystemService)
-                if filesystem_service and filesystem_service.riven_vfs:
-                    filesystem_service.riven_vfs.sync(item)
-                    logger.debug(
-                        f"VFS synced after media analysis for {item.log_string}"
-                    )
-
-            logger.debug(f"Media analysis completed for {item.log_string}")
-
+            success = self._analyze_with_ffprobe(entry)
+            if success:
+                logger.debug(f"Media analysis completed for {item.log_string}")
+            else:
+                logger.warning(f"Media analysis failed for {item.log_string}")
+            return success
         except FileNotFoundError:
             logger.warning(f"VFS file not found for {item.log_string}, cannot analyze")
+            return False
         except Exception as e:
             logger.error(f"Failed to analyze media file for {item.log_string}: {e}")
+            return False
+
+    def _analyze_with_ffprobe(self, entry: MediaEntry) -> bool:
+        """
+        Analyze media file with ffprobe and update MediaMetadata.
+
+        Args:
+            entry: MediaEntry to analyze
+
+        Returns:
+            True if metadata was updated, False otherwise
+        """
+        try:
+            log_name = entry.media_item.log_string
+
+            url = getattr(entry, "unrestricted_url", None) or getattr(
+                entry, "download_url", None
+            )
+            ffprobe_metadata = None
+            if url:
+                try:
+                    ffprobe_metadata = parse_media_url(url)
+                except Exception as e:
+                    # URL probe can fail due to expiration or provider issues
+                    logger.debug(
+                        f"URL ffprobe failed for {log_name}, with url: '{url}' - {e}"
+                    )
+
+            if ffprobe_metadata is None:
+                return False
+
+            ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
+            if entry.media_metadata:
+                metadata = MediaMetadata(**entry.media_metadata)
+                metadata.update_from_probed_data(ffprobe_dict)
+            else:
+                logger.warning(
+                    f"No existing metadata for {log_name}, creating from probed data only"
+                )
+                metadata = MediaMetadata(
+                    filename=ffprobe_dict.get("filename"), data_source="probed"
+                )
+                metadata.update_from_probed_data(ffprobe_dict)
+
+            entry.media_metadata = metadata.model_dump(mode="json")
+            return True
+
+        except FileNotFoundError:
+            logger.warning(
+                "VFS file not found for entry %s, cannot analyze",
+                getattr(entry, "id", "?"),
+            )
+            return False
+        except Exception:
+            logger.error(f"Failed to analyze media entry: {traceback.format_exc()}")
+            return False
+
+
+media_analysis_service = MediaAnalysisService()

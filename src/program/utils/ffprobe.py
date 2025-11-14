@@ -1,6 +1,5 @@
 import subprocess
 import orjson
-from pathlib import Path
 from typing import Optional, List
 from fractions import Fraction
 from pydantic import BaseModel, Field
@@ -137,49 +136,6 @@ def _build_metadata_from_probe(probe_data: dict, display_name: str) -> MediaMeta
     return MediaMetadata(**metadata_dict)
 
 
-def parse_media_file(file_path: str | Path) -> Optional[MediaMetadata]:
-    """
-    Parse a local media file using ffprobe and return metadata.
-
-    Args:
-        file_path: Local filesystem path
-
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-        RuntimeError: If ffprobe returns an error
-        ValueError: For unexpected errors
-    """
-    s = str(file_path)
-    path = Path(s)
-    if s.startswith(("http://", "https://")):
-        raise ValueError(
-            "parse_media_file received a URL; use parse_media_url or probe_media_path"
-        )
-    if not path.exists():
-        raise FileNotFoundError(f"File {s} does not exist.")
-
-    try:
-        cmd = [
-            "ffprobe",
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
-            s,
-        ]
-        result = subprocess.check_output(cmd, text=True)
-        probe_data = orjson.loads(result)
-        return _build_metadata_from_probe(probe_data, display_name=path.name)
-    except FileNotFoundError as e:
-        raise FileNotFoundError(f"ffprobe FileNotFound: {e}")
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"ffprobe error: {e}")
-    except Exception as e:
-        raise ValueError(f"Unexpected error during ffprobe of {file_path}: {e}")
-
-
 def parse_media_url(url: str) -> Optional[MediaMetadata]:
     """Parse a media URL (http/https) using ffprobe and return metadata."""
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
@@ -205,16 +161,3 @@ def parse_media_url(url: str) -> Optional[MediaMetadata]:
         raise RuntimeError(f"ffprobe error: {e}")
     except Exception as e:
         raise ValueError(f"Unexpected error during ffprobe of {url}: {e}")
-
-
-def probe_media_path(path_or_url: str | Path) -> Optional[MediaMetadata]:
-    """
-    Wrapper that probes either a local filesystem path or an HTTP/HTTPS URL.
-
-    Args:
-        path_or_url: Local path or URL
-    """
-    s = str(path_or_url)
-    if s.startswith(("http://", "https://")):
-        return parse_media_url(s)
-    return parse_media_file(s)
