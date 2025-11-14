@@ -400,6 +400,8 @@ async def get_item(
             else:
                 raise HTTPException(status_code=404, detail="Item not found")
         except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
             # Handle multiple results
             if "Multiple rows were found when one or none was required" in str(e):
                 items = session.execute(query).unique().scalars().all()
