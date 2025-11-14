@@ -44,8 +44,6 @@ dependencies = [
     "parsett>=1.8.2,<2",
     "trio-util>=0.8.0",
     "ordered-set>=4.1.0",
-    "httpx-limiter>=0.3.0",
-    "httpx-retries>=0.4.5",
     "lazy-imports>=1.1.0",
 ]
 
