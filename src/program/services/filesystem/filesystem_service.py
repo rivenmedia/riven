@@ -4,36 +4,28 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
-from collections.abc import Generator
-from kink import di
+from typing import Generator
 from loguru import logger
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
-from program.utils.nursery import Nursery
 
 
 class FilesystemService:
     """Filesystem service for VFS-only mode"""
 
-    def __init__(self, downloader: Downloader) -> None:
+    def __init__(self, downloader: Downloader):
         # Service key matches settings category name for reinitialization logic
         self.key = "filesystem"
-
         # Use filesystem settings
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
         self.downloader = downloader  # Store for potential reinit
+        self._initialize_rivenvfs(downloader)
 
-        di[Nursery].nursery.start_soon(
-            lambda: self._initialize_rivenvfs(
-                downloader,
-            ),
-        )
-
-    async def _initialize_rivenvfs(self, downloader: Downloader) -> None:
+    def _initialize_rivenvfs(self, downloader: Downloader):
         """Initialize or synchronize RivenVFS"""
         try:
             from .vfs import RivenVFS
@@ -46,13 +38,10 @@ class FilesystemService:
 
             # Create new VFS instance
             logger.info("Initializing RivenVFS")
-
             self.riven_vfs = RivenVFS(
                 mountpoint=str(self.settings.mount_path),
                 downloader=downloader,
             )
-
-            await self.riven_vfs.run()
 
         except ImportError as e:
             logger.error(f"Failed to import RivenVFS: {e}")
@@ -122,7 +111,6 @@ class FilesystemService:
 
         Note: Mount directory creation is handled by RivenVFS._prepare_mountpoint()
         """
-
         # Check mount path is set
         if not str(self.settings.mount_path):
             logger.error("FilesystemService: mount_path is empty")

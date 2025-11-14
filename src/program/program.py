@@ -1,9 +1,8 @@
 import linecache
 import os
+import threading
 import time
 from queue import Empty
-
-import trio
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -32,6 +31,9 @@ from .state_transition import process_event
 from .services.filesystem import FilesystemService
 from .types import Event
 
+if settings_manager.settings.tracemalloc:
+    import tracemalloc
+
 from sqlalchemy import func, select, text
 
 from program.db import db_functions
@@ -42,19 +44,17 @@ from program.db.db import (
 )
 
 
-class Program:
+class Program(threading.Thread):
     """Program class"""
 
     def __init__(self):
+        super().__init__(name="Riven")
         self.initialized = False
         self.running = False
         self.services = {}
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
-
         if self.enable_trace:
-            import tracemalloc
-
             tracemalloc.start()
             self.malloc_time = time.monotonic() - 50
             self.last_snapshot = None
@@ -62,9 +62,8 @@ class Program:
     def initialize_apis(self):
         bootstrap_apis()
 
-    async def initialize_services(self):
+    def initialize_services(self):
         """Initialize all services."""
-
         self.requesting_services = {
             Overseerr: Overseerr(),
             PlexWatchlist: PlexWatchlist(),
@@ -75,21 +74,12 @@ class Program:
 
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
         _downloader = Downloader()
-        _filesystem_service = FilesystemService(downloader=_downloader)
-
-        with trio.move_on_after(10):
-            while True:
-                if _downloader.initialized and _filesystem_service.initialized:
-                    break
-
-                await trio.sleep(0.5)
-
         self.services = {
             IndexerService: IndexerService(),
             Scraping: Scraping(),
             Updater: Updater(),
             Downloader: _downloader,
-            FilesystemService: _filesystem_service,
+            FilesystemService: FilesystemService(_downloader),
             PostProcessing: PostProcessing(),
             NotificationService: NotificationService(),
         }
@@ -98,13 +88,6 @@ class Program:
             **self.requesting_services,
             **self.services,
         }
-
-        with trio.move_on_after(5):
-            while True:
-                if all(s.initialized for s in self.services.values()):
-                    break
-
-                await trio.sleep(0.5)
 
         if (
             len(
@@ -119,30 +102,24 @@ class Program:
             logger.warning(
                 "No content services initialized, items need to be added manually."
             )
-
         if not self.services[Scraping].initialized:
             logger.error(
                 "No Scraping service initialized, you must enable at least one."
             )
-
         if not self.services[Downloader].initialized:
             logger.error(
                 "No Downloader service initialized, you must enable at least one."
             )
-
         if not self.services[FilesystemService].initialized:
             logger.error(
                 "Filesystem service failed to initialize, check your settings."
             )
-
         if not self.services[Updater].initialized:
             logger.error(
                 "No Updater service initialized, you must enable at least one."
             )
 
         if self.enable_trace:
-            import tracemalloc
-
             self.last_snapshot = tracemalloc.take_snapshot()
 
     def validate(self) -> bool:
@@ -159,7 +136,7 @@ class Program:
             logger.error("Database connection failed. Is the database running?")
             return False
 
-    async def start(self) -> None:
+    def start(self):
         """
         Start the Riven program: ensure configuration and database readiness, initialize APIs and services, schedule background jobs, and start the main thread and scheduler.
 
@@ -184,7 +161,7 @@ class Program:
             logger.log("PROGRAM", "----------------------------------------------")
 
         while not self.validate():
-            await trio.sleep(1)
+            time.sleep(1)
 
         if not self.validate_database():
             # TODO: We should really make this configurable via frontend...
@@ -195,8 +172,7 @@ class Program:
             logger.success("Database created successfully")
 
         run_migrations()
-
-        await self.initialize_services()
+        self.initialize_services()
 
         with db.Session() as session:
             from sqlalchemy import exists
@@ -237,6 +213,7 @@ class Program:
         self.scheduler_manager = ProgramScheduler(self)
         self.scheduler_manager.start()
 
+        super().start()
         logger.success("Riven is running!")
         self.initialized = True
 
@@ -270,72 +247,48 @@ class Program:
         )
 
     def dump_tracemalloc(self):
-        import tracemalloc
-
         if time.monotonic() - self.malloc_time > 60:
             self.malloc_time = time.monotonic()
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
 
-    async def run(self):
+    def run(self):
         while self.initialized:
             if not self.validate():
-                await trio.sleep(1)
-
+                time.sleep(1)
                 continue
 
             try:
-                event = self.em.next()
-
+                event: Event = self.em.next()
                 if self.enable_trace:
                     self.dump_tracemalloc()
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
-
-                await trio.sleep(0.1)
-
-                continue
-
-            if not event.item_id:
-                logger.error(
-                    f"Event from {event.emitted_by} missing item_id, skipping."
-                )
-
+                time.sleep(0.1)
                 continue
 
             existing_item: MediaItem = db_functions.get_item_by_id(event.item_id)
 
-            processed_event = process_event(
-                event.emitted_by,
-                existing_item,
-                event.content_item,
+            next_service, items_to_submit = process_event(
+                event.emitted_by, existing_item, event.content_item
             )
 
-            for item_to_submit in processed_event.related_media_items:
-                if not processed_event.service:
+            for item_to_submit in items_to_submit:
+                if not next_service:
                     self.em.add_event_to_queue(
-                        Event(
-                            emitted_by="StateTransition",
-                            item_id=item_to_submit.id,
-                        )
+                        Event("StateTransition", item_id=item_to_submit.id)
                     )
                 else:
                     # We are in the database, pass on id.
                     if item_to_submit.id:
-                        event = Event(
-                            emitted_by=processed_event.service,
-                            item_id=item_to_submit.id,
-                        )
+                        event = Event(next_service, item_id=item_to_submit.id)
                     # We are not, lets pass the MediaItem
                     else:
-                        event = Event(
-                            emitted_by=processed_event.service,
-                            content_item=item_to_submit,
-                        )
+                        event = Event(next_service, content_item=item_to_submit)
 
                     # Event will be added to running when job actually starts in submit_job
-                    self.em.submit_job(processed_event.service, self, event)
+                    self.em.submit_job(next_service, self, event)
 
     def stop(self):
         if not self.initialized:
