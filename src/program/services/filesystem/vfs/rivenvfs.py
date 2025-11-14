@@ -538,7 +538,11 @@ class RivenVFS(pyfuse3.Operations):
             success = media_analysis_service.run(item)
             if not success:
                 # Probe failed - reset item to trigger rescraping for a new stream
+                from program.media.item import States
+
                 logger.warning(f"Media analysis failed for {item.log_string}")
+                item._reset()
+                item.store_state(States.Indexed)
                 return False
 
         # Register the MediaEntry (video file)

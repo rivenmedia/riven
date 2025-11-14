@@ -202,3 +202,6 @@ class NotificationService:
                 logger.debug("No external notification services configured")
         except Exception as e:
             logger.debug(f"Failed to send generic notification: {e}")
+
+
+notification_service = NotificationService()

@@ -17,7 +17,7 @@ from program.services.content import (
 )
 from program.services.downloaders import Downloader
 from program.services.indexers import IndexerService
-from program.services.notifications import NotificationService
+from program.services.notifications import NotificationService, notification_service
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
@@ -81,7 +81,7 @@ class Program(threading.Thread):
             Downloader: _downloader,
             FilesystemService: FilesystemService(_downloader),
             PostProcessing: PostProcessing(),
-            NotificationService: NotificationService(),
+            NotificationService: notification_service,
         }
 
         self.all_services = {

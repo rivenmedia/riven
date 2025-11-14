@@ -89,18 +89,15 @@ class MediaAnalysisService:
         entry = item.filesystem_entry
 
         try:
-            logger.debug(f"Analyzing media file for {item.log_string}")
+            logger.debug(f"Analyzing media url for {item.log_string}")
             success = self._analyze_with_ffprobe(entry)
             if success:
                 logger.debug(f"Media analysis completed for {item.log_string}")
             else:
                 logger.warning(f"Media analysis failed for {item.log_string}")
             return success
-        except FileNotFoundError:
-            logger.warning(f"VFS file not found for {item.log_string}, cannot analyze")
-            return False
         except Exception as e:
-            logger.error(f"Failed to analyze media file for {item.log_string}: {e}")
+            logger.error(f"Failed to analyze media url for {item.log_string}: {e}")
             return False
 
     def _analyze_with_ffprobe(self, entry: MediaEntry) -> bool:
@@ -125,9 +122,7 @@ class MediaAnalysisService:
                     ffprobe_metadata = parse_media_url(url)
                 except Exception as e:
                     # URL probe can fail due to expiration or provider issues
-                    logger.debug(
-                        f"URL ffprobe failed for {log_name}, with url: '{url}' - {e}"
-                    )
+                    logger.debug(f"URL ffprobe failed for {log_name} - {e}")
 
             if ffprobe_metadata is None:
                 return False
