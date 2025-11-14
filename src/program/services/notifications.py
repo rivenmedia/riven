@@ -55,7 +55,10 @@ class NotificationService:
         return True  # Service is always valid, even if no external services configured
 
     def run(
-        self, item: MediaItem, previous_state: States = None, new_state: States = None
+        self,
+        item: MediaItem,
+        previous_state: States | None = None,
+        new_state: States | None = None,
     ):
         """
         Main entry point for sending notifications.
@@ -124,7 +127,11 @@ class NotificationService:
             item: The completed MediaItem
         """
         # Calculate completion duration
+
+        assert item.requested_at
+
         duration = round((datetime.now() - item.requested_at).total_seconds())
+
         logger.success(f"{item.log_string} has been completed in {duration} seconds.")
 
         # Publish SSE notification event for frontend

@@ -16,9 +16,10 @@ class TMDBApi:
         self.BASE_URL = "https://api.themoviedb.org/3"
 
         rate_limits = {
-            # 50 requests per second
+            # 40 requests per second
+            # https://developer.themoviedb.org/docs/rate-limiting
             "api.themoviedb.org": {
-                "rate": 50,
+                "rate": 40,
                 "capacity": 1000,
             }
         }
@@ -29,6 +30,7 @@ class TMDBApi:
             retries=2,
             backoff_factor=0.3,
         )
+
         self.session.headers.update(
             {
                 "Authorization": f"Bearer {TMDB_READ_ACCESS_TOKEN}",
@@ -42,7 +44,15 @@ class TMDBApi:
             f"find/{external_id}?external_source={external_source}"
         )
 
+        from schemas.tmdb import FindById200Response
+
+        return FindById200Response.from_dict(response.json())
+
     def get_movie_details(self, movie_id: str, params: str = ""):
         """Get movie details"""
 
-        return self.session.get(f"movie/{movie_id}?{params}")
+        response = self.session.get(f"movie/{movie_id}?{params}")
+
+        from schemas.tmdb import MovieDetails200Response
+
+        return MovieDetails200Response.model_validate(response.json(), extra="allow")

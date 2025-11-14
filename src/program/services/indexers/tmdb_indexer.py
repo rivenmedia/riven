@@ -1,7 +1,7 @@
 """TMDB indexer module"""
 
+from collections.abc import Generator
 from datetime import datetime
-from typing import Generator, Optional
 
 from kink import di
 from loguru import logger
@@ -72,10 +72,12 @@ class TMDBIndexer(BaseIndexer):
         return
 
     def _update_movie_metadata(self, movie: Movie) -> bool:
-        """Update an existing Movie object with fresh TMDB metadata.
+        """
+        Update an existing Movie object with fresh TMDB metadata.
 
         Returns True if successful, False otherwise.
         """
+
         try:
             # Fetch fresh data from TMDB API
             tmdb_id = movie.tmdb_id
@@ -87,32 +89,40 @@ class TMDBIndexer(BaseIndexer):
 
             # Get movie details from API
             movie_details = None
+
             if tmdb_id:
-                result = self.api.get_movie_details(
-                    tmdb_id, "append_to_response=external_ids,release_dates"
+                movie_details = self.api.get_movie_details(
+                    movie_id=str(tmdb_id),
+                    params="append_to_response=external_ids,release_dates",
                 )
-                movie_details = result.data if result and result.data else None
             elif imdb_id:
-                results = self.api.get_from_external_id("imdb_id", imdb_id)
-                if results and results.data:
-                    movie_results = results.data.movie_results
+                results = self.api.get_from_external_id(
+                    external_source="imdb_id",
+                    external_id=str(imdb_id),
+                )
+
+                if results:
+                    movie_results = results.movie_results
+
                     if movie_results:
                         tmdb_id = str(movie_results[0].id)
-                        result = self.api.get_movie_details(
+                        movie_details = self.api.get_movie_details(
                             tmdb_id, "append_to_response=external_ids,release_dates"
                         )
-                        movie_details = result.data if result and result.data else None
 
             if not movie_details:
                 logger.error(f"Could not fetch TMDB data for {movie.log_string}")
+
                 return False
 
             # Parse release date
             release_date = None
-            if getattr(movie_details, "release_date", None):
+
+            if movie_details.release_date:
                 try:
                     release_date = datetime.strptime(
-                        movie_details.release_date, "%Y-%m-%d"
+                        movie_details.release_date,
+                        "%Y-%m-%d",
                     )
                 except (ValueError, TypeError):
                     pass
@@ -125,17 +135,20 @@ class TMDBIndexer(BaseIndexer):
 
             # Extract country
             country = None
-            if getattr(movie_details, "production_countries", None):
+
+            if movie_details.production_countries:
                 country = movie_details.production_countries[0].iso_3166_1
 
             # Extract rating
             rating = None
-            if hasattr(movie_details, "vote_average") and movie_details.vote_average:
+
+            if movie_details.vote_average:
                 rating = float(movie_details.vote_average)
 
             # Extract US content rating
             content_rating = None
-            if hasattr(movie_details, "release_dates") and movie_details.release_dates:
+
+            if movie_details.release_dates:
                 for release_country in movie_details.release_dates.results:
                     if release_country.iso_3166_1 == "US":
                         for release in release_country.release_dates:
@@ -150,28 +163,28 @@ class TMDBIndexer(BaseIndexer):
             # Aliases
             aliases = self.trakt_api.get_aliases(imdb_id, "movies") or {}
 
-            poster_path = getattr(movie_details, "poster_path", None)
             full_poster_url = None
-            if poster_path:
+
+            if movie_details.poster_path:
                 full_poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
 
             # Update the Movie object's attributes
-            movie.title = getattr(movie_details, "title", None)
+            movie.title = movie_details.title
             movie.poster_path = full_poster_url
             movie.year = (
                 int(movie_details.release_date[:4])
-                if getattr(movie_details, "release_date", None)
+                if movie_details.release_date
                 else None
             )
             movie.tmdb_id = str(movie_details.id)
-            movie.imdb_id = getattr(movie_details, "imdb_id", None)
+            movie.imdb_id = movie_details.imdb_id
             movie.aired_at = release_date
             movie.genres = genres
             movie.country = country
-            movie.language = getattr(movie_details, "original_language", None)
+            movie.language = movie_details.original_language
             movie.is_anime = (
                 any(g in ["animation", "anime"] for g in genres)
-                and getattr(movie_details, "original_language", None) != "en"
+                and movie_details.original_language != "en"
             )
             movie.aliases = aliases
             movie.rating = rating
@@ -184,8 +197,10 @@ class TMDBIndexer(BaseIndexer):
             return False
 
     def _create_movie_from_id(
-        self, imdb_id: Optional[str] = None, tmdb_id: Optional[str] = None
-    ) -> Optional[Movie]:
+        self,
+        imdb_id: str | None = None,
+        tmdb_id: str | None = None,
+    ) -> Movie | None:
         """Create a movie item from TMDB using available IDs."""
         if not imdb_id and not tmdb_id:
             logger.error("No IMDB ID or TMDB ID provided")
