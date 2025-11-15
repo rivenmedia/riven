@@ -1,7 +1,7 @@
-﻿from dataclasses import dataclass
-import os
+﻿import os
 import re
 
+from typing import Generic, TypeVar
 from urllib.parse import urlencode
 
 from loguru import logger
@@ -13,8 +13,24 @@ from program.settings.models import TraktModel
 from program.utils.request import SmartSession
 
 
+class PaginationParams(BaseModel):
+    page: int | None = None
+    limit: int | None = None
+
+
 class TraktAPIError(Exception):
     """Base exception for TraktApi related errors"""
+
+
+DataType = TypeVar("DataType", bound=type[BaseModel])
+
+
+class PageResponse(BaseModel, Generic[DataType]):
+    data: list[DataType]
+
+
+class PaginatedResponse(PageResponse[DataType]):
+    has_next_page: bool
 
 
 class TraktAPI:
@@ -67,46 +83,77 @@ class TraktAPI:
     def validate(self):
         return self.session.get("lists/2")
 
-    def _fetch_data(self, url, params):
+    def _fetch_data(
+        self,
+        url: str,
+        _data_type: DataType,
+        *,
+        limit: int | None = None,
+    ) -> list[DataType]:
         """Fetch paginated data from Trakt API with rate limiting."""
 
-        all_data = []
+        all_data: list[DataType] = []
+
+        def _request_page(requested_page: int):
+            response = self.session.get(
+                url,
+                params={
+                    "limit": limit,
+                    "page": requested_page,
+                },
+            )
+
+            if response.ok:
+                data = (
+                    response.data
+                    if isinstance(response.data, list)
+                    else [response.data]
+                )
+
+                pagination_page_header = response.headers.get("X-Pagination-Page")
+                pagination_page_count_header = response.headers.get(
+                    "X-Pagination-Page-Count"
+                )
+
+                assert pagination_page_count_header
+                assert pagination_page_header
+
+                pagination_page_count = int(pagination_page_count_header)
+                pagination_page = int(pagination_page_header)
+
+                has_next_page = pagination_page < pagination_page_count
+
+                return PaginatedResponse[DataType].model_validate(
+                    {
+                        "data": data,
+                        "has_next_page": has_next_page,
+                    }
+                )
+            elif response.status_code == 429:
+                logger.warning("Rate limit exceeded. Retrying after rate limit period.")
+
+                return None
+            else:
+                logger.error(f"Failed to fetch data: {response.status_code}")
+
+                return None
+
         page = 1
 
         while True:
             try:
-                response = self.session.get(url, params={**params, "page": page})
+                page_response = _request_page(page)
 
-                if response.ok:
-                    data = (
-                        response.data
-                        if isinstance(response.data, list)
-                        else [response.data]
-                    )
-
-                    if not data:
-                        break
-
-                    all_data.extend(data)
-
-                    if "X-Pagination-Page-Count" not in response.headers:
-                        break
-
-                    if params.get("limit") and len(all_data) >= params["limit"]:
-                        all_data = all_data[: params["limit"]]
-
-                        break
-
-                    page += 1
-                elif response.status_code == 429:
-                    logger.warning(
-                        "Rate limit exceeded. Retrying after rate limit period."
-                    )
-
+                if page_response is None:
                     break
-                else:
-                    logger.error(f"Failed to fetch data: {response.status_code}")
 
+                all_data.extend(page_response.data)
+
+                if limit and len(all_data) >= limit:
+                    all_data = all_data[:limit]
+                    break
+
+                if not page_response.has_next_page:
                     break
             except Exception as e:
                 logger.error(f"Error fetching data: {str(e)}")
@@ -118,44 +165,98 @@ class TraktAPI:
     def get_watchlist_items(self, user):
         """Get watchlist items from Trakt with pagination support."""
 
-        url = f"{self.BASE_URL}/users/{user}/watchlist"
+        from schemas.trakt import GetWatchlist200ResponseInner
 
-        return self._fetch_data(url, {})
+        return self._fetch_data(
+            f"{self.BASE_URL}/users/{user}/watchlist",
+            GetWatchlist200ResponseInner,
+        )
 
     def get_user_list(self, user, list_name):
         """Get user list items from Trakt with pagination support."""
 
-        url = f"{self.BASE_URL}/users/{user}/lists/{list_name}/items"
+        from schemas.trakt import GetItemsOnAPersonalList200ResponseInner
 
-        return self._fetch_data(url, {})
+        return self._fetch_data(
+            f"{self.BASE_URL}/users/{user}/lists/{list_name}/items",
+            GetItemsOnAPersonalList200ResponseInner,
+        )
 
     def get_collection_items(self, user, media_type):
         """Get collections from Trakt with pagination support."""
 
-        url = f"{self.BASE_URL}/users/{user}/collection/{media_type}"
+        from schemas.trakt import GetCollection200ResponseInner
 
-        return self._fetch_data(url, {})
+        return self._fetch_data(
+            f"{self.BASE_URL}/users/{user}/collection/{media_type}",
+            GetCollection200ResponseInner,
+        )
 
-    def get_trending_items(self, media_type, limit=10):
-        """Get trending items from Trakt with pagination support."""
+    def get_trending_movies(self, limit: int | None = None):
+        """Get trending movies from Trakt with pagination support."""
 
-        url = f"{self.BASE_URL}/{media_type}/trending"
+        from schemas.trakt import GetTrendingMovies200ResponseInner
 
-        return self._fetch_data(url, {"limit": limit})
+        return self._fetch_data(
+            f"{self.BASE_URL}/movies/trending",
+            GetTrendingMovies200ResponseInner,
+            limit=limit,
+        )
 
-    def get_popular_items(self, media_type, limit=10):
+    def get_trending_shows(self, limit: int | None = None):
+        """Get trending shows from Trakt with pagination support."""
+
+        from schemas.trakt import GetTrendingShows200ResponseInner
+
+        return self._fetch_data(
+            f"{self.BASE_URL}/shows/trending",
+            GetTrendingShows200ResponseInner,
+            limit=limit,
+        )
+
+    def get_popular_movies(self, limit: int | None = None):
+        """Get popular movies from Trakt with pagination support."""
+
+        from schemas.trakt import GetPopularMovies200ResponseInner
+
+        return self._fetch_data(
+            f"{self.BASE_URL}/movies/popular",
+            GetPopularMovies200ResponseInner,
+            limit=limit,
+        )
+
+    def get_popular_shows(self, limit: int | None = None):
         """Get popular items from Trakt with pagination support."""
 
-        url = f"{self.BASE_URL}/{media_type}/popular"
+        from schemas.trakt import GetPopularShows200ResponseInner
 
-        return self._fetch_data(url, {"limit": limit})
+        return self._fetch_data(
+            f"{self.BASE_URL}/shows/popular",
+            GetPopularShows200ResponseInner,
+            limit=limit,
+        )
 
-    def get_most_watched_items(self, media_type, period="weekly", limit=10):
-        """Get popular items from Trakt with pagination support."""
+    def get_most_played_movies(self, period="weekly", limit: int | None = None):
+        """Get most played items from Trakt with pagination support."""
 
-        url = f"{self.BASE_URL}/{media_type}/watched/{period}"
+        from schemas.trakt import GetTheMostPlayedMovies200ResponseInner
 
-        return self._fetch_data(url, {"limit": limit})
+        return self._fetch_data(
+            f"{self.BASE_URL}/movies/watched/{period}",
+            GetTheMostPlayedMovies200ResponseInner,
+            limit=limit,
+        )
+
+    def get_most_played_shows(self, period="weekly", limit: int | None = None):
+        """Get most played items from Trakt with pagination support."""
+
+        from schemas.trakt import GetTheMostPlayedShows200ResponseInner
+
+        return self._fetch_data(
+            f"{self.BASE_URL}/shows/watched/{period}",
+            GetTheMostPlayedShows200ResponseInner,
+            limit=limit,
+        )
 
     def extract_user_list_from_url(self, url) -> tuple:
         """Extract user and list name from Trakt URL"""
@@ -181,8 +282,10 @@ class TraktAPI:
 
         if match:
             full_url = self.resolve_short_url(url)
+
             if full_url:
                 user, list_name = match_full_url(full_url)
+
                 if user and list_name:
                     return user, list_name
 
@@ -213,14 +316,13 @@ class TraktAPI:
             if response.ok and response.data:
                 aliases = {}
 
-                class ResponseData(BaseModel):
-                    class Alias(BaseModel):
-                        country: str
-                        title: str
+                from schemas.trakt import GetAllMovieAliases200ResponseInner
 
-                    data: list[Alias]
-
-                response_data = ResponseData.model_validate(response.json()).data
+                response_data = (
+                    PageResponse[type[GetAllMovieAliases200ResponseInner]]
+                    .model_validate(response.json())
+                    .data
+                )
 
                 for ns in response_data:
                     country = ns.country
@@ -266,7 +368,7 @@ class TraktAPI:
 
             return None
 
-    def perform_oauth_flow(self) -> str:
+    def build_oauth_url(self) -> str:
         """Initiate the OAuth flow and return the authorization URL."""
 
         if (
@@ -275,6 +377,7 @@ class TraktAPI:
             or not self.oauth_redirect_uri
         ):
             logger.error("OAuth settings not found in Trakt settings")
+
             raise TraktAPIError("OAuth settings not found in Trakt settings")
 
         params = {
@@ -282,6 +385,7 @@ class TraktAPI:
             "client_id": self.oauth_client_id,
             "redirect_uri": self.oauth_redirect_uri,
         }
+
         return f"{self.BASE_URL}/oauth/authorize?{urlencode(params)}"
 
     def handle_oauth_callback(self, api_key: str, code: str) -> bool:
@@ -293,6 +397,7 @@ class TraktAPI:
             or not self.oauth_redirect_uri
         ):
             logger.error("OAuth settings not found in Trakt settings")
+
             return False
 
         token_url = f"{self.BASE_URL}/oauth/token"
@@ -303,14 +408,20 @@ class TraktAPI:
             "redirect_uri": self.oauth_redirect_uri,
             "grant_type": "authorization_code",
         }
+
         headers = self.headers.copy()
         headers["trakt-api-key"] = api_key
+
         response = self.session.post(token_url, data=payload, headers=headers)
+
         if response.ok:
             token_data = response.data
+
             self.settings.access_token = token_data.get("access_token")
             self.settings.refresh_token = token_data.get("refresh_token")
+
             settings_manager.save()  # Save the tokens to settings
+
             return True
         else:
             logger.error(f"Failed to obtain OAuth token: {response.status_code}")

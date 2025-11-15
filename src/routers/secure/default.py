@@ -156,7 +156,7 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
     trakt_api = di[TraktAPI]
     if trakt_api is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
-    auth_url = trakt_api.perform_oauth_flow()
+    auth_url = trakt_api.build_oauth_url()
     return {"auth_url": auth_url}
 
 
