@@ -8,11 +8,12 @@ from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
+from program.settings.models import OrionoidConfig
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
 
-class Orionoid(ScraperService):
+class Orionoid(ScraperService[OrionoidConfig]):
     requires_imdb_id = True
 
     """Scraper for `Orionoid`"""

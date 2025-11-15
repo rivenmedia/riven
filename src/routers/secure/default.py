@@ -134,16 +134,22 @@ async def generate_apikey() -> MessageResponse:
 @router.get("/services", operation_id="services")
 async def get_services(request: Request) -> dict[str, bool]:
     data = {}
-    if hasattr(di[Program], "services"):
-        for service in di[Program].all_services.values():
+
+    services = di[Program].services
+
+    if services:
+        for service in services.model_dump().values():
             data[service.key] = service.initialized
+
             if not hasattr(service, "services"):
                 continue
+
             for sub_service in service.services:
                 if hasattr(sub_service, "initialized"):
                     data[sub_service.key] = sub_service.initialized
                 elif hasattr(service, "initialized"):
                     data[service.key] = service.initialized
+
     return data
 
 

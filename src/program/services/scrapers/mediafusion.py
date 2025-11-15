@@ -7,11 +7,11 @@ from loguru import logger
 from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
-from program.settings.models import AppModel
+from program.settings.models import AppModel, MediafusionConfig
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Mediafusion(ScraperService):
+class Mediafusion(ScraperService[MediafusionConfig]):
     # This service requires an IMDb id
     requires_imdb_id = True
 

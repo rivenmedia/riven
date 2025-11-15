@@ -9,9 +9,11 @@ from program.apis.listrr_api import ListrrAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.core.content_service import ContentService
+from program.settings.models import ListrrModel
 
 
-class Listrr:
+class Listrr(ContentService[ListrrModel]):
     """Content class for Listrr"""
 
     def __init__(self):

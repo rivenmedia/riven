@@ -1,8 +1,12 @@
+from dataclasses import dataclass
 import linecache
 import os
 import threading
 import time
 from queue import Empty
+from types import FunctionType
+
+from pydantic import BaseModel
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -26,13 +30,12 @@ from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import logger
 from program.scheduling import ProgramScheduler
+from program.core.runner import Runner
+from program.core.content_service import ContentService
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
 from .types import Event
-
-if settings_manager.settings.tracemalloc:
-    import tracemalloc
 
 from sqlalchemy import func, select, text
 
@@ -44,87 +47,148 @@ from program.db.db import (
 )
 
 
+@dataclass
+class Services:
+    overseerr: Overseerr
+    plex_watchlist: PlexWatchlist
+    listrr: Listrr
+    mdblist: Mdblist
+    trakt_content: TraktContent
+    indexer: IndexerService
+    scraping: Scraping
+    updater: Updater
+    downloader: Downloader
+    filesystem: FilesystemService
+    post_processing: PostProcessing
+    notifications: NotificationService
+
+    def __post_init__(self):
+        self.__service_map: dict[type[Runner], str] = {
+            Overseerr: "overseerr",
+            PlexWatchlist: "plex_watchlist",
+            Listrr: "listrr",
+            Mdblist: "mdblist",
+            TraktContent: "trakt_content",
+            IndexerService: "indexer",
+            Scraping: "scraping",
+            Updater: "updater",
+            Downloader: "downloader",
+            FilesystemService: "filesystem",
+            PostProcessing: "post_processing",
+            NotificationService: "notifications",
+        }
+
+    def to_dict(self) -> dict[str, Runner]:
+        return {
+            key: getattr(self, key)
+            for key in self.__service_map.values()
+            if key != "__service_map"
+        }
+
+    def __getitem__(self, key: str | Runner) -> Runner | None:
+        if isinstance(key, Runner):
+            key = self.__service_map[type(key)]
+
+        return getattr(self, key, None)
+
+
 class Program(threading.Thread):
     """Program class"""
 
     def __init__(self):
         super().__init__(name="Riven")
+
         self.initialized = False
         self.running = False
-        self.services = {}
+        self.services = None
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
+
         if self.enable_trace:
+            import tracemalloc
+
             tracemalloc.start()
             self.malloc_time = time.monotonic() - 50
             self.last_snapshot = None
+
+    @property
+    def content_services(self) -> list[ContentService]:
+        """Get all services that are content services."""
+
+        if not self.services:
+            return []
+
+        return [
+            service
+            for service in self.services.to_dict().values()
+            if service.initialized and isinstance(service, ContentService)
+        ]
 
     def initialize_apis(self):
         bootstrap_apis()
 
     def initialize_services(self):
         """Initialize all services."""
-        self.requesting_services = {
-            Overseerr: Overseerr(),
-            PlexWatchlist: PlexWatchlist(),
-            Listrr: Listrr(),
-            Mdblist: Mdblist(),
-            TraktContent: TraktContent(),
-        }
 
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
         _downloader = Downloader()
-        self.services = {
-            IndexerService: IndexerService(),
-            Scraping: Scraping(),
-            Updater: Updater(),
-            Downloader: _downloader,
-            FilesystemService: FilesystemService(_downloader),
-            PostProcessing: PostProcessing(),
-            NotificationService: NotificationService(),
-        }
 
-        self.all_services = {
-            **self.requesting_services,
-            **self.services,
-        }
+        self.services = Services(
+            overseerr=Overseerr(),
+            plex_watchlist=PlexWatchlist(),
+            listrr=Listrr(),
+            mdblist=Mdblist(),
+            trakt_content=TraktContent(),
+            indexer=IndexerService(),
+            scraping=Scraping(),
+            updater=Updater(),
+            downloader=_downloader,
+            filesystem=FilesystemService(_downloader),
+            post_processing=PostProcessing(),
+            notifications=NotificationService(),
+        )
 
         if (
-            len(
-                [
-                    service
-                    for service in self.requesting_services.values()
-                    if service.initialized
-                ]
-            )
+            len([service for service in self.content_services if service.initialized])
             == 0
         ):
             logger.warning(
                 "No content services initialized, items need to be added manually."
             )
-        if not self.services[Scraping].initialized:
+
+        if not self.services.scraping or not self.services.scraping.initialized:
             logger.error(
                 "No Scraping service initialized, you must enable at least one."
             )
-        if not self.services[Downloader].initialized:
+
+        if not self.services.downloader or not self.services.downloader.initialized:
             logger.error(
                 "No Downloader service initialized, you must enable at least one."
             )
-        if not self.services[FilesystemService].initialized:
+
+        if not self.services.filesystem or not self.services.filesystem.initialized:
             logger.error(
                 "Filesystem service failed to initialize, check your settings."
             )
-        if not self.services[Updater].initialized:
+
+        if not self.services.updater or not self.services.updater.initialized:
             logger.error(
                 "No Updater service initialized, you must enable at least one."
             )
 
         if self.enable_trace:
+            import tracemalloc
+
             self.last_snapshot = tracemalloc.take_snapshot()
 
-    def validate(self) -> bool:
+    @property
+    def is_valid(self) -> bool:
         """Validate that all required services are initialized."""
-        return all(s.initialized for s in self.services.values())
+
+        if not self.services:
+            return True
+
+        return all(s.initialized for s in self.services.to_dict().values())
 
     def validate_database(self) -> bool:
         """Validate that the database is accessible."""
@@ -142,11 +206,14 @@ class Program(threading.Thread):
 
         This method prepares runtime state and external integrations by registering settings observers, creating the data directory and default settings if missing, initializing APIs and services after database migrations, computing and logging item counts (including filesystem-backed items), configuring executors and the background scheduler, scheduling periodic service and maintenance tasks, starting the thread and scheduler, and marking the program as initialized.
         """
+
         latest_version = get_version()
+
         logger.log("PROGRAM", f"Riven v{latest_version} starting!")
 
         settings_manager.register_observer(self.initialize_apis)
         settings_manager.register_observer(self.initialize_services)
+
         os.makedirs(data_dir_path, exist_ok=True)
 
         if not settings_manager.settings_file.exists():
@@ -154,14 +221,6 @@ class Program(threading.Thread):
             settings_manager.save()
 
         self.initialize_apis()
-
-        if not self.validate():
-            logger.log("PROGRAM", "----------------------------------------------")
-            logger.error("Riven is waiting for configuration to start!")
-            logger.log("PROGRAM", "----------------------------------------------")
-
-        while not self.validate():
-            time.sleep(1)
 
         if not self.validate_database():
             # TODO: We should really make this configurable via frontend...
@@ -172,6 +231,7 @@ class Program(threading.Thread):
             logger.success("Database created successfully")
 
         run_migrations()
+
         self.initialize_services()
 
         with db.Session() as session:
@@ -224,6 +284,7 @@ class Program(threading.Thread):
         top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
 
         logger.debug("Top %s lines" % limit)
+
         for index, stat in enumerate(top_stats[:limit], 1):
             frame = stat.traceback[0]
             # replace "/path/to/module/file.py" with "module/file.py"
@@ -233,13 +294,16 @@ class Program(threading.Thread):
                 % (index, filename, frame.lineno, stat.size / 1024)
             )
             line = linecache.getline(frame.filename, frame.lineno).strip()
+
             if line:
                 logger.debug("    %s" % line)
 
         other = top_stats[limit:]
+
         if other:
             size = sum(stat.size for stat in other)
             logger.debug("%s other: %.1f MiB" % (len(other), size / (1024 * 1024)))
+
         total = sum(stat.size for stat in top_stats)
         logger.debug("Total allocated size: %.1f MiB" % (total / (1024 * 1024)))
         logger.debug(
@@ -247,6 +311,8 @@ class Program(threading.Thread):
         )
 
     def dump_tracemalloc(self):
+        import tracemalloc
+
         if time.monotonic() - self.malloc_time > 60:
             self.malloc_time = time.monotonic()
             snapshot = tracemalloc.take_snapshot()
@@ -254,30 +320,34 @@ class Program(threading.Thread):
 
     def run(self):
         while self.initialized:
-            if not self.validate():
+            if not self.is_valid:
                 time.sleep(1)
                 continue
 
             try:
-                event: Event = self.em.next()
+                event = self.em.next()
+
                 if self.enable_trace:
                     self.dump_tracemalloc()
             except Empty:
                 if self.enable_trace:
                     self.dump_tracemalloc()
+
                 time.sleep(0.1)
                 continue
 
-            existing_item: MediaItem = db_functions.get_item_by_id(event.item_id)
+            existing_item = db_functions.get_item_by_id(event.item_id)
 
             next_service, items_to_submit = process_event(
-                event.emitted_by, existing_item, event.content_item
+                event.emitted_by,
+                existing_item,
+                event.content_item,
             )
 
             for item_to_submit in items_to_submit:
                 if not next_service:
                     self.em.add_event_to_queue(
-                        Event("StateTransition", item_id=item_to_submit.id)
+                        Event(emitted_by="StateTransition", item_id=item_to_submit.id)
                     )
                 else:
                     # We are in the database, pass on id.
@@ -301,7 +371,9 @@ class Program(threading.Thread):
         if hasattr(self, "scheduler_manager"):
             self.scheduler_manager.stop()
 
-        self.services[FilesystemService].close()
+        if self.services:
+            self.services.filesystem.close()
+
         logger.log("PROGRAM", "Riven has been stopped.")
 
 

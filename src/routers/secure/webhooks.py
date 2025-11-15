@@ -32,16 +32,23 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         logger.error(f"Failed to process request: {e}")
         return {"success": False, "message": str(e)}
 
-    overseerr: Overseerr = di[Program].all_services[Overseerr]
+    services = di[Program].services
+
+    assert services, "Services not initialized"
+
+    overseerr: Overseerr = services.overseerr
+
     if not overseerr.initialized:
         logger.error("Overseerr not initialized")
         return {"success": False, "message": "Overseerr not initialized"}
 
     item_type = req.media.media_type
+
     if item_type == "tv":
         item_type = "show"
 
     new_item = None
+
     if item_type == "movie":
         new_item = MediaItem(
             {
@@ -66,4 +73,5 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         return {"success": False, "message": "Failed to create new item"}
 
     di[Program].em.add_item(new_item, service="Overseerr")
+
     return {"success": True}

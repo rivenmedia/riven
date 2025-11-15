@@ -33,7 +33,7 @@ class ProcessedEvent:
 
 @dataclass
 class Event:
-    emitted_by: Service | Literal["StateTransition", "RetryLibrary"]
+    emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str
     item_id: int | None = None
     content_item: MediaItem | None = None
     run_at: datetime = datetime.now()

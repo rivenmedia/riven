@@ -20,13 +20,14 @@ from program.services.downloaders.models import (
 from RTN import ParsedData
 from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
+from program.core.runner import Runner
 
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
 
 
-class Downloader:
+class Downloader(Runner):
     def __init__(self):
         self.key = "downloader"
         self.initialized = False

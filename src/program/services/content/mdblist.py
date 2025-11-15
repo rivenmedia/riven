@@ -8,9 +8,11 @@ from program.apis.mdblist_api import MdblistAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.core.content_service import ContentService
+from program.settings.models import MdblistModel
 
 
-class Mdblist:
+class Mdblist(ContentService[MdblistModel]):
     """Content class for mdblist"""
 
     def __init__(self):

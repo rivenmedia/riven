@@ -179,9 +179,8 @@ class MediaItem(db.Model):
         if previous_state and previous_state != new_state:
             try:
                 from program.program import riven
-                from program.services.notifications import NotificationService
 
-                notification_service = riven.all_services.get(NotificationService)
+                notification_service = riven.services.notifications
                 if notification_service:
                     notification_service.run(
                         self,
@@ -962,7 +961,7 @@ class Season(MediaItem):
     def __init__(self, item):
         self.type = "season"
         self.number = item.get("number", None)
-        self.episodes: list[Episode] = item.get("episodes", [])
+        self.episodes = item.get("episodes", [])
         super().__init__(item)
 
     def _determine_state(self):

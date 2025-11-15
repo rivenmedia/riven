@@ -1,14 +1,18 @@
 """Overseerr content module"""
 
+from typing import Any, Generator
 from kink import di
 from loguru import logger
 
 from program.apis.overseerr_api import OverseerrAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.settings.manager import settings_manager
+from program.media.item import MediaItem
+from program.core.content_service import ContentService
+from program.settings.models import OverseerrModel
 
 
-class Overseerr:
+class Overseerr(ContentService[OverseerrModel]):
     """Content class for overseerr"""
 
     def __init__(self):
@@ -42,7 +46,7 @@ class Overseerr:
         except Exception:
             return False
 
-    def run(self):
+    def run(self) -> Generator[list[MediaItem], Any, None]:
         """Fetch new media from `Overseerr`"""
 
         if self.settings.use_webhook and self.run_once:

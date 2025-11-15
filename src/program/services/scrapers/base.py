@@ -1,15 +1,19 @@
 import hashlib
-from abc import ABC, abstractmethod
-from typing import Dict, Optional, Tuple
+from abc import abstractmethod
+from typing import Dict, Generic, Optional, Tuple, TypeVar
 
 import bencodepy
 from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.utils.request import SmartSession
 from program.utils.torrent import extract_infohash
+from program.core.runner import Runner
+from program.settings.models import Observable
+
+T = TypeVar("T", bound=Observable)
 
 
-class ScraperService(ABC):
+class ScraperService(Runner[T]):
     """Base class for all scraper services.
 
     Implementations should set:
@@ -45,13 +49,14 @@ class ScraperService(ABC):
     def scrape(self, item: MediaItem) -> Dict[str, str]: ...
 
     @staticmethod
-    def get_stremio_identifier(item: MediaItem) -> Tuple[str | None, str, str]:
+    def get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
         """
         Get the Stremio identifier for a given item.
 
         Returns:
             Tuple[str | None, str, str]: (identifier, scrape_type, imdb_id)
         """
+
         if isinstance(item, Show):
             identifier, scrape_type, imdb_id = ":1:1", "series", item.imdb_id
         elif isinstance(item, Season):
@@ -69,7 +74,8 @@ class ScraperService(ABC):
         elif isinstance(item, Movie):
             identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
         else:
-            return None, None, None
+            raise ValueError("Unsupported MediaItem type")
+
         return identifier, scrape_type, imdb_id
 
     @staticmethod

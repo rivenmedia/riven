@@ -1003,9 +1003,11 @@ async def reindex_item(
             )
 
         try:
-            from program.services.indexers import IndexerService
+            services = di[Program].services
 
-            c_indexer = di[Program].all_services[IndexerService]
+            assert services, "Services not initialized"
+
+            c_indexer = services.indexer
 
             def mutation(i: MediaItem, s: Session):
                 # Reset indexed_at to trigger reindexing

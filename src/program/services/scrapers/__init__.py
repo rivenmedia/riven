@@ -19,9 +19,11 @@ from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
+from program.core.runner import Runner
+from program.settings.models import ScraperModel
 
 
-class Scraping:
+class Scraping(Runner[ScraperModel]):
     def __init__(self):
         self.key = "scraping"
         self.initialized = False

@@ -11,6 +11,9 @@ from program.apis.trakt_api import TraktAPI, Watchlist
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.core.content_service import ContentService
+from program.settings.models import TraktModel
+
 from schemas.trakt import (
     GetCollection200ResponseInner,
     GetMovies200ResponseInnerMovie,
@@ -26,7 +29,7 @@ from schemas.trakt import (
 )
 
 
-class TraktContent:
+class TraktContent(ContentService[TraktModel]):
     """Content class for Trakt"""
 
     def __init__(self):
