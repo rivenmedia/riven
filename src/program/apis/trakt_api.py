@@ -5,6 +5,7 @@ import re
 from urllib.parse import urlencode
 
 from loguru import logger
+from pydantic import BaseModel
 from requests import RequestException
 
 from program.settings.manager import settings_manager
@@ -212,16 +213,14 @@ class TraktAPI:
             if response.ok and response.data:
                 aliases = {}
 
-                @dataclass
-                class ResponseData:
-                    @dataclass
-                    class Alias:
+                class ResponseData(BaseModel):
+                    class Alias(BaseModel):
                         country: str
                         title: str
 
                     data: list[Alias]
 
-                response_data = ResponseData(data=response.json()).data
+                response_data = ResponseData.model_validate(response.json()).data
 
                 for ns in response_data:
                     country = ns.country
