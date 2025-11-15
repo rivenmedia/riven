@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
-from loguru import logger as log
+from kink import di
+from loguru import logger
 
+from sqlalchemy.orm import Session
 from program.db.db import db
 from program.media.filesystem_entry import FilesystemEntry
 from program.media.media_entry import MediaEntry
 from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
 )
+from program.media.item import MediaItem
+from program.program import Program
+from program.types import Event
+from routers.secure.items import apply_item_mutation
 
 if TYPE_CHECKING:
     from program.services.downloaders import Downloader
@@ -297,9 +303,8 @@ class VFSDatabase:
     def get_entry_by_original_filename(
         self,
         original_filename: str,
-        for_http: bool = False,
         force_resolve: bool = False,
-    ) -> dict | None:
+    ):
         """
         Get entry metadata and download URL by original filename.
 
@@ -307,15 +312,27 @@ class VFSDatabase:
 
         Args:
             original_filename: Original filename from debrid provider
-            for_http: If True, return URL for HTTP requests (uses unrestricted URL)
             force_resolve: If True, force refresh of unrestricted URL from provider
 
         Returns:
             Dictionary with entry metadata and URLs, or None if not found
         """
+
+        class GetEntryByOriginalFilenameResult(TypedDict):
+            original_filename: str
+            download_url: str | None
+            unrestricted_url: str | None
+            provider: str | None
+            provider_download_id: str | None
+            size: int | None
+            created: str | None
+            modified: str | None
+            entry_type: Literal["media", "subtitle"]
+            url: str | None
+
         try:
             with self.SessionLocal() as s:
-                entry = (
+                entry: MediaEntry | None = (
                     s.query(MediaEntry)
                     .filter(MediaEntry.original_filename == original_filename)
                     .first()
@@ -329,75 +346,86 @@ class VFSDatabase:
                 unrestricted_url = entry.unrestricted_url
 
                 # If force_resolve or no unrestricted URL, try to unrestrict
-                if force_resolve or (for_http and not unrestricted_url):
-                    if self.downloader and entry.provider:
-                        # Find service by matching the key attribute (services dict uses class as key)
-                        service = next(
-                            (
-                                svc
-                                for svc in self.downloader.services.values()
-                                if svc.key == entry.provider
-                            ),
-                            None,
-                        )
-                        if service and hasattr(service, "unrestrict_link"):
-                            try:
-                                new_unrestricted = service.unrestrict_link(download_url)
+                if (force_resolve or not unrestricted_url) and (
+                    self.downloader and entry.provider
+                ):
+                    # Find service by matching the key attribute (services dict uses class as key)
+                    service = next(
+                        (
+                            svc
+                            for svc in self.downloader.services.values()
+                            if svc.key == entry.provider
+                        ),
+                        None,
+                    )
 
-                                if (
-                                    new_unrestricted
-                                    and new_unrestricted.download != unrestricted_url
-                                ):
-                                    entry.unrestricted_url = new_unrestricted.download
-                                    unrestricted_url = new_unrestricted.download
-                                    s.commit()
-                                    log.debug(
-                                        f"Refreshed unrestricted URL for {original_filename}"
+                    if service and hasattr(service, "unrestrict_link"):
+                        try:
+                            new_unrestricted = service.unrestrict_link(download_url)
+
+                            if (
+                                new_unrestricted
+                                and new_unrestricted.download != unrestricted_url
+                            ):
+                                entry.unrestricted_url = new_unrestricted.download
+                                unrestricted_url = new_unrestricted.download
+                                s.commit()
+                                logger.debug(
+                                    f"Refreshed unrestricted URL for {original_filename}"
+                                )
+                        except DebridServiceLinkUnavailable as e:
+                            logger.warning(
+                                f"Failed to unrestrict URL for {original_filename}: {e}"
+                            )
+
+                            # If unrestricting fails, reset the MediaItem to trigger a new download
+                            if entry.media_item:
+                                item_id = entry.media_item.id
+
+                                def mutation(i: MediaItem, s: Session):
+                                    i.blacklist_active_stream()
+                                    i.reset()
+
+                                apply_item_mutation(
+                                    program=di[Program],
+                                    item=entry.media_item,
+                                    mutation_fn=mutation,
+                                    session=s,
+                                )
+
+                                s.commit()
+
+                                di[Program].em.add_event(
+                                    Event(
+                                        "VFS",
+                                        str(item_id),
                                     )
-                            except DebridServiceLinkUnavailable as e:
-                                log.warning(
-                                    f"Failed to unrestrict URL for {original_filename}: {e}"
                                 )
 
-                                is_download_url_valid = (
-                                    service.unrestrict_check(download_url)
-                                    if hasattr(service, "unrestrict_check")
-                                    else True
-                                )
+                            raise
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to unrestrict URL for {original_filename}: {e}"
+                            )
 
-                                if not is_download_url_valid:
-                                    raise
-                            except Exception as e:
-                                log.warning(
-                                    f"Failed to unrestrict URL for {original_filename}: {e}"
-                                )
+                chosen_url = unrestricted_url or download_url
 
-                # Choose URL based on for_http flag
-                if for_http:
-                    chosen_url = unrestricted_url or download_url
-                else:
-                    chosen_url = download_url
-
-                return {
-                    "original_filename": entry.original_filename,
-                    "download_url": download_url,
-                    "unrestricted_url": unrestricted_url,
-                    "provider": entry.provider,
-                    "provider_download_id": entry.provider_download_id,
-                    "size": entry.file_size,
-                    "created": (
-                        entry.created_at.isoformat() if entry.created_at else None
-                    ),
-                    "modified": (
-                        entry.updated_at.isoformat() if entry.updated_at else None
-                    ),
-                    "entry_type": "media",
-                    "url": chosen_url,  # The URL to use for this request
-                }
+                return GetEntryByOriginalFilenameResult(
+                    original_filename=entry.original_filename,
+                    download_url=download_url,
+                    unrestricted_url=unrestricted_url,
+                    provider=entry.provider,
+                    provider_download_id=entry.provider_download_id,
+                    size=entry.file_size,
+                    created=(entry.created_at.isoformat()),
+                    modified=(entry.updated_at.isoformat()),
+                    entry_type="media",
+                    url=chosen_url,  # The URL to use for this request
+                )
         except DebridServiceLinkUnavailable:
             raise
         except Exception as e:
-            log.error(
+            logger.error(
                 f"Error getting entry by original_filename {original_filename}: {e}"
             )
             return None

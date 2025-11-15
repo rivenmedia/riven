@@ -835,11 +835,9 @@ class MediaStream:
                 elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
                     # File can't be found at this URL; try refreshing the URL once
                     if attempt == 0:
-                        fresh_url = await trio.to_thread.run_sync(
-                            self._refresh_download_url
-                        )
+                        has_fresh_url = await self._refresh_download_url()
 
-                        if fresh_url:
+                        if has_fresh_url:
                             logger.warning(
                                 self._build_log_message(
                                     f"URL refresh after HTTP {status_code}"
@@ -901,11 +899,9 @@ class MediaStream:
 
                 if attempt == 0:
                     # On first exception, try refreshing the URL in case it's a connectivity issue
-                    fresh_url = await trio.to_thread.run_sync(
-                        self._refresh_download_url
-                    )
+                    has_fresh_url = await self._refresh_download_url()
 
-                    if fresh_url:
+                    if has_fresh_url:
                         logger.warning(
                             self._build_log_message("URL refresh after timeout")
                         )
@@ -1125,7 +1121,7 @@ class MediaStream:
             data=data,
         )
 
-    def _refresh_download_url(self) -> bool:
+    async def _refresh_download_url(self) -> bool:
         """
         Refresh download URL by unrestricting from provider.
 
@@ -1140,7 +1136,6 @@ class MediaStream:
         # Query database by original_filename and force unrestrict
         entry_info = di[VFSDatabase].get_entry_by_original_filename(
             original_filename=self.file_metadata.original_filename,
-            for_http=True,
             force_resolve=True,
         )
 
