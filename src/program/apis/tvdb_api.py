@@ -130,99 +130,6 @@ class TVDBApi:
 
             logger.info("Successfully obtained new TVDB token")
 
-    def _load_token_from_file(self) -> TVDBToken | None:
-        """Load token from file if it exists and is valid"""
-
-        try:
-            if self.TOKEN_FILE.exists():
-                with open(self.TOKEN_FILE, "r") as f:
-                    token_data = json.load(f)
-
-                token = TVDBToken.from_dict(token_data)
-
-                # Check if token is still valid
-                if token.expires_at > datetime.now():
-                    logger.debug("Loaded valid TVDB token from file")
-
-                    return token
-                else:
-                    logger.debug("Loaded TVDB token is expired, refreshing")
-
-                    token = self._get_auth_token()
-
-                    if not token:
-                        logger.error("Failed to refresh expired TVDB token")
-                        return None
-
-                    logger.debug("Refreshed TVDB token")
-
-                    return token
-
-            return None
-        except Exception as e:
-            logger.error(f"Error loading TVDB token from file: {str(e)}")
-            return None
-
-    def _save_token_to_file(self, token: TVDBToken) -> None:
-        """Save token to file for persistence"""
-
-        try:
-            # Create directory if it doesn't exist
-            self.TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(self.TOKEN_FILE, "w") as f:
-                json.dump(token.to_dict(), f)
-
-            logger.debug("Saved TVDB token to file")
-        except Exception as e:
-            logger.error(f"Error saving TVDB token to file: {str(e)}")
-
-    def _get_auth_token(self) -> TVDBToken | None:
-        """Get auth token, refreshing if necessary."""
-
-        now = datetime.now()
-
-        if self.token and self.token.expires_at > now:
-            return self.token
-
-        payload = {"apikey": self.api_key}
-        response = self.session.post("login", json=payload)
-
-        if not response.ok:
-            logger.error(f"Failed to obtain TVDB token: {response.status_code}")
-            return None
-
-        from schemas.tvdb import LoginPost200ResponseData
-
-        data = LoginPost200ResponseData.from_dict(response.json())
-
-        assert data
-
-        if not data.token:
-            logger.error(f"Failed to obtain TVDB token: No token in response")
-            return None
-
-        expires_at = now + timedelta(days=25)
-        token_obj = TVDBToken(token=data.token, expires_at=expires_at)
-
-        self._save_token_to_file(token_obj)
-
-        return token_obj
-
-    def _get_headers(self) -> dict[str, str]:
-        """Get request headers with auth token."""
-
-        token = self._get_auth_token()
-
-        if not token:
-            raise TVDBApiError("Could not obtain valid TVDB auth token")
-
-        return {
-            "Authorization": f"Bearer {token.token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-
     def get_series(self, series_id: str) -> SeriesRelease | None:
         """Get TV series details by TVDB ID."""
 
@@ -493,3 +400,96 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error getting new releases: {str(e)}")
             return ids_to_check
+
+    def _load_token_from_file(self) -> TVDBToken | None:
+        """Load token from file if it exists and is valid"""
+
+        try:
+            if self.TOKEN_FILE.exists():
+                with open(self.TOKEN_FILE, "r") as f:
+                    token_data = json.load(f)
+
+                token = TVDBToken.from_dict(token_data)
+
+                # Check if token is still valid
+                if token.expires_at > datetime.now():
+                    logger.debug("Loaded valid TVDB token from file")
+
+                    return token
+                else:
+                    logger.debug("Loaded TVDB token is expired, refreshing")
+
+                    token = self._get_auth_token()
+
+                    if not token:
+                        logger.error("Failed to refresh expired TVDB token")
+                        return None
+
+                    logger.debug("Refreshed TVDB token")
+
+                    return token
+
+            return None
+        except Exception as e:
+            logger.error(f"Error loading TVDB token from file: {str(e)}")
+            return None
+
+    def _save_token_to_file(self, token: TVDBToken) -> None:
+        """Save token to file for persistence"""
+
+        try:
+            # Create directory if it doesn't exist
+            self.TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(self.TOKEN_FILE, "w") as f:
+                json.dump(token.to_dict(), f)
+
+            logger.debug("Saved TVDB token to file")
+        except Exception as e:
+            logger.error(f"Error saving TVDB token to file: {str(e)}")
+
+    def _get_auth_token(self) -> TVDBToken | None:
+        """Get auth token, refreshing if necessary."""
+
+        now = datetime.now()
+
+        if self.token and self.token.expires_at > now:
+            return self.token
+
+        payload = {"apikey": self.api_key}
+        response = self.session.post("login", json=payload)
+
+        if not response.ok:
+            logger.error(f"Failed to obtain TVDB token: {response.status_code}")
+            return None
+
+        from schemas.tvdb import LoginPost200ResponseData
+
+        data = LoginPost200ResponseData.from_dict(response.json())
+
+        assert data
+
+        if not data.token:
+            logger.error(f"Failed to obtain TVDB token: No token in response")
+            return None
+
+        expires_at = now + timedelta(days=25)
+        token_obj = TVDBToken(token=data.token, expires_at=expires_at)
+
+        self._save_token_to_file(token_obj)
+
+        return token_obj
+
+    def _get_headers(self) -> dict[str, str]:
+        """Get request headers with auth token."""
+
+        token = self._get_auth_token()
+
+        if not token:
+            raise TVDBApiError("Could not obtain valid TVDB auth token")
+
+        return {
+            "Authorization": f"Bearer {token.token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
