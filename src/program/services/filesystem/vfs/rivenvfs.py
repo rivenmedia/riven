@@ -1681,6 +1681,8 @@ class RivenVFS(pyfuse3.Operations):
                                 force_resolve=True,
                             )
                         )
+                except Exception:
+                    raise pyfuse3.FUSEError(errno.EIO) from None
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."

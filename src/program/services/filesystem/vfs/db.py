@@ -398,7 +398,7 @@ class VFSDatabase:
                                 di[Program].em.add_event(
                                     Event(
                                         "VFS",
-                                        str(item_id),
+                                        item_id,
                                     )
                                 )
 
