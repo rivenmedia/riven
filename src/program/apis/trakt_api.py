@@ -12,6 +12,19 @@ from requests import RequestException
 from program.settings.manager import settings_manager
 from program.settings.models import TraktModel
 from program.utils.request import SmartSession
+from schemas.trakt import GetMovies200ResponseInnerMovie, GetShows200ResponseInnerShow
+
+
+class Watchlist(BaseModel):
+    movie: GetMovies200ResponseInnerMovie | None
+    show: GetShows200ResponseInnerShow | None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Watchlist | None":
+        try:
+            return cls.model_validate(data)
+        except Exception:
+            return None
 
 
 class PaginationParams(BaseModel):
@@ -177,11 +190,9 @@ class TraktAPI:
     def get_watchlist_items(self, user):
         """Get watchlist items from Trakt with pagination support."""
 
-        from schemas.trakt import GetItemsOnAList200ResponseInner
-
         return self._fetch_data(
             url=f"{self.BASE_URL}/users/{user}/watchlist",
-            model_validator=GetItemsOnAList200ResponseInner.from_dict,
+            model_validator=Watchlist.from_dict,
         )
 
     def get_user_list(self, user, list_name):

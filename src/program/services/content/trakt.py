@@ -1,15 +1,29 @@
 """Trakt content module"""
 
 from datetime import datetime, timedelta
+from typing import Literal, TypeIs
 
 from kink import di
 from loguru import logger
 from requests import RequestException
 
-from program.apis.trakt_api import TraktAPI
+from program.apis.trakt_api import TraktAPI, Watchlist
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from schemas.trakt import (
+    GetCollection200ResponseInner,
+    GetMovies200ResponseInnerMovie,
+    GetMovies200ResponseInnerMovieIds,
+    GetPopularMovies200ResponseInner,
+    GetPopularShows200ResponseInner,
+    GetShows200ResponseInnerShow,
+    GetShows200ResponseInnerShowIds,
+    GetTheMostPlayedMovies200ResponseInner,
+    GetTheMostPlayedShows200ResponseInner,
+    GetTrendingMovies200ResponseInner,
+    GetTrendingShows200ResponseInner,
+)
 
 
 class TraktContent:
@@ -198,7 +212,7 @@ class TraktContent:
 
         return ids
 
-    def _get_trending_items(self) -> list[tuple[str, str]]:
+    def _get_trending_items(self) -> list[tuple[int, Literal["show", "movie"]]]:
         """Get IDs and types from Trakt trending items"""
 
         trending_movies = self.api.get_trending_movies(self.settings.trending_count)
@@ -209,7 +223,7 @@ class TraktContent:
             + trending_shows[: self.settings.trending_count]
         )
 
-    def _get_popular_items(self) -> list[tuple[str, str]]:
+    def _get_popular_items(self) -> list[tuple[int, Literal["show", "movie"]]]:
         """Get IDs and types from Trakt popular items"""
 
         popular_movies = self.api.get_popular_movies(self.settings.popular_count)
@@ -220,7 +234,7 @@ class TraktContent:
             + popular_shows[: self.settings.popular_count]
         )
 
-    def _get_most_watched_items(self) -> list[tuple[str, str]]:
+    def _get_most_watched_items(self):
         """Get IDs and types from Trakt popular items"""
 
         most_played_movies = self.api.get_most_played_movies(
@@ -237,34 +251,78 @@ class TraktContent:
             + most_played_shows[: self.settings.most_watched_count]
         )
 
-    def _extract_ids(self, items: list) -> list[tuple[str, str]]:
+    def _extract_ids(
+        self,
+        items: (
+            list[
+                GetTheMostPlayedMovies200ResponseInner
+                | GetTheMostPlayedShows200ResponseInner
+            ]
+            | list[Watchlist]
+            | list[GetCollection200ResponseInner]
+            | list[GetTrendingShows200ResponseInner | GetTrendingMovies200ResponseInner]
+            | list[GetPopularShows200ResponseInner | GetPopularMovies200ResponseInner]
+        ),
+    ):
         """Extract IDs and types from a list of items"""
 
-        _ids = []
+        class ItemWithShow:
+            show: GetShows200ResponseInnerShow
+
+            @staticmethod
+            def is_type_of(item) -> TypeIs["ItemWithShow"]:
+                return hasattr(item, "show")
+
+        class ItemWithMovie:
+            movie: GetMovies200ResponseInnerMovie
+
+            @staticmethod
+            def is_type_of(item) -> TypeIs["ItemWithMovie"]:
+                return hasattr(item, "movie")
+
+        class ItemWithIDs:
+            ids: GetShows200ResponseInnerShowIds | GetMovies200ResponseInnerMovieIds
+
+            @staticmethod
+            def is_type_of(item) -> TypeIs["ItemWithIDs"]:
+                return hasattr(item, "ids")
+
+        _ids: list[tuple[int, Literal["show", "movie"]]] = []
+
         for item in items:
-            if hasattr(item, "show"):
-                ids = getattr(item.show, "ids", None)
+            if ItemWithShow.is_type_of(item):
+                assert item.show
+
+                ids = item.show.ids
+
+                if ids and ids.tvdb:
+                    _ids.append((int(ids.tvdb), "show"))
+
+            elif ItemWithMovie.is_type_of(item):
+                assert item.movie
+
+                ids = item.movie.ids
+
+                if ids and ids.tmdb:
+                    _ids.append((int(ids.tmdb), "movie"))
+
+            # namespace doesn't have type, so we need to infer it from the ids
+            elif ItemWithIDs.is_type_of(item):
+                ids = item.ids
+
                 if ids:
                     tvdb_id = getattr(ids, "tvdb", None)
+
                     if tvdb_id:
-                        _ids.append((tvdb_id, "show"))
-            elif hasattr(item, "movie"):
-                ids = getattr(item.movie, "ids", None)
-                if ids:
+                        _ids.append((int(tvdb_id), "show"))
+
                     tmdb_id = getattr(ids, "tmdb", None)
+
                     if tmdb_id:
-                        _ids.append((tmdb_id, "movie"))
-            # namespace doesnt have type, so we need to infer it from the ids
-            elif hasattr(item, "ids"):
-                ids = getattr(item, "ids", None)
-                if ids:
-                    tvdb_id = getattr(ids, "tvdb", None)
-                    if tvdb_id:
-                        _ids.append((tvdb_id, "show"))
-                    tmdb_id = getattr(ids, "tmdb", None)
-                    if tmdb_id:
-                        _ids.append((tmdb_id, "movie"))
+                        _ids.append((int(tmdb_id), "movie"))
             else:
                 logger.error(f"Unknown item type: {item}")
+
                 continue
+
         return _ids
