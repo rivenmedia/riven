@@ -149,6 +149,15 @@ generate-tmdb-schema:
 	@uv run black src/schemas/tmdb
 	@echo "TMDB schema generated"
 
+generate-trakt-schema:
+	@echo "Generating Trakt schema from API blueprint specification..."
+	@curl -s -L https://trakt.docs.apiary.io/api-description-document -o /tmp/trakt.apib
+	@npx -y apib2openapi -i /tmp/trakt.apib -o /tmp/trakt_openapi.json
+	@rm -rf src/schemas/trakt
+	@uv run openapi-generator-cli generate -g python -i /tmp/trakt_openapi.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.trakt,lazyImports=true
+	@uv run black src/schemas/trakt
+	@echo "Trakt schema generated"
+
 generate-schemas:
 	@echo "Generating all schemas..."
 
@@ -156,5 +165,6 @@ generate-schemas:
 	@make generate-mdblist-schema
 	@make generate-overseerr-schema
 	@make generate-tmdb-schema
+	@make generate-trakt-schema
 
 	@echo "All schemas generated"
