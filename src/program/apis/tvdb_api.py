@@ -3,7 +3,6 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 from kink import inject
 from loguru import logger
@@ -11,6 +10,56 @@ from pydantic import BaseModel
 
 from program.utils import data_dir_path
 from program.utils.request import SmartSession
+from schemas.tvdb import (
+    EpisodeExtendedRecord,
+    SearchByRemoteIdResult,
+    SeasonExtendedRecord,
+    SeriesExtendedRecord,
+    Translation,
+    Updates200Response,
+)
+
+
+class SeriesRelease(SeriesExtendedRecord):
+    """TVDB Series Release Status Model"""
+
+    @property
+    def release_id(self) -> int:
+        """Get release status ID"""
+
+        assert self.status and self.status.id is not None
+
+        return self.status.id
+
+    @property
+    def release_status(self) -> str:
+        """Get release status name"""
+
+        assert self.status and self.status.name
+
+        return self.status.name
+
+    @property
+    def keep_updated(self) -> bool:
+        """Get keep updated flag"""
+
+        assert self.status and self.status.keep_updated is not None
+
+        return self.status.keep_updated
+
+    @property
+    def last_metadata_fetch(self) -> str:
+        """Get last metadata fetch time"""
+
+        from datetime import datetime
+
+        return datetime.now().isoformat()
+
+    @property
+    def next_metadata_fetch(self) -> str | None:
+        """Get next metadata fetch time"""
+
+        return self.last_aired
 
 
 class TVDBApiError(Exception):
@@ -26,7 +75,10 @@ class TVDBToken(BaseModel):
     def to_dict(self) -> dict[str, str]:
         """Convert token to dictionary for storage"""
 
-        return {"token": self.token, "expires_at": self.expires_at.isoformat()}
+        return {
+            "token": self.token,
+            "expires_at": self.expires_at.isoformat(),
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> "TVDBToken":
@@ -68,10 +120,12 @@ class TVDBApi:
 
         if not self.token:
             logger.info("No TVDB token found, attempting to get new token...")
+
             self.token = self._get_auth_token()
 
             if not self.token:
                 logger.error("Failed to obtain TVDB token, exiting.")
+
                 exit(0)
 
             logger.info("Successfully obtained new TVDB token")
@@ -103,6 +157,7 @@ class TVDBApi:
                     logger.debug("Refreshed TVDB token")
 
                     return token
+
             return None
         except Exception as e:
             logger.error(f"Error loading TVDB token from file: {str(e)}")
@@ -133,22 +188,26 @@ class TVDBApi:
         payload = {"apikey": self.api_key}
         response = self.session.post("login", json=payload)
 
-        if (
-            not response.ok
-            or not hasattr(response.data, "data")
-            or not response.data.data.token
-        ):
+        if not response.ok:
             logger.error(f"Failed to obtain TVDB token: {response.status_code}")
             return None
 
-        if token := response.data.data.token:
-            expires_at = now + timedelta(days=25)
-            token_obj = TVDBToken(token=token, expires_at=expires_at)
-            self._save_token_to_file(token_obj)
+        from schemas.tvdb import LoginPost200ResponseData
 
-            return token_obj
+        data = LoginPost200ResponseData.from_dict(response.json())
 
-        return None
+        assert data
+
+        if not data.token:
+            logger.error(f"Failed to obtain TVDB token: No token in response")
+            return None
+
+        expires_at = now + timedelta(days=25)
+        token_obj = TVDBToken(token=data.token, expires_at=expires_at)
+
+        self._save_token_to_file(token_obj)
+
+        return token_obj
 
     def _get_headers(self) -> dict[str, str]:
         """Get request headers with auth token."""
@@ -164,98 +223,129 @@ class TVDBApi:
             "Accept": "application/json",
         }
 
-    def get_series(self, series_id: str) -> dict | None:
+    def get_series(self, series_id: str) -> SeriesRelease | None:
         """Get TV series details by TVDB ID."""
 
         try:
-            headers = self._get_headers()
-            url = f"series/{series_id}/extended"
-            response = self.session.get(url, headers=headers)
+            response = self.session.get(
+                f"series/{series_id}/extended",
+                headers=self._get_headers(),
+            )
 
             if not response.ok:
                 logger.error(f"Failed to get series details: {response.status_code}")
                 return None
 
-            return (
-                response.data.data
-                if response.data and hasattr(response.data, "data")
-                else None
-            )
+            from schemas.tvdb import GetSeriesArtworks200Response
+
+            validated_response = GetSeriesArtworks200Response.from_dict(response.json())
+
+            assert validated_response
+
+            return SeriesRelease.model_validate(validated_response.data)
         except Exception as e:
             logger.error(f"Error getting series details: {str(e)}")
 
             return None
 
-    def search_by_imdb_id(self, imdb_id: str) -> dict | None:
+    def search_by_imdb_id(self, imdb_id: str) -> list[SearchByRemoteIdResult] | None:
         """Search for a series by IMDB ID."""
 
         try:
-            headers = self._get_headers()
-            url = f"search/remoteid/{imdb_id}"
-
-            response = self.session.get(url, headers=headers)
+            response = self.session.get(
+                f"search/remoteid/{imdb_id}",
+                headers=self._get_headers(),
+            )
 
             if not response.ok:
                 logger.error(f"Failed to search by IMDB ID: {response.status_code}")
                 return None
 
-            return response.data
+            from schemas.tvdb import GetSearchResultsByRemoteId200Response
+
+            validated_response = GetSearchResultsByRemoteId200Response.from_dict(
+                response.json()
+            )
+
+            assert validated_response
+
+            return validated_response.data
         except Exception as e:
             logger.error(f"Error searching by IMDB ID: {str(e)}")
             return None
 
-    def get_season(self, season_id: str) -> dict | None:
+    def get_season(self, season_id: int) -> SeasonExtendedRecord | None:
         """Get details for a specific season."""
 
         try:
-            headers = self._get_headers()
-            url = f"seasons/{season_id}/extended"
+            response = self.session.get(
+                f"seasons/{season_id}/extended",
+                headers=self._get_headers(),
+            )
 
-            response = self.session.get(url, headers=headers)
             if not response.ok:
                 logger.error(f"Failed to get season details: {response.status_code}")
                 return None
 
-            return response.data
+            from schemas.tvdb import GetSeasonExtended200Response
+
+            validated_data = GetSeasonExtended200Response.from_dict(response.json())
+
+            assert validated_data
+
+            return validated_data.data
         except Exception as e:
             logger.error(f"Error getting season details: {str(e)}")
             return None
 
-    def get_episode(self, episode_id: str) -> dict | None:
+    def get_episode(self, episode_id: str) -> EpisodeExtendedRecord | None:
         """Get episode details."""
-        try:
-            headers = self._get_headers()
-            url = f"episodes/{episode_id}/extended"
 
-            response = self.session.get(url, headers=headers)
+        try:
+            response = self.session.get(
+                f"episodes/{episode_id}/extended",
+                headers=self._get_headers(),
+            )
 
             if not response.ok:
                 logger.error(f"Failed to get episode details: {response.status_code}")
                 return None
 
-            return (
-                response.data.data
-                if response.data and hasattr(response.data, "data")
-                else None
+            from schemas.tvdb import GetEpisodeExtended200Response
+
+            validated_response = GetEpisodeExtended200Response.from_dict(
+                response.json()
             )
+
+            assert validated_response
+
+            return validated_response.data
         except Exception as e:
             logger.error(f"Error getting episode details: {str(e)}")
             return None
 
-    def get_translation(self, series_id: str, language: str) -> dict | None:
+    def get_translation(self, series_id: int, language: str) -> Translation | None:
         """Get translation title for a series. Language must be 3 letter code."""
 
         try:
-            headers = self._get_headers()
-            url = f"series/{series_id}/translations/{language}"
-
-            response = self.session.get(url, headers=headers)
+            response = self.session.get(
+                f"series/{series_id}/translations/{language}",
+                headers=self._get_headers(),
+            )
 
             if not response.ok:
                 logger.error(f"Failed to get translation title: {response.status_code}")
                 return None
 
-            return response.data  # name and aliases
+            from schemas.tvdb import GetEpisodeTranslation200Response
+
+            validated_response = GetEpisodeTranslation200Response.from_dict(
+                response.json()
+            )
+
+            assert validated_response
+
+            return validated_response.data
         except Exception as e:
             logger.error(f"Error getting translation title: {str(e)}")
             return None
@@ -273,14 +363,17 @@ class TVDBApi:
         for alias in getattr(series_data, "aliases", []):
             lang = getattr(alias, "language", None)
             name = getattr(alias, "name", None)
+
             if lang and name:
                 aliases_by_lang.setdefault(lang, []).append(name)
 
         return aliases_by_lang
 
     def get_updates(
-        self, update_type: str = "episodes", since: int | None = None
-    ) -> dict | None:
+        self,
+        update_type: str = "episodes",
+        since: int | None = None,
+    ) -> Updates200Response | None:
         """
         Get updates for a given type and since timestamp.
 
@@ -292,18 +385,21 @@ class TVDBApi:
             Optional[dict]: The updates.
         """
 
-        headers = self._get_headers()
-        url = f"updates?{update_type}&since={since}&action=update"
-        response = self.session.get(url, headers=headers)
+        response = self.session.get(
+            url=f"updates?{update_type}&since={since}&action=update",
+            headers=self._get_headers(),
+        )
 
         if not response.ok:
             logger.error(f"Failed to get updates: {response.status_code}")
             return None
 
-        return response.data
+        return Updates200Response.from_dict(response.json())
 
     def get_new_releases(
-        self, update_type: str = "episodes", hours: int = 24
+        self,
+        update_type: str = "episodes",
+        hours: int = 24,
     ) -> list[str]:
         """
         Get new releases for a given type and since timestamp.
@@ -321,14 +417,16 @@ class TVDBApi:
 
         def process_page(data):
             """Process a single page of updates and extract record IDs"""
+
             nonlocal pages_checked
+
             if not data or not hasattr(data, "data"):
                 return []
 
             pages_checked += 1
 
             return [
-                (str(u.seriesId), str(u.recordId))
+                (str(object=u.seriesId), str(u.recordId))
                 for u in data.data
                 if hasattr(u, "seriesId")
                 and hasattr(u, "recordId")
@@ -339,13 +437,16 @@ class TVDBApi:
         def get_page(url: str):
             """Get a specific page using the next URL"""
 
-            headers = self._get_headers()
-            response = self.session.get(url, headers=headers)
+            response = self.session.get(
+                url,
+                headers=self._get_headers(),
+            )
 
-            if response.ok and response.data:
-                return response.data
+            if not response.ok:
+                logger.error(f"Failed to get updates page: {response.status_code}")
+                return None
 
-            return None
+            return Updates200Response.from_dict(response.json())
 
         def get_epoch_hours_ago(hours: int = 24) -> int:
             """Get timestamp for hours ago"""
@@ -356,9 +457,9 @@ class TVDBApi:
 
         try:
             epoch_hours_ago = get_epoch_hours_ago(hours)
-            response = self.get_updates(since=epoch_hours_ago, update_type=update_type)
+            updates = self.get_updates(since=epoch_hours_ago, update_type=update_type)
 
-            if not response or not response.data:
+            if not updates:
                 logger.info(
                     f"No updates found for type {update_type} in the last {hours} hours"
                 )
@@ -366,17 +467,13 @@ class TVDBApi:
                 return ids_to_check
 
             # Process first page
-            page_ids = process_page(response)
+            page_ids = process_page(updates)
             ids_to_check.extend(page_ids)
 
             # Process subsequent pages if they exist
-            current_response = response
+            current_response = updates
 
-            while (
-                hasattr(current_response, "links")
-                and hasattr(current_response.links, "next")
-                and current_response.links.next
-            ):
+            while current_response.links and current_response.links.next:
                 next_page_data = get_page(current_response.links.next)
 
                 if next_page_data:
@@ -393,75 +490,6 @@ class TVDBApi:
             self.last_new_release_check = datetime.now()
 
             return ids_to_check
-
         except Exception as e:
             logger.error(f"Error getting new releases: {str(e)}")
             return ids_to_check
-
-    def get_series_release_data(self, show_data: SimpleNamespace) -> dict:
-        """Format response data from release status into dict"""
-
-        return {
-            "release_id": (
-                getattr(show_data.status, "id", None)
-                if hasattr(show_data, "status")
-                else None
-            ),
-            "release_status": (
-                getattr(show_data.status, "name", None)
-                if hasattr(show_data, "status")
-                else None
-            ),
-            "keep_updated": (
-                getattr(show_data.status, "keepUpdated", None)
-                if hasattr(show_data, "status")
-                else None
-            ),
-            "last_updated": getattr(show_data, "lastUpdated", None),
-            "first_aired": getattr(show_data, "firstAired", None),
-            "last_aired": getattr(show_data, "lastAired", None),
-            "next_aired": getattr(show_data, "nextAired", None),
-            "airs_days": {
-                "monday": (
-                    getattr(show_data.airsDays, "monday", False)
-                    if hasattr(show_data, "airsDays")
-                    else None
-                ),
-                "tuesday": (
-                    getattr(show_data.airsDays, "tuesday", False)
-                    if hasattr(show_data, "airsDays")
-                    else None
-                ),
-                "wednesday": (
-                    getattr(show_data.airsDays, "wednesday", False)
-                    if hasattr(show_data, "airsDays")
-                    else None
-                ),
-                "thursday": (
-                    getattr(show_data.airsDays, "thursday", False)
-                    if hasattr(show_data, "airsDays")
-                    else None
-                ),
-                "friday": (
-                    getattr(show_data.airsDays, "friday", False)
-                    if hasattr(show_data, "airsDays")
-                    else None
-                ),
-                "saturday": (
-                    getattr(show_data.airsDays, "saturday", False)
-                    if hasattr(show_data, "airsDays")
-                    else None
-                ),
-                "sunday": (
-                    getattr(show_data.airsDays, "sunday", False)
-                    if hasattr(show_data, "airsDays")
-                    else None
-                ),
-            },
-            "airs_time": getattr(show_data, "airsTime", None),
-            "average_runtime": getattr(show_data, "averageRuntime", None),
-            "last_metadata_fetch": datetime.now().isoformat(),
-            "next_metadata_fetch": getattr(
-                show_data, "lastAired", None
-            ),  # fetch metadata again at the end of the season
-        }

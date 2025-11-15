@@ -788,6 +788,7 @@ class Show(MediaItem):
     """Show class"""
 
     __tablename__ = "Show"
+
     id: Mapped[int] = mapped_column(
         sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
     )
@@ -806,12 +807,13 @@ class Show(MediaItem):
         "polymorphic_load": "selectin",
     }
 
-    def __init__(self, item):
+    def __init__(self, item: dict):
         self.type = "show"
         self.locations = item.get("locations", [])
-        self.seasons: list[Season] = item.get("seasons", [])
+        self.seasons = item.get("seasons", [])
         self.release_data = item.get("release_data", {})
         self.tvdb_status = item.get("tvdb_status")
+
         super().__init__(item)
 
     def _determine_state(self):
