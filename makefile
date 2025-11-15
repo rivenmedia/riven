@@ -158,6 +158,13 @@ generate-trakt-schema:
 	@uv run black src/schemas/trakt
 	@echo "Trakt schema generated"
 
+generate-tvdb-schema:
+	@echo "Generating TVDB schema from OpenAPI specification..."
+	@rm -rf src/schemas/tvdb
+	@uv run openapi-generator-cli generate -g python -i https://thetvdb.github.io/v4-api/swagger.yml -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.tvdb,lazyImports=true
+	@uv run black src/schemas/tvdb
+	@echo "TVDB schema generated"
+
 generate-schemas:
 	@echo "Generating all schemas..."
 
@@ -166,5 +173,6 @@ generate-schemas:
 	@make generate-overseerr-schema
 	@make generate-tmdb-schema
 	@make generate-trakt-schema
+	@make generate-tvdb-schema
 
 	@echo "All schemas generated"
