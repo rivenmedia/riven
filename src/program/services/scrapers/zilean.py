@@ -8,13 +8,15 @@ from program.media.item import Episode, MediaItem, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
+from program.settings.models import ZileanConfig
 
 
-class Zilean(ScraperService):
+class Zilean(ScraperService[ZileanConfig]):
     """Scraper for `Zilean`"""
 
     def __init__(self):
         super().__init__("zilean")
+
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
         if self.settings.ratelimit:

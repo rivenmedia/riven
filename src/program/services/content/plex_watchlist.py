@@ -1,7 +1,6 @@
 """Plex Watchlist Module"""
 
-from typing import Generator
-
+from collections.abc import Generator
 from kink import di
 from loguru import logger
 from requests import HTTPError
@@ -10,9 +9,11 @@ from program.apis.plex_api import PlexAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.core.content_service import ContentService
+from program.settings.models import PlexWatchlistModel
 
 
-class PlexWatchlist:
+class PlexWatchlist(ContentService[PlexWatchlistModel]):
     """Class for managing Plex Watchlists"""
 
     def __init__(self):
@@ -61,8 +62,9 @@ class PlexWatchlist:
                     return False
         return True
 
-    def run(self) -> Generator[MediaItem, None, None]:
+    def run(self) -> Generator[list[MediaItem], None, None]:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
+
         try:
             watchlist_items: list[dict[str, str]] = self.api.get_items_from_watchlist()
             rss_items: list[tuple[str, str]] = (

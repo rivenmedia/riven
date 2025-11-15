@@ -1,19 +1,21 @@
 """Base indexer module"""
 
-from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Generator, Union
 
 from loguru import logger
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.core.runner import Runner
+from program.settings.models import IndexerModel
 
 
-class BaseIndexer(ABC):
+class BaseIndexer(Runner[IndexerModel]):
     """Base class for all indexers"""
 
     def __init__(self):
+        super().__init__()
+
         self.key = self.__class__.__name__.lower()
         self.settings = settings_manager.settings.indexer
         self.initialized = True
@@ -64,12 +66,6 @@ class BaseIndexer(ABC):
                 f"Item types {itema.type} and {itemb.type} do not match cant copy metadata"
             )
         return itemb
-
-    @abstractmethod
-    def run(
-        self, in_item: MediaItem, log_msg: bool = True
-    ) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
-        """Run the indexer for the given item. Must be implemented by subclasses."""
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:

@@ -5,9 +5,11 @@ from program.media.state import States
 from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings.manager import settings_manager
+from program.core.runner import Runner
+from program.settings.models import PostProcessing
 
 
-class PostProcessing:
+class PostProcessing(Runner[PostProcessing]):
     def __init__(self):
         self.key = "post_processing"
         self.initialized = False

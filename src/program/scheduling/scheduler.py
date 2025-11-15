@@ -6,8 +6,9 @@ for content services and item-specific schedules.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Callable, Dict
+from typing import TYPE_CHECKING
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import select
@@ -19,10 +20,12 @@ from program.db.db import db, vacuum_and_analyze_index_maintenance
 from program.media.item import Episode, Movie, Show
 from program.media.state import States
 from program.scheduling.models import ScheduledStatus, ScheduledTask
-from program.services.indexers import IndexerService
 from program.settings.manager import settings_manager
 from program.types import Event
 from program.utils.logging import log_cleaner, logger
+
+if TYPE_CHECKING:
+    from program.program import Program
 
 
 class ProgramScheduler:
@@ -32,12 +35,13 @@ class ProgramScheduler:
     Program instance via dependency injection.
     """
 
-    def __init__(self, program) -> None:
+    def __init__(self, program: "Program") -> None:
         self.program = program
         self.scheduler: BackgroundScheduler | None = None
 
     def start(self) -> None:
         """Create and start the background scheduler with all jobs registered."""
+
         self.scheduler = BackgroundScheduler()
         self._schedule_services()
         self._schedule_functions()
@@ -45,24 +49,28 @@ class ProgramScheduler:
 
     def stop(self) -> None:
         """Stop the background scheduler if running."""
+
         if self.scheduler and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
 
     def _schedule_functions(self) -> None:
         """Register internal periodic functions and maintenance tasks."""
+
         assert self.scheduler is not None
 
-        scheduled_functions: Dict[Callable[..., None], dict] = {
+        scheduled_functions: dict[Callable[..., None], dict] = {
             vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
         }
 
         # Add retry_library if enabled (interval > 0)
         retry_interval = settings_manager.settings.retry_interval
+
         if retry_interval > 0:
             scheduled_functions[self._retry_library] = {"interval": retry_interval}
 
         # Add log_cleaner if enabled (interval > 0)
         clean_interval = settings_manager.settings.logging.clean_interval
+
         if clean_interval > 0:
             scheduled_functions[log_cleaner] = {"interval": clean_interval}
 
@@ -82,41 +90,48 @@ class ProgramScheduler:
                 next_run_time=datetime.now(),
                 misfire_grace_time=30,
             )
+
             logger.debug(
                 f"Scheduled {func.__name__} to run every {config['interval']} seconds."
             )
 
     def _schedule_services(self) -> None:
         """Schedule each content service based on its update interval or webhook mode."""
-        assert self.scheduler is not None
 
-        scheduled_services = {**self.program.requesting_services}
-        for service_cls, service_instance in scheduled_services.items():
+        assert self.scheduler
+
+        for service_instance in self.program.content_services:
             if not service_instance.initialized:
                 continue
+
+            service_name = service_instance.__class__.__name__
 
             # If the service supports webhooks and webhook mode is enabled, run once now
             use_webhook = getattr(
                 getattr(service_instance, "settings", object()), "use_webhook", False
             )
+
             if use_webhook:
                 self.scheduler.add_job(
                     self.program.em.submit_job,
                     "date",
                     run_date=datetime.now(),
-                    args=[service_cls, self.program],
-                    id=f"{service_cls.__name__}_update_once",
+                    args=[service_instance, self.program],
+                    id=f"{service_name}_update_once",
                     replace_existing=True,
                     misfire_grace_time=30,
                 )
+
                 logger.debug(
-                    f"Scheduled {service_cls.__name__} to run once (webhook mode enabled)."
+                    f"Scheduled {service_name} to run once (webhook mode enabled)."
                 )
+
                 continue
 
             update_interval = getattr(
                 service_instance.settings, "update_interval", False
             )
+
             if not update_interval:
                 continue
 
@@ -124,26 +139,30 @@ class ProgramScheduler:
                 self.program.em.submit_job,
                 "interval",
                 seconds=update_interval,
-                args=[service_cls, self.program],
-                id=f"{service_cls.__name__}_update",
+                args=[service_instance, self.program],
+                id=f"{service_name}_update",
                 max_instances=1,
                 replace_existing=True,
                 next_run_time=datetime.now(),
                 coalesce=False,
             )
+
             logger.debug(
-                f"Scheduled {service_cls.__name__} to run every {update_interval} seconds."
+                f"Scheduled {service_name} to run every {update_interval} seconds."
             )
 
     def _retry_library(self) -> None:
         """Retry items that failed to download by emitting events into the EM."""
+
         item_ids = db_functions.retry_library()
+
         for item_id in item_ids:
             self.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
 
         if item_ids:
             logger.log(
-                "PROGRAM", f"Successfully retried {len(item_ids)} incomplete items"
+                "PROGRAM",
+                f"Successfully retried {len(item_ids)} incomplete items",
             )
         else:
             logger.log("NOT_FOUND", "No items required retrying")
@@ -151,6 +170,8 @@ class ProgramScheduler:
     def _schedule_callback(self, task: ScheduledTask, callback: Callable) -> None:
         """Schedule a callback to run at the task's scheduled_for time."""
         try:
+            assert self.scheduler
+
             self.scheduler.add_job(
                 callback,
                 "date",
@@ -256,7 +277,10 @@ class ProgramScheduler:
 
     def _run_reindex_for_item(self, session: Session, item) -> None:
         """Run indexer service for an item if available and persist updates."""
-        indexer_service = self.program.services.get(IndexerService)
+
+        assert self.program.services, "Services not initialized in Program"
+
+        indexer_service = self.program.services.indexer
         if not indexer_service:
             raise RuntimeError("IndexerService not available")
         updated = next(indexer_service.run(item, log_msg=False), None)
@@ -296,8 +320,10 @@ class ProgramScheduler:
         - schedule ongoing/unreleased shows (computed next air)
         - schedule unknown-date movies (daily reindex)
         """
+
         offset_seconds = settings_manager.settings.indexer.schedule_offset_minutes * 60
         now = datetime.now()
+
         try:
             with db.Session() as session:
                 self._schedule_upcoming_episodes(session, now, offset_seconds)
@@ -308,7 +334,11 @@ class ProgramScheduler:
             logger.error(f"Monitor ongoing schedules failed: {e}")
 
     def _has_future_task(
-        self, session: Session, item_id: int, task_type: str, now: datetime
+        self,
+        session: Session,
+        item_id: int,
+        task_type: str,
+        now: datetime,
     ) -> bool:
         """Return True if a pending future task of this type already exists for item."""
         existing = (
@@ -323,12 +353,17 @@ class ProgramScheduler:
             .scalars()
             .first()
         )
+
         return existing is not None
 
     def _schedule_upcoming_episodes(
-        self, session: Session, now: datetime, offset_seconds: int
+        self,
+        session: Session,
+        now: datetime,
+        offset_seconds: int,
     ) -> None:
         """Schedule episode_release for future-dated episodes that are not completed."""
+
         upcoming_eps = (
             session.execute(
                 select(Episode)

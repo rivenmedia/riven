@@ -713,5 +713,7 @@ def get_hostname_from_url(url: str) -> str:
     Returns:
         str: Lowercase hostname.
     """
+
     parsed = urlparse(url)
+
     return parsed.hostname.lower() if parsed.hostname else ""

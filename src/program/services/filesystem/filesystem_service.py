@@ -11,9 +11,11 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
+from program.core.runner import Runner
+from program.settings.models import FilesystemModel
 
 
-class FilesystemService:
+class FilesystemService(Runner[FilesystemModel]):
     """Filesystem service for VFS-only mode"""
 
     def __init__(self, downloader: Downloader):

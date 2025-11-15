@@ -16,6 +16,7 @@ from program.services.downloaders import Downloader
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
 from program.services.filesystem.filesystem_service import FilesystemService
+from program.program import Program
 
 from ..models.shared import MessageResponse
 
@@ -27,7 +28,7 @@ router = APIRouter(
 @router.get("/health", operation_id="health")
 async def health(request: Request) -> MessageResponse:
     return {
-        "message": str(request.app.program.initialized),
+        "message": str(di[Program].initialized),
     }
 
 
@@ -62,7 +63,7 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
     """
     try:
         # Get the downloader service from the program
-        downloader: Downloader = request.app.program.services.get(Downloader)
+        downloader: Downloader = di[Program].services.get(Downloader)
 
         if not downloader or not downloader.initialized:
             raise HTTPException(
@@ -133,16 +134,22 @@ async def generate_apikey() -> MessageResponse:
 @router.get("/services", operation_id="services")
 async def get_services(request: Request) -> dict[str, bool]:
     data = {}
-    if hasattr(request.app.program, "services"):
-        for service in request.app.program.all_services.values():
+
+    services = di[Program].services
+
+    if services:
+        for service in services.model_dump().values():
             data[service.key] = service.initialized
+
             if not hasattr(service, "services"):
                 continue
+
             for sub_service in service.services:
                 if hasattr(sub_service, "initialized"):
                     data[sub_service.key] = sub_service.initialized
                 elif hasattr(service, "initialized"):
                     data[service.key] = service.initialized
+
     return data
 
 
@@ -155,7 +162,7 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
     trakt_api = di[TraktAPI]
     if trakt_api is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
-    auth_url = trakt_api.perform_oauth_flow()
+    auth_url = trakt_api.build_oauth_url()
     return {"auth_url": auth_url}
 
 
@@ -326,7 +333,7 @@ class EventResponse(BaseModel):
 async def get_events(
     request: Request,
 ) -> EventResponse:
-    events = request.app.program.em.get_event_updates()
+    events = di[Program].em.get_event_updates()
     return EventResponse(events=events)
 
 
@@ -424,5 +431,5 @@ class VFSStatsResponse(BaseModel):
 )
 async def get_vfs_stats(request: Request) -> VFSStatsResponse:
     return VFSStatsResponse(
-        stats=request.app.program.services[FilesystemService].riven_vfs._opener_stats
+        stats=di[Program].services[FilesystemService].riven_vfs._opener_stats
     )

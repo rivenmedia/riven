@@ -14,6 +14,7 @@ from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
 from program.utils.torrent import extract_infohash, normalize_infohash
+from program.settings.models import ProwlarrConfig
 
 
 class SearchParams(BaseModel):
@@ -45,7 +46,7 @@ class Indexer(BaseModel):
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
 
 
-class Prowlarr(ScraperService):
+class Prowlarr(ScraperService[ProwlarrConfig]):
     """Scraper for `Prowlarr`"""
 
     def __init__(self):

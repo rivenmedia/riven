@@ -9,9 +9,11 @@ from program.apis.listrr_api import ListrrAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.core.content_service import ContentService
+from program.settings.models import ListrrModel
 
 
-class Listrr:
+class Listrr(ContentService[ListrrModel]):
     """Content class for Listrr"""
 
     def __init__(self):
@@ -56,15 +58,13 @@ class Listrr:
             logger.error(f"Listrr ping exception: {e}")
             return False
 
-    def run(self) -> Generator[MediaItem, None, None]:
+    def run(self) -> Generator[list[MediaItem], None, None]:
         """Fetch new media from `Listrr`"""
         try:
-            movie_items = self.api.get_items_from_Listrr(
-                "Movies", self.settings.movie_lists
-            )
-            show_items = self.api.get_items_from_Listrr(
-                "Shows", self.settings.show_lists
-            )
+            assert self.api
+
+            movie_items = self.api.get_movies(self.settings.movie_lists)
+            show_items = self.api.get_shows(self.settings.show_lists)
         except Exception as e:
             logger.error(f"Failed to fetch items from Listrr: {e}")
             return
@@ -80,7 +80,7 @@ class Listrr:
             if not item_exists_by_any_id(imdb_id=item[0], tvdb_id=str(item[1]))
         ]
 
-        listrr_items = []
+        listrr_items: list[MediaItem] = []
         for item in movie_items:
             _, tmdb_id = item
             listrr_items.append(

@@ -1,3 +1,4 @@
+from typing import Literal
 from loguru import logger
 
 from program.media import MediaItem, States
@@ -11,7 +12,7 @@ from program.types import ProcessedEvent, Service
 
 
 def process_event(
-    emitted_by: Service,
+    emitted_by: Service | Literal["StateTransition", "RetryLibrary"],
     existing_item: MediaItem | None = None,
     content_item: MediaItem | None = None,
 ) -> ProcessedEvent:

@@ -13,6 +13,7 @@ from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.utils.torrent import extract_infohash, normalize_infohash
+from program.settings.models import JackettConfig
 
 
 class JackettIndexer(BaseModel):
@@ -27,7 +28,7 @@ class JackettIndexer(BaseModel):
     movie_search_capabilities: Optional[List[str]] = None
 
 
-class Jackett(ScraperService):
+class Jackett(ScraperService[JackettConfig]):
     """Scraper for `Jackett`"""
 
     def __init__(self):

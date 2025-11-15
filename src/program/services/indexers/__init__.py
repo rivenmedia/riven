@@ -23,7 +23,9 @@ class IndexerService(BaseIndexer):
         self.tvdb_indexer = TVDBIndexer()
 
     def run(
-        self, in_item: MediaItem, log_msg: bool = True
+        self,
+        in_item: MediaItem,
+        log_msg: bool = True,
     ) -> Generator[Union[Movie, Show], None, None]:
         """Run the appropriate indexer based on item type."""
         if not in_item:

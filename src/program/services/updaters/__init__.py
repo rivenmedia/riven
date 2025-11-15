@@ -10,9 +10,10 @@ from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
 from program.settings.manager import settings_manager
+from program.core.runner import Runner
 
 
-class Updater:
+class Updater(Runner):
     """
     Main updater service that coordinates multiple media server updaters.
 
