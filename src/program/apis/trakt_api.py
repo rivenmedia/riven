@@ -1,6 +1,7 @@
 ﻿import os
 import re
 
+from collections.abc import Callable
 from typing import Generic, TypeVar
 from urllib.parse import urlencode
 
@@ -22,14 +23,14 @@ class TraktAPIError(Exception):
     """Base exception for TraktApi related errors"""
 
 
-DataType = TypeVar("DataType", bound=type[BaseModel])
+DataModel = TypeVar("DataModel", bound=BaseModel)
 
 
-class PageResponse(BaseModel, Generic[DataType]):
-    data: list[DataType]
+class PageResponse(BaseModel, Generic[DataModel]):
+    data: list[DataModel]
 
 
-class PaginatedResponse(PageResponse[DataType]):
+class PaginatedResponse(PageResponse[DataModel]):
     has_next_page: bool
 
 
@@ -81,18 +82,24 @@ class TraktAPI:
             self.session.proxies.update(proxies)
 
     def validate(self):
-        return self.session.get("lists/2")
+        response = self.session.get("lists/2")
+
+        from schemas.trakt import GetList200Response
+
+        GetList200Response.model_validate(response.json())
+
+        return True
 
     def _fetch_data(
         self,
         url: str,
-        _data_type: DataType,
+        model_validator: Callable[[dict], DataModel | None],
         *,
         limit: int | None = None,
-    ) -> list[DataType]:
+    ) -> list[DataModel]:
         """Fetch paginated data from Trakt API with rate limiting."""
 
-        all_data: list[DataType] = []
+        all_data: list[DataModel] = []
 
         def _request_page(requested_page: int):
             response = self.session.get(
@@ -105,9 +112,9 @@ class TraktAPI:
 
             if response.ok:
                 data = (
-                    response.data
-                    if isinstance(response.data, list)
-                    else [response.data]
+                    response.json()
+                    if isinstance(response.json(), list)
+                    else [response.json()]
                 )
 
                 pagination_page_header = response.headers.get("X-Pagination-Page")
@@ -123,11 +130,15 @@ class TraktAPI:
 
                 has_next_page = pagination_page < pagination_page_count
 
-                return PaginatedResponse[DataType].model_validate(
-                    {
-                        "data": data,
-                        "has_next_page": has_next_page,
-                    }
+                validated_data = [
+                    validated_item
+                    for item in data
+                    if (validated_item := model_validator(item))
+                ]
+
+                return PaginatedResponse(
+                    data=validated_data,
+                    has_next_page=has_next_page,
                 )
             elif response.status_code == 429:
                 logger.warning("Rate limit exceeded. Retrying after rate limit period.")
@@ -151,6 +162,7 @@ class TraktAPI:
 
                 if limit and len(all_data) >= limit:
                     all_data = all_data[:limit]
+
                     break
 
                 if not page_response.has_next_page:
@@ -165,11 +177,11 @@ class TraktAPI:
     def get_watchlist_items(self, user):
         """Get watchlist items from Trakt with pagination support."""
 
-        from schemas.trakt import GetWatchlist200ResponseInner
+        from schemas.trakt import GetItemsOnAList200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/users/{user}/watchlist",
-            GetWatchlist200ResponseInner,
+            url=f"{self.BASE_URL}/users/{user}/watchlist",
+            model_validator=GetItemsOnAList200ResponseInner.from_dict,
         )
 
     def get_user_list(self, user, list_name):
@@ -178,8 +190,8 @@ class TraktAPI:
         from schemas.trakt import GetItemsOnAPersonalList200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/users/{user}/lists/{list_name}/items",
-            GetItemsOnAPersonalList200ResponseInner,
+            url=f"{self.BASE_URL}/users/{user}/lists/{list_name}/items",
+            model_validator=GetItemsOnAPersonalList200ResponseInner.from_dict,
         )
 
     def get_collection_items(self, user, media_type):
@@ -188,8 +200,8 @@ class TraktAPI:
         from schemas.trakt import GetCollection200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/users/{user}/collection/{media_type}",
-            GetCollection200ResponseInner,
+            url=f"{self.BASE_URL}/users/{user}/collection/{media_type}",
+            model_validator=GetCollection200ResponseInner.from_dict,
         )
 
     def get_trending_movies(self, limit: int | None = None):
@@ -198,8 +210,8 @@ class TraktAPI:
         from schemas.trakt import GetTrendingMovies200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/movies/trending",
-            GetTrendingMovies200ResponseInner,
+            url=f"{self.BASE_URL}/movies/trending",
+            model_validator=GetTrendingMovies200ResponseInner.from_dict,
             limit=limit,
         )
 
@@ -209,8 +221,8 @@ class TraktAPI:
         from schemas.trakt import GetTrendingShows200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/shows/trending",
-            GetTrendingShows200ResponseInner,
+            url=f"{self.BASE_URL}/shows/trending",
+            model_validator=GetTrendingShows200ResponseInner.from_dict,
             limit=limit,
         )
 
@@ -220,8 +232,8 @@ class TraktAPI:
         from schemas.trakt import GetPopularMovies200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/movies/popular",
-            GetPopularMovies200ResponseInner,
+            url=f"{self.BASE_URL}/movies/popular",
+            model_validator=GetPopularMovies200ResponseInner.from_dict,
             limit=limit,
         )
 
@@ -231,8 +243,8 @@ class TraktAPI:
         from schemas.trakt import GetPopularShows200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/shows/popular",
-            GetPopularShows200ResponseInner,
+            url=f"{self.BASE_URL}/shows/popular",
+            model_validator=GetPopularShows200ResponseInner.from_dict,
             limit=limit,
         )
 
@@ -242,8 +254,8 @@ class TraktAPI:
         from schemas.trakt import GetTheMostPlayedMovies200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/movies/watched/{period}",
-            GetTheMostPlayedMovies200ResponseInner,
+            url=f"{self.BASE_URL}/movies/watched/{period}",
+            model_validator=GetTheMostPlayedMovies200ResponseInner.from_dict,
             limit=limit,
         )
 
@@ -253,8 +265,8 @@ class TraktAPI:
         from schemas.trakt import GetTheMostPlayedShows200ResponseInner
 
         return self._fetch_data(
-            f"{self.BASE_URL}/shows/watched/{period}",
-            GetTheMostPlayedShows200ResponseInner,
+            url=f"{self.BASE_URL}/shows/watched/{period}",
+            model_validator=GetTheMostPlayedShows200ResponseInner.from_dict,
             limit=limit,
         )
 
@@ -319,7 +331,7 @@ class TraktAPI:
                 from schemas.trakt import GetAllMovieAliases200ResponseInner
 
                 response_data = (
-                    PageResponse[type[GetAllMovieAliases200ResponseInner]]
+                    PageResponse[GetAllMovieAliases200ResponseInner]
                     .model_validate(response.json())
                     .data
                 )

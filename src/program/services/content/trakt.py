@@ -20,8 +20,10 @@ class TraktContent:
         self.settings = settings_manager.settings.content.trakt
         self.api = di[TraktAPI]
         self.initialized = self.validate()
+
         if not self.initialized:
             return
+
         self.last_update = None
         logger.success("Trakt initialized!")
 
@@ -36,13 +38,7 @@ class TraktContent:
                 logger.error("Trakt API key is not set.")
                 return False
 
-            response = self.api.validate()
-
-            if not getattr(response.data, "name", None):
-                logger.error("Invalid user settings received from Trakt.")
-                return False
-
-            return True
+            return self.api.validate()
         except ConnectionError:
             logger.error("Connection error during Trakt validation.")
         except TimeoutError:
