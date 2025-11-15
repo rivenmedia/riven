@@ -65,25 +65,22 @@ class TMDBApi:
             external_ids: MovieExternalIds200Response
             release_dates: MovieReleaseDates200Response
 
-            @classmethod
-            def from_dict(cls, obj: dict | None) -> "MovieDetailsWithExtras | None":
-                if obj is None:
-                    return None
+        data = response.json()
 
-                _obj = MovieDetails200Response.from_dict(obj)
+        movie_details = MovieDetails200Response.from_dict(data)
+        external_ids = MovieExternalIds200Response.from_dict(data.get("external_ids"))
+        release_dates = MovieReleaseDates200Response.from_dict(
+            data.get("release_dates")
+        )
 
-                external_ids = MovieExternalIds200Response.model_validate(
-                    obj.get("external_ids")
-                )
+        assert movie_details
+        assert external_ids
+        assert release_dates
 
-                release_dates = MovieReleaseDates200Response.model_validate(
-                    obj.get("release_dates")
-                )
-
-                result = MovieDetailsWithExtras(**_obj.__dict__)
-                result.external_ids = external_ids
-                result.release_dates = release_dates
-
-                return result
-
-        return MovieDetailsWithExtras.from_dict(response.json())
+        return MovieDetailsWithExtras.model_validate(
+            {
+                **movie_details.model_dump(),
+                "external_ids": external_ids,
+                "release_dates": release_dates,
+            }
+        )

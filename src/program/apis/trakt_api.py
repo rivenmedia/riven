@@ -237,8 +237,10 @@ class TraktAPI:
                         aliases[country].append(title)
 
                 return aliases
-        except Exception:
-            logger.debug(f"Failed to get aliases for {imdb_id} with type {item_type}")
+        except Exception as e:
+            logger.debug(
+                f"Failed to get aliases for {imdb_id} with type {item_type}: {e}"
+            )
 
         return {}
 

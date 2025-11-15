@@ -111,13 +111,6 @@ class TMDBIndexer(BaseIndexer):
                 )
             )
 
-            assert movie_details
-
-            # if not movie_details:
-            #     logger.error(f"Could not fetch TMDB data for {movie.log_string}")
-
-            #     return False
-
             # Parse release date
             release_date = None
 
