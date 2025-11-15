@@ -165,13 +165,6 @@ generate-tvdb-schema:
 	@uv run black src/schemas/tvdb
 	@echo "TVDB schema generated"
 
-generate-tvmaze-schema:
-	@echo "Generating TVMaze schema from OpenAPI specification..."
-	@rm -rf src/schemas/tvmaze
-	@uv run openapi-generator-cli generate -g python -i https://static.tvmaze.com/apidoc/v1.yaml -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.tvmaze,lazyImports=true
-	@uv run black src/schemas/tvmaze
-	@echo "TVMaze schema generated"
-
 generate-schemas:
 	@echo "Generating all schemas..."
 
@@ -181,6 +174,5 @@ generate-schemas:
 	@make generate-tmdb-schema
 	@make generate-trakt-schema
 	@make generate-tvdb-schema
-	@make generate-tvmaze-schema
 
 	@echo "All schemas generated"
