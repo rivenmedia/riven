@@ -294,11 +294,7 @@ class EventManager:
             item (Event, optional): The event item to process. Defaults to None.
         """
 
-        logger.debug(
-            f"service type: {type(service)}, service name: {type(service).__name__}"
-        )
-
-        log_message = f"Submitting service {type(service)} to be executed"
+        log_message = f"Submitting service {service.__class__.__name__} to be executed"
 
         # Content services dont provide an event.
         if event:
@@ -584,8 +580,6 @@ class EventManager:
         updates = {event_type: [] for event_type in event_types}
 
         for event in events:
-            logger.debug(f"event emitted by: {event.emitted_by}")
-
             if isinstance(event.emitted_by, str):
                 key = event.emitted_by
             else:

@@ -370,8 +370,6 @@ def run_thread_with_db_item(
 
                     res = next(fn(input_item), None)
 
-                    logger.debug(f"result from service {type(service).__name__}: {res}")
-
                     if res:
                         if isinstance(res, tuple):
                             item, run_at = res
@@ -455,10 +453,7 @@ def run_thread_with_db_item(
             if isinstance(i, list):
                 for item in i:
                     if isinstance(item, MediaItem):
-                        logger.debug(
-                            f"run in thread: service={type(service).__name__}, service_instance={service}"
-                        )
-                        program.em.add_item(item, type(service).__name__)
+                        program.em.add_item(item, service=service.__class__.__name__)
 
     return None
 
