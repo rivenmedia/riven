@@ -11,15 +11,16 @@ from program.settings.models import TorrentioConfig
 from program.utils.request import SmartSession
 
 
-class Torrentio(ScraperService):
+class Torrentio(ScraperService[TorrentioConfig]):
     """Scraper for `Torrentio`"""
 
     requires_imdb_id = True
 
     def __init__(self):
         super().__init__("torrentio")
-        self.settings: TorrentioConfig = settings_manager.settings.scraping.torrentio
-        self.timeout: int = self.settings.timeout or 15
+
+        self.settings = settings_manager.settings.scraping.torrentio
+        self.timeout = self.settings.timeout or 15
 
         if self.settings.ratelimit:
             rate_limits = {

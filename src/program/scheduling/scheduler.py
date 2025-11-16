@@ -99,12 +99,14 @@ class ProgramScheduler:
         """Schedule each content service based on its update interval or webhook mode."""
 
         assert self.scheduler
+        assert self.program.services
 
-        for service_instance in self.program.content_services:
-            if not service_instance.initialized:
-                continue
+        for service_instance in self.program.services.content_services:
+            service_name = type(service_instance).__name__
 
-            service_name = service_instance.__class__.__name__
+            logger.debug(
+                f"service_name: {service_name}, service_type: {type(service_instance)}"
+            )
 
             # If the service supports webhooks and webhook mode is enabled, run once now
             use_webhook = getattr(
@@ -227,7 +229,10 @@ class ProgramScheduler:
             logger.error(f"Scheduler DB error: {e}")
 
     def _process_single_scheduled_task(
-        self, session: Session, task: ScheduledTask, now: datetime
+        self,
+        session: Session,
+        task: ScheduledTask,
+        now: datetime,
     ) -> None:
         """Process a single ScheduledTask instance.
 

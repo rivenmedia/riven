@@ -25,7 +25,8 @@ from program.settings.models import ScraperModel
 
 class Scraping(Runner[ScraperModel]):
     def __init__(self):
-        self.key = "scraping"
+        super().__init__()
+
         self.initialized = False
         self.settings = settings_manager.settings.scraping
         self.max_failed_attempts = (

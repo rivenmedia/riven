@@ -1,6 +1,7 @@
 """Overseerr content module"""
 
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 from kink import di
 from loguru import logger
 
@@ -16,9 +17,14 @@ class Overseerr(ContentService[OverseerrModel]):
     """Content class for overseerr"""
 
     def __init__(self):
-        self.key = "overseerr"
+        super().__init__()
+
         self.settings = settings_manager.settings.content.overseerr
-        self.api = None
+
+        if not self.enabled:
+            return
+
+        self.api = di[OverseerrAPI]
         self.initialized = self.validate()
         self.run_once = False
 
@@ -40,8 +46,6 @@ class Overseerr(ContentService[OverseerrModel]):
             return False
 
         try:
-            self.api = di[OverseerrAPI]
-
             return self.api.validate()
         except Exception:
             return False
@@ -51,8 +55,6 @@ class Overseerr(ContentService[OverseerrModel]):
 
         if self.settings.use_webhook and self.run_once:
             return
-
-        assert self.api
 
         overseerr_items = self.api.get_media_requests(self.key)
 

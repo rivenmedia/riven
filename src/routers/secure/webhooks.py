@@ -72,6 +72,9 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         )
         return {"success": False, "message": "Failed to create new item"}
 
-    di[Program].em.add_item(new_item, service="Overseerr")
+    di[Program].em.add_item(
+        new_item,
+        service=Overseerr.__class__.__name__,
+    )
 
     return {"success": True}

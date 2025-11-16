@@ -16,7 +16,7 @@ import traceback
 
 from loguru import logger
 from program.utils.ffprobe import parse_media_file
-from program.media.models import MediaMetadata
+from program.media.models import DataSource, MediaMetadata
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
@@ -27,9 +27,14 @@ class MediaAnalysisService(Runner):
     """Service for analyzing media files and extracting metadata."""
 
     def __init__(self):
-        self.key = "media_analysis"
+        super().__init__()
+
         self.initialized = True
         logger.info("Media Analysis service initialized")
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "media_analysis"
 
     @property
     def enabled(self) -> bool:
@@ -151,6 +156,8 @@ class MediaAnalysisService(Runner):
             if ffprobe_metadata:
                 ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
 
+                assert item.filesystem_entry
+
                 # Get or create MediaMetadata
                 if item.filesystem_entry.media_metadata:
                     # Update existing metadata with probed data
@@ -163,7 +170,8 @@ class MediaAnalysisService(Runner):
                         f"No existing metadata for {item.log_string}, creating from probed data only"
                     )
                     metadata = MediaMetadata(
-                        filename=ffprobe_dict.get("filename"), data_source="probed"
+                        filename=ffprobe_dict.get("filename"),
+                        data_source=DataSource.PROBED,
                     )
                     metadata.update_from_probed_data(ffprobe_dict)
 

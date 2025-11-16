@@ -1,5 +1,8 @@
+from collections.abc import Generator
+from contextlib import contextmanager
+from typing import Any
 from loguru import logger
-from sqla_wrapper import SQLAlchemy
+from sqla_wrapper import SQLAlchemy, Session
 from sqlalchemy import text
 
 from alembic import command
@@ -26,6 +29,14 @@ engine_options = {
 
 db_host = str(settings_manager.settings.database.host)
 db = SQLAlchemy(db_host, engine_options=engine_options)
+
+
+@contextmanager
+def db_session() -> Generator[Session, Any, None]:
+    with db.Session() as session:
+        s: Session = session
+
+        yield s
 
 
 def get_db():

@@ -737,7 +737,9 @@ async def overseerr_requests(
             persisted_items.append(persisted)
         db.commit()
 
+        from program.services.content.overseerr import Overseerr
+
         for persisted in persisted_items:
-            di[Program].em.add_item(persisted, service="Overseerr")
+            di[Program].em.add_item(persisted, service=Overseerr.__class__.__name__)
 
     return MessageResponse(message="Submitted overseerr requests to the queue")

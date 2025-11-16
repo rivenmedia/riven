@@ -16,9 +16,14 @@ class Mdblist(ContentService[MdblistModel]):
     """Content class for mdblist"""
 
     def __init__(self):
-        self.key = "mdblist"
+        super().__init__()
+
         self.settings = settings_manager.settings.content.mdblist
-        self.api = None
+
+        if not self.enabled:
+            return
+
+        self.api = di[MdblistAPI]
         self.initialized = self.validate()
 
         if not self.initialized:
@@ -40,14 +45,10 @@ class Mdblist(ContentService[MdblistModel]):
             logger.error("Mdblist is enabled, but you haven't added any lists.")
             return False
 
-        self.api = di[MdblistAPI]
-
         return self.api.validate()
 
     def run(self) -> Generator[list[MediaItem], None, None]:
         """Fetch media from mdblist and add them to media_items attribute"""
-
-        assert self.api
 
         items_to_yield: list[MediaItem] = []
 
@@ -106,8 +107,6 @@ class Mdblist(ContentService[MdblistModel]):
 
     def _calculate_request_time(self):
         """Calculate requests per 2 minutes based on mdblist limits"""
-
-        assert self.api
 
         limits = self.api.my_limits()
 

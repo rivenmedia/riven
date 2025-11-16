@@ -4,7 +4,7 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
-from typing import Generator
+from collections.abc import Generator
 from loguru import logger
 
 from program.media.item import MediaItem
@@ -19,13 +19,17 @@ class FilesystemService(Runner[FilesystemModel]):
     """Filesystem service for VFS-only mode"""
 
     def __init__(self, downloader: Downloader):
-        # Service key matches settings category name for reinitialization logic
-        self.key = "filesystem"
+        super().__init__()
+
         # Use filesystem settings
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
         self.downloader = downloader  # Store for potential reinit
         self._initialize_rivenvfs(downloader)
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "filesystem"
 
     def _initialize_rivenvfs(self, downloader: Downloader):
         """Initialize or synchronize RivenVFS"""
@@ -134,3 +138,8 @@ class FilesystemService(Runner[FilesystemModel]):
     def initialized(self) -> bool:
         """Check if the filesystem service is properly initialized"""
         return self.validate()
+
+    @initialized.setter
+    def initialized(self, value: bool) -> None:
+        # Setting initialized is a no-op
+        pass

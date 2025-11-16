@@ -4,9 +4,6 @@ import os
 import threading
 import time
 from queue import Empty
-from types import FunctionType
-
-from pydantic import BaseModel
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -53,7 +50,7 @@ class Services:
     plex_watchlist: PlexWatchlist
     listrr: Listrr
     mdblist: Mdblist
-    trakt_content: TraktContent
+    trakt: TraktContent
     indexer: IndexerService
     scraping: Scraping
     updater: Updater
@@ -62,33 +59,32 @@ class Services:
     post_processing: PostProcessing
     notifications: NotificationService
 
-    def __post_init__(self):
-        self.__service_map: dict[type[Runner], str] = {
-            Overseerr: "overseerr",
-            PlexWatchlist: "plex_watchlist",
-            Listrr: "listrr",
-            Mdblist: "mdblist",
-            TraktContent: "trakt_content",
-            IndexerService: "indexer",
-            Scraping: "scraping",
-            Updater: "updater",
-            Downloader: "downloader",
-            FilesystemService: "filesystem",
-            PostProcessing: "post_processing",
-            NotificationService: "notifications",
-        }
+    @property
+    def enabled_services(self) -> list[Runner]:
+        """Get a list of enabled services."""
+
+        return [service for service in self.to_dict().values() if service.enabled]
+
+    @property
+    def initialized_services(self) -> list[Runner]:
+        """Get a list of initialized services."""
+
+        return [service for service in self.enabled_services if service.initialized]
+
+    @property
+    def content_services(self) -> list[ContentService]:
+        """Get all services that are content services."""
+
+        return [
+            service
+            for service in self.enabled_services
+            if service.initialized and isinstance(service, ContentService)
+        ]
 
     def to_dict(self) -> dict[str, Runner]:
-        return {
-            key: getattr(self, key)
-            for key in self.__service_map.values()
-            if key != "__service_map"
-        }
+        return self.__dict__
 
-    def __getitem__(self, key: str | Runner) -> Runner:
-        if isinstance(key, Runner):
-            key = self.__service_map[type(key)]
-
+    def __getitem__(self, key: str) -> Runner:
         return getattr(self, key)
 
 
@@ -111,19 +107,6 @@ class Program(threading.Thread):
             self.malloc_time = time.monotonic() - 50
             self.last_snapshot = None
 
-    @property
-    def content_services(self) -> list[ContentService]:
-        """Get all services that are content services."""
-
-        if not self.services:
-            return []
-
-        return [
-            service
-            for service in self.services.to_dict().values()
-            if service.initialized and isinstance(service, ContentService)
-        ]
-
     def initialize_apis(self):
         bootstrap_apis()
 
@@ -138,7 +121,7 @@ class Program(threading.Thread):
             plex_watchlist=PlexWatchlist(),
             listrr=Listrr(),
             mdblist=Mdblist(),
-            trakt_content=TraktContent(),
+            trakt=TraktContent(),
             indexer=IndexerService(),
             scraping=Scraping(),
             updater=Updater(),
@@ -149,7 +132,13 @@ class Program(threading.Thread):
         )
 
         if (
-            len([service for service in self.content_services if service.initialized])
+            len(
+                [
+                    service
+                    for service in self.services.enabled_services
+                    if service.initialized
+                ]
+            )
             == 0
         ):
             logger.warning(
@@ -188,7 +177,7 @@ class Program(threading.Thread):
         if not self.services:
             return True
 
-        return all(s.initialized for s in self.services.to_dict().values())
+        return all(s.initialized for s in self.services.enabled_services)
 
     def validate_database(self) -> bool:
         """Validate that the database is accessible."""
@@ -336,13 +325,19 @@ class Program(threading.Thread):
                 time.sleep(0.1)
                 continue
 
-            existing_item = db_functions.get_item_by_id(event.item_id)
+            if event.item_id:
+                existing_item = db_functions.get_item_by_id(event.item_id)
+            else:
+                existing_item = None
 
-            next_service, items_to_submit = process_event(
+            processed_event = process_event(
                 event.emitted_by,
                 existing_item,
                 event.content_item,
             )
+
+            next_service = processed_event.service
+            items_to_submit = processed_event.related_media_items
 
             for item_to_submit in items_to_submit:
                 if not next_service:

@@ -6,13 +6,13 @@ from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings.manager import settings_manager
 from program.core.runner import Runner
-from program.settings.models import PostProcessing
+from program.settings.models import PostProcessing as PostProcessingModel
 
 
-class PostProcessing(Runner[PostProcessing]):
+class PostProcessing(Runner[PostProcessingModel]):
     def __init__(self):
-        self.key = "post_processing"
-        self.initialized = False
+        super().__init__()
+
         self.settings = settings_manager.settings.post_processing
 
         # Initialize services in order of execution
@@ -22,7 +22,12 @@ class PostProcessing(Runner[PostProcessing]):
             MediaAnalysisService: MediaAnalysisService(),
             SubtitleService: SubtitleService(),
         }
+
         self.initialized = True
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "post_processing"
 
     def _get_items_to_process(self, item: MediaItem) -> list[MediaItem]:
         """

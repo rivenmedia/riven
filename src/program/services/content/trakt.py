@@ -33,8 +33,13 @@ class TraktContent(ContentService[TraktModel]):
     """Content class for Trakt"""
 
     def __init__(self):
-        self.key = "trakt"
+        super().__init__()
+
         self.settings = settings_manager.settings.content.trakt
+
+        if not self.enabled:
+            return
+
         self.api = di[TraktAPI]
         self.initialized = self.validate()
 
@@ -43,6 +48,10 @@ class TraktContent(ContentService[TraktModel]):
 
         self.last_update = None
         logger.success("Trakt initialized!")
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "trakt"
 
     def validate(self) -> bool:
         """Validate Trakt settings."""
@@ -206,10 +215,12 @@ class TraktContent(ContentService[TraktModel]):
             for item in items:
                 if item.movie:
                     tmdb_id = getattr(item.movie.ids, "tmdb", None)
+
                     if tmdb_id:
                         ids.append((tmdb_id, "movie"))
                 elif item.show:
                     tvdb_id = getattr(item.show.ids, "tvdb", None)
+
                     if tvdb_id:
                         ids.append((tvdb_id, "show"))
 

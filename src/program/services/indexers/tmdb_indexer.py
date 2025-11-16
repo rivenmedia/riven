@@ -15,11 +15,9 @@ from program.services.indexers.base import BaseIndexer
 class TMDBIndexer(BaseIndexer):
     """TMDB indexer class for movies"""
 
-    key = "TMDBIndexer"
-
     def __init__(self):
         super().__init__()
-        self.key = "tmdbindexer"
+
         self.api = di[TMDBApi]
         self.trakt_api = di[TraktAPI]
 

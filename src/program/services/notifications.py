@@ -23,12 +23,15 @@ class NotificationService(Runner[NotificationsModel]):
     """
 
     def __init__(self):
-        self.key = "notifications"
         self.initialized = False
         self.settings = settings_manager.settings.notifications
         self.apprise = Apprise()
         self._initialize_apprise()
         self.initialized = True
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "notifications"
 
     def _initialize_apprise(self):
         """Initialize Apprise with configured service URLs."""

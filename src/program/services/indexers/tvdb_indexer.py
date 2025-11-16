@@ -18,12 +18,9 @@ from schemas.tvdb import SeasonExtendedRecord
 class TVDBIndexer(BaseIndexer):
     """TVDB indexer class for TV shows, seasons and episodes"""
 
-    key = "TVDBIndexer"
-
     def __init__(self):
         super().__init__()
 
-        self.key = "tvdbindexer"
         self.api = di[TVDBApi]
         self.trakt_api = di[TraktAPI]
 

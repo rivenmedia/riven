@@ -68,7 +68,7 @@ class AllDebridDownloader(DownloaderBase):
     def __init__(self) -> None:
         self.key = "alldebrid"
         self.settings = settings_manager.settings.downloaders.all_debrid
-        self.api: Optional[AllDebridAPI] = None
+        self.api: AllDebridAPI | None = None
         self.initialized = self.validate()
 
     def validate(self) -> bool:
@@ -90,11 +90,14 @@ class AllDebridDownloader(DownloaderBase):
         Returns:
             True when enabled and API key present; otherwise False.
         """
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.api_key:
             logger.warning("AllDebrid API key is not set")
             return False
+
         return True
 
     def _validate_premium(self) -> bool:

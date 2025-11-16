@@ -17,49 +17,69 @@ class PlexWatchlist(ContentService[PlexWatchlistModel]):
     """Class for managing Plex Watchlists"""
 
     def __init__(self):
-        self.key = "plex_watchlist"
+        super().__init__()
+
         self.settings = settings_manager.settings.content.plex_watchlist
-        self.api = None
+
+        if not self.enabled:
+            return
+
+        self.api = di[PlexAPI]
         self.initialized = self.validate()
+
         if not self.initialized:
             return
+
         logger.success("Plex Watchlist initialized!")
 
+    @classmethod
+    def get_key(cls) -> str:
+        return "plex_watchlist"
+
     def validate(self):
-        if not self.settings.enabled:
+        if not self.enabled:
             return False
+
         if not settings_manager.settings.updaters.plex.token:
             logger.error("Plex token is not set!")
             return False
+
         try:
-            self.api = di[PlexAPI]
             self.api.validate_account()
         except Exception as e:
             logger.error(f"Unable to authenticate Plex account: {e}")
             return False
+
         if self.settings.rss:
             self.api.set_rss_urls(self.settings.rss)
+
             for rss_url in self.settings.rss:
                 try:
                     response = self.api.validate_rss(rss_url)
+
                     response.raise_for_status()
+
                     self.api.rss_enabled = True
                 except HTTPError as e:
                     if e.response.status_code == 404:
                         logger.warning(
                             f"Plex RSS URL {rss_url} is Not Found. Please check your RSS URL in settings."
                         )
+
                         return False
                     else:
                         logger.warning(
                             f"Plex RSS URL {rss_url} is not reachable (HTTP status code: {e.response.status_code})."
                         )
+
                         return False
                 except Exception as e:
                     logger.error(
                         f"Failed to validate Plex RSS URL {rss_url}: {e}", exc_info=True
                     )
+
                     return False
+
         return True
 
     def run(self) -> Generator[list[MediaItem], None, None]:
@@ -109,4 +129,5 @@ class PlexWatchlist(ContentService[PlexWatchlistModel]):
             ]
 
         logger.info(f"Fetched {len(items_to_yield)} new items from plex watchlist")
+
         yield items_to_yield

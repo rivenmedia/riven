@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -14,11 +14,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
-from program.core.runner import Runner
 
-from .db import db
+from .db import db, db_session
 
 if TYPE_CHECKING:
+    from program.types import Service
+    from program.program import Program
+    from program.types import MediaItemGenerator
     from program.types import Event
     from program.media.item import MediaItem
 
@@ -31,14 +33,15 @@ def _maybe_session(session: Session | None) -> Iterator[tuple[Session, bool]]:
     If `session` is None, create a new db.Session() and close it on exit.
     Otherwise, yield the caller-provided session and do not close it.
     """
-    if session is not None:
+
+    if session:
         yield session, False
         return
-    _s = db.Session()
-    try:
-        yield _s, True
-    finally:
-        _s.close()
+
+    with db.Session() as _s:
+        s: Session = _s
+
+        yield s, True
 
 
 def get_item_by_id(
@@ -151,18 +154,23 @@ def item_exists_by_any_id(
     Raises:
         ValueError: If no identifier is provided.
     """
+
     from program.media.item import MediaItem
 
     if not any([item_id, tvdb_id, tmdb_id, imdb_id]):
         raise ValueError("At least one ID must be provided")
 
     clauses: list[Any] = []
+
     if item_id is not None:
         clauses.append(MediaItem.id == item_id)
+
     if tvdb_id is not None:
         clauses.append(MediaItem.tvdb_id == str(tvdb_id))
+
     if tmdb_id is not None:
         clauses.append(MediaItem.tmdb_id == str(tmdb_id))
+
     if imdb_id is not None:
         clauses.append(MediaItem.imdb_id == str(imdb_id))
 
@@ -325,9 +333,9 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
 
 
 def run_thread_with_db_item(
-    fn: Callable[..., Generator[list[MediaItem]] | None],
-    service: Runner,
-    program,
+    fn: Callable[..., MediaItemGenerator],
+    service: "Service",
+    program: "Program",
     event: Event | None,
     cancellation_event: threading.Event,
 ) -> str | tuple[str, datetime] | None:
@@ -353,13 +361,16 @@ def run_thread_with_db_item(
     from program.media.item import MediaItem
 
     if event:
-        with db.Session() as session:
+        with db_session() as session:
             if event.item_id:
                 input_item = get_item_by_id(event.item_id, session=session)
 
                 if input_item:
                     input_item = session.merge(input_item)
+
                     res = next(fn(input_item), None)
+
+                    logger.debug(f"result from service {type(service).__name__}: {res}")
 
                     if res:
                         if isinstance(res, tuple):
@@ -372,8 +383,9 @@ def run_thread_with_db_item(
                         if not isinstance(item, MediaItem):
                             logger.log(
                                 "PROGRAM",
-                                f"Service {service.__class__.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
+                                f"Service {type(service).__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
                             )
+
                             program.em.remove_id_from_queues(input_item.id)
 
                         if not cancellation_event.is_set():
@@ -443,7 +455,10 @@ def run_thread_with_db_item(
             if isinstance(i, list):
                 for item in i:
                     if isinstance(item, MediaItem):
-                        program.em.add_item(item, service)
+                        logger.debug(
+                            f"run in thread: service={type(service).__name__}, service_instance={service}"
+                        )
+                        program.em.add_item(item, type(service).__name__)
 
     return None
 

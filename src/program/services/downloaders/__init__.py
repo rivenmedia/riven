@@ -31,7 +31,6 @@ from .alldebrid import AllDebridDownloader
 
 class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
-        self.key = "downloader"
         self.initialized = False
         self.services = [
             RealDebridDownloader(),
@@ -73,6 +72,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         # Check if all services are in cooldown due to circuit breaker
         now = datetime.now()
+
         available_services = [
             service
             for service in self.initialized_services

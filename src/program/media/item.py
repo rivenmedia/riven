@@ -732,6 +732,7 @@ class MediaItem(db.Model):
             return f"TVDB ID {self.tvdb_id}"
         elif self.imdb_id and (not self.tmdb_id and not self.tvdb_id):
             return f"IMDB ID {self.imdb_id}"
+
         return "Unknown"
 
     @property

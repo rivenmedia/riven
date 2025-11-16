@@ -24,7 +24,6 @@ class SubtitleService(Runner[SubtitleConfig]):
     """Service for fetching and managing subtitles."""
 
     def __init__(self):
-        self.key = "subtitle"
         self.settings = settings_manager.settings.post_processing.subtitle
         self.initialized = False
 
@@ -50,6 +49,10 @@ class SubtitleService(Runner[SubtitleConfig]):
         logger.info(
             f"Subtitle service initialized with {len(self.providers)} provider(s) and {len(self.languages)} language(s)"
         )
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "subtitle"
 
     def _initialize_providers(self):
         """Initialize configured subtitle providers."""

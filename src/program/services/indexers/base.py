@@ -1,7 +1,5 @@
 """Base indexer module"""
 
-from datetime import datetime, timedelta
-
 from loguru import logger
 
 from program.media.item import MediaItem
@@ -16,13 +14,13 @@ class BaseIndexer(Runner[IndexerModel]):
     def __init__(self):
         super().__init__()
 
-        self.key = self.__class__.__name__.lower()
         self.settings = settings_manager.settings.indexer
         self.initialized = True
 
     @staticmethod
     def copy_attributes(source, target):
         """Copy attributes from source to target."""
+
         attributes = [
             "file",
             "folder",
@@ -38,14 +36,18 @@ class BaseIndexer(Runner[IndexerModel]):
             "requested_id",
             "streams",
         ]
+
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))
 
     def copy_items(self, itema: MediaItem, itemb: MediaItem):
         """Copy attributes from itema to itemb recursively."""
+
         is_anime = itema.is_anime or itemb.is_anime
+
         if itema.type == "mediaitem" and itemb.type == "show":
             itema.seasons = itemb.seasons
+
         if itemb.type == "show" and itema.type != "movie":
             for seasona in itema.seasons:
                 for seasonb in itemb.seasons:
@@ -65,20 +67,5 @@ class BaseIndexer(Runner[IndexerModel]):
             logger.error(
                 f"Item types {itema.type} and {itemb.type} do not match cant copy metadata"
             )
+
         return itemb
-
-    @staticmethod
-    def should_submit(item: MediaItem) -> bool:
-        if not item.indexed_at or not item.title:
-            return True
-
-        try:
-            settings = settings_manager.settings.indexer
-            interval = timedelta(seconds=settings.update_interval)
-            return datetime.now() - item.indexed_at > interval
-        except Exception:
-            logger.error(
-                f"Failed to parse date: {item.indexed_at} with format: {interval}"
-            )
-
-        return False
