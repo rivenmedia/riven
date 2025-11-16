@@ -4,7 +4,7 @@ from typing import Any, Generic, TypeVar
 from program.settings.models import Observable
 
 TSettings = TypeVar("TSettings", bound=Observable | None)
-TService = TypeVar("TService", bound=Any | None)
+TService = TypeVar("TService", bound=Any | None, default=None)
 
 
 class Runner(ABC, Generic[TSettings, TService]):
