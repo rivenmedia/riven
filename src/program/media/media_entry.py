@@ -24,14 +24,10 @@ class MediaEntry(FilesystemEntry):
     )
 
     # Debrid service fields
-    download_url: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
-    unrestricted_url: Mapped[str | None] = mapped_column(
-        sqlalchemy.String, nullable=True
-    )
-    provider: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
-    provider_download_id: Mapped[str | None] = mapped_column(
-        sqlalchemy.String, nullable=True
-    )
+    download_url: Mapped[str | None]
+    unrestricted_url: Mapped[str | None]
+    provider: Mapped[str | None]
+    provider_download_id: Mapped[str | None]
 
     # Library Profile References (list of profile keys from settings.json)
     library_profiles: Mapped[list[str] | None] = mapped_column(

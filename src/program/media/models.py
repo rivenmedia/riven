@@ -8,7 +8,7 @@ inspection via ffprobe) into a single, coherent structure.
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional, List
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -23,15 +23,15 @@ class DataSource(str, Enum):
 class VideoMetadata(BaseModel):
     """Video track metadata"""
 
-    codec: Optional[str] = None  # e.g., "h264", "hevc"
-    resolution_width: Optional[int] = None  # e.g., 1920
-    resolution_height: Optional[int] = None  # e.g., 1080
-    frame_rate: Optional[float] = None  # e.g., 23.976
-    bit_depth: Optional[int] = None  # e.g., 10
-    hdr_type: Optional[str] = None  # e.g., "HDR10", "DolbyVision"
+    codec: str | None = None  # e.g., "h264", "hevc"
+    resolution_width: int | None = None  # e.g., 1920
+    resolution_height: int | None = None  # e.g., 1080
+    frame_rate: float | None = None  # e.g., 23.976
+    bit_depth: int | None = None  # e.g., 10
+    hdr_type: str | None = None  # e.g., "HDR10", "DolbyVision"
 
     @property
-    def resolution_label(self) -> Optional[str]:
+    def resolution_label(self) -> str | None:
         """
         Return a standardized resolution label: "4K", "1440p", "1080p", or "720p".
 
@@ -48,7 +48,7 @@ class VideoMetadata(BaseModel):
         if longest == 0:
             return None
 
-        thresholds: list[tuple[int, str]] = [
+        thresholds: list[tuple[int, str] | tuple[Literal[0], None]] = [
             (3840, "4K"),
             (2560, "1440p"),
             (1920, "1080p"),
@@ -67,17 +67,17 @@ class VideoMetadata(BaseModel):
 class AudioMetadata(BaseModel):
     """Audio track metadata"""
 
-    codec: Optional[str] = None  # e.g., "aac", "dts", "truehd"
-    channels: Optional[int] = None  # e.g., 2, 6, 8
-    sample_rate: Optional[int] = None  # e.g., 48000
-    language: Optional[str] = None  # e.g., "eng", "spa"
+    codec: str | None = None  # e.g., "aac", "dts", "truehd"
+    channels: int | None = None  # e.g., 2, 6, 8
+    sample_rate: int | None = None  # e.g., 48000
+    language: str | None = None  # e.g., "eng", "spa"
 
 
 class SubtitleMetadata(BaseModel):
     """Subtitle track metadata"""
 
-    codec: Optional[str] = None  # e.g., "srt", "ass"
-    language: Optional[str] = None  # e.g., "eng", "spa"
+    codec: str | None = None  # e.g., "srt", "ass"
+    language: str | None = None  # e.g., "eng", "spa"
 
 
 class MediaMetadata(BaseModel):
@@ -93,8 +93,8 @@ class MediaMetadata(BaseModel):
         parsed_title: Clean title extracted from filename
         year: Release year
         video: Video track metadata (codec, resolution, HDR, etc.)
-        audio_tracks: List of audio tracks with codec, channels, language
-        subtitle_tracks: List of subtitle tracks with codec, language
+        audio_tracks: list of audio tracks with codec, channels, language
+        subtitle_tracks: list of subtitle tracks with codec, language
         duration: Duration in seconds (probed only)
         file_size: File size in bytes (probed only)
         bitrate: Overall bitrate in bits/sec (probed only)
@@ -115,29 +115,29 @@ class MediaMetadata(BaseModel):
     """
 
     # === Core Identification ===
-    filename: Optional[str] = None
-    parsed_title: Optional[str] = None
-    year: Optional[int] = None
+    filename: str | None = None
+    parsed_title: str | None = None
+    year: int | None = None
 
     # === Video Properties ===
-    video: Optional[VideoMetadata] = None
+    video: VideoMetadata | None = None
 
     # === Audio Properties ===
-    audio_tracks: List[AudioMetadata] = Field(default_factory=list)
+    audio_tracks: list[AudioMetadata] = Field(default_factory=list)
 
     # === Subtitle Properties ===
-    subtitle_tracks: List[SubtitleMetadata] = Field(default_factory=list)
+    subtitle_tracks: list[SubtitleMetadata] = Field(default_factory=list)
 
     # === File Properties (probed only) ===
-    duration: Optional[float] = None  # seconds
-    file_size: Optional[int] = None  # bytes
-    bitrate: Optional[int] = None  # bits/sec
-    container_format: List[str] = Field(
+    duration: float | None = None  # seconds
+    file_size: int | None = None  # bytes
+    bitrate: int | None = None  # bits/sec
+    container_format: list[str] = Field(
         default_factory=list
     )  # e.g., ["matroska", "webm"]
 
     # === Release Metadata (parsed only) ===
-    quality_source: Optional[str] = None  # e.g., "BluRay", "WEB-DL", "HDTV"
+    quality_source: str | None = None  # e.g., "BluRay", "WEB-DL", "HDTV"
     is_remux: bool = False
     is_proper: bool = False
     is_repack: bool = False
@@ -147,17 +147,17 @@ class MediaMetadata(BaseModel):
     is_extended: bool = False
 
     # === Episode Information (parsed only) ===
-    seasons: List[int] = Field(default_factory=list)
-    episodes: List[int] = Field(default_factory=list)
+    seasons: list[int] = Field(default_factory=list)
+    episodes: list[int] = Field(default_factory=list)
 
     # === Metadata Tracking ===
     data_source: DataSource = DataSource.PARSED
-    parsed_at: Optional[str] = None  # ISO timestamp
-    probed_at: Optional[str] = None  # ISO timestamp
+    parsed_at: str | None = None  # ISO timestamp
+    probed_at: str | None = None  # ISO timestamp
 
     @classmethod
     def from_parsed_data(
-        cls, parsed_data: dict, filename: Optional[str] = None
+        cls, parsed_data: dict, filename: str | None = None
     ) -> "MediaMetadata":
         """
         Create MediaMetadata from RTN ParsedData dict.

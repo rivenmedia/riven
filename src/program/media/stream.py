@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import sqlalchemy
 from RTN import Torrent
@@ -49,13 +49,12 @@ class Stream(db.Model):
     __tablename__ = "Stream"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    infohash: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    raw_title: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    parsed_title: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    rank: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=False)
-    lev_ratio: Mapped[float] = mapped_column(sqlalchemy.Float, nullable=False)
-    resolution: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-
+    infohash: Mapped[str]
+    raw_title: Mapped[str]
+    parsed_title: Mapped[str]
+    rank: Mapped[int]
+    lev_ratio: Mapped[float]
+    resolution: Mapped[str | None]
     parents: Mapped[list["MediaItem"]] = relationship(
         secondary="StreamRelation", back_populates="streams", lazy="selectin"
     )
@@ -92,6 +91,7 @@ class Stream(db.Model):
 
     def to_dict(self):
         """Convert stream to dictionary for API serialization"""
+
         return {
             "id": self.id,
             "infohash": self.infohash,

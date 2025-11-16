@@ -109,11 +109,11 @@ class SubtitleEntry(FilesystemEntry):
         cls,
         language: str,
         parent_original_filename: str,
-        content: str = None,
-        file_hash: str = None,
-        video_file_size: int = None,
-        opensubtitles_id: str = None,
-        subtitle_file_size: int = None,
+        content: str | None = None,
+        file_hash: str | None = None,
+        video_file_size: int | None = None,
+        opensubtitles_id: str | None = None,
+        subtitle_file_size: int | None = None,
     ) -> "SubtitleEntry":
         """
         Create a SubtitleEntry for a virtual subtitle file in RivenVFS.
