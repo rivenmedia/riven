@@ -15,7 +15,7 @@ from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
 from program.services.filesystem.filesystem_service import FilesystemService
 from program.core.runner import Runner
-from src.program.settings.models import SubtitleConfig
+from program.settings.models import SubtitleConfig
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
 
