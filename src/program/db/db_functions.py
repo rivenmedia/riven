@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+import threading
 import os
+
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-import threading
 from typing import TYPE_CHECKING, Any
 
 from program.utils.logging import logger
@@ -14,15 +15,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
+from program.core.runner import RunnerReturnType
 
 from .db import db, db_session
 
 if TYPE_CHECKING:
     from program.types import Service
     from program.program import Program
-    from program.types import MediaItemGenerator
+    from program.core.runner import MediaItemGenerator, RunnerResult
     from program.types import Event
-    from program.media.item import MediaItem
+    from program.media.item import MediaItem, Episode, Season
 
 
 @contextmanager
@@ -333,12 +335,12 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
 
 
 def run_thread_with_db_item(
-    fn: Callable[..., MediaItemGenerator],
+    fn: Callable[..., RunnerReturnType],
     service: "Service",
     program: "Program",
     event: Event | None,
     cancellation_event: threading.Event,
-) -> str | tuple[str, datetime] | None:
+) -> int | None:
     """
     Run a worker function against a database-backed MediaItem or enqueue items produced by a content service.
 
@@ -358,7 +360,7 @@ def run_thread_with_db_item(
         The produced item identifier as a string, a tuple `(item_id, run_at)` when the worker returned scheduling info, or `None` when no item was produced or processing was skipped.
     """
 
-    from program.media.item import MediaItem
+    from program.media.item import MediaItem, Episode, Season
 
     if event:
         with db_session() as session:
@@ -367,49 +369,70 @@ def run_thread_with_db_item(
 
                 if input_item:
                     input_item = session.merge(input_item)
+                    return_value = fn(input_item)
 
-                    res = next(fn(input_item), None)
+                    logger.debug(
+                        f"input item return_value: {return_value}, type: {type(return_value)}"
+                    )
 
-                    if res:
-                        if isinstance(res, tuple):
-                            item, run_at = res
-                            res = (item.id, run_at)
-                        else:
-                            item = res
-                            res = item.id
+                    runner_result = next(return_value, None)
+
+                    if runner_result:
+                        if len(runner_result.media_items) > 1:
+                            logger.warning(
+                                f"Service {service.__class__.__name__} emitted multiple items for input item {input_item}, only the first will be processed."
+                            )
+
+                        item = runner_result.media_items[0]
+                        run_at = runner_result.run_at
 
                         if not isinstance(item, MediaItem):
                             logger.log(
                                 "PROGRAM",
-                                f"Service {type(service).__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
+                                f"Service {service.__class__.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
                             )
 
                             program.em.remove_id_from_queues(input_item.id)
 
                         if not cancellation_event.is_set():
                             # Update parent item based on type
-                            if input_item.type == "episode":
+                            if isinstance(input_item, Episode):
                                 input_item.parent.parent.store_state()
-                            elif input_item.type == "season":
+                            elif isinstance(input_item, Season):
                                 input_item.parent.store_state()
                             else:
                                 item.store_state()
+
                             session.commit()
 
-                        return res
+                        return item.id
 
             if event.content_item:
-                indexed_item = next(fn(event.content_item), None)
+                return_value = fn(event.content_item)
 
-                if indexed_item is None:
+                logger.debug(
+                    f"content_item return_value: {return_value}, type: {type(return_value)}"
+                )
+
+                runner_result = next(return_value, None)
+
+                if runner_result is None:
                     msg = (
                         event.content_item.log_string
                         if getattr(event.content_item, "log_string", None) is not None
                         else event.content_item.imdb_id
                     )
+
                     logger.debug(f"Unable to index {msg}")
 
                     return None
+
+                if len(runner_result.media_items) > 1:
+                    logger.warning(
+                        f"Service {service.__class__.__name__} emitted multiple items for input item {input_item}, only the first will be processed."
+                    )
+
+                indexed_item = runner_result.media_items[0]
 
                 # Idempotent insert: skip if any known ID already exists
                 if item_exists_by_any_id(
@@ -426,6 +449,7 @@ def run_thread_with_db_item(
                     return indexed_item.id
 
                 indexed_item.store_state()
+
                 session.add(indexed_item)
 
                 if not cancellation_event.is_set():
@@ -446,14 +470,23 @@ def run_thread_with_db_item(
                 return indexed_item.id
     else:
         # Content services dont pass events
-        for i in fn():
-            if isinstance(i, MediaItem):
-                i = [i]
+        runner_result = fn()
 
-            if isinstance(i, list):
-                for item in i:
-                    if isinstance(item, MediaItem):
-                        program.em.add_item(item, service=service.__class__.__name__)
+        logger.debug(
+            f"no event runner_result: {runner_result}, type: {type(runner_result)}"
+        )
+
+        if runner_result:
+            for i in runner_result:
+                if isinstance(i, MediaItem):
+                    i = [i]
+
+                if isinstance(i, list):
+                    for item in i:
+                        if isinstance(item, MediaItem):
+                            program.em.add_item(
+                                item, service=service.__class__.__name__
+                            )
 
     return None
 

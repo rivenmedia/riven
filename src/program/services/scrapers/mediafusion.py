@@ -1,7 +1,5 @@
 """Mediafusion scraper module"""
 
-from typing import Dict
-
 from loguru import logger
 
 from program.media.item import MediaItem
@@ -93,9 +91,12 @@ class Mediafusion(ScraperService[MediafusionConfig]):
             logger.error(f"Mediafusion failed to initialize: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the mediafusion site for the given media items
-        and update the object with scraped streams"""
+    def run(self, item: MediaItem) -> dict[str, str]:
+        """
+        Scrape the mediafusion site for the given media items
+        and update the object with scraped streams
+        """
+
         if not item:
             return {}
 
@@ -112,7 +113,7 @@ class Mediafusion(ScraperService[MediafusionConfig]):
                 logger.exception(f"Mediafusion exception thrown: {e}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Mediafusion` scrape method"""
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
         if not imdb_id:
@@ -127,7 +128,7 @@ class Mediafusion(ScraperService[MediafusionConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents: Dict[str, str] = {}
+        torrents: dict[str, str] = {}
         for stream in response.data.streams:
             if hasattr(stream, "title") and "rate-limit exceeded" in stream.title:
                 raise Exception(

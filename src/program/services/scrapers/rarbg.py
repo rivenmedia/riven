@@ -1,7 +1,5 @@
 """Rarbg scraper module"""
 
-from typing import Dict
-
 from loguru import logger
 
 from program.media.item import MediaItem
@@ -57,8 +55,9 @@ class Rarbg(ScraperService):
             return False
         return True
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
+    def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape TheRARBG with the given media item for streams"""
+
         try:
             return self.scrape(item)
         except Exception as e:
@@ -70,8 +69,9 @@ class Rarbg(ScraperService):
                 logger.exception(f"TheRARBG exception thrown: {str(e)}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `TheRARBG` scrape method"""
+
         search_string = (
             item.log_string
             if item.type != "movie"
@@ -79,7 +79,7 @@ class Rarbg(ScraperService):
         )
         url = f"/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
 
-        torrents: Dict[str, str] = {}
+        torrents: dict[str, str] = {}
         current_url = url
         page = 1
 

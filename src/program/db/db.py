@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from typing import Any
 from loguru import logger
 from sqla_wrapper import SQLAlchemy, Session
-from sqlalchemy import text
+from sqlalchemy import text, orm
 
 from alembic import command
 from alembic.config import Config
@@ -29,6 +29,12 @@ engine_options = {
 
 db_host = str(settings_manager.settings.database.host)
 db = SQLAlchemy(db_host, engine_options=engine_options)
+
+
+class BaseModel(orm.DeclarativeBase):
+    """Base class for all database models"""
+
+    pass
 
 
 @contextmanager

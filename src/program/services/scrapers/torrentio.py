@@ -1,7 +1,5 @@
 """Torrentio scraper module"""
 
-from typing import Dict
-
 from loguru import logger
 
 from program.media.item import MediaItem
@@ -67,8 +65,9 @@ class Torrentio(ScraperService[TorrentioConfig]):
             return False
         return True
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
+    def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape Torrentio with the given media item for streams"""
+
         try:
             return self.scrape(item)
         except Exception as e:
@@ -80,8 +79,9 @@ class Torrentio(ScraperService[TorrentioConfig]):
                 logger.exception(f"Torrentio exception thrown: {str(e)}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Torrentio` scrape method"""
+
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
         if not imdb_id:
             return {}
@@ -106,7 +106,7 @@ class Torrentio(ScraperService[TorrentioConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents: Dict[str, str] = {}
+        torrents: dict[str, str] = {}
         for stream in response.data.streams:
             if not stream.infoHash:
                 continue

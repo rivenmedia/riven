@@ -14,7 +14,6 @@ class VideoTrack(BaseModel):
     frame_rate: float = Field(
         default=0.0,
         description="Frame rate of the video track",
-        decimal_places=2,
     )
 
 
@@ -47,7 +46,6 @@ class MediaMetadata(BaseModel):
     duration: float = Field(
         default=0.0,
         description="Duration of the video in seconds",
-        decimal_places=2,
     )
     format: list[str] = Field(default=[], description="Format of the video")
     bitrate: int = Field(

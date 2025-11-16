@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -19,6 +20,7 @@ from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.types import Event, Service
 from program.media.state import States
+from program.core.runner import MediaItemGenerator
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -74,7 +76,7 @@ class EventManager:
             concurrent.futures.ThreadPoolExecutor: The executor for the service class.
         """
 
-        service_name = type(service_cls).__name__
+        service_name = service_cls.__class__.__name__
 
         for service_executor in self._executors:
             if service_executor.service_name == service_name:
@@ -153,7 +155,7 @@ class EventManager:
             # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
             # self.remove_event_from_queue(future.event)
 
-        log_message = f"Service {type(service).__name__} executed"
+        log_message = f"Service {service.__class__.__name__} executed"
 
         if future_with_event.event:
             log_message += f" with {future_with_event.event.log_message}"
@@ -308,9 +310,11 @@ class EventManager:
 
         assert program.services
 
+        runner = program.services[service.get_key()]
+
         future = executor.submit(
             db_functions.run_thread_with_db_item,
-            program.services[service.get_key()].run,
+            runner.run,
             service,
             program,
             event,
@@ -583,7 +587,7 @@ class EventManager:
             if isinstance(event.emitted_by, str):
                 key = event.emitted_by
             else:
-                key = type(event.emitted_by).__name__
+                key = event.emitted_by.__class__.__name__
 
             table = updates.get(key, None)
 

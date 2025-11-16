@@ -10,6 +10,7 @@ from program.media.state import States
 from program.services.indexers.base import BaseIndexer
 from program.services.indexers.tmdb_indexer import TMDBIndexer
 from program.services.indexers.tvdb_indexer import TVDBIndexer
+from program.core.runner import MediaItemGenerator
 
 
 class IndexerService(BaseIndexer):
@@ -29,7 +30,7 @@ class IndexerService(BaseIndexer):
         self,
         in_item: MediaItem,
         log_msg: bool = True,
-    ) -> Generator[Movie | Show, None, None]:
+    ) -> MediaItemGenerator:
         """Run the appropriate indexer based on item type."""
 
         if not in_item:

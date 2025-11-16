@@ -3,7 +3,6 @@
 import concurrent.futures
 import time
 from datetime import datetime, timedelta
-from typing import Dict
 
 from loguru import logger
 from pydantic import BaseModel
@@ -201,9 +200,12 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                     f"Next scan will be at {next_scan_time.strftime('%Y-%m-%d %H:%M')}"
                 )
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the Prowlarr site for the given media items
-        and update the object with scraped streams"""
+    def run(self, item: MediaItem) -> dict[str, str]:
+        """
+        Scrape the Prowlarr site for the given media items
+        and update the object with scraped streams
+        """
+
         if not item:
             return {}
 
@@ -218,7 +220,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 logger.exception(f"Prowlarr failed to scrape item with error: {e}")
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Scrape a single item from all indexers at the same time, return a list of streams"""
         self._periodic_indexer_scan()
 

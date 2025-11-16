@@ -2,7 +2,6 @@
 
 import base64
 import json
-from typing import Dict
 
 from loguru import logger
 
@@ -84,9 +83,12 @@ class Comet(ScraperService[CometConfig]):
             )
         return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the comet site for the given media items
-        and update the object with scraped streams"""
+    def run(self, item: MediaItem) -> dict[str, str]:
+        """
+        Scrape the comet site for the given media items
+        and update the object with scraped streams
+        """
+
         try:
             return self.scrape(item)
         except Exception as e:
@@ -96,9 +98,10 @@ class Comet(ScraperService[CometConfig]):
                 logger.warning(f"Comet timeout for item: {item.log_string}")
             else:
                 logger.error(f"Comet exception thrown: {str(e)}")
+
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Comet` scrape method"""
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
         if not imdb_id:

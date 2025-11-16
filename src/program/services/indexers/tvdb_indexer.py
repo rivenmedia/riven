@@ -1,6 +1,5 @@
 """TVDB indexer module"""
 
-from collections.abc import Generator
 from datetime import datetime
 from typing import cast
 
@@ -13,6 +12,7 @@ from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
 from schemas.tvdb import SeasonExtendedRecord
+from program.core.runner import MediaItemGenerator, RunnerResult
 
 
 class TVDBIndexer(BaseIndexer):
@@ -28,7 +28,7 @@ class TVDBIndexer(BaseIndexer):
         self,
         in_item: MediaItem,
         log_msg: bool = True,
-    ) -> Generator[Show, None, None]:
+    ) -> MediaItemGenerator[Show]:
         """Run the TVDB indexer for the given item."""
 
         if not in_item:
@@ -60,20 +60,20 @@ class TVDBIndexer(BaseIndexer):
                         f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})"
                     )
 
-                yield item
+                yield RunnerResult(media_items=[item])
 
                 return
 
         # Scenario 2: Reindexing existing Show/Season/Episode - update in-place
-        elif in_item.type in ["show", "season", "episode"]:
+        elif isinstance(in_item, (Show, Season, Episode)):
             show: Show | None = None
 
             # Get the root Show object
-            if in_item.type == "show":
+            if isinstance(in_item, Show):
                 show = in_item
-            elif in_item.type == "season":
+            elif isinstance(in_item, Season):
                 show = in_item.parent
-            elif in_item.type == "episode":
+            elif isinstance(in_item, Episode):
                 show = in_item.parent.parent if in_item.parent else None
 
             if not show:
@@ -89,7 +89,7 @@ class TVDBIndexer(BaseIndexer):
                         f"Reindexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})"
                     )
 
-                yield show
+                yield RunnerResult(media_items=[show])
 
                 return
 

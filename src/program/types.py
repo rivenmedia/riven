@@ -15,7 +15,6 @@ from program.services.downloaders import Downloader
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.services.filesystem import FilesystemService
-from program.core.runner import Runner
 from program.media.state import States
 from program.services.indexers import IndexerService
 from program.services.post_processing import PostProcessing
@@ -32,8 +31,6 @@ Service = (
     | PostProcessing
     | Downloader
 )
-
-MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 
 
 @dataclass

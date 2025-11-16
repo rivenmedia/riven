@@ -10,6 +10,7 @@ from program.apis.tmdb_api import TMDBApi
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
+from program.core.runner import MediaItemGenerator, RunnerResult
 
 
 class TMDBIndexer(BaseIndexer):
@@ -22,8 +23,10 @@ class TMDBIndexer(BaseIndexer):
         self.trakt_api = di[TraktAPI]
 
     def run(
-        self, in_item: MediaItem, log_msg: bool = True
-    ) -> Generator[Movie, None, None]:
+        self,
+        in_item: MediaItem,
+        log_msg: bool = True,
+    ) -> MediaItemGenerator[Movie]:
         """Run the TMDB indexer for the given item."""
 
         if not in_item:
@@ -51,18 +54,20 @@ class TMDBIndexer(BaseIndexer):
                     logger.debug(
                         f"Indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})"
                     )
-                yield item
+
+                yield RunnerResult(media_items=[item])
                 return
 
         # Scenario 2: Reindexing existing Movie - update in-place
-        elif in_item.type == "movie":
+        elif isinstance(in_item, Movie):
             if self._update_movie_metadata(in_item):
                 in_item.indexed_at = datetime.now()
                 if log_msg:
                     logger.debug(
                         f"Reindexed Movie {in_item.log_string} (IMDB: {in_item.imdb_id}, TMDB: {in_item.tmdb_id})"
                     )
-                yield in_item
+
+                yield RunnerResult(media_items=[in_item])
                 return
 
         logger.error(

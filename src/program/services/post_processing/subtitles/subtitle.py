@@ -10,11 +10,11 @@ from sqlalchemy.orm import object_session
 from loguru import logger
 
 from program.db.db import db
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
 from program.services.filesystem.filesystem_service import FilesystemService
-from program.core.runner import Runner
+from program.core.runner import MediaItemGenerator, Runner
 from program.settings.models import SubtitleConfig
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
@@ -110,7 +110,7 @@ class SubtitleService(Runner[SubtitleConfig]):
         """Check if the subtitle service is enabled."""
         return self.settings.enabled and self.initialized
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> None:
         """
         Fetch and store subtitles for a media item.
 
@@ -164,7 +164,8 @@ class SubtitleService(Runner[SubtitleConfig]):
             # Get season/episode info for TV shows
             season = None
             episode = None
-            if item.type == "episode":
+
+            if isinstance(item, Episode):
                 season = item.parent.number if item.parent else None
                 episode = item.number
 

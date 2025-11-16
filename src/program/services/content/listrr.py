@@ -10,6 +10,7 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.core.content_service import ContentService
 from program.settings.models import ListrrModel
+from program.core.runner import MediaItemGenerator, RunnerResult
 
 
 class Listrr(ContentService[ListrrModel]):
@@ -73,7 +74,7 @@ class Listrr(ContentService[ListrrModel]):
             logger.error(f"Listrr ping exception: {e}")
             return False
 
-    def run(self) -> Generator[list[MediaItem], None, None]:
+    def run(self) -> MediaItemGenerator:
         """Fetch new media from `Listrr`"""
 
         try:
@@ -123,4 +124,4 @@ class Listrr(ContentService[ListrrModel]):
 
         logger.info(f"Fetched {len(listrr_items)} new items from Listrr")
 
-        yield listrr_items
+        yield RunnerResult(media_items=listrr_items)

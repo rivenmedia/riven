@@ -19,7 +19,7 @@ from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
-from program.core.runner import Runner
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import ScraperModel
 
 
@@ -54,7 +54,7 @@ class Scraping(Runner[ScraperModel]):
 
         return len(self.initialized_services) > 0
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Scrape an item."""
 
         sorted_streams = self.scrape(item)
@@ -94,7 +94,7 @@ class Scraping(Runner[ScraperModel]):
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", (item.scraped_times or 0) + 1)
 
-        yield item
+        yield RunnerResult(media_items=[item])
 
     def scrape(self, item: MediaItem, verbose_logging=True) -> Dict[str, Stream]:
         """Scrape an item."""
@@ -157,6 +157,7 @@ class Scraping(Runner[ScraperModel]):
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
+
         settings = settings_manager.settings.scraping
         scrape_time = 30 * 60  # 30 minutes by default
 

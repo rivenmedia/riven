@@ -2,7 +2,7 @@
 
 import concurrent.futures
 from types import SimpleNamespace
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from loguru import logger
 from pydantic import BaseModel
@@ -85,9 +85,12 @@ class Jackett(ScraperService[JackettConfig]):
         logger.warning("Jackett is not configured and will not be used.")
         return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the Jackett site for the given media items
-        and update the object with scraped streams"""
+    def run(self, item: MediaItem) -> dict[str, str]:
+        """
+        Scrape the Jackett site for the given media items
+        and update the object with scraped streams
+        """
+
         try:
             return self.scrape(item)
         except Exception as e:
@@ -95,12 +98,13 @@ class Jackett(ScraperService[JackettConfig]):
                 logger.debug(f"Jackett ratelimit exceeded for item: {item.log_string}")
             else:
                 logger.error(f"Jackett failed to scrape item with error: {e}")
+
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Scrape the given media item"""
 
-        torrents: Dict[str, str] = {}
+        torrents: dict[str, str] = {}
         query = item.log_string
         if item.type == "movie":
             query = f"{query} ({item.aired_at.year})"

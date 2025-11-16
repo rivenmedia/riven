@@ -40,7 +40,7 @@ class BaseIndexer(Runner[IndexerModel]):
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))
 
-    def copy_items(self, itema: MediaItem, itemb: MediaItem):
+    def copy_items[A: MediaItem, B: MediaItem](self, itema: A, itemb: B):
         """Copy attributes from itema to itemb recursively."""
 
         is_anime = itema.is_anime or itemb.is_anime

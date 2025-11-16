@@ -10,6 +10,7 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.core.content_service import ContentService
 from program.settings.models import MdblistModel
+from program.core.runner import MediaItemGenerator, RunnerResult
 
 
 class Mdblist(ContentService[MdblistModel]):
@@ -47,7 +48,7 @@ class Mdblist(ContentService[MdblistModel]):
 
         return self.api.validate()
 
-    def run(self) -> Generator[list[MediaItem], None, None]:
+    def run(self) -> MediaItemGenerator:
         """Fetch media from mdblist and add them to media_items attribute"""
 
         items_to_yield: list[MediaItem] = []
@@ -103,7 +104,7 @@ class Mdblist(ContentService[MdblistModel]):
 
         logger.info(f"Fetched {len(items_to_yield)} new items from Mdblist")
 
-        yield items_to_yield
+        yield RunnerResult(media_items=items_to_yield)
 
     def _calculate_request_time(self):
         """Calculate requests per 2 minutes based on mdblist limits"""

@@ -1,10 +1,30 @@
 from abc import ABC, abstractmethod
+from collections.abc import Generator
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Generic, TypeVar
 
 from program.settings.models import Observable
+from program.media.item import MediaItem
 
 TSettings = TypeVar("TSettings", bound=Observable | None)
 TService = TypeVar("TService", bound=Any | None, default="Runner")
+
+
+TItemType = TypeVar("TItemType", bound=MediaItem, default=MediaItem, covariant=True)
+
+
+@dataclass
+class RunnerResult(Generic[TItemType]):
+    media_items: list[TItemType]
+    run_at: str | datetime | None = None
+
+
+type MediaItemGenerator[T: MediaItem = MediaItem] = Generator[
+    RunnerResult[T], None, RunnerResult[T] | None
+]
+
+type RunnerReturnType = MediaItemGenerator | dict[str, str] | None
 
 
 class Runner(ABC, Generic[TSettings, TService]):
@@ -45,7 +65,7 @@ class Runner(ABC, Generic[TSettings, TService]):
         return True
 
     @abstractmethod
-    def run(self, *args, **kwargs) -> Any:
+    def run(self, *args, **kwargs) -> RunnerReturnType:
         """Run the base runner"""
 
         raise NotImplementedError

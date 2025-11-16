@@ -22,7 +22,7 @@ from program.services.downloaders.shared import (
     parse_filename,
 )
 from program.utils.request import CircuitBreakerOpen
-from program.core.runner import Runner
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
@@ -32,15 +32,15 @@ from .alldebrid import AllDebridDownloader
 class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
         self.initialized = False
-        self.services = [
-            RealDebridDownloader(),
-            DebridLinkDownloader(),
-            AllDebridDownloader(),
-        ]
+        self.services = {
+            RealDebridDownloader: RealDebridDownloader(),
+            DebridLinkDownloader: DebridLinkDownloader(),
+            AllDebridDownloader: AllDebridDownloader(),
+        }
 
         # Get all initialized services instead of just the first one
         self.initialized_services = [
-            service for service in self.services if service.initialized
+            service for service in self.services.values() if service.initialized
         ]
 
         # Keep backward compatibility - primary service is the first initialized one
@@ -49,9 +49,6 @@ class Downloader(Runner[None, DownloaderBase]):
         )
 
         self.initialized = self.validate()
-
-        # Track circuit breaker retry attempts per item
-        self._circuit_breaker_retries: dict[int, int] = {}
 
         # Track per-service cooldowns when circuit breaker is open
         self._service_cooldowns: dict[str, datetime] = {}
@@ -67,7 +64,7 @@ class Downloader(Runner[None, DownloaderBase]):
         )
         return True
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         # Check if all services are in cooldown due to circuit breaker
@@ -83,10 +80,12 @@ class Downloader(Runner[None, DownloaderBase]):
         if not available_services:
             # All services are in cooldown, reschedule for the earliest available time
             next_attempt = min(self._service_cooldowns.values())
+
             logger.warning(
                 f"All downloader services in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
             )
-            yield (item, next_attempt)
+
+            yield RunnerResult(media_items=[item], run_at=next_attempt)
             return
 
         download_success = False
@@ -114,9 +113,12 @@ class Downloader(Runner[None, DownloaderBase]):
 
                     try:
                         # Validate stream on this specific service
-                        container: TorrentContainer | None = (
-                            self.validate_stream_on_service(stream, item, service)
+                        container = self.validate_stream_on_service(
+                            stream,
+                            item,
+                            service,
                         )
+
                         if not container:
                             logger.debug(
                                 f"Stream {stream.infohash} not available on {service.key}"
@@ -133,14 +135,15 @@ class Downloader(Runner[None, DownloaderBase]):
                                 "DEBRID",
                                 f"Downloaded {item.log_string} from '{stream.raw_title}' [{stream.infohash}] using {service.key}",
                             )
+
                             download_success = True
                             stream_failed_on_all_services = False
+
                             break
                         else:
                             raise NoMatchingFilesException(
                                 f"No valid files found for {item.log_string} ({item.id})"
                             )
-
                     except CircuitBreakerOpen as e:
                         # This specific service hit circuit breaker, set cooldown and try next service
                         cooldown_duration = timedelta(minutes=1)
@@ -200,7 +203,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 tried_streams += 1
 
                 if tried_streams >= 3:
-                    yield item
+                    yield RunnerResult(media_items=[item])
 
         except Exception as e:
             logger.error(
@@ -217,7 +220,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     f"Single provider hit circuit breaker for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
                 )
 
-                yield (item, next_attempt)
+                yield RunnerResult(media_items=[item], run_at=next_attempt)
 
                 return
             else:
@@ -225,11 +228,10 @@ class Downloader(Runner[None, DownloaderBase]):
                     f"Failed to download any streams for {item.log_string} ({item.id})"
                 )
         else:
-            # Clear retry count and service cooldowns on successful download
-            self._circuit_breaker_retries.pop(item.id, None)
+            # Clear service cooldowns on successful download
             self._service_cooldowns.clear()
 
-        yield item
+        yield RunnerResult(media_items=[item])
 
     def validate_stream(
         self,

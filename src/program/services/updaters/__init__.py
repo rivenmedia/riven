@@ -10,7 +10,7 @@ from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
 from program.settings.manager import settings_manager
-from program.core.runner import Runner
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 
 class Updater(Runner):
@@ -37,7 +37,7 @@ class Updater(Runner):
         ]
         return len(initialized_services) > 0
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """
         Update media servers for the given item.
 
@@ -96,7 +96,8 @@ class Updater(Runner):
         logger.info(
             f"Updated {item.log_string} ({len(refreshed_paths)} unique paths refreshed)"
         )
-        yield item
+
+        yield RunnerResult(media_items=[item])
 
     def refresh_path(self, path: str) -> bool:
         """

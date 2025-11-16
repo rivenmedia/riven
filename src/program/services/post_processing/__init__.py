@@ -5,7 +5,7 @@ from program.media.state import States
 from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings.manager import settings_manager
-from program.core.runner import Runner
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import PostProcessing as PostProcessingModel
 
 
@@ -54,7 +54,7 @@ class PostProcessing(Runner[PostProcessingModel]):
             return [e for e in item.episodes if e.last_state == States.Completed]
         return []
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """
         Run post-processing services on an item.
 
@@ -70,7 +70,7 @@ class PostProcessing(Runner[PostProcessingModel]):
 
         if not items_to_process:
             logger.debug(f"No items to process for {item.log_string}")
-            yield item
+            yield RunnerResult(media_items=[item])
             return
 
         # Process each item through the service pipeline
@@ -88,4 +88,4 @@ class PostProcessing(Runner[PostProcessingModel]):
             #     process_item.streams.clear()
 
         logger.info(f"Post-processing complete for {item.log_string}")
-        yield item
+        yield RunnerResult(media_items=[item])

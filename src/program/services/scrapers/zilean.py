@@ -53,6 +53,7 @@ class Zilean(ScraperService[ZileanConfig]):
 
     def run(self, item: MediaItem) -> Dict[str, str]:
         """Scrape the Zilean site for the given media items and update the object with scraped items"""
+
         try:
             return self.scrape(item)
         except Exception as e:
@@ -60,6 +61,7 @@ class Zilean(ScraperService[ZileanConfig]):
                 logger.debug(f"Zilean rate limit exceeded for item: {item.log_string}")
             else:
                 logger.exception(f"Zilean exception thrown: {e}")
+
         return {}
 
     def _build_query_params(self, item: MediaItem) -> Dict[str, str]:

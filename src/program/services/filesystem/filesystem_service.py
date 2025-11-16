@@ -11,7 +11,7 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
-from program.core.runner import Runner
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import FilesystemModel
 
 
@@ -56,28 +56,17 @@ class FilesystemService(Runner[FilesystemModel]):
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """
-        Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
-
-        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via add(), and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
-
-        Parameters:
-            item (MediaItem): The media item (episode, movie, season, or show) to process.
-
-        Returns:
-            Generator[MediaItem, None, None]: Yields the original `item` once processing completes (or immediately if processing cannot proceed).
-        """
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
-            yield item
+            yield RunnerResult(media_items=[item])
             return
 
         # Expand parent items (show/season) to leaf items (episodes/movies)
         items_to_process = get_items_to_update(item)
         if not items_to_process:
             logger.debug(f"No items to process for {item.log_string}")
-            yield item
+            yield RunnerResult(media_items=[item])
             return
 
         # Process each episode/movie
@@ -93,7 +82,7 @@ class FilesystemService(Runner[FilesystemModel]):
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
         # Yield the original item for state transition
-        yield item
+        yield RunnerResult(media_items=[item])
 
     def close(self):
         """

@@ -5,13 +5,17 @@ from typing import Any, Literal, TYPE_CHECKING, cast
 
 import sqlalchemy
 from loguru import logger
-from PTT import parse_title
 from sqlalchemy import Index
-from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+from sqlalchemy.orm import (
+    Mapped,
+    mapped_column,
+    object_session,
+    relationship,
+)
 
-from program.db.db import db
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
+from program.db.db import BaseModel
 
 from .stream import Stream
 
@@ -19,7 +23,7 @@ if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
 
 
-class MediaItem(db.Model):
+class MediaItem(BaseModel):
     """MediaItem class"""
 
     __tablename__ = "MediaItem"
@@ -403,7 +407,7 @@ class MediaItem(db.Model):
             "tmdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
         }
 
-        if self.type == "season":
+        if isinstance(self, Season):
             parent_title = self.parent.title
             season_number = self.number
             parent_ids["trakt_id"] = (
@@ -426,7 +430,7 @@ class MediaItem(db.Model):
                 if hasattr(self, "parent") and hasattr(self.parent, "tmdb_id")
                 else None
             )
-        elif self.type == "episode":
+        elif isinstance(self, Episode):
             parent_title = self.parent.parent.title
             season_number = self.parent.number
             episode_number = self.number
@@ -1147,12 +1151,6 @@ class Episode(MediaItem):
         if copy_parent and other.parent:
             self.parent = Season(item={}).copy(other.parent)
         return self
-
-    def get_file_episodes(self) -> list[int]:
-        if not self.filesystem_entry or not self.filesystem_entry.original_filename:
-            raise ValueError("The filesystem entry must have an original filename.")
-        # return list of episodes
-        return parse_title(self.filesystem_entry.original_filename)["episodes"]
 
     def __getattribute__(self, name):
         """Override attribute access to inherit from parent show (through season) if not set"""

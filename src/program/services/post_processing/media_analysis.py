@@ -20,7 +20,7 @@ from program.media.models import DataSource, MediaMetadata
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from program.core.runner import Runner
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 
 class MediaAnalysisService(Runner):
@@ -71,7 +71,7 @@ class MediaAnalysisService(Runner):
 
         return True
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> None:
         """
         Analyze media file and store metadata.
 
@@ -104,6 +104,7 @@ class MediaAnalysisService(Runner):
                 logger.warning(
                     f"No VFS paths for {item.log_string}, cannot run ffprobe"
                 )
+
                 return
 
             # Use the first (base) path for ffprobe

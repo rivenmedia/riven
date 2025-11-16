@@ -27,6 +27,7 @@ from schemas.trakt import (
     GetTrendingMovies200ResponseInner,
     GetTrendingShows200ResponseInner,
 )
+from program.core.runner import MediaItemGenerator, RunnerResult
 
 
 class TraktContent(ContentService[TraktModel]):
@@ -76,7 +77,7 @@ class TraktContent(ContentService[TraktModel]):
 
         return False
 
-    def run(self):
+    def run(self) -> MediaItemGenerator:
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
 
         watchlist_ids = (
@@ -164,7 +165,7 @@ class TraktContent(ContentService[TraktModel]):
 
         logger.info(f"Fetched {len(items_to_yield)} new items from trakt")
 
-        yield items_to_yield
+        yield RunnerResult(media_items=items_to_yield)
 
     def _get_watchlist(self, watchlist_users: list) -> list:
         """Get IDs and types from Trakt watchlist"""

@@ -1,7 +1,5 @@
 """Orionoid scraper module"""
 
-from typing import Dict
-
 from loguru import logger
 
 from program.media.item import MediaItem
@@ -106,8 +104,9 @@ class Orionoid(ScraperService[OrionoidConfig]):
             logger.error(f"Orionoid failed to check limit: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
+    def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
+
         if not self.is_unlimited:
             limit_hit = self.check_limit()
             if limit_hit:
@@ -123,6 +122,7 @@ class Orionoid(ScraperService[OrionoidConfig]):
                 logger.exception(
                     f"Orionoid exception for item: {item.log_string} - Exception: {e}"
                 )
+
         return {}
 
     def _build_query_params(self, item: MediaItem) -> dict:
@@ -160,7 +160,7 @@ class Orionoid(ScraperService[OrionoidConfig]):
 
         return params
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Orionoid` scrape method"""
         params = self._build_query_params(item)
         response = self.session.get("", params=params, timeout=self.timeout)

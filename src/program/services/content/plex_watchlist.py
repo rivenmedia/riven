@@ -11,6 +11,7 @@ from program.media.item import MediaItem
 from program.settings.manager import settings_manager
 from program.core.content_service import ContentService
 from program.settings.models import PlexWatchlistModel
+from program.core.runner import MediaItemGenerator, RunnerResult
 
 
 class PlexWatchlist(ContentService[PlexWatchlistModel]):
@@ -82,7 +83,7 @@ class PlexWatchlist(ContentService[PlexWatchlistModel]):
 
         return True
 
-    def run(self) -> Generator[list[MediaItem], None, None]:
+    def run(self) -> MediaItemGenerator:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
 
         try:
@@ -130,4 +131,4 @@ class PlexWatchlist(ContentService[PlexWatchlistModel]):
 
         logger.info(f"Fetched {len(items_to_yield)} new items from plex watchlist")
 
-        yield items_to_yield
+        yield RunnerResult(media_items=items_to_yield)
