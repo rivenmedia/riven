@@ -147,7 +147,10 @@ def _run_psql(
         return False
 
 
-def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
+def snapshot_database(
+    snapshot_dir: Path | None = None,
+    snapshot_name: str | None = None,
+):
     """
     Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
 
@@ -208,7 +211,7 @@ def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
         return False
 
 
-def restore_database(snapshot_file: Path = None):
+def restore_database(snapshot_file: Path | None = None):
     """
     Restore the configured PostgreSQL database from a SQL snapshot file.
 

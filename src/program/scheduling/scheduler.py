@@ -6,7 +6,7 @@ for content services and item-specific schedules.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -187,7 +187,7 @@ class ProgramScheduler:
             else:
                 logger.error(f"Failed to schedule callback: {e}")
 
-    def _get_pending_scheduled_tasks(self, session: Session) -> list[ScheduledTask]:
+    def _get_pending_scheduled_tasks(self, session: Session) -> Sequence[ScheduledTask]:
         """Return all pending scheduled tasks."""
         try:
             return (
@@ -375,9 +375,14 @@ class ProgramScheduler:
             .scalars()
             .all()
         )
+
         for ep in upcoming_eps:
-            run_at = ep.aired_at + timedelta(seconds=offset_seconds)
-            if not self._has_future_task(session, ep.id, "episode_release", now):
+            if (
+                not self._has_future_task(session, ep.id, "episode_release", now)
+                and ep.aired_at
+            ):
+                run_at = ep.aired_at + timedelta(seconds=offset_seconds)
+
                 try:
                     ep.schedule(
                         run_at,
@@ -404,8 +409,12 @@ class ProgramScheduler:
             .all()
         )
         for mv in upcoming_movies:
-            run_at = mv.aired_at + timedelta(seconds=offset_seconds)
-            if not self._has_future_task(session, mv.id, "movie_release", now):
+            if (
+                not self._has_future_task(session, mv.id, "movie_release", now)
+                and mv.aired_at
+            ):
+                run_at = mv.aired_at + timedelta(seconds=offset_seconds)
+
                 try:
                     mv.schedule(
                         run_at,

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 import sqlalchemy
 from sqlalchemy import Index
@@ -29,9 +28,9 @@ class ScheduledTask(db.Model):
     __tablename__ = "ScheduledTask"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    item_id: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=False)
-    task_type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    scheduled_for: Mapped[datetime] = mapped_column(sqlalchemy.DateTime, nullable=False)
+    item_id: Mapped[int]
+    task_type: Mapped[str]
+    scheduled_for: Mapped[datetime]
     status: Mapped[ScheduledStatus] = mapped_column(
         sqlalchemy.Enum(
             ScheduledStatus,
@@ -43,13 +42,9 @@ class ScheduledTask(db.Model):
     created_at: Mapped[datetime] = mapped_column(
         sqlalchemy.DateTime, default=datetime.now
     )
-    executed_at: Mapped[Optional[datetime]] = mapped_column(
-        sqlalchemy.DateTime, nullable=True
-    )
-    reason: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-    offset_seconds: Mapped[Optional[int]] = mapped_column(
-        sqlalchemy.Integer, nullable=True
-    )
+    executed_at: Mapped[datetime | None]
+    reason: Mapped[str | None]
+    offset_seconds: Mapped[int | None]
 
     __table_args__ = (
         Index("ix_scheduledtask_scheduled_for", "scheduled_for"),

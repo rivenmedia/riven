@@ -1,7 +1,8 @@
 """Riven settings models"""
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, List, Literal, Annotated
+from typing import Any, Literal, Annotated
 
 from pydantic import (
     BaseModel,
@@ -9,7 +10,6 @@ from pydantic import (
     field_validator,
     model_validator,
     BeforeValidator,
-    TypeAdapter,
 )
 from pydantic.networks import PostgresDsn
 from RTN.models import SettingsModel
@@ -82,9 +82,9 @@ class AllDebridModel(Observable):
 
 
 class DownloadersModel(Observable):
-    video_extensions: List[str] = Field(
+    video_extensions: list[str] = Field(
         default_factory=lambda: ["mp4", "mkv", "avi"],
-        description="List of video file extensions to consider for downloads",
+        description="list of video file extensions to consider for downloads",
     )
     movie_filesize_mb_min: int = Field(
         default=700, ge=1, description="Minimum file size in MB for movies"
@@ -125,18 +125,18 @@ class DownloadersModel(Observable):
 class LibraryProfileFilterRules(BaseModel):
     """Filter rules for library profile matching (metadata-only)"""
 
-    content_types: List[str] | None = Field(
+    content_types: list[str] | None = Field(
         default=None,
         description="Media types to include (movie, show). None/omit = all types",
     )
-    genres: List[str] | None = Field(
+    genres: list[str] | None = Field(
         default=None,
         description="Genres to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['action', 'adventure'] = include these genres, "
         "['action', '!horror'] = include action but exclude horror. "
         "None/omit = no genre filter",
     )
-    exclude_genres: List[str] | None = Field(
+    exclude_genres: list[str] | None = Field(
         default=None,
         description="DEPRECATED: Use genres with '!' prefix instead. "
         "This field is kept for backward compatibility and will be auto-migrated.",
@@ -154,17 +154,17 @@ class LibraryProfileFilterRules(BaseModel):
     is_anime: bool | None = Field(
         default=None, description="Filter by anime flag. None/omit = no anime filter"
     )
-    networks: List[str] | None = Field(
+    networks: list[str] | None = Field(
         default=None,
         description="TV networks to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['HBO', 'Netflix'], ['HBO', '!Fox']. None/omit = no network filter",
     )
-    countries: List[str] | None = Field(
+    countries: list[str] | None = Field(
         default=None,
         description="Countries to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['US', 'GB'], ['US', '!CN']. None/omit = no country filter",
     )
-    languages: List[str] | None = Field(
+    languages: list[str] | None = Field(
         default=None,
         description="Languages to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['en', 'es'], ['en', '!zh']. None/omit = no language filter",
@@ -181,7 +181,7 @@ class LibraryProfileFilterRules(BaseModel):
         le=10.0,
         description="Maximum rating (0-10 scale). None/omit = no maximum",
     )
-    content_ratings: List[str] | None = Field(
+    content_ratings: list[str] | None = Field(
         default=None,
         description="Content ratings to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['PG', 'PG-13'], ['PG', '!R']. "
@@ -533,10 +533,10 @@ class UpdatersModel(Observable):
 
 class ListrrModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Listrr integration")
-    movie_lists: List[str] = Field(
+    movie_lists: list[str] = Field(
         default_factory=list, description="Listrr movie list IDs"
     )
-    show_lists: List[str] = Field(
+    show_lists: list[str] = Field(
         default_factory=list, description="Listrr TV show list IDs"
     )
     api_key: str = Field(default="", description="Listrr API key")
@@ -548,7 +548,7 @@ class ListrrModel(Updatable):
 class MdblistModel(Updatable):
     enabled: bool = Field(default=False, description="Enable MDBList integration")
     api_key: str = Field(default="", description="MDBList API key")
-    lists: List[int | str] = Field(
+    lists: list[int | str] = Field(
         default_factory=list, description="MDBList list IDs to monitor"
     )
     update_interval: int = Field(
@@ -574,7 +574,7 @@ class PlexWatchlistModel(Updatable):
     enabled: bool = Field(
         default=False, description="Enable Plex Watchlist integration"
     )
-    rss: List[EmptyOrUrl] = Field(
+    rss: list[EmptyOrUrl] = Field(
         default_factory=list, description="Plex Watchlist RSS feed URLs"
     )
     update_interval: int = Field(
@@ -595,13 +595,13 @@ class TraktOauthModel(BaseModel):
 class TraktModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Trakt integration")
     api_key: str = Field(default="", description="Trakt API key")
-    watchlist: List[str] = Field(
+    watchlist: list[str] = Field(
         default_factory=list, description="Trakt usernames for watchlist monitoring"
     )
-    user_lists: List[str] = Field(
+    user_lists: list[str] = Field(
         default_factory=list, description="Trakt user list URLs to monitor"
     )
-    collection: List[str] = Field(
+    collection: list[str] = Field(
         default_factory=list, description="Trakt usernames for collection monitoring"
     )
     fetch_trending: bool = Field(
@@ -859,11 +859,11 @@ class DatabaseModel(Observable):
 
 class NotificationsModel(Observable):
     enabled: bool = Field(default=False, description="Enable notifications")
-    on_item_type: List[str] = Field(
+    on_item_type: list[str] = Field(
         default_factory=lambda: ["movie", "show", "season", "episode"],
         description="Item types to send notifications for",
     )
-    service_urls: List[str] = Field(
+    service_urls: list[str] = Field(
         default_factory=list,
         description="Notification service URLs (e.g., Discord webhooks)",
     )
@@ -882,7 +882,7 @@ class SubtitleProvidersDict(Observable):
 
 class SubtitleConfig(Observable):
     enabled: bool = Field(default=False, description="Enable subtitle downloading")
-    languages: List[str] = Field(
+    languages: list[str] = Field(
         default_factory=lambda: ["eng"],
         description="Subtitle languages to download (ISO 639-2 codes)",
     )
