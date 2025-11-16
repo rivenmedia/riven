@@ -525,12 +525,12 @@ class EventManager:
 
         return False
 
-    def get_event_updates(self) -> dict[str, list[str]]:
+    def get_event_updates(self) -> dict[str, list[int]]:
         """
         Get the event updates for the SSE manager.
 
         Returns:
-            dict[str, list[str]]: A dictionary with the event types as keys and a list of item IDs as values.
+            dict[str, list[int]]: A dictionary with the event types as keys and a list of item IDs as values.
         """
 
         events = [future.event for future in self._futures if future.event]

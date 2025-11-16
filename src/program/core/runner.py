@@ -3,18 +3,21 @@ from typing import Any, Generic, TypeVar
 
 from program.settings.models import Observable
 
-T = TypeVar("T", bound=Observable)
+TSettings = TypeVar("TSettings", bound=Observable | None)
+TService = TypeVar("TService", bound=Any | None)
 
 
-class Runner(ABC, Generic[T]):
+class Runner(ABC, Generic[TSettings, TService]):
     """Base class for all runners"""
 
     is_content_service: bool = False
-    settings: T
+    settings: TSettings
+    services: list[TService] | None
 
     def __init__(self):
         self.key = self.__class__.__name__.lower()
         self.initialized = False
+        self.services = None
 
     def validate(self) -> bool:
         """Validate the runner"""

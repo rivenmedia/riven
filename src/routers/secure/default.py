@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
@@ -36,15 +36,15 @@ class DownloaderUserInfo(BaseModel):
     """Normalized downloader user information response"""
 
     service: Literal["realdebrid", "alldebrid", "debridlink"]
-    username: Optional[str] = None
-    email: Optional[str] = None
+    username: str | None = None
+    email: str | None = None
     user_id: int | str
     premium_status: Literal["free", "premium"]
-    premium_expires_at: Optional[str] = None
-    premium_days_left: Optional[int] = None
-    points: Optional[int] = None
-    total_downloaded_bytes: Optional[int] = None
-    cooldown_until: Optional[str] = None
+    premium_expires_at: str | None = None
+    premium_days_left: int | None = None
+    points: int | None = None
+    total_downloaded_bytes: int | None = None
+    cooldown_until: str | None = None
 
 
 class DownloaderUserInfoResponse(BaseModel):
@@ -63,7 +63,11 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
     """
     try:
         # Get the downloader service from the program
-        downloader: Downloader = di[Program].services.get(Downloader)
+        services = di[Program].services
+
+        assert services
+
+        downloader = services.downloader
 
         if not downloader or not downloader.initialized:
             raise HTTPException(
@@ -128,7 +132,10 @@ async def generate_apikey() -> MessageResponse:
     new_key = generate_api_key()
     settings_manager.settings.api_key = new_key
     settings_manager.save()
-    return {"message": new_key}
+
+    return {
+        "message": new_key,
+    }
 
 
 @router.get("/services", operation_id="services")
@@ -138,7 +145,7 @@ async def get_services(request: Request) -> dict[str, bool]:
     services = di[Program].services
 
     if services:
-        for service in services.model_dump().values():
+        for service in services.to_dict().values():
             data[service.key] = service.initialized
 
             if not hasattr(service, "services"):
@@ -160,25 +167,36 @@ class TraktOAuthInitiateResponse(BaseModel):
 @router.get("/trakt/oauth/initiate", operation_id="trakt_oauth_initiate")
 async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
     trakt_api = di[TraktAPI]
+
     if trakt_api is None:
         raise HTTPException(status_code=404, detail="Trakt service not found")
+
     auth_url = trakt_api.build_oauth_url()
-    return {"auth_url": auth_url}
+
+    return {
+        "auth_url": auth_url,
+    }
 
 
 @router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
 async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
     trakt_api = di[TraktAPI]
     trakt_api_key = settings_manager.settings.content.trakt.api_key
+
     if trakt_api is None:
         raise HTTPException(status_code=404, detail="Trakt Api not found")
+
     if trakt_api_key is None:
         raise HTTPException(
             status_code=404, detail="Trakt Api key not found in settings"
         )
+
     success = trakt_api.handle_oauth_callback(trakt_api_key, code)
+
     if success:
-        return {"message": "OAuth token obtained successfully"}
+        return {
+            "message": "OAuth token obtained successfully",
+        }
     else:
         raise HTTPException(status_code=400, detail="Failed to obtain OAuth token")
 
@@ -195,7 +213,7 @@ class StatsResponse(BaseModel):
     activity: dict[str, int] = Field(
         description="Dictionary mapping date strings to count of items requested on that day"
     )
-    media_year_releases: list[dict[str, Optional[int]]] = Field(
+    media_year_releases: list[dict[str, int | None]] = Field(
         description="List of dictionaries with 'year' and 'count' keys representing media item releases per year"
     )
 
@@ -210,7 +228,9 @@ async def get_stats(_: Request) -> StatsResponse:
     Returns:
         StatsResponse: Aggregated statistics with keys `total_items`, `total_movies`, `total_shows`, `total_seasons`, `total_episodes`, `total_symlinks`, `incomplete_items`, `incomplete_retries`, and `states`.
     """
+
     payload = {}
+
     with db.Session() as session:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
@@ -222,11 +242,13 @@ async def get_stats(_: Request) -> StatsResponse:
                     exists().where(FilesystemEntry.media_item_id == Movie.id)
                 )
             ).scalar_one()
+
             episodes_symlinks = conn.execute(
                 select(func.count(Episode.id)).where(
                     exists().where(FilesystemEntry.media_item_id == Episode.id)
                 )
             ).scalar_one()
+
             total_symlinks = movies_symlinks + episodes_symlinks
 
             total_movies = conn.execute(select(func.count(Movie.id))).scalar_one()
@@ -257,6 +279,7 @@ async def get_stats(_: Request) -> StatsResponse:
                     MediaItem.year
                 )
             )
+
             for year, count in media_year_result:
                 media_year_releases.append({"year": year, "count": count})
 
@@ -272,6 +295,7 @@ async def get_stats(_: Request) -> StatsResponse:
 
             while True:
                 batch = result.fetchmany(batch_size)
+
                 if not batch:
                     break
 
@@ -279,6 +303,7 @@ async def get_stats(_: Request) -> StatsResponse:
                     incomplete_retries[media_item_id] = scraped_times
 
             states = {}
+
             for state in States:
                 states[state] = conn.execute(
                     select(func.count(MediaItem.id)).where(
@@ -307,6 +332,7 @@ class LogsResponse(BaseModel):
 @router.get("/logs", operation_id="logs")
 async def get_logs() -> LogsResponse:
     log_file_path = None
+
     for handler in logger._core.handlers.values():
         if ".log" in handler._name:
             log_file_path = handler._sink._path
@@ -373,6 +399,7 @@ async def upload_logs() -> UploadLogsResponse:
     """Upload the latest log file to paste.c-net.org"""
 
     log_file_path = None
+
     for handler in logger._core.handlers.values():
         if ".log" in handler._name:
             log_file_path = handler._sink._path
@@ -430,6 +457,14 @@ class VFSStatsResponse(BaseModel):
     operation_id="get_vfs_stats",
 )
 async def get_vfs_stats(request: Request) -> VFSStatsResponse:
-    return VFSStatsResponse(
-        stats=di[Program].services[FilesystemService].riven_vfs._opener_stats
-    )
+    """Get statistics about the VFS"""
+
+    services = di[Program].services
+
+    assert services
+
+    vfs = services.filesystem.riven_vfs
+
+    assert vfs
+
+    return VFSStatsResponse(stats=vfs._opener_stats)

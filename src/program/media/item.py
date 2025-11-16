@@ -46,7 +46,7 @@ class MediaItem(db.Model):
     requested_id: Mapped[int | None]
     indexed_at: Mapped[datetime | None]
     scraped_at: Mapped[datetime | None]
-    scraped_times: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=0)
+    scraped_times: Mapped[int] = mapped_column(sqlalchemy.Integer, default=0)
     active_stream: Mapped[dict | None] = mapped_column(sqlalchemy.JSON, nullable=True)
     streams: Mapped[list[Stream]] = relationship(
         secondary="StreamRelation",
@@ -97,7 +97,7 @@ class MediaItem(db.Model):
         cascade="all, delete-orphan",
         overlaps="filesystem_entries",
     )
-    failed_attempts: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=0)
+    failed_attempts: Mapped[int] = mapped_column(sqlalchemy.Integer, default=0)
 
     __mapper_args__ = {
         "polymorphic_identity": "mediaitem",

@@ -51,4 +51,5 @@ user_agents_pool = [
     "curl/7.67.0",
     "curl/7.63.0",
 ]
+
 user_agent_factory = UserAgentFactory(user_agents_pool)

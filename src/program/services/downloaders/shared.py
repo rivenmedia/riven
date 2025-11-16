@@ -19,6 +19,9 @@ class DownloaderBase(ABC):
 
     PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
 
+    initialized: bool
+    key: str
+
     @abstractmethod
     def validate(self) -> bool:
         """
@@ -30,7 +33,9 @@ class DownloaderBase(ABC):
 
     @abstractmethod
     def get_instant_availability(
-        self, infohash: str, item_type: str
+        self,
+        infohash: str,
+        item_type: str,
     ) -> Optional[TorrentContainer]:
         """
         Get instant availability for a single infohash
@@ -44,7 +49,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def add_torrent(self, infohash: str) -> Union[int, str]:
+    def add_torrent(self, infohash: str) -> int | str:
         """
         Add a torrent and return its information
 

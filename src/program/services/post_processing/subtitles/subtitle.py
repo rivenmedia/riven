@@ -14,11 +14,13 @@ from program.media.item import MediaItem
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
 from program.services.filesystem.filesystem_service import FilesystemService
+from program.core.runner import Runner
+from src.program.settings.models import SubtitleConfig
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
 
 
-class SubtitleService:
+class SubtitleService(Runner[SubtitleConfig]):
     """Service for fetching and managing subtitles."""
 
     def __init__(self):
@@ -315,8 +317,11 @@ class SubtitleService:
             OpenSubtitles hash or None if calculation fails
         """
         try:
+            assert item.filesystem_entry
+
             # Get file size from filesystem entry
             file_size = item.filesystem_entry.file_size
+
             if not file_size or file_size < 128 * 1024:  # 128KB minimum
                 logger.debug(
                     f"File too small ({file_size} bytes) to calculate hash for {item.log_string}"
@@ -395,8 +400,10 @@ class SubtitleService:
             season: Season number (for TV shows)
             episode: Episode number (for TV shows)
         """
+
         # Check if subtitle already exists
         existing_subtitle = self._get_existing_subtitle(item, language)
+
         if existing_subtitle:
             logger.debug(
                 f"Subtitle for {language} already exists for {item.log_string}"
@@ -405,6 +412,7 @@ class SubtitleService:
 
         # Search for subtitles across all providers
         all_results = []
+
         for provider in self.providers:
             try:
                 results = provider.search_subtitles(
@@ -443,11 +451,15 @@ class SubtitleService:
 
                 # Download subtitle content
                 content = provider.download_subtitle(subtitle_info)
+
                 if not content:
                     continue
 
+                assert item.filesystem_entry
+
                 # Get parent MediaEntry's original_filename
                 parent_original_filename = item.filesystem_entry.original_filename
+
                 if not parent_original_filename:
                     logger.error(
                         f"MediaEntry for {item.log_string} has no original_filename, cannot create subtitle"
@@ -470,6 +482,9 @@ class SubtitleService:
 
                 # Save to database
                 session = object_session(item)
+
+                assert session
+
                 session.add(subtitle_entry)
 
                 # Flush to synchronize relationships before VFS sync
@@ -479,11 +494,16 @@ class SubtitleService:
                 logger.debug(
                     f"Downloaded and stored {language} subtitle for {item.log_string}"
                 )
+
                 from program.program import riven
 
-                filesystem_service = riven.services.get(FilesystemService)
+                assert riven.services
+
+                filesystem_service = riven.services.filesystem
+
                 if filesystem_service and filesystem_service.riven_vfs:
                     filesystem_service.riven_vfs.sync(item)
+
                 return
 
             except Exception as e:

@@ -20,9 +20,10 @@ from program.media.models import MediaMetadata
 
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
+from program.core.runner import Runner
 
 
-class MediaAnalysisService:
+class MediaAnalysisService(Runner):
     """Service for analyzing media files and extracting metadata."""
 
     def __init__(self):
@@ -112,7 +113,10 @@ class MediaAnalysisService:
                 from program.program import riven
                 from program.services.filesystem import FilesystemService
 
-                filesystem_service = riven.services.get(FilesystemService)
+                assert riven.services
+
+                filesystem_service = riven.services.filesystem
+
                 if filesystem_service and filesystem_service.riven_vfs:
                     filesystem_service.riven_vfs.sync(item)
                     logger.debug(
@@ -143,6 +147,7 @@ class MediaAnalysisService:
                 return False
 
             ffprobe_metadata = parse_media_file(file_path)
+
             if ffprobe_metadata:
                 ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
 

@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Union
-
 from loguru import logger
+from RTN import ParsedData
 
 from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
@@ -17,8 +16,11 @@ from program.services.downloaders.models import (
     TorrentContainer,
     TorrentInfo,
 )
-from RTN import ParsedData
-from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
+from program.services.downloaders.shared import (
+    DownloaderBase,
+    _sort_streams_by_quality,
+    parse_filename,
+)
 from program.utils.request import CircuitBreakerOpen
 from program.core.runner import Runner
 
@@ -27,28 +29,33 @@ from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
 
 
-class Downloader(Runner):
+class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
         self.key = "downloader"
         self.initialized = False
-        self.services = {
-            RealDebridDownloader: RealDebridDownloader(),
-            DebridLinkDownloader: DebridLinkDownloader(),
-            AllDebridDownloader: AllDebridDownloader(),
-        }
+        self.services = [
+            RealDebridDownloader(),
+            DebridLinkDownloader(),
+            AllDebridDownloader(),
+        ]
+
         # Get all initialized services instead of just the first one
         self.initialized_services = [
-            service for service in self.services.values() if service.initialized
+            service for service in self.services if service.initialized
         ]
+
         # Keep backward compatibility - primary service is the first initialized one
         self.service = (
             self.initialized_services[0] if self.initialized_services else None
         )
+
         self.initialized = self.validate()
+
         # Track circuit breaker retry attempts per item
-        self._circuit_breaker_retries = {}
+        self._circuit_breaker_retries: dict[int, int] = {}
+
         # Track per-service cooldowns when circuit breaker is open
-        self._service_cooldowns = {}  # {service.key: datetime}
+        self._service_cooldowns: dict[str, datetime] = {}
 
     def validate(self):
         if not self.initialized_services:
@@ -82,13 +89,15 @@ class Downloader(Runner):
             yield (item, next_attempt)
             return
 
+        download_success = False
+
+        # Track if we hit circuit breaker on any service
+        hit_circuit_breaker = False
+
         try:
-            download_success = False
             # Sort streams by resolution and rank (highest first) using simple, fast sorting
             sorted_streams = _sort_streams_by_quality(item.streams)
 
-            # Track if we hit circuit breaker on any service
-            hit_circuit_breaker = False
             tried_streams = 0
 
             for stream in sorted_streams:
@@ -101,9 +110,11 @@ class Downloader(Runner):
                         f"Trying stream {stream.infohash} on {service.key} for {item.log_string}"
                     )
 
+                    download_result: DownloadedTorrent | None = None
+
                     try:
                         # Validate stream on this specific service
-                        container: Optional[TorrentContainer] = (
+                        container: TorrentContainer | None = (
                             self.validate_stream_on_service(stream, item, service)
                         )
                         if not container:
@@ -116,6 +127,7 @@ class Downloader(Runner):
                         download_result = self.download_cached_stream_on_service(
                             stream, container, service
                         )
+
                         if self.update_item_attributes(item, download_result, service):
                             logger.log(
                                 "DEBRID",
@@ -151,9 +163,11 @@ class Downloader(Runner):
                         logger.debug(
                             f"Stream {stream.infohash} failed on {service.key}: {e}"
                         )
-                        if "download_result" in locals() and download_result.id:
+
+                        if download_result and download_result.id:
                             try:
                                 service.delete_torrent(download_result.id)
+
                                 logger.debug(
                                     f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on {service.key}."
                                 )
@@ -184,6 +198,7 @@ class Downloader(Runner):
                         item.blacklist_stream(stream)
 
                 tried_streams += 1
+
                 if tried_streams >= 3:
                     yield item
 
@@ -197,10 +212,13 @@ class Downloader(Runner):
             if hit_circuit_breaker and len(self.initialized_services) == 1:
                 # Reschedule for after cooldown instead of failing
                 next_attempt = min(self._service_cooldowns.values())
+
                 logger.warning(
                     f"Single provider hit circuit breaker for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
                 )
+
                 yield (item, next_attempt)
+
                 return
             else:
                 logger.debug(
@@ -214,8 +232,10 @@ class Downloader(Runner):
         yield item
 
     def validate_stream(
-        self, stream: Stream, item: MediaItem
-    ) -> Optional[TorrentContainer]:
+        self,
+        stream: Stream,
+        item: MediaItem,
+    ) -> TorrentContainer | None:
         """
         Validate a single stream by ensuring its files match the item's requirements.
         Uses the primary service for backward compatibility.
@@ -223,8 +243,11 @@ class Downloader(Runner):
         return self.validate_stream_on_service(stream, item, self.service)
 
     def validate_stream_on_service(
-        self, stream: Stream, item: MediaItem, service
-    ) -> Optional[TorrentContainer]:
+        self,
+        stream: Stream,
+        item: MediaItem,
+        service,
+    ) -> TorrentContainer | None:
         """
         Validate a single stream on a specific service by ensuring its files match the item's requirements.
         """
@@ -262,9 +285,13 @@ class Downloader(Runner):
         return None
 
     def update_item_attributes(
-        self, item: MediaItem, download_result: DownloadedTorrent, service=None
+        self,
+        item: MediaItem,
+        download_result: DownloadedTorrent,
+        service: DownloaderBase | None = None,
     ) -> bool:
         """Update the item attributes with the downloaded files and active stream."""
+
         if service is None:
             service = self.service
 
@@ -274,31 +301,40 @@ class Downloader(Runner):
                     f"No container found for {item.log_string} ({item.id})"
                 )
 
-            episode_cap: int = None
-            show: Optional[Show] = None
+            episode_cap: int | None = None
+            show: Show | None = None
+
             if item.type in ("show", "season", "episode"):
                 show = (
                     item
                     if item.type == "show"
                     else (item.parent if item.type == "season" else item.parent.parent)
                 )
+
+                assert show
+
                 try:
                     method_1 = sum(len(season.episodes) for season in show.seasons)
                     try:
                         method_2 = show.seasons[-1].episodes[-1].number
                     except IndexError:
-                        # happens if theres a new season with no episodes yet
+                        # happens if there's a new season with no episodes yet
                         method_2 = show.seasons[-2].episodes[-1].number
-                    episode_cap = max([method_1, method_2])
+
+                    episode_cap = max([method_1, method_2 or 0])
                 except Exception as e:
                     pass
+
             found = False
             files = list(download_result.container.files or [])
+
             # Track episodes we've already processed to avoid duplicates
             processed_episode_ids: set[str] = set()
 
             for file in files:
                 try:
+                    assert file.filename
+
                     file_data: ParsedData = parse_filename(file.filename)
                 except Exception as e:
                     continue
@@ -334,10 +370,10 @@ class Downloader(Runner):
         file_data: ParsedData,
         file: DebridFile,
         download_result: DownloadedTorrent,
-        show: Optional[Show] = None,
-        episode_cap: int = None,
-        processed_episode_ids: Optional[set[str]] = None,
-        service=None,
+        show: Show | None = None,
+        episode_cap: int | None = None,
+        processed_episode_ids: set[str] | None = None,
+        service: DownloaderBase | None = None,
     ) -> bool:
         """
         Determine whether a parsed file corresponds to the given media item (movie, show, season, or episode) and update the item's attributes when matches are found.
@@ -357,12 +393,14 @@ class Downloader(Runner):
         Returns:
             bool: `true` if at least one file-to-item match was found and attributes were updated, `false` otherwise.
         """
+
         if service is None:
             service = self.service
 
         logger.debug(
             f"match_file_to_item: item={item.id} type={item.type} file='{file.filename}'"
         )
+
         found = False
 
         if item.type == "movie" and file_data.type == "movie":
@@ -372,6 +410,7 @@ class Downloader(Runner):
 
         if item.type in ("show", "season", "episode"):
             season_number = file_data.seasons[0] if file_data.seasons else None
+
             for file_episode in file_data.episodes:
                 if episode_cap and file_episode > episode_cap:
                     logger.debug(
@@ -379,9 +418,10 @@ class Downloader(Runner):
                     )
                     continue
 
-                episode: Episode = show.get_absolute_episode(
-                    file_episode, season_number
-                )
+                assert show
+
+                episode = show.get_absolute_episode(file_episode, season_number)
+
                 if episode is None:
                     logger.debug(
                         f"Episode {file_episode} from file does not match any episode in {getattr(show, 'log_string', 'show?')}"
@@ -427,13 +467,21 @@ class Downloader(Runner):
         return found
 
     def download_cached_stream(
-        self, stream: Stream, container: TorrentContainer
+        self,
+        stream: Stream,
+        container: TorrentContainer,
     ) -> DownloadedTorrent:
         """Download a cached stream using the primary service"""
+
+        assert self.service
+
         return self.download_cached_stream_on_service(stream, container, self.service)
 
     def download_cached_stream_on_service(
-        self, stream: Stream, container: TorrentContainer, service
+        self,
+        stream: Stream,
+        container: TorrentContainer,
+        service: DownloaderBase,
     ) -> DownloadedTorrent:
         """
         Prepare and return a DownloadedTorrent for a stream using the given service.
@@ -443,12 +491,18 @@ class Downloader(Runner):
         Returns:
             DownloadedTorrent: An object containing the torrent id, torrent info, the stream's infohash, and the (possibly updated) container.
         """
+
+        torrent_id = None
+
         # Check if we already have a torrent_id from validation (Real-Debrid optimization)
         if container.torrent_id:
             torrent_id = container.torrent_id
+
             logger.debug(
                 f"Reusing torrent_id {torrent_id} from validation for {stream.infohash}"
             )
+
+        assert torrent_id
 
         # Check if we already have torrent_info from validation (Real-Debrid optimization)
         if container.torrent_info:
@@ -462,16 +516,19 @@ class Downloader(Runner):
             service.select_files(torrent_id, container.file_ids)
 
         return DownloadedTorrent(
-            id=torrent_id, info=info, infohash=stream.infohash, container=container
+            id=torrent_id,
+            info=info,
+            infohash=stream.infohash,
+            container=container,
         )
 
     def _update_attributes(
         self,
-        item: Union[Movie, Episode],
+        item: Movie | Episode,
         debrid_file: DebridFile,
         download_result: DownloadedTorrent,
-        service=None,
-        file_data: ParsedData = None,
+        service: DownloaderBase | None = None,
+        file_data: ParsedData | None = None,
     ) -> None:
         """
         Update the media item's active stream and filesystem entries using a debrid file from a completed download.
@@ -513,6 +570,9 @@ class Downloader(Runner):
                 )
                 media_metadata = metadata.model_dump(mode="json")
 
+            assert debrid_file.filename
+            assert service
+
             entry = MediaEntry.create_virtual_entry(
                 original_filename=debrid_file.filename,
                 download_url=debrid_file.download_url,
@@ -538,34 +598,52 @@ class Downloader(Runner):
                 )
 
     def get_instant_availability(
-        self, infohash: str, item_type: str
-    ) -> List[TorrentContainer]:
+        self,
+        infohash: str,
+        item_type: str,
+    ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
 
         Queries the active downloader service for instant availability and returns any matching cached torrent containers.
 
         Returns:
-            List[TorrentContainer]: A list of TorrentContainer objects representing available cached torrents; empty list if none are found.
+            list[TorrentContainer]: A list of TorrentContainer objects representing available cached torrents; empty list if none are found.
         """
+
+        assert self.service
+
         return self.service.get_instant_availability(infohash, item_type)
 
-    def add_torrent(self, infohash: str) -> int:
+    def add_torrent(self, infohash: str) -> int | str:
         """Add a torrent by infohash"""
+
+        assert self.service
+
         return self.service.add_torrent(infohash)
 
     def get_torrent_info(self, torrent_id: int) -> TorrentInfo:
         """Get information about a torrent"""
+
+        assert self.service
+
         return self.service.get_torrent_info(torrent_id)
 
-    def select_files(self, torrent_id: int, container: list[str]) -> None:
+    def select_files(self, torrent_id: int, container: list[int]) -> None:
         """Select files from a torrent"""
+
+        assert self.service
+
         self.service.select_files(torrent_id, container)
 
     def delete_torrent(self, torrent_id: int) -> None:
         """Delete a torrent"""
+
+        assert self.service
+
         self.service.delete_torrent(torrent_id)
 
-    def get_user_info(self, service) -> Dict:
+    def get_user_info(self, service) -> dict:
         """Get user information"""
+
         return service.get_user_info()

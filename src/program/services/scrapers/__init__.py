@@ -50,6 +50,7 @@ class Scraping(Runner[ScraperModel]):
 
     def validate(self) -> bool:
         """Validate that at least one scraper service is initialized."""
+
         return len(self.initialized_services) > 0
 
     def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
@@ -64,15 +65,18 @@ class Scraping(Runner[ScraperModel]):
 
         if new_streams:
             item.streams.extend(new_streams)
+
             if item.failed_attempts > 0:
                 item.failed_attempts = 0  # Reset failed attempts on success
+
             logger.log(
                 "SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}"
             )
         else:
             logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
-            item.failed_attempts = getattr(item, "failed_attempts", 0) + 1
+            item.failed_attempts = item.failed_attempts + 1
+
             if (
                 self.max_failed_attempts > 0
                 and item.failed_attempts >= self.max_failed_attempts
@@ -87,7 +91,7 @@ class Scraping(Runner[ScraperModel]):
                 )
 
         item.set("scraped_at", datetime.now())
-        item.set("scraped_times", item.scraped_times + 1)
+        item.set("scraped_times", (item.scraped_times or 0) + 1)
 
         yield item
 
@@ -166,6 +170,7 @@ class Scraping(Runner[ScraperModel]):
             not item.scraped_at
             or (datetime.now() - item.scraped_at).total_seconds() > scrape_time
         )
+
         if not is_scrapeable:
             return False
 
