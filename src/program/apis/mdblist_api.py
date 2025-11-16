@@ -1,5 +1,5 @@
 ﻿from loguru import logger
-from typing import Any, Literal, Self
+from typing import Literal
 from pydantic import BaseModel, StrictInt, StrictStr
 from program.utils.request import SmartSession
 

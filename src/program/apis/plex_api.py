@@ -1,6 +1,4 @@
-﻿from typing import Dict, List, Optional
-
-import regex
+﻿import regex
 from loguru import logger
 from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
@@ -21,7 +19,7 @@ class PlexAPI:
     """Handles Plex API communication"""
 
     def __init__(self, token: str, base_url: str):
-        self.rss_urls: Optional[List[str]] = None
+        self.rss_urls: list[str] | None = None
         self.token = token
         self.BASE_URL = base_url
 
@@ -54,7 +52,7 @@ class PlexAPI:
             self.BASE_URL, token=self.token, session=self.session, timeout=60
         )
 
-    def set_rss_urls(self, rss_urls: List[str]):
+    def set_rss_urls(self, rss_urls: list[str]):
         self.rss_urls = rss_urls
 
     def clear_rss_urls(self):
@@ -66,14 +64,18 @@ class PlexAPI:
 
     def ratingkey_to_imdbid(self, ratingKey: str) -> str | None:
         """Convert Plex rating key to IMDb ID"""
+
         token = settings_manager.settings.updaters.plex.token
         filter_params = (
             "includeGuids=1&includeFields=guid,title,year&includeElements=Guid"
         )
         url = f"https://metadata.provider.plex.tv/library/metadata/{ratingKey}?X-Plex-Token={token}&{filter_params}"
+
         response = self.session.get(url)
+
         if response.ok and hasattr(response.data, "MediaContainer"):
             metadata = response.data.MediaContainer.Metadata[0]
+
             return next(
                 (
                     guid.id.split("//")[-1]
@@ -82,15 +84,22 @@ class PlexAPI:
                 ),
                 None,
             )
+
         logger.debug(f"Failed to fetch IMDb ID for ratingKey: {ratingKey}")
+
         return None
 
     def get_items_from_rss(self) -> list[tuple[str, str]]:
         """Fetch media from Plex RSS Feeds."""
+
         rss_items: list[tuple[str, str]] = []
+
+        assert self.rss_urls
+
         for rss_url in self.rss_urls:
             try:
                 response = self.session.get(rss_url + "?format=json", timeout=60)
+
                 if not response.ok or not hasattr(response.data, "items"):
                     logger.error(f"Failed to fetch Plex RSS feed from {rss_url}")
                     continue
@@ -136,27 +145,32 @@ class PlexAPI:
                 )
         return rss_items
 
-    def get_items_from_watchlist(self) -> list[dict[str, Optional[str]]]:
+    def get_items_from_watchlist(self) -> list[dict[str, str | None]]:
         """Fetch media from Plex watchlist"""
+
+        assert self.account
+
         items = self.account.watchlist()
-        watchlist_items: list[dict[str, str]] = []
+        watchlist_items: list[dict[str, str | None]] = []
+
         for item in items:
             try:
-                imdb_id = None
-                tmdb_id = None
-                tvdb_id = None
+                imdb_id: str | None = None
+                tmdb_id: str | None = None
+                tvdb_id: str | None = None
 
                 if hasattr(item, "guids") and item.guids:
-                    imdb_id: str = next(
+                    imdb_id = next(
                         (
                             guid.id.split("//")[-1]
                             for guid in item.guids
                             if guid.id.startswith("imdb://")
                         ),
-                        "",
+                        None,
                     )
+
                     if item.TYPE == "movie":
-                        tmdb_id: str = next(
+                        tmdb_id = next(
                             (
                                 guid.id.split("//")[-1]
                                 for guid in item.guids
@@ -165,7 +179,7 @@ class PlexAPI:
                             "",
                         )
                     elif item.TYPE == "show":
-                        tvdb_id: str = next(
+                        tvdb_id = next(
                             (
                                 guid.id.split("//")[-1]
                                 for guid in item.guids
@@ -182,7 +196,11 @@ class PlexAPI:
                         continue
 
                     watchlist_items.append(
-                        {"imdb_id": imdb_id, "tmdb_id": tmdb_id, "tvdb_id": tvdb_id}
+                        {
+                            "imdb_id": imdb_id,
+                            "tmdb_id": tmdb_id,
+                            "tvdb_id": tvdb_id,
+                        }
                     )
                 else:
                     logger.log(
@@ -205,8 +223,11 @@ class PlexAPI:
             logger.error(f"Failed to update Plex section for path {path}: {e}")
             return False
 
-    def map_sections_with_paths(self) -> Dict[LibrarySection, List[str]]:
+    def map_sections_with_paths(self) -> dict[LibrarySection, list[str]]:
         """Map Plex sections with their paths"""
+
+        assert self.plex_server
+
         # Skip sections without locations and non-movie/show sections
         sections = [
             section

@@ -17,7 +17,8 @@ def process_event(
     content_item: MediaItem | None = None,
 ) -> ProcessedEvent:
     """Process an event and return the updated item, next service and items to submit."""
-    next_service: Service = None
+
+    next_service: Service | None = None
     no_further_processing: ProcessedEvent = (None, [])
     items_to_submit = []
 
@@ -29,11 +30,14 @@ def process_event(
     ):
         next_service = IndexerService
         log_string = None
+
         if existing_item:
             log_string = existing_item.log_string
         elif content_item:
             log_string = content_item.log_string
+
         logger.debug(f"Submitting {log_string} to IndexerService")
+
         return next_service, [content_item or existing_item]
 
     elif existing_item is not None and existing_item.last_state in [
@@ -46,19 +50,24 @@ def process_event(
                 for s in existing_item.seasons
                 if s.last_state not in [States.Completed, States.Unreleased]
             ]
+
             for season in incomplete_seasons:
                 _, sub_items = process_event(emitted_by, season, None)
+
                 items_to_submit += sub_items
         elif existing_item.type == "season":
             incomplete_episodes = [
                 e for e in existing_item.episodes if e.last_state != States.Completed
             ]
+
             for episode in incomplete_episodes:
                 _, sub_items = process_event(emitted_by, episode, None)
+
                 items_to_submit += sub_items
 
     elif existing_item is not None and existing_item.last_state == States.Indexed:
         next_service = Scraping
+
         if emitted_by != Scraping and Scraping.should_submit(existing_item):
             items_to_submit = [existing_item]
         elif existing_item.type == "show":

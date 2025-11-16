@@ -85,11 +85,11 @@ class Services:
             if key != "__service_map"
         }
 
-    def __getitem__(self, key: str | Runner) -> Runner | None:
+    def __getitem__(self, key: str | Runner) -> Runner:
         if isinstance(key, Runner):
             key = self.__service_map[type(key)]
 
-        return getattr(self, key, None)
+        return getattr(self, key)
 
 
 class Program(threading.Thread):

@@ -1,7 +1,7 @@
 """MediaItem class"""
 
 from datetime import datetime
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING, cast
 
 import sqlalchemy
 from loguru import logger
@@ -180,6 +180,8 @@ class MediaItem(db.Model):
             try:
                 from program.program import riven
 
+                assert riven.services
+
                 notification_service = riven.services.notifications
                 if notification_service:
                     notification_service.run(
@@ -205,16 +207,21 @@ class MediaItem(db.Model):
                 (
                     s
                     for s in streams
-                    if s.infohash == self.active_stream.get("infohash")
+                    if self.active_stream
+                    and s.infohash == self.active_stream.get("infohash")
                 ),
                 None,
             )
+
             if stream:
                 self.blacklist_stream(stream)
+
                 logger.debug(
                     f"Blacklisted stream {stream.infohash} for {self.log_string}"
                 )
+
                 return True
+
             return False
 
         if find_and_blacklist_stream(self.streams):
@@ -223,6 +230,7 @@ class MediaItem(db.Model):
         if self.type == "episode":
             if self.parent and find_and_blacklist_stream(self.parent.streams):
                 return True
+
             if (
                 self.parent
                 and self.parent.parent
@@ -233,6 +241,7 @@ class MediaItem(db.Model):
         logger.debug(
             f"Unable to find stream from item hierarchy for {self.log_string}, will not blacklist"
         )
+
         return False
 
     def blacklist_stream(self, stream: Stream) -> bool:
@@ -240,10 +249,14 @@ class MediaItem(db.Model):
 
         if stream in self.streams:
             self.streams.remove(stream)
+
             if stream not in self.blacklisted_streams:
                 self.blacklisted_streams.append(stream)
+
             logger.debug(f"Blacklisted stream {stream.infohash} for {self.log_string}")
+
             return True
+
         return False
 
     def unblacklist_stream(self, stream: Stream) -> None:
@@ -549,7 +562,7 @@ class MediaItem(db.Model):
         if other is None:
             return None
 
-        self.id = getattr(other, "id", None)
+        self.id = getattr(other, "id")
 
         if hasattr(self, "number"):
             self.number = getattr(other, "number", None)
@@ -566,7 +579,7 @@ class MediaItem(db.Model):
 
         _set_nested_attr(self, key, value)
 
-    def get_top_title(self) -> str:
+    def get_top_title(self) -> str | None:
         """
         Return the top-level title for this media item.
 
@@ -618,7 +631,7 @@ class MediaItem(db.Model):
             else False
         )
 
-    def get_top_imdb_id(self) -> str:
+    def get_top_imdb_id(self) -> str | None:
         """
         Return the IMDb identifier for the top-level item in the hierarchy.
 
@@ -632,7 +645,7 @@ class MediaItem(db.Model):
             return self.parent.parent.imdb_id
         return self.imdb_id
 
-    def get_aliases(self) -> dict:
+    def get_aliases(self) -> dict | None:
         """Get the aliases of the item."""
 
         if self.type == "season":
@@ -680,12 +693,13 @@ class MediaItem(db.Model):
         """
 
         # Remove VFS nodes BEFORE clearing entries (so we can still access them)
-        from program.services.filesystem import FilesystemService
         from program.program import riven
 
-        filesystem_service = riven.services.get(FilesystemService)
+        assert riven.services
 
-        if filesystem_service and filesystem_service.riven_vfs:
+        filesystem_service = riven.services.filesystem
+
+        if filesystem_service.riven_vfs:
             filesystem_service.riven_vfs.remove(self)
 
         # Clear filesystem entries - ORM automatically deletes orphaned entries
@@ -865,7 +879,10 @@ class Show(MediaItem):
 
         return States.Unknown
 
-    def store_state(self, given_state: States | None = None) -> tuple[States, States]:
+    def store_state(
+        self,
+        given_state: States | None = None,
+    ) -> tuple[States | None, States]:
         for season in self.seasons:
             season.store_state(given_state)
 
@@ -895,7 +912,7 @@ class Show(MediaItem):
         if season.number not in [s.number for s in self.seasons]:
             self.seasons.append(season)
             season.parent = self
-            self.seasons = sorted(self.seasons, key=lambda s: s.number)
+            self.seasons = sorted(cast(list, self.seasons), key=lambda s: s.number)
 
     def get_absolute_episode(
         self,
@@ -908,6 +925,7 @@ class Show(MediaItem):
 
         if season_number is not None:
             season = next((s for s in self.seasons if s.number == season_number), None)
+
             if season:
                 episode = next(
                     (e for e in season.episodes if e.number == episode_number), None
@@ -953,15 +971,20 @@ class Season(MediaItem):
         "polymorphic_load": "selectin",
     }
 
-    def store_state(self, given_state: States = None) -> tuple[States, States]:
+    def store_state(
+        self,
+        given_state: States | None = None,
+    ) -> tuple[States | None, States]:
         for episode in self.episodes:
             episode.store_state(given_state)
+
         return super().store_state(given_state)
 
-    def __init__(self, item):
+    def __init__(self, item: dict):
         self.type = "season"
         self.number = item.get("number", None)
         self.episodes = item.get("episodes", [])
+
         super().__init__(item)
 
     def _determine_state(self):
@@ -1067,13 +1090,13 @@ class Season(MediaItem):
 
         self.episodes.append(episode)
         episode.parent = self
-        self.episodes = sorted(self.episodes, key=lambda e: e.number)
+        self.episodes = sorted(cast(list, self.episodes), key=lambda e: e.number)
 
     @property
     def log_string(self):
         return self.parent.log_string + " S" + str(self.number).zfill(2)
 
-    def get_top_title(self) -> str:
+    def get_top_title(self) -> str | None:
         """Get the top title of the season."""
 
         session = object_session(self)
@@ -1106,9 +1129,10 @@ class Episode(MediaItem):
         "polymorphic_load": "selectin",
     }
 
-    def __init__(self, item):
+    def __init__(self, item: dict):
         self.type = "episode"
         self.number = item.get("number", None)
+
         super().__init__(item)
 
     def __repr__(self):
@@ -1162,7 +1186,7 @@ class Episode(MediaItem):
         return f"{self.parent.log_string}E{self.number:02}"
 
     def get_top_title(self) -> str:
-        return self.parent.parent.title
+        return getattr(self.parent.parent, "title")
 
 
 def _set_nested_attr(obj, key, value):

@@ -16,6 +16,7 @@ from program.services.downloaders import (
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.services.filesystem import FilesystemService
+from program.core.runner import Runner
 
 # Typehint classes
 Scraper = Union[Scraping]
@@ -33,7 +34,7 @@ class ProcessedEvent:
 
 @dataclass
 class Event:
-    emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str
+    emitted_by: Runner | Literal["StateTransition", "RetryLibrary"] | str
     item_id: int | None = None
     content_item: MediaItem | None = None
     run_at: datetime = datetime.now()

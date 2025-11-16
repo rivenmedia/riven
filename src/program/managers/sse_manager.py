@@ -1,17 +1,18 @@
 import asyncio
-from typing import Any, Dict, List
+from typing import Any
 
 
 class ServerSentEventManager:
     def __init__(self):
         # Store active subscriber queues by event type
-        self.subscribers: Dict[str, List[asyncio.Queue]] = {}
+        self.subscribers: dict[str, list[asyncio.Queue]] = {}
 
     def publish_event(self, event_type: str, data: Any):
         """
         Publish an event to all active subscribers.
         Events are sent only to currently connected clients and are not pooled.
         """
+
         if not data:
             return
 
@@ -21,6 +22,7 @@ class ServerSentEventManager:
 
         # Send to all active subscribers for this event type
         dead_queues = []
+
         for queue in self.subscribers[event_type]:
             try:
                 queue.put_nowait(data)
@@ -37,12 +39,14 @@ class ServerSentEventManager:
         Subscribe to an event type.
         Creates a new queue for this subscriber and yields events as they arrive.
         """
+
         # Create a queue for this subscriber
         queue = asyncio.Queue(maxsize=100)
 
         # Register this subscriber
         if event_type not in self.subscribers:
             self.subscribers[event_type] = []
+
         self.subscribers[event_type].append(queue)
 
         try:
@@ -58,6 +62,7 @@ class ServerSentEventManager:
             # Clean up when subscriber disconnects
             if event_type in self.subscribers and queue in self.subscribers[event_type]:
                 self.subscribers[event_type].remove(queue)
+
                 # Remove event type if no more subscribers
                 if not self.subscribers[event_type]:
                     del self.subscribers[event_type]

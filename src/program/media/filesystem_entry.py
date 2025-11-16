@@ -23,7 +23,7 @@ class FilesystemEntry(db.Model):
     )
 
     # Discriminator for polymorphic identity (media, subtitle, etc.)
-    entry_type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    entry_type: Mapped[str]
 
     # File size in bytes (for media files, this is the video size; for subtitles, this is the subtitle file size)
     file_size: Mapped[int] = mapped_column(
@@ -38,6 +38,7 @@ class FilesystemEntry(db.Model):
     created_at: Mapped[datetime] = mapped_column(
         sqlalchemy.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
     updated_at: Mapped[datetime] = mapped_column(
         sqlalchemy.DateTime,
         default=lambda: datetime.now(timezone.utc),
