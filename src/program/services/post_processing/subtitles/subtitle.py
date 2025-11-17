@@ -5,7 +5,6 @@ Handles subtitle fetching from various providers and stores them in the database
 for serving via RivenVFS.
 """
 
-from typing import Optional
 from sqlalchemy.orm import object_session
 from loguru import logger
 
@@ -242,7 +241,7 @@ class SubtitleService(Runner[SubtitleConfig]):
 
         return embedded_languages
 
-    def _build_search_tags(self, item: MediaItem) -> Optional[str]:
+    def _build_search_tags(self, item: MediaItem) -> str | None:
         """
         Build comma-separated search tags from media_metadata for OpenSubtitles.
 
@@ -309,7 +308,7 @@ class SubtitleService(Runner[SubtitleConfig]):
 
         return None
 
-    def _calculate_video_hash(self, item: MediaItem) -> Optional[str]:
+    def _calculate_video_hash(self, item: MediaItem) -> str | None:
         """
         Calculate OpenSubtitles hash for the video file.
 
@@ -380,13 +379,13 @@ class SubtitleService(Runner[SubtitleConfig]):
         item: MediaItem,
         language: str,
         video_path: str,
-        video_hash: Optional[str],
-        file_size: Optional[int],
+        video_hash: str | None,
+        file_size: int | None,
         original_filename: str,
-        search_tags: Optional[str],
-        imdb_id: Optional[str],
-        season: Optional[int],
-        episode: Optional[int],
+        search_tags: str | None,
+        imdb_id: str | None,
+        season: int | None,
+        episode: int | None,
     ):
         """
         Fetch subtitle for a specific language.
@@ -520,7 +519,7 @@ class SubtitleService(Runner[SubtitleConfig]):
 
     def _get_existing_subtitle(
         self, item: MediaItem, language: str
-    ) -> Optional[SubtitleEntry]:
+    ) -> SubtitleEntry | None:
         """
         Check if a subtitle already exists for the item and language.
 

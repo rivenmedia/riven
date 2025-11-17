@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, Tuple
 
 import requests
 from loguru import logger
@@ -35,7 +34,7 @@ class RealDebridAPI:
 
     BASE_URL = "https://api.real-debrid.com/rest/1.0"
 
-    def __init__(self, api_key: str, proxy_url: Optional[str] = None) -> None:
+    def __init__(self, api_key: str, proxy_url: str | None = None) -> None:
         """
         Args:
             api_key: Real-Debrid API key.
@@ -72,7 +71,7 @@ class RealDebridDownloader(DownloaderBase):
     def __init__(self) -> None:
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid
-        self.api: Optional[RealDebridAPI] = None
+        self.api: RealDebridAPI | None = None
         self.initialized = self.validate()
 
     def validate(self) -> bool:
@@ -116,15 +115,15 @@ class RealDebridDownloader(DownloaderBase):
 
     def get_instant_availability(
         self, infohash: str, item_type: str
-    ) -> Optional[TorrentContainer]:
+    ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
         and returning a TorrentContainer when the status is 'downloaded'.
 
         Behavior change: if this returns None, a concise reason is logged once at INFO level.
         """
-        container: Optional[TorrentContainer] = None
-        torrent_id: Optional[str] = None
+        container: TorrentContainer | None = None
+        torrent_id: str | None = None
 
         try:
             torrent_id = self.add_torrent(infohash)
@@ -204,7 +203,7 @@ class RealDebridDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: str,
-    ) -> Tuple[Optional[TorrentContainer], Optional[str], Optional[TorrentInfo]]:
+    ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
 
@@ -316,7 +315,7 @@ class RealDebridDownloader(DownloaderBase):
             raise RealDebridError("No torrent ID returned by Real-Debrid.")
         return tid
 
-    def select_files(self, torrent_id: str, ids: Optional[list[int]] = None) -> None:
+    def select_files(self, torrent_id: str, ids: list[int] | None = None) -> None:
         """
         Select files within a torrent. If ids is None/empty, selects all files.
         """
@@ -330,7 +329,7 @@ class RealDebridDownloader(DownloaderBase):
         if not response.ok:
             raise RealDebridError(self._handle_error(response))
 
-    def get_torrent_info(self, torrent_id: str) -> Optional[TorrentInfo]:
+    def get_torrent_info(self, torrent_id: str) -> TorrentInfo | None:
         """
         Retrieve torrent information and normalize into TorrentInfo.
         Returns None on API-level failure (non-OK) to match current behavior.
@@ -464,7 +463,7 @@ class RealDebridDownloader(DownloaderBase):
             raise RealDebridError(self._handle_error(resp))
         return resp.data
 
-    def unrestrict_link(self, link: str) -> Optional[dict]:
+    def unrestrict_link(self, link: str) -> dict | None:
         """
         Unrestrict a link using direct requests library, bypassing SmartSession rate limiting.
 
@@ -510,7 +509,7 @@ class RealDebridDownloader(DownloaderBase):
             logger.debug(f"Direct unrestrict_link failed for {link}: {e}")
             return None
 
-    def get_user_info(self) -> Optional[UserInfo]:
+    def get_user_info(self) -> UserInfo | None:
         """
         Get normalized user information from Real-Debrid.
 

@@ -1,6 +1,6 @@
 import hashlib
 from abc import abstractmethod
-from typing import Optional, TypeVar
+from typing import TypeVar
 
 import bencodepy
 from loguru import logger
@@ -79,7 +79,7 @@ class ScraperService(Runner[T]):
         return identifier, scrape_type, imdb_id
 
     @staticmethod
-    def get_infohash_from_url(url: str) -> Optional[str]:
+    def get_infohash_from_url(url: str) -> str | None:
         """
         Get infohash from a URL that could be:
         1. A direct torrent file download

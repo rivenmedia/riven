@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
 
 from loguru import logger
 
@@ -29,7 +28,7 @@ class DebridLinkAPI:
 
     BASE_URL = "https://debrid-link.com/api/v2"
 
-    def __init__(self, api_key: str, proxy_url: Optional[str] = None) -> None:
+    def __init__(self, api_key: str, proxy_url: str | None = None) -> None:
         """
         Args:
             api_key: Debrid-Link API key.
@@ -67,7 +66,7 @@ class DebridLinkDownloader(DownloaderBase):
     def __init__(self) -> None:
         self.key = "debridlink"
         self.settings = settings_manager.settings.downloaders.debrid_link
-        self.api: Optional[DebridLinkAPI] = None
+        self.api: DebridLinkAPI | None = None
         self.initialized = self.validate()
 
     def validate(self) -> bool:
@@ -146,7 +145,7 @@ class DebridLinkDownloader(DownloaderBase):
 
     def get_instant_availability(
         self, infohash: str, item_type: str
-    ) -> Optional[TorrentContainer]:
+    ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
         and checking if it's instantly available (already cached).
@@ -154,8 +153,8 @@ class DebridLinkDownloader(DownloaderBase):
         Like Real-Debrid, Debrid-Link doesn't have a separate cache check endpoint,
         so we add the torrent and check its status.
         """
-        container: Optional[TorrentContainer] = None
-        torrent_id: Optional[str] = None
+        container: TorrentContainer | None = None
+        torrent_id: str | None = None
 
         try:
             torrent_id = self.add_torrent(infohash)
@@ -221,7 +220,7 @@ class DebridLinkDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: str,
-    ) -> Tuple[Optional[TorrentContainer], Optional[str], Optional[TorrentInfo]]:
+    ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
 
@@ -397,7 +396,7 @@ class DebridLinkDownloader(DownloaderBase):
         if not resp.ok:
             raise DebridLinkError(self._handle_error(resp))
 
-    def unrestrict_link(self, link: str) -> Optional[object]:
+    def unrestrict_link(self, link: str) -> object | None:
         """
         Unrestrict a link using Debrid-Link.
 
@@ -423,7 +422,7 @@ class DebridLinkDownloader(DownloaderBase):
             filesize=0,
         )
 
-    def get_user_info(self) -> Optional[UserInfo]:
+    def get_user_info(self) -> UserInfo | None:
         """
         Get normalized user information from Debrid-Link.
 

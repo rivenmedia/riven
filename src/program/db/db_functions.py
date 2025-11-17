@@ -55,8 +55,8 @@ def get_item_by_id(
 
     Parameters:
         item_id (int): The numeric primary key of the MediaItem to retrieve.
-        item_types (Optional[list[str]]): If provided, restricts the lookup to items whose `type` is one of these values (e.g., "movie", "show").
-        session (Optional[Session]): Database session to use; if omitted, a new session will be created for the query.
+        item_types (list[str] | None): If provided, restricts the lookup to items whose `type` is one of these values (e.g., "movie", "show").
+        session (Session | None): Database session to use; if omitted, a new session will be created for the query.
         load_tree (bool): If True, include related seasons and episodes when the item is a show.
 
     Returns:

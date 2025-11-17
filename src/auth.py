@@ -1,4 +1,4 @@
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
@@ -17,8 +17,8 @@ def bearer_auth(
 
 
 def resolve_api_key(
-    header: Optional[str] = Security(header_auth),
-    bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_auth),
+    header: str | None = Security(header_auth),
+    bearer: HTTPAuthorizationCredentials | None = Security(bearer_auth),
 ):
     if not (header or bearer):
         raise HTTPException(

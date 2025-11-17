@@ -3,7 +3,6 @@ import os
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from typing import Tuple, Optional
 
 from program.db.db_functions import (
     hard_reset_database,
@@ -11,7 +10,7 @@ from program.db.db_functions import (
 from program.utils.logging import log_cleaner, logger
 
 
-def _parse_db_connection(db_url: str) -> Optional[Tuple[str, str, str, str, str]]:
+def _parse_db_connection(db_url: str) -> tuple[str, str, str, str, str] | None:
     """
     Parse database connection string.
 

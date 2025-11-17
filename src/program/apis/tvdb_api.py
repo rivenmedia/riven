@@ -289,7 +289,7 @@ class TVDBApi:
             since: The since timestamp. Defaults to None.
 
         Returns:
-            Optional[dict]: The updates.
+            dict | None: The updates.
         """
 
         response = self.session.get(

@@ -591,10 +591,10 @@ class VFSDatabase:
         Parameters:
             old_path (str): Existing virtual path of the entry to rename.
             new_path (str): Target virtual path to assign to the entry and its descendants.
-            provider (Optional[str]): New provider identifier to set on the entry if provided.
-            provider_download_id (Optional[str]): New provider-specific download ID to set if provided.
-            download_url (Optional[str]): New stored download URL to set on the entry if provided.
-            size (Optional[int]): New file size (in bytes) to set on the entry if provided.
+            provider (str | None): New provider identifier to set on the entry if provided.
+            provider_download_id (str | None): New provider-specific download ID to set if provided.
+            download_url (str | None): New stored download URL to set on the entry if provided.
+            size (int | None): New file size (in bytes) to set on the entry if provided.
 
         Returns:
             bool: `true` if the entry existed and was updated (including children), `false` if the source entry was not found.
@@ -609,7 +609,8 @@ class VFSDatabase:
             and size is None
         ):
             return True
-        with self.SessionLocal.begin() as s:
+
+        with db_session() as s:
             fe = s.query(FilesystemEntry).filter_by(path=old_path).one_or_none()
             if not fe:
                 return False

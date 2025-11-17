@@ -4,8 +4,6 @@ Evaluates MediaItem metadata against library profile filter rules to determine
 which library profiles a media item should be placed in.
 """
 
-from typing import Optional
-
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.models import LibraryProfileFilterRules
 from program.settings.manager import settings_manager
@@ -298,7 +296,7 @@ class LibraryProfileMatcher:
             s = str(value).strip()
             return [s.lower()] if s else []
 
-    def _get_year(self, item: MediaItem) -> Optional[int]:
+    def _get_year(self, item: MediaItem) -> int | None:
         """
         Extract year from MediaItem.
 

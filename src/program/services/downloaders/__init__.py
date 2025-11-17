@@ -391,9 +391,9 @@ class Downloader(Runner[None, DownloaderBase]):
             file_data (ParsedData): Parsed metadata from RTN (item type, season, episode list, etc.).
             file (DebridFile): The debrid file candidate containing filename, download URL, and size.
             download_result (DownloadedTorrent): The download context containing infohash and torrent id.
-            show (Optional[Show]): The show object used to resolve absolute episode numbers when matching episodes.
+            show (Show | None): The show object used to resolve absolute episode numbers when matching episodes.
             episode_cap (int, optional): Maximum episode number allowed for matching; episodes greater than this are skipped.
-            processed_episode_ids (Optional[set[str]]): Set of episode IDs already processed in this container to avoid duplicate updates.
+            processed_episode_ids (set[str] | None): Set of episode IDs already processed in this container to avoid duplicate updates.
             service (optional): Service instance used for attribute updates; defaults to the Downloader's primary service.
 
         Returns:

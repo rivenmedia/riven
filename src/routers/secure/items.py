@@ -3,7 +3,7 @@ import os
 from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from kink import di
 from loguru import logger
@@ -161,20 +161,20 @@ async def get_items(
     limit: Annotated[int, Query(gt=0, description="Number of items per page")] = 50,
     page: Annotated[int, Query(gt=0, description="Page number")] = 1,
     type: Annotated[
-        Optional[list[MediaTypeEnum]], Query(description="Filter by media type(s)")
+        list[MediaTypeEnum] | None, Query(description="Filter by media type(s)")
     ] = None,
     states: Annotated[
-        Optional[list[Union[States, StatesFilter]]],
+        list[States | StatesFilter] | None,
         Query(description="Filter by state(s)"),
     ] = None,
     sort: Annotated[
-        Optional[list[SortOrderEnum]],
+        list[SortOrderEnum] | None,
         Query(
             description="Sort order(s). Multiple sorts allowed but only one per type (title or date)"
         ),
     ] = None,
     search: Annotated[
-        Optional[str],
+        str | None,
         Query(min_length=1, description="Search by title or IMDB/TVDB/TMDB ID"),
     ] = None,
     extended: Annotated[
@@ -283,9 +283,9 @@ async def get_items(
 )
 async def add_items(
     request: Request,
-    tmdb_ids: Optional[str] = None,
-    tvdb_ids: Optional[str] = None,
-    media_type: Optional[Literal["movie", "tv"]] = None,
+    tmdb_ids: str | None = None,
+    tvdb_ids: str | None = None,
+    media_type: Literal["movie", "tv"] | None = None,
 ) -> MessageResponse:
     if not tmdb_ids and not tvdb_ids:
         raise HTTPException(status_code=400, detail="No ID(s) provided")
@@ -369,9 +369,9 @@ async def add_items(
 )
 async def get_item(
     _: Request,
-    id: str = None,
-    media_type: Literal["movie", "tv", "item"] = None,
-    extended: Optional[bool] = False,
+    id: str | None = None,
+    media_type: Literal["movie", "tv", "item"] | None = None,
+    extended: bool = False,
 ) -> dict:
     if not id:
         raise HTTPException(status_code=400, detail="No ID or media type provided")
@@ -977,10 +977,10 @@ class ReindexResponse(BaseModel):
 )
 async def reindex_item(
     request: Request,
-    item_id: Optional[int] = None,
-    tvdb_id: Optional[str] = None,
-    tmdb_id: Optional[str] = None,
-    imdb_id: Optional[str] = None,
+    item_id: int | None = None,
+    tvdb_id: str | None = None,
+    tmdb_id: str | None = None,
+    imdb_id: str | None = None,
 ) -> ReindexResponse:
     """Reindex item through Composite Indexer manually"""
 

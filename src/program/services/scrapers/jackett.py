@@ -1,7 +1,6 @@
 """Jackett scraper module"""
 
 import concurrent.futures
-from typing import Optional
 
 from loguru import logger
 from pydantic import BaseModel
@@ -18,13 +17,13 @@ from program.settings.models import JackettConfig
 class JackettIndexer(BaseModel):
     """Indexer model for Jackett"""
 
-    title: Optional[str] = None
-    id: Optional[str] = None
-    link: Optional[str] = None
-    type: Optional[str] = None
-    language: Optional[str] = None
-    tv_search_capabilities: Optional[list[str]] = None
-    movie_search_capabilities: Optional[list[str]] = None
+    title: str | None = None
+    id: str | None = None
+    link: str | None = None
+    type: str | None = None
+    language: str | None = None
+    tv_search_capabilities: list[str] | None = None
+    movie_search_capabilities: list[str] | None = None
 
 
 class Jackett(ScraperService[JackettConfig]):

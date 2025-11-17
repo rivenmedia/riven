@@ -44,7 +44,7 @@ class DownloaderBase(ABC):
             item_type: The type of media item being checked
 
         Returns:
-            Optional[TorrentContainer]: Cached status and available files for the hash, or None if not available
+            TorrentContainer | None: Cached status and available files for the hash, or None if not available
         """
 
     @abstractmethod

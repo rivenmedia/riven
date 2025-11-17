@@ -6,7 +6,7 @@ import base64
 import time
 import zlib
 from xmlrpc.client import ServerProxy
-from typing import Optional, Any
+from typing import Any
 
 from babelfish import Language, Error as BabelfishError
 from loguru import logger
@@ -159,12 +159,12 @@ class OpenSubtitlesProvider(SubtitleProvider):
     def search_subtitles(
         self,
         imdb_id: str,
-        video_hash: Optional[str] = None,
-        file_size: Optional[int] = None,
-        filename: Optional[str] = None,
-        search_tags: Optional[str] = None,
-        season: Optional[int] = None,
-        episode: Optional[int] = None,
+        video_hash: str | None = None,
+        file_size: int | None = None,
+        filename: str | None = None,
+        search_tags: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
         language: str = "en",
     ) -> list[dict[str, Any]]:
         """
@@ -328,7 +328,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
                 logger.error(f"OpenSubtitles search error: {e}")
             return []
 
-    def download_subtitle(self, subtitle_info: dict[str, Any]) -> Optional[str]:
+    def download_subtitle(self, subtitle_info: dict[str, Any]) -> str | None:
         """Download subtitle content from OpenSubtitles."""
         try:
             if not self._ensure_authenticated():
@@ -417,7 +417,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
         return score
 
-    def _decode_subtitle_content(self, content_bytes: bytes) -> Optional[str]:
+    def _decode_subtitle_content(self, content_bytes: bytes) -> str | None:
         """Decode subtitle content with multiple encoding fallbacks."""
         if not content_bytes:
             return None

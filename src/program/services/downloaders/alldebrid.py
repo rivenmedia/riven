@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional, Tuple
 
 from loguru import logger
 
@@ -29,7 +28,7 @@ class AllDebridAPI:
 
     BASE_URL = "https://api.alldebrid.com/v4"
 
-    def __init__(self, api_key: str, proxy_url: Optional[str] = None) -> None:
+    def __init__(self, api_key: str, proxy_url: str | None = None) -> None:
         """
         Args:
             api_key: AllDebrid API key.
@@ -155,7 +154,7 @@ class AllDebridDownloader(DownloaderBase):
 
     def get_instant_availability(
         self, infohash: str, item_type: str
-    ) -> Optional[TorrentContainer]:
+    ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
         and checking if it's instantly available (already cached).
@@ -163,8 +162,8 @@ class AllDebridDownloader(DownloaderBase):
         AllDebrid doesn't have a separate cache check endpoint,
         so we add the magnet and check its status.
         """
-        container: Optional[TorrentContainer] = None
-        torrent_id: Optional[int] = None
+        container: TorrentContainer | None = None
+        torrent_id: int | None = None
 
         try:
             torrent_id = self.add_torrent(infohash)
@@ -230,7 +229,7 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: str,
-    ) -> Tuple[Optional[TorrentContainer], Optional[str], Optional[TorrentInfo]]:
+    ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
 
@@ -249,10 +248,11 @@ class AllDebridDownloader(DownloaderBase):
 
         # Get files from the magnet/files endpoint
         files_data = self._get_magnet_files(torrent_id)
+
         if not files_data:
             return None, "no files present in the torrent", None
 
-        files: list[DebridFile] = []
+        files = list[DebridFile]([])
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
         self._extract_files_recursive(files_data, item_type, files, infohash)
@@ -264,7 +264,10 @@ class AllDebridDownloader(DownloaderBase):
         return TorrentContainer(infohash=infohash, files=files), None, info
 
     def _add_link_to_files_recursive(
-        self, files: list, download_link: str, result: list
+        self,
+        files: list,
+        download_link: str,
+        result: list,
     ) -> None:
         """
         Recursively process files/folders and add download link to actual files.
@@ -401,7 +404,7 @@ class AllDebridDownloader(DownloaderBase):
         """
         pass
 
-    def _get_magnet_files(self, magnet_id: int) -> Optional[list]:
+    def _get_magnet_files(self, magnet_id: int) -> list | None:
         """
         Get the files and download links for a magnet.
 
@@ -561,7 +564,7 @@ class AllDebridDownloader(DownloaderBase):
         if not resp.ok:
             raise AllDebridError(self._handle_error(resp))
 
-    def unrestrict_link(self, link: str) -> Optional[object]:
+    def unrestrict_link(self, link: str) -> object | None:
         """
         Unrestrict a link using AllDebrid.
 
@@ -605,7 +608,7 @@ class AllDebridDownloader(DownloaderBase):
         except Exception:
             return None
 
-    def get_user_info(self) -> Optional[UserInfo]:
+    def get_user_info(self) -> UserInfo | None:
         """
         Get normalized user information from AllDebrid.
 
