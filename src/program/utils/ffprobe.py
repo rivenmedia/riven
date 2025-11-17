@@ -1,6 +1,6 @@
 import subprocess
 import orjson
-from pathlib import Path
+from urllib.parse import urlparse
 from typing import Optional, List
 from fractions import Fraction
 from pydantic import BaseModel, Field
@@ -103,7 +103,7 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
 
         format_info = probe_data.get("format", {})
         metadata_dict = {
-            "filename": format_info.get("filename", download_url),
+            "filename": urlparse(download_url).path.split("/")[-1],
             "file_size": int(format_info.get("size", 0)),
             "duration": round(float(format_info.get("duration", 0)), 2),
             "format": (
@@ -121,7 +121,9 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
         for stream in probe_data.get("streams", []):
             codec_type = stream.get("codec_type")
 
-            if codec_type == "video":
+            if codec_type == "video" and not video_data:
+                # apparently theres multiple video codecs..
+                # the first one should always be correct though.
                 frame_rate = stream.get("r_frame_rate", "0/1")
                 fps = (
                     float(Fraction(frame_rate))
