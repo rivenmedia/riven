@@ -339,8 +339,6 @@ class Program(threading.Thread):
             next_service = processed_event.service
             items_to_submit = processed_event.related_media_items
 
-            logger.debug(f"Event processed: {processed_event}")
-
             for item_to_submit in items_to_submit:
                 if not next_service:
                     self.em.add_event_to_queue(

@@ -35,14 +35,9 @@ class MediaItem(BaseModel):
     title: Mapped[str | None]
     poster_path: Mapped[str | None]
     number: Mapped[int | None]
-    type: Mapped[
-        Literal[
-            "episode",
-            "season",
-            "show",
-            "movie",
-        ]
-    ] = mapped_column(nullable=False)
+    type: Mapped[Literal["episode", "season", "show", "movie", "mediaitem"]] = (
+        mapped_column(nullable=False)
+    )
     requested_at: Mapped[datetime | None] = mapped_column(
         sqlalchemy.DateTime, default=datetime.now()
     )
@@ -130,6 +125,7 @@ class MediaItem(BaseModel):
     def __init__(self, item: dict | None) -> None:
         if item is None:
             return
+
         self.requested_at = item.get("requested_at", datetime.now())
         self.requested_by = item.get("requested_by")
         self.requested_id = item.get("requested_id")

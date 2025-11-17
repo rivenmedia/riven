@@ -129,3 +129,8 @@ extend-select = [
   "SIM", # flake8-simplify
   "ARG", # flake8-unused-arguments
 ]
+
+[tool.pyright]
+exclude = [
+  "src/schemas"
+]
