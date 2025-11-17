@@ -31,3 +31,4 @@ jobs:
       - uses: jakebailey/pyright-action@v1
         with:
           pylance-version: latest-release
+          extra-args: --ignore src/schemas --ignore src/tests
