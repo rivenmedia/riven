@@ -17,7 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from program.db import db_functions
-from program.db.db import db, vacuum_and_analyze_index_maintenance
+from program.db.db import db_session, vacuum_and_analyze_index_maintenance
 from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
 from program.scheduling.models import ScheduledStatus, ScheduledTask
@@ -198,7 +198,7 @@ class ProgramScheduler:
         - updating task status with consistent error handling.
         """
         try:
-            with db.Session() as session:
+            with db_session() as session:
                 now = datetime.now()
                 due_tasks = self._get_pending_scheduled_tasks(session)
                 if not due_tasks:
@@ -315,7 +315,7 @@ class ProgramScheduler:
         now = datetime.now()
 
         try:
-            with db.Session() as session:
+            with db_session() as session:
                 self._schedule_upcoming_episodes(session, now, offset_seconds)
                 self._schedule_upcoming_movies(session, now, offset_seconds)
                 self._schedule_ongoing_shows(session, now)

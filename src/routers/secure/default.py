@@ -9,13 +9,11 @@ from sqlalchemy import Date, cast, func, select
 
 from program.apis import TraktAPI
 from program.db import db_functions
-from program.db.db import db
+from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
-from program.services.downloaders import Downloader
 from program.settings.manager import settings_manager
 from program.utils import generate_api_key
-from program.services.filesystem.filesystem_service import FilesystemService
 from program.program import Program
 
 from ..models.shared import MessageResponse
@@ -231,7 +229,7 @@ async def get_stats(_: Request) -> StatsResponse:
 
     payload = {}
 
-    with db.Session() as session:
+    with db_session() as session:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
             from sqlalchemy import exists
@@ -442,7 +440,8 @@ class CalendarResponse(BaseModel):
 )
 async def fetch_calendar(_: Request) -> CalendarResponse:
     """Fetch the calendar of all the items in the library"""
-    with db.Session() as session:
+
+    with db_session() as session:
         return CalendarResponse(data=db_functions.create_calendar(session))
 
 

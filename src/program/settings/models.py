@@ -72,7 +72,7 @@ class AllDebridModel(Observable):
 
 class DownloadersModel(Observable):
     video_extensions: list[str] = Field(
-        default_factory=lambda: ["mp4", "mkv", "avi"],
+        default_factory=lambda: list[str](["mp4", "mkv", "avi"]),
         description="list of video file extensions to consider for downloads",
     )
     movie_filesize_mb_min: int = Field(

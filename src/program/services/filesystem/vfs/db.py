@@ -8,7 +8,7 @@ from kink import di
 from loguru import logger
 
 from sqlalchemy.orm import Session
-from program.db.db import db
+from program.db.db import db_session
 from program.media.filesystem_entry import FilesystemEntry
 from program.media.media_entry import MediaEntry
 from program.services.streaming.exceptions import (
@@ -42,7 +42,6 @@ class VFSDatabase:
             downloader: Downloader instance with initialized services for URL resolution
         """
         self.downloader = downloader
-        self.SessionLocal = db.Session
         self._ensure_default_directories()
 
     def _norm(self, path: str) -> str:
@@ -96,7 +95,7 @@ class VFSDatabase:
             None: If no entry exists and the path does not correspond to any virtual directory.
         """
         path = self._norm(path)
-        with self.SessionLocal() as s:
+        with db_session() as s:
             # Query FilesystemEntry for virtual files only
             fe = s.query(FilesystemEntry).filter_by(path=path).one_or_none()
             if fe:
@@ -165,7 +164,7 @@ class VFSDatabase:
         out: list[VFSEntry] = []
         seen_names = set()
 
-        with self.SessionLocal() as s:
+        with db_session() as s:
             # Query all FilesystemEntry records under this path
             q = s.query(
                 FilesystemEntry.path,
@@ -244,7 +243,7 @@ class VFSDatabase:
                 - created_at: ISO 8601 timestamp
                 - updated_at: ISO 8601 timestamp
         """
-        with self.SessionLocal() as s:
+        with db_session() as s:
             from program.media.subtitle_entry import SubtitleEntry
 
             subtitles = (
@@ -283,7 +282,7 @@ class VFSDatabase:
         Returns:
             bytes: Subtitle content encoded as UTF-8, or None if not found or not a subtitle.
         """
-        with self.SessionLocal() as s:
+        with db_session() as s:
             from program.media.subtitle_entry import SubtitleEntry
 
             # Query specifically for SubtitleEntry by parent and language
@@ -331,7 +330,7 @@ class VFSDatabase:
             url: str | None
 
         try:
-            with self.SessionLocal() as s:
+            with db_session() as s:
                 entry: MediaEntry | None = (
                     s.query(MediaEntry)
                     .filter(MediaEntry.original_filename == original_filename)
@@ -442,7 +441,7 @@ class VFSDatabase:
         path = self._norm(path)
         if path == "/":
             return True
-        with self.SessionLocal() as s:
+        with db_session() as s:
             return s.query(FilesystemEntry.id).filter_by(path=path).first() is not None
 
     # --- Mutations ---

@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy.orm import object_session
 from loguru import logger
 
-from program.db.db import db
+from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
@@ -532,7 +532,7 @@ class SubtitleService(Runner[SubtitleConfig]):
             Existing SubtitleEntry or None
         """
         try:
-            with db.Session() as session:
+            with db_session() as session:
                 subtitle = (
                     session.query(SubtitleEntry)
                     .filter_by(media_item_id=item.id, language=language)
@@ -577,7 +577,7 @@ class SubtitleService(Runner[SubtitleConfig]):
         # Get already downloaded subtitle languages from database
         downloaded_languages = set()
         try:
-            with db.Session() as session:
+            with db_session() as session:
                 existing_subtitles = (
                     session.query(SubtitleEntry).filter_by(media_item_id=item.id).all()
                 )

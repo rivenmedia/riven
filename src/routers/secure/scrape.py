@@ -12,7 +12,7 @@ from sqla_wrapper import Session
 from sqlalchemy.orm import object_session
 
 from program.db import db_functions
-from program.db.db import db, get_db
+from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Season, Show
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
@@ -22,7 +22,6 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.services.indexers import IndexerService
-from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
@@ -254,7 +253,7 @@ def scrape_item(
     log_string = None
     item = None
 
-    with db.Session() as db_session:
+    with db_session():
         if item_id:
             item = db_functions.get_item_by_id(item_id)
         elif tmdb_id and media_type == "movie":
@@ -448,7 +447,7 @@ async def manual_update_attributes(
     request: Request,
     session_id: str,
     data: DebridFile | ShowFileData,
-    session: Session = Depends(get_db),
+    session: Session = Depends(db_session),
 ) -> UpdateAttributesResponse:
     """
     Apply selected file attributes from a scraping session to the referenced media item(s).
@@ -707,7 +706,7 @@ async def overseerr_requests(
         | None
     ) = None,
     take: int = 100000,
-    db: Session = Depends(get_db),
+    db: Session = Depends(db_session),
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""
 

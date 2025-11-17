@@ -45,14 +45,6 @@ def db_session() -> Generator[Session, Any, None]:
         yield s
 
 
-def get_db():
-    _db = db.Session()
-    try:
-        yield _db
-    finally:
-        _db.close()
-
-
 def create_database_if_not_exists():
     """Create the database if it doesn't exist."""
     db_name = db_host.split("/")[-1]

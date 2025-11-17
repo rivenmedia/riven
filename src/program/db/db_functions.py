@@ -22,9 +22,8 @@ from .db import db, db_session
 if TYPE_CHECKING:
     from program.types import Service
     from program.program import Program
-    from program.core.runner import MediaItemGenerator, RunnerResult
     from program.types import Event
-    from program.media.item import MediaItem, Episode, Season
+    from program.media.item import MediaItem, Episode
 
 
 @contextmanager
@@ -40,9 +39,7 @@ def _maybe_session(session: Session | None) -> Iterator[tuple[Session, bool]]:
         yield session, False
         return
 
-    with db.Session() as _s:
-        s: Session = _s
-
+    with db_session() as s:
         yield s, True
 
 
@@ -263,7 +260,7 @@ def retry_library(session: Session | None = None) -> Sequence[int]:
     """
     from program.media.item import MediaItem
 
-    with _maybe_session(session) as (s, owns):
+    with _maybe_session(session) as (s, _owns):
         ids = (
             s.execute(
                 select(MediaItem.id)
@@ -295,17 +292,14 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
 
     from program.media.item import MediaItem, Season, Show
 
-    session = session if session else db.Session()
-
-    assert session
-
-    result = session.execute(
-        select(MediaItem)
-        .options(selectinload(Show.seasons).selectinload(Season.episodes))
-        .where(MediaItem.aired_at.is_not(None))
-        .where(MediaItem.aired_at >= datetime.now() - timedelta(days=30))
-        .execution_options(stream_results=True)
-    ).unique()
+    with _maybe_session(session) as (s, _owns):
+        result = s.execute(
+            select(MediaItem)
+            .options(selectinload(Show.seasons).selectinload(Season.episodes))
+            .where(MediaItem.aired_at.is_not(None))
+            .where(MediaItem.aired_at >= datetime.now() - timedelta(days=30))
+            .execution_options(stream_results=True)
+        ).unique()
 
     calendar: dict[int, dict[str, Any]] = {}
 

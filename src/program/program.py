@@ -40,7 +40,7 @@ from sqlalchemy import func, select, text
 from program.db import db_functions
 from program.db.db import (
     create_database_if_not_exists,
-    db,
+    db_session,
     run_migrations,
 )
 
@@ -184,7 +184,7 @@ class Program(threading.Thread):
     def validate_database(self) -> bool:
         """Validate that the database is accessible."""
         try:
-            with db.Session() as session:
+            with db_session() as session:
                 session.execute(text("SELECT 1"))
                 return True
         except Exception:
@@ -225,7 +225,7 @@ class Program(threading.Thread):
 
         self.initialize_services()
 
-        with db.Session() as session:
+        with db_session() as session:
             from sqlalchemy import exists
 
             movies_with_fs = session.execute(

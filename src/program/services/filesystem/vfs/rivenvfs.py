@@ -483,7 +483,7 @@ class RivenVFS(pyfuse3.Operations):
             List of parent inodes (excluding root)
         """
 
-        inodes: list[pyfuse3.InodeT] = []
+        inodes = list[pyfuse3.InodeT]([])
         current = node.parent
 
         while current and current != self._root:
@@ -757,7 +757,7 @@ class RivenVFS(pyfuse3.Operations):
         # Step 1: Re-match all entries against current library profiles and collect item IDs
         from program.db.db import db as db_module
 
-        item_ids: list[int] = []
+        item_ids = list[int]([])
         rematched_count = 0
 
         with db_session() as session:
@@ -768,6 +768,7 @@ class RivenVFS(pyfuse3.Operations):
             for entry in entries:
                 # Get the MediaItem for this entry to re-match profiles
                 item = entry.media_item
+
                 if not item:
                     logger.warning(
                         f"MediaEntry {entry.id} has no associated MediaItem, skipping"
@@ -873,7 +874,7 @@ class RivenVFS(pyfuse3.Operations):
             item: MediaItem to re-sync
         """
         from sqlalchemy.orm import object_session
-        from program.db.db import db as db_module
+        from program.db.db import db_session
 
         logger.debug(f"Individual sync: re-registering item {item.id}")
 
@@ -893,7 +894,7 @@ class RivenVFS(pyfuse3.Operations):
             self.add(item)
         else:
             # Item is detached - fetch it in a new session
-            with db_module.Session() as session:
+            with db_session() as session:
                 from program.media.item import MediaItem
 
                 fresh_item = (
@@ -983,7 +984,7 @@ class RivenVFS(pyfuse3.Operations):
         if isinstance(entry, MediaEntry):
             # Register MediaEntry (video file)
             all_paths = entry.get_all_vfs_paths()
-            registered_paths: list[str] = []
+            registered_paths = list[str]([])
 
             for path in all_paths:
                 if self._register_clean_path(
@@ -1006,7 +1007,7 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 return []
 
-            registered_paths: list[str] = []
+            registered_paths = list[str]([])
             language = entry.language
 
             for video_path in video_paths:
@@ -1032,7 +1033,8 @@ class RivenVFS(pyfuse3.Operations):
 
         else:
             logger.warning(f"Unknown FilesystemEntry type: {type(entry)}")
-            return []
+
+            return list[str]([])
 
     def _unregister_filesystem_entry(
         self,
@@ -1067,9 +1069,9 @@ class RivenVFS(pyfuse3.Operations):
                 logger.warning(
                     f"Cannot unregister subtitle {entry.id} without video_paths"
                 )
-                return []
+                return list[str]([])
 
-            unregistered_paths: list[str] = []
+            unregistered_paths = list[str]([])
             language = entry.language
 
             for video_path in video_paths:
@@ -1088,7 +1090,7 @@ class RivenVFS(pyfuse3.Operations):
 
         else:
             logger.warning(f"Unknown FilesystemEntry type: {type(entry)}")
-            return []
+            return list[str]([])
 
     def _register_clean_path(
         self,
@@ -1209,7 +1211,8 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             List of unregistered VFS paths
         """
-        unregistered_paths = []
+
+        unregistered_paths = list[str]([])
 
         # Find all nodes with matching original_filename
         nodes_to_remove = self._get_nodes_by_original_filename(original_filename)
@@ -1306,7 +1309,7 @@ class RivenVFS(pyfuse3.Operations):
             return "/"
         return "/".join(path.rstrip("/").split("/")[:-1]) or "/"
 
-    def _list_directory_cached(self, path: str) -> None | list["CachedDirectoryEntry"]:
+    def _list_directory_cached(self, path: str) -> list["CachedDirectoryEntry"] | None:
         """
         List directory contents using VFS tree for O(1) lookups.
 
@@ -1325,7 +1328,7 @@ class RivenVFS(pyfuse3.Operations):
                 return None
 
             # Build result list from node's children - no database queries!
-            children: list[CachedDirectoryEntry] = []
+            children = list[CachedDirectoryEntry]([])
 
             for name, child in node.children.items():
                 children.append(

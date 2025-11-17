@@ -1,10 +1,9 @@
 """Composite indexer that uses TMDB for movies and TVDB for TV shows"""
 
-from collections.abc import Generator
 from loguru import logger
 from sqlalchemy import select
 
-from program.db.db import db
+from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.services.indexers.base import BaseIndexer
@@ -71,7 +70,7 @@ class IndexerService(BaseIndexer):
         """
 
         try:
-            with db.Session() as session:
+            with db_session() as session:
                 # Gather two sets: (1) ongoing/unreleased movies & shows, (2) shows missing tvdb_status
                 items_state = (
                     session.execute(

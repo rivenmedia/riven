@@ -15,7 +15,7 @@ from sqlalchemy.orm import (
 
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
-from program.db.db import BaseModel
+from program.db.db import BaseModel, db_session
 
 from .stream import Stream
 
@@ -319,7 +319,7 @@ class MediaItem(BaseModel):
         }
 
         try:
-            with db.Session() as session:
+            with db_session() as session:
                 st = ScheduledTask(**payload)
                 session.add(st)
                 session.commit()

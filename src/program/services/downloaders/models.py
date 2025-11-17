@@ -22,38 +22,32 @@ ALLOWED_VIDEO_EXTENSIONS = [
     "ts",
 ]
 
-ANIME_SPECIALS_PATTERN: regex.Pattern[str] = regex.compile(
+ANIME_SPECIALS_PATTERN = regex.compile(
     r"\b(OVA|NCED|NCOP|NC|OVA|ED(\d?v?\d?)|OPv?(\d+)?|SP\d+)\b", regex.IGNORECASE
 )
 
-VIDEO_EXTENSIONS: list[str] = (
-    settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
-)
+VALID_VIDEO_EXTENSIONS = (
+    [
+        ext
+        for ext in settings_manager.settings.downloaders.video_extensions
+        if ext in ALLOWED_VIDEO_EXTENSIONS
+    ]
+) or DEFAULT_VIDEO_EXTENSIONS
 
-VALID_VIDEO_EXTENSIONS = [
-    ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTENSIONS
-]
-
-if not VALID_VIDEO_EXTENSIONS:
-    VALID_VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
-
-movie_min_filesize: int = settings_manager.settings.downloaders.movie_filesize_mb_min
-movie_max_filesize: int = settings_manager.settings.downloaders.movie_filesize_mb_max
-episode_min_filesize: int = (
-    settings_manager.settings.downloaders.episode_filesize_mb_min
-)
-episode_max_filesize: int = (
-    settings_manager.settings.downloaders.episode_filesize_mb_max
-)
+movie_min_filesize = settings_manager.settings.downloaders.movie_filesize_mb_min
+movie_max_filesize = settings_manager.settings.downloaders.movie_filesize_mb_max
+episode_min_filesize = settings_manager.settings.downloaders.episode_filesize_mb_min
+episode_max_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
 
 # constraints for filesizes, follows the format tuple(min, max)
-FILESIZE_MOVIE_CONSTRAINT: tuple[int, int] = (
-    movie_min_filesize if movie_min_filesize >= 0 else 0,
-    movie_max_filesize if movie_max_filesize > 0 else int("inf"),
+FILESIZE_MOVIE_CONSTRAINT = (
+    movie_min_filesize,
+    movie_max_filesize,
 )
-FILESIZE_EPISODE_CONSTRAINT: tuple[int, int] = (
-    episode_min_filesize if episode_min_filesize >= 0 else 0,
-    episode_max_filesize if episode_max_filesize > 0 else int("inf"),
+
+FILESIZE_EPISODE_CONSTRAINT = (
+    episode_min_filesize,
+    episode_max_filesize,
 )
 
 

@@ -12,7 +12,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
 from program.db import db_functions
-from program.db.db import db, get_db
+from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Season, Show
 from program.media.state import States
 from program.services.content import Overseerr
@@ -247,7 +247,7 @@ async def get_items(
     else:
         query = query.order_by(MediaItem.requested_at.desc())
 
-    with db.Session() as session:
+    with db_session() as session:
         total_items = session.execute(
             select(func.count()).select_from(query.subquery())
         ).scalar_one()
@@ -312,7 +312,7 @@ async def add_items(
     added_count = 0
     items = []
 
-    with db.Session() as session:
+    with db_session() as session:
         if media_type == "movie" and tmdb_ids:
             for id in all_tmdb_ids:
                 # Check if item exists using ORM
@@ -376,7 +376,7 @@ async def get_item(
     if not id:
         raise HTTPException(status_code=400, detail="No ID or media type provided")
 
-    with db.Session() as session:
+    with db_session() as session:
         if media_type == "movie":
             # needs to be a string
             query = select(MediaItem).where(
@@ -430,7 +430,9 @@ class ResetResponse(BaseModel):
     operation_id="reset_items",
 )
 async def reset_items(
-    request: Request, ids: str, session: Session = Depends(get_db)
+    request: Request,
+    ids: str,
+    session: Session = Depends(db_session),
 ) -> ResetResponse:
     """
     Reset the specified media items to their initial state and trigger a media-server library refresh when applicable.
@@ -535,7 +537,7 @@ async def retry_items(request: Request, ids: str) -> RetryResponse:
     """Re-add items to the queue"""
     ids: list[int] = handle_ids(ids)
 
-    with db.Session() as session:
+    with db_session() as session:
         for id in ids:
             try:
                 # Load item using ORM
@@ -588,7 +590,7 @@ class UpdateOngoingResponse(BaseModel):
     operation_id="update_ongoing_items",
 )
 async def update_ongoing_items(request: Request) -> UpdateOngoingResponse:
-    with db.Session() as session:
+    with db_session() as session:
         updated_items = db_functions.update_ongoing(session)
         for item_id, previous_state, new_state in updated_items:
             di[Program].em.add_event(Event(emitted_by="UpdateOngoing", item_id=item_id))
@@ -618,7 +620,9 @@ class RemoveResponse(BaseModel):
     response_model=RemoveResponse,  # keep if you already use this
 )
 async def remove_item(
-    request: Request, ids: str, session: Session = Depends(get_db)
+    request: Request,
+    ids: str,
+    session: Session = Depends(db_session),
 ) -> RemoveResponse:
     """
     Remove one or more media items identified by their IDs.
@@ -731,7 +735,7 @@ async def remove_item(
 
 
 @router.get("/{item_id}/streams")
-async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_db)):
+async def get_item_streams(_: Request, item_id: int, db: Session = Depends(db_session)):
     item: MediaItem = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
         .unique()
@@ -754,7 +758,10 @@ async def get_item_streams(_: Request, item_id: int, db: Session = Depends(get_d
 
 @router.post("/{item_id}/streams/{stream_id}/blacklist")
 async def blacklist_stream(
-    request: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)
+    request: Request,
+    item_id: int,
+    stream_id: int,
+    db: Session = Depends(db_session),
 ):
     item: MediaItem = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
@@ -781,7 +788,10 @@ async def blacklist_stream(
 
 @router.post("/{item_id}/streams/{stream_id}/unblacklist")
 async def unblacklist_stream(
-    request: Request, item_id: int, stream_id: int, db: Session = Depends(get_db)
+    request: Request,
+    item_id: int,
+    stream_id: int,
+    db: Session = Depends(db_session),
 ):
     item: MediaItem = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
@@ -816,7 +826,9 @@ async def unblacklist_stream(
     operation_id="reset_item_streams",
 )
 async def reset_item_streams(
-    request: Request, item_id: int, db: Session = Depends(get_db)
+    request: Request,
+    item_id: int,
+    db: Session = Depends(db_session),
 ):
     item: MediaItem = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
@@ -857,7 +869,7 @@ async def pause_items(request: Request, ids: str) -> PauseResponse:
     """Pause items and their children from being processed"""
     ids: list[int] = handle_ids(ids)
     try:
-        with db.Session() as session:
+        with db_session() as session:
             # Load items using ORM
             items = (
                 session.execute(select(MediaItem).where(MediaItem.id.in_(ids)))
@@ -915,7 +927,7 @@ async def unpause_items(request: Request, ids: str) -> PauseResponse:
     """Unpause items and their children to resume processing"""
     ids: list[int] = handle_ids(ids)
     try:
-        with db.Session() as session:
+        with db_session() as session:
             # Load items using ORM
             items = (
                 session.execute(select(MediaItem).where(MediaItem.id.in_(ids)))
@@ -972,7 +984,7 @@ async def reindex_item(
 ) -> ReindexResponse:
     """Reindex item through Composite Indexer manually"""
 
-    with db.Session() as session:
+    with db_session() as session:
         # Load item using ORM based on provided ID
         item: MediaItem = None
         if item_id:
@@ -1057,7 +1069,9 @@ class ItemAliasesResponse(BaseModel):
     operation_id="get_item_aliases",
 )
 async def get_item_aliases(
-    _: Request, item_id: int, db: Session = Depends(get_db)
+    _: Request,
+    item_id: int,
+    db: Session = Depends(db_session),
 ) -> ItemAliasesResponse:
     """Get aliases for a media item"""
     item: MediaItem = (
@@ -1082,7 +1096,9 @@ async def get_item_aliases(
     operation_id="get_item_metadata",
 )
 async def get_item_metadata(
-    _: Request, item_id: int, db: Session = Depends(get_db)
+    _: Request,
+    item_id: int,
+    db: Session = Depends(db_session),
 ) -> dict:
     """Get all metadata for a media item using item ID"""
     item: MediaItem = (
