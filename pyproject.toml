@@ -133,5 +133,5 @@ extend-select = [
 [tool.pyright]
 ignore = [
   "src/schemas",
-  "src/tests
+  "src/tests"
 ]

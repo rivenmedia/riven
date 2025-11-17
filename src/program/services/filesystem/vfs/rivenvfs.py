@@ -32,7 +32,7 @@ Usage:
 
 from __future__ import annotations
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 
 import httpx
@@ -563,12 +563,13 @@ class RivenVFS(pyfuse3.Operations):
         """
 
         from program.media.media_entry import MediaEntry
+        from program.media.item import Season, Show
 
-        if item.type == "show":
+        if isinstance(item, Show):
             for season in item.seasons:
                 self.remove(season)
 
-        if item.type == "season":
+        if isinstance(item, Season):
             for episode in item.episodes:
                 self.remove(episode)
 
