@@ -1,3 +1,5 @@
 {
-  "ignore": ["src/schemas", "src/tests"]
+  "ignore": ["src/schemas", "src/tests"],
+  "deprecateTypingAliases": true,
+  "typeCheckingMode": "strict"
 }
