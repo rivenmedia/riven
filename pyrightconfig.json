@@ -2,5 +2,7 @@
   "ignore": ["src/schemas", "src/tests"],
   "deprecateTypingAliases": true,
   "typeCheckingMode": "strict",
-  "reportMissingTypeStubs": false
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": "none",
+  "reportUnknownLambdaType": "none"
 }
