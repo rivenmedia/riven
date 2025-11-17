@@ -11,14 +11,14 @@ from program.settings.models import IndexerModel
 class BaseIndexer(Runner[IndexerModel]):
     """Base class for all indexers"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         self.settings = settings_manager.settings.indexer
         self.initialized = True
 
     @staticmethod
-    def copy_attributes(source, target):
+    def copy_attributes(source: MediaItem, target: MediaItem) -> None:
         """Copy attributes from source to target."""
 
         attributes = [

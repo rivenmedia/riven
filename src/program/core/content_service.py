@@ -4,7 +4,7 @@ from program.settings.models import Observable
 from program.core.runner import Runner
 
 
-T = TypeVar("T", bound=Observable)
+T = TypeVar("T", bound=Observable, default=Observable)
 
 
 class ContentService(Runner[T]):

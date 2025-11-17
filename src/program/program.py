@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from queue import Empty
+from tracemalloc import Snapshot
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -99,6 +100,7 @@ class Program(threading.Thread):
         self.services = None
         self.enable_trace = settings_manager.settings.tracemalloc
         self.em = EventManager()
+        self.scheduler_manager = ProgramScheduler(self)
 
         if self.enable_trace:
             import tracemalloc
@@ -258,19 +260,25 @@ class Program(threading.Thread):
                 "ITEM", f"Total Items: {total_items} (With filesystem: {total_with_fs})"
             )
 
-        self.executors = []
-        self.scheduler_manager = ProgramScheduler(self)
         self.scheduler_manager.start()
 
         super().start()
         logger.success("Riven is running!")
         self.initialized = True
 
-    def display_top_allocators(self, snapshot, key_type="lineno", limit=10):
+    def display_top_allocators(
+        self,
+        snapshot: Snapshot,
+        limit: int = 10,
+    ):
         import psutil
 
         process = psutil.Process(os.getpid())
-        top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
+
+        if self.last_snapshot:
+            top_stats = snapshot.compare_to(self.last_snapshot, "lineno")
+        else:
+            top_stats = snapshot.statistics("lineno")
 
         logger.debug("Top %s lines" % limit)
 
@@ -359,12 +367,7 @@ class Program(threading.Thread):
         if not self.initialized:
             return
 
-        if hasattr(self, "executors"):
-            for executor in self.executors:
-                if not executor["_executor"]._shutdown:
-                    executor["_executor"].shutdown(wait=False)
-        if hasattr(self, "scheduler_manager"):
-            self.scheduler_manager.stop()
+        self.scheduler_manager.stop()
 
         if self.services:
             self.services.filesystem.close()

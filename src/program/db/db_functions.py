@@ -340,7 +340,7 @@ def run_thread_with_db_item(
     program: "Program",
     event: Event | None,
     cancellation_event: threading.Event,
-) -> int | None:
+) -> int | tuple[int, datetime] | None:
     """
     Run a worker function against a database-backed MediaItem or enqueue items produced by a content service.
 
@@ -401,6 +401,9 @@ def run_thread_with_db_item(
 
                             session.commit()
 
+                        if run_at:
+                            return (item.id, run_at)
+
                         return item.id
 
             if event.content_item:
@@ -421,7 +424,7 @@ def run_thread_with_db_item(
 
                 if len(runner_result.media_items) > 1:
                     logger.warning(
-                        f"Service {service.__class__.__name__} emitted multiple items for input item {input_item}, only the first will be processed."
+                        f"Service {service.__class__.__name__} emitted multiple items for input item {event.content_item}, only the first will be processed."
                     )
 
                 indexed_item = runner_result.media_items[0]
@@ -471,10 +474,7 @@ def run_thread_with_db_item(
 
                 if isinstance(i, list):
                     for item in i:
-                        if isinstance(item, MediaItem):
-                            program.em.add_item(
-                                item, service=service.__class__.__name__
-                            )
+                        program.em.add_item(item, service=service.__class__.__name__)
 
     return None
 

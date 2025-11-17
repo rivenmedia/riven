@@ -96,7 +96,7 @@ def reset_database():
         return False
 
 
-def run_migrations(database_url=None):
+def run_migrations(database_url: str | None = None):
     """Run any pending migrations on startup.
 
     If a pre-v1 database is detected (revision not in current migration chain),
@@ -121,7 +121,8 @@ def run_migrations(database_url=None):
         # Get all revisions in the current migration chain (from base to head)
         # This includes v1_base and any future migrations built on top of it
         head_rev = script.get_current_head()
-        current_chain = set()
+        current_chain = set[str]()
+
         if head_rev:
             # Walk down from head to base, collecting all revisions
             for rev in script.walk_revisions(base="base", head=head_rev):
@@ -135,6 +136,7 @@ def run_migrations(database_url=None):
         if current_rev == latest_dev_revision:
             logger.info(f"Detected latest dev branch (revision: {current_rev})")
             logger.info("Migrating to v1 without data loss (schema is identical)")
+
             # Update alembic_version to v1_base directly
             with db.engine.connect() as conn:
                 conn.execute(
@@ -143,10 +145,13 @@ def run_migrations(database_url=None):
                     )
                 )
                 conn.commit()
+
             logger.success("Migrated from dev branch to v1_base")
+
             # Continue with normal upgrade
             command.upgrade(alembic_cfg, "head")
             logger.success("Database migrations completed successfully")
+
             return
 
         # If database has a revision that's NOT in the current chain, it's pre-v1
@@ -159,8 +164,10 @@ def run_migrations(database_url=None):
             logger.warning(
                 "This affects all pre-v1 databases including v0 releases and dev branches"
             )
+
             if not reset_database():
                 raise Exception("Failed to reset database for v1 upgrade")
+
             logger.info("Creating v1 schema from scratch...")
 
         # Run migrations to head (v1 schema)

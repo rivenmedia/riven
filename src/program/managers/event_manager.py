@@ -1,4 +1,3 @@
-from collections.abc import Generator
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -20,7 +19,6 @@ from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.types import Event, Service
 from program.media.state import States
-from program.core.runner import MediaItemGenerator
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -40,7 +38,7 @@ class ServiceExecutor:
 
 @dataclass(frozen=True)
 class FutureWithEvent:
-    future: Future
+    future: Future[int | tuple[int, datetime] | None]
     event: Event | None
     cancellation_event: threading.Event
 
@@ -338,7 +336,7 @@ class EventManager:
             lambda f: self._process_future(future_with_event, service),
         )
 
-    def cancel_job(self, item_id: int, suppress_logs=False):
+    def cancel_job(self, item_id: int, suppress_logs: bool = False):
         """
         Cancels a job associated with the given item.
 
@@ -351,22 +349,26 @@ class EventManager:
             item_id, related_ids = db_functions.get_item_ids(session, item_id)
             ids_to_cancel = set([item_id] + related_ids)
 
-            future_map = {}
+            future_map: dict[int, list[FutureWithEvent]] = {}
 
-            for future in self._futures:
-                if future.event and future.event.item_id:
-                    future_item_id = future.event.item_id
-                    future_map.setdefault(future_item_id, []).append(future)
+            for future_with_event in self._futures:
+                if future_with_event.event and future_with_event.event.item_id:
+                    future_item_id = future_with_event.event.item_id
+                    future_map.setdefault(future_item_id, []).append(future_with_event)
 
             for fid in ids_to_cancel:
                 if fid in future_map:
-                    for future in future_map[fid]:
+                    for future_with_event in future_map[fid]:
                         self.remove_id_from_queues(fid)
 
-                        if not future.done() and not future.cancelled():
+                        if (
+                            not future_with_event.future.done()
+                            and not future_with_event.future.cancelled()
+                        ):
                             try:
-                                future.cancellation_event.set()
-                                future.cancel()
+                                future_with_event.cancellation_event.set()
+                                future_with_event.future.cancel()
+
                                 logger.debug(f"Canceled job for Item ID {fid}")
                             except Exception as e:
                                 if not suppress_logs:
@@ -581,7 +583,7 @@ class EventManager:
             "PostProcessing",
         ]
 
-        updates = {event_type: [] for event_type in event_types}
+        updates: dict[str, list[int]] = {event_type: [] for event_type in event_types}
 
         for event in events:
             if isinstance(event.emitted_by, str):
@@ -591,7 +593,7 @@ class EventManager:
 
             table = updates.get(key, None)
 
-            if table is not None:
+            if table is not None and event.item_id:
                 table.append(event.item_id)
 
         return updates
@@ -621,21 +623,21 @@ class EventManager:
             return False
 
         for ev in queue:
-            if item_id is not None and getattr(ev, "item_id", None) == item_id:
+            if ev.item_id == item_id:
                 return True
 
-            ci = getattr(ev, "content_item", None)
+            content_item = ev.content_item
 
-            if ci is None:
+            if content_item is None:
                 continue
 
-            if tmdb_id is not None and getattr(ci, "tmdb_id", None) == tmdb_id:
+            if tmdb_id and content_item.tmdb_id == tmdb_id:
                 return True
 
-            if tvdb_id is not None and getattr(ci, "tvdb_id", None) == tvdb_id:
+            if tvdb_id and content_item.tvdb_id == tvdb_id:
                 return True
 
-            if imdb_id is not None and getattr(ci, "imdb_id", None) == imdb_id:
+            if imdb_id and content_item.imdb_id == imdb_id:
                 return True
 
         return False

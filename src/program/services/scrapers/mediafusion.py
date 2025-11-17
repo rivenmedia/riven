@@ -44,28 +44,29 @@ class Mediafusion(ScraperService[MediafusionConfig]):
 
     def validate(self) -> bool:
         """Validate the Mediafusion settings."""
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.url:
             logger.error("Mediafusion URL is not configured and will not be used.")
             return False
+
         if "elfhosted" in self.settings.url.lower():
             logger.warning(
                 "Elfhosted Mediafusion instance is no longer supported. Please use a different instance."
             )
             return False
-        if not isinstance(self.timeout, int) or self.timeout <= 0:
+
+        if self.timeout <= 0:
             logger.error("Mediafusion timeout is not set or invalid.")
-            return False
-        if not isinstance(self.settings.ratelimit, bool):
-            logger.error("Mediafusion ratelimit must be a valid boolean.")
             return False
 
         payload = {
             "max_streams_per_resolution": 100,
             "live_search_streams": True,
             "show_full_torrent_name": True,
-            "torrent_sorting_priority": [],  # Disable sort order. This doesnt matter as we sort later.
+            "torrent_sorting_priority": [],  # Disable sort order. This doesn't matter as we sort later.
             "nudity_filter": ["Disable"],
             "certification_filter": ["Disable"],
         }
@@ -97,9 +98,6 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         and update the object with scraped streams
         """
 
-        if not item:
-            return {}
-
         try:
             return self.scrape(item)
         except Exception as e:
@@ -115,20 +113,25 @@ class Mediafusion(ScraperService[MediafusionConfig]):
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Mediafusion` scrape method"""
+
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
+
         if not imdb_id:
             return {}
 
         url = f"/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
+
         if identifier:
             url += identifier
 
         response = self.session.get(f"{url}.json", timeout=self.timeout)
+
         if not response.ok or len(response.data.streams) == 0:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents: dict[str, str] = {}
+
         for stream in response.data.streams:
             if hasattr(stream, "title") and "rate-limit exceeded" in stream.title:
                 raise Exception(
@@ -153,12 +156,15 @@ class Mediafusion(ScraperService[MediafusionConfig]):
 
             description_split = stream.description.replace("📂 ", "")
             raw_title = description_split.split("\n")[0]
+
             if scrape_type == "series":
                 if isinstance(item, Episode):
                     raw_title = raw_title.split(" ┈➤ ")[-1].strip()
                 else:
                     raw_title = raw_title.split(" ┈➤ ")[0].strip()
+
             info_hash = stream.infoHash
+
             if info_hash and info_hash not in torrents:
                 torrents[info_hash] = raw_title
 

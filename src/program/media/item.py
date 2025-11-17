@@ -558,10 +558,7 @@ class MediaItem(BaseModel):
             return self.id == other.id
         return False
 
-    def copy(self, other):
-        if other is None:
-            return None
-
+    def copy(self, other: "MediaItem"):
         self.id = getattr(other, "id")
 
         if hasattr(self, "number"):
@@ -893,7 +890,7 @@ class Show(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-    def copy(self, other):
+    def copy(self, other: "Show"):
         super(Show, self).copy(other)
 
         self.seasons = []
@@ -905,13 +902,13 @@ class Show(MediaItem):
 
         return self
 
-    def add_season(self, season):
+    def add_season(self, season: "Season"):
         """Add season to show"""
 
         if season.number not in [s.number for s in self.seasons]:
             self.seasons.append(season)
             season.parent = self
-            self.seasons = sorted(cast(list, self.seasons), key=lambda s: s.number)
+            self.seasons = sorted(self.seasons, key=lambda s: s.number)
 
     def get_absolute_episode(
         self,
@@ -1030,7 +1027,7 @@ class Season(MediaItem):
     def is_released(self) -> bool:
         return any(episode.is_released for episode in self.episodes)
 
-    def __getattribute__(self, name):
+    def __getattribute__(self, name: str):
         """Override attribute access to inherit from parent show if not set"""
 
         # List of attributes that should be inherited from parent
@@ -1065,7 +1062,7 @@ class Season(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-    def copy(self, other, copy_parent=True):
+    def copy(self, other: "Season", copy_parent: bool = True):
         super(Season, self).copy(other)
 
         for episode in other.episodes:
@@ -1081,7 +1078,7 @@ class Season(MediaItem):
     def represent_children(self):
         return [e.log_string for e in self.episodes]
 
-    def add_episode(self, episode):
+    def add_episode(self, episode: "Episode"):
         """Add episode to season"""
 
         if episode.number in [e.number for e in self.episodes]:
@@ -1089,7 +1086,7 @@ class Season(MediaItem):
 
         self.episodes.append(episode)
         episode.parent = self
-        self.episodes = sorted(cast(list, self.episodes), key=lambda e: e.number)
+        self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
     @property
     def log_string(self):
@@ -1140,13 +1137,13 @@ class Episode(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-    def copy(self, other, copy_parent=True):
+    def copy(self, other: "Episode", copy_parent: bool = True):
         super(Episode, self).copy(other)
         if copy_parent and other.parent:
             self.parent = Season(item={}).copy(other.parent)
         return self
 
-    def __getattribute__(self, name):
+    def __getattribute__(self, name: str):
         """Override attribute access to inherit from parent show (through season) if not set"""
         # List of attributes that should be inherited from parent show
         inherited_attrs = {
@@ -1196,30 +1193,3 @@ def _set_nested_attr(obj, key, value):
         obj[key] = value
     else:
         setattr(obj, key, value)
-
-
-def copy_item(item):
-    """
-    Create a copy of a MediaItem-derived object, preserving its concrete subclass and hierarchy.
-
-    Parameters:
-        item (MediaItem): The media item (Movie, Show, Season, Episode, or MediaItem) to copy.
-
-    Returns:
-        MediaItem: A new instance of the same concrete subclass containing copied data from `item`.
-
-    Raises:
-        ValueError: If `item` is not an instance of a supported MediaItem subclass.
-    """
-    if isinstance(item, Movie):
-        return Movie(item={}).copy(item)
-    elif isinstance(item, Show):
-        return Show(item={}).copy(item)
-    elif isinstance(item, Season):
-        return Season(item={}).copy(item)
-    elif isinstance(item, Episode):
-        return Episode(item={}).copy(item)
-    elif isinstance(item, MediaItem):
-        return MediaItem(item={}).copy(item)
-    else:
-        raise ValueError(f"Cannot copy item of type {type(item)}")

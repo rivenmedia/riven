@@ -7,7 +7,7 @@ from typing import Any, Generic, TypeVar
 from program.settings.models import Observable
 from program.media.item import MediaItem
 
-TSettings = TypeVar("TSettings", bound=Observable | None)
+TSettings = TypeVar("TSettings", bound=Observable | None, default=Observable)
 TService = TypeVar("TService", bound=Any | None, default="Runner")
 
 
@@ -17,7 +17,7 @@ TItemType = TypeVar("TItemType", bound=MediaItem, default=MediaItem, covariant=T
 @dataclass
 class RunnerResult(Generic[TItemType]):
     media_items: list[TItemType]
-    run_at: str | datetime | None = None
+    run_at: datetime | None = None
 
 
 type MediaItemGenerator[T: MediaItem = MediaItem] = Generator[
@@ -65,7 +65,7 @@ class Runner(ABC, Generic[TSettings, TService]):
         return True
 
     @abstractmethod
-    def run(self, *args, **kwargs) -> RunnerReturnType:
+    def run(self, *args: tuple[Any], **kwargs: dict[str, Any]) -> RunnerReturnType:
         """Run the base runner"""
 
         raise NotImplementedError
