@@ -2,6 +2,7 @@ import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column
 
 from program.media.filesystem_entry import FilesystemEntry
+from program.media.models import MediaMetadata
 
 
 class MediaEntry(FilesystemEntry):
@@ -38,7 +39,7 @@ class MediaEntry(FilesystemEntry):
 
     # Unified media metadata (combines parsed and probed data)
     # Stores MediaMetadata model: {video, audio_tracks, subtitle_tracks, quality_source, etc.}
-    media_metadata: Mapped[dict | None] = mapped_column(
+    media_metadata: Mapped[MediaMetadata | None] = mapped_column(
         sqlalchemy.JSON,
         nullable=True,
         comment="Unified media metadata combining parsed (RTN) and probed (ffprobe) data",
@@ -129,7 +130,7 @@ class MediaEntry(FilesystemEntry):
         provider: str,
         provider_download_id: str,
         file_size: int = 0,
-        media_metadata: dict | None = None,
+        media_metadata: MediaMetadata | None = None,
     ) -> "MediaEntry":
         """
         Create a MediaEntry representing a virtual (RivenVFS) media file.

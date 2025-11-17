@@ -39,28 +39,17 @@ class Observable(MigratableBaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    _notify_observers: Callable | None = None
+    _notify_observers: Callable[..., Any] | None = None
 
     @classmethod
-    def set_notify_observers(cls, notify_observers_callable):
+    def set_notify_observers(cls, notify_observers_callable: Callable[..., Any]):
         cls._notify_observers = notify_observers_callable
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: Any):
         super().__setattr__(name, value)
+
         if self.__class__._notify_observers:
-            with self._notify_observers_context():
-                self.__class__._notify_observers()
-
-    @staticmethod
-    def _notify_observers_context():
-        class NotifyContextManager:
-            def __enter__(self):
-                pass
-
-            def __exit__(self, exc_type, exc_value, traceback):
-                pass
-
-        return NotifyContextManager()
+            self.__class__._notify_observers()
 
 
 # Download Services
@@ -346,7 +335,7 @@ class FilesystemModel(Observable):
     )
 
     @field_validator("library_profiles")
-    def validate_library_profiles(cls, v):
+    def validate_library_profiles(cls, v: dict[str, LibraryProfile]):
         """Validate library profile keys and paths"""
         import re
 
@@ -356,15 +345,18 @@ class FilesystemModel(Observable):
                 raise ValueError(
                     f"Profile key '{key}' must be lowercase alphanumeric with underscores only"
                 )
+
             if key == "default":
                 raise ValueError("Profile key 'default' is reserved")
 
         # Check for duplicate library_path values among enabled profiles
         # Disabled profiles are allowed to have duplicate paths since they're not active
         enabled_paths = {}
+
         for key, profile in v.items():
             if profile.enabled:
                 # Normalize path for comparison (strip trailing slashes, ensure leading slash)
+
                 normalized_path = profile.library_path.rstrip("/")
                 if not normalized_path.startswith("/"):
                     normalized_path = f"/{normalized_path}"

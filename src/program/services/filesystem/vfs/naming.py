@@ -7,11 +7,10 @@ Supports flexible naming templates configured in settings.
 
 import os
 from string import Formatter
-from typing import Optional
 from loguru import logger
 
 from program.media.item import MediaItem, Movie, Show, Season, Episode
-from program.media.models import VideoMetadata
+from program.media.models import MediaMetadata, VideoMetadata
 from program.settings.manager import settings_manager
 from PTT import parse_title
 
@@ -28,12 +27,13 @@ class SafeFormatter(Formatter):
     - Missing values render as empty string (no KeyError)
     """
 
-    def get_value(self, key, args, kwargs):
+    def get_value(self, key, *args, **kwargs):
         if isinstance(key, str):
             # Handle nested access: show[title]
             if "[" in key and "]" in key:
                 parts = key.replace("]", "").split("[")
                 value = kwargs.get(parts[0], {})
+
                 for part in parts[1:]:
                     if isinstance(value, dict):
                         value = value.get(part, "")
@@ -45,7 +45,9 @@ class SafeFormatter(Formatter):
                             value = ""
                     else:
                         value = ""
+
                 return value or ""
+
             # Simple key access
             return kwargs.get(key, "")
         return super().get_value(key, args, kwargs)
@@ -76,7 +78,7 @@ class NamingService:
         item: MediaItem,
         original_filename: str,
         file_size: int = 0,
-        media_metadata: Optional[dict] = None,
+        media_metadata: MediaMetadata | None = None,
     ) -> str:
         """
         Generate clean VFS path from original filename and item metadata.
@@ -278,7 +280,7 @@ class NamingService:
         return folder
 
     def _generate_clean_filename(
-        self, item: MediaItem, parsed: Optional[dict] = None
+        self, item: MediaItem, parsed: MediaMetadata | None = None
     ) -> str:
         """
         Generate clean filename from item metadata.
@@ -337,7 +339,9 @@ class NamingService:
             return self._sanitize_name(context["title"])
 
     def _generate_episode_filename(
-        self, item: Episode, parsed: Optional[dict] = None
+        self,
+        item: Episode,
+        parsed: MediaMetadata | None = None,
     ) -> str:
         """
         Generate clean filename for episode using template from settings.
@@ -365,15 +369,8 @@ class NamingService:
         # Check for multi-episode file from metadata
         episodes = [episode_num]  # Default to single episode
         if parsed:
-            # MediaMetadata has 'episodes' as a list
-            if isinstance(parsed, dict):
-                parsed_episodes = parsed.get("episodes")
-                if parsed_episodes and len(parsed_episodes) > 1:
-                    episodes = sorted(parsed_episodes)
-            elif hasattr(parsed, "episodes"):
-                parsed_episodes = getattr(parsed, "episodes")
-                if parsed_episodes and len(parsed_episodes) > 1:
-                    episodes = sorted(parsed_episodes)
+            if parsed.episodes and len(parsed.episodes) > 1:
+                episodes = sorted(parsed.episodes)
 
         # Build context for template
         context = {
@@ -468,27 +465,28 @@ class NamingService:
         Returns dict with keys: resolution, codec, hdr, audio, quality, container,
         remux, proper, repack, extended, directors_cut, edition
         """
+
         metadata = {}
 
         # Get MediaEntry from item
-        media_entry = None
-        if hasattr(item, "filesystem_entries") and item.filesystem_entries:
-            # Get first MediaEntry (there should only be one for movies/episodes)
-            media_entry = item.filesystem_entries[0]
+        media_entry = item.filesystem_entries[0]
 
         if not media_entry or not hasattr(media_entry, "media_metadata"):
             return metadata
 
         media_metadata = getattr(media_entry, "media_metadata", {})
+
         if not media_metadata:
             return metadata
 
         # Extract video metadata
         video = media_metadata.get("video", {})
+
         if video:
             # Get resolution using VideoMetadata.resolution_label property
             # This handles ultrawide content correctly (e.g., 3840×1600 → "4K")
             resolution = video.get("resolution")
+
             if not resolution:
                 # Instantiate VideoMetadata to use its resolution_label property
                 try:
@@ -497,17 +495,21 @@ class NamingService:
                 except Exception:
                     # Fallback if VideoMetadata instantiation fails
                     resolution = None
+
             metadata["resolution"] = resolution
             metadata["codec"] = video.get("codec")
 
             # HDR - handle both hdr_type (single string) and hdr (list)
             hdr = video.get("hdr", [])
+
             if not hdr and video.get("hdr_type"):
                 hdr = [video.get("hdr_type")]
+
             metadata["hdr"] = hdr
 
         # Extract audio metadata (first track)
         audio_tracks = media_metadata.get("audio_tracks", [])
+
         if audio_tracks:
             metadata["audio"] = audio_tracks[0].get("codec")
 
@@ -519,8 +521,10 @@ class NamingService:
         metadata["container"] = container_formats[0] if container_formats else None
 
         # String versions for template use (empty string if False)
-        metadata["remux"] = "REMUX" if media_metadata.get("is_remux", False) else ""
-        metadata["proper"] = "PROPER" if media_metadata.get("is_proper", False) else ""
+        metadata["is_remux"] = "REMUX" if media_metadata.get("is_remux", False) else ""
+        metadata["is_proper"] = (
+            "PROPER" if media_metadata.get("is_proper", False) else ""
+        )
         metadata["repack"] = "REPACK" if media_metadata.get("is_repack", False) else ""
         metadata["extended"] = (
             "Extended" if media_metadata.get("is_extended", False) else ""
@@ -530,11 +534,14 @@ class NamingService:
         )
 
         # Combined edition string (for convenience)
-        edition_parts = []
+        edition_parts: set[str] = set()
+
         if media_metadata.get("is_extended", False):
-            edition_parts.append("Extended")
+            edition_parts.add("Extended")
+
         if media_metadata.get("is_directors_cut", False):
-            edition_parts.append("Director's Cut")
+            edition_parts.add("Director's Cut")
+
         metadata["edition"] = " ".join(edition_parts)
 
         return metadata
@@ -553,18 +560,6 @@ class NamingService:
         Returns:
             Sanitized name
         """
-        # Coerce to string safely
-        try:
-            if name is None:
-                name = ""
-            # Avoid accidentally using a built-in method object as the value
-            if hasattr(name, "__call__") and not isinstance(name, str):
-                # Do not call it; just stringify
-                name = str(name)
-            else:
-                name = str(name)
-        except Exception:
-            name = ""
 
         # Replace problematic characters
         replacements = {
@@ -578,6 +573,7 @@ class NamingService:
             ">": "",
             "|": "-",
         }
+
         for old, new in replacements.items():
             name = name.replace(old, new)
 
@@ -611,7 +607,7 @@ def generate_clean_path(
     item: MediaItem,
     original_filename: str,
     file_size: int = 0,
-    media_metadata: dict | None = None,
+    media_metadata: MediaMetadata | None = None,
 ) -> str:
     """
     Convenience function for generating clean VFS paths.

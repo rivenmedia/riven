@@ -15,6 +15,7 @@ from program.services.downloaders.models import (
     NotCachedException,
     TorrentContainer,
     TorrentInfo,
+    UserInfo,
 )
 from program.services.downloaders.shared import (
     DownloaderBase,
@@ -248,12 +249,14 @@ class Downloader(Runner[None, DownloaderBase]):
         self,
         stream: Stream,
         item: MediaItem,
-        service,
+        service: "DownloaderBase",
     ) -> TorrentContainer | None:
         """
         Validate a single stream on a specific service by ensuring its files match the item's requirements.
         """
+
         container = service.get_instant_availability(stream.infohash, item.type)
+
         if not container:
             logger.debug(
                 f"Stream {stream.infohash} is not cached or valid on {service.key}."
@@ -261,6 +264,7 @@ class Downloader(Runner[None, DownloaderBase]):
             return None
 
         valid_files = []
+
         for file in container.files or []:
             if isinstance(file, DebridFile):
                 valid_files.append(file)
@@ -309,11 +313,11 @@ class Downloader(Runner[None, DownloaderBase]):
             if isinstance(item, (Show, Season, Episode)):
                 show = (
                     item
-                    if item.type == "show"
-                    else (item.parent if item.type == "season" else item.parent.parent)
+                    if isinstance(item, Show)
+                    else (
+                        item.parent if isinstance(item, Season) else item.parent.parent
+                    )
                 )
-
-                assert show
 
                 try:
                     method_1 = sum(len(season.episodes) for season in show.seasons)
@@ -566,11 +570,11 @@ class Downloader(Runner[None, DownloaderBase]):
             # Path generation is now handled by RivenVFS during registration
             # Convert parsed file_data to MediaMetadata if available
             media_metadata = None
+
             if file_data:
-                metadata = MediaMetadata.from_parsed_data(
+                media_metadata = MediaMetadata.from_parsed_data(
                     file_data.model_dump(), filename=debrid_file.filename
                 )
-                media_metadata = metadata.model_dump(mode="json")
 
             assert debrid_file.filename
             assert service
@@ -645,7 +649,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         self.service.delete_torrent(torrent_id)
 
-    def get_user_info(self, service) -> dict:
+    def get_user_info(self, service: "DownloaderBase") -> UserInfo | None:
         """Get user information"""
 
         return service.get_user_info()
