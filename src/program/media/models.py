@@ -8,9 +8,9 @@ inspection via ffprobe) into a single, coherent structure.
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 from RTN import ParsedData
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from program.utils.ffprobe import FFProbeMediaMetadata
 
 
@@ -32,6 +32,21 @@ class VideoMetadata(BaseModel):
     bit_depth: int | None = None  # e.g., 10
     hdr_type: str | None = None  # e.g., "HDR10", "DolbyVision"
 
+    @field_validator("bit_depth", mode="before")
+    @classmethod
+    def normalise_bit_depth(cls, v: Any) -> int | None:
+        """Ensure bit_depth is stored as an integer (e.g., "10bit" -> 10)"""
+
+        if isinstance(v, int | None):
+            return v
+
+        if isinstance(v, str) and v.endswith("bit"):
+            return int(v.replace("bit", ""))
+
+        raise ValidationError(
+            "bit_depth must be an integer or string ending with 'bit'"
+        )
+
     @property
     def resolution_label(self) -> str | None:
         """
@@ -43,6 +58,7 @@ class VideoMetadata(BaseModel):
         - Return "" when the resolution is known but below 720p.
         - Return None when neither width nor height is known.
         """
+
         w = int(self.resolution_width or 0)
         h = int(self.resolution_height or 0)
         longest = max(w, h)
@@ -137,7 +153,7 @@ class MediaMetadata(BaseModel):
     file_size: int | None = None  # bytes
     bitrate: int | None = None  # bits/sec
     # e.g., ["matroska", "webm"]
-    container_format: list[str] = Field(default_factory=list[str])
+    container_formats: list[str] = Field(default_factory=list[str])
 
     # === Release Metadata (parsed only) ===
     quality_source: str | None = None  # e.g., "BluRay", "WEB-DL", "HDTV"
@@ -198,18 +214,7 @@ class MediaMetadata(BaseModel):
             resolution_width = 480
             resolution_height = 360
 
-        bit_depth = None
-
-        if bd := parsed_data.bit_depth:
-            try:
-                bit_depth = int(bd.replace("bit", ""))
-            except (ValueError, TypeError):
-                # PTT/RTN should only return `10bit` or `8bit` 99% of the time
-                # but let's add a failsafe just in case
-                from program.utils import logger
-
-                logger.debug(f"Failed to parse bit_depth '{bd}' as int")
-                bit_depth = None
+        bit_depth = parsed_data.bit_depth
 
         codec = parsed_data.codec
 
@@ -224,12 +229,14 @@ class MediaMetadata(BaseModel):
         video = None
 
         if resolution_height or codec or bit_depth or hdr_type:
-            video = VideoMetadata(
-                codec=codec,
-                resolution_width=resolution_width,
-                resolution_height=resolution_height,
-                bit_depth=bit_depth,
-                hdr_type=hdr_type,
+            video = VideoMetadata.model_validate(
+                {
+                    "codec": codec,
+                    "resolution_width": resolution_width,
+                    "resolution_height": resolution_height,
+                    "bit_depth": bit_depth,
+                    "hdr_type": hdr_type,
+                }
             )
 
         # Extract audio tracks from parsed data

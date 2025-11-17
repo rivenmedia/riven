@@ -1,7 +1,7 @@
 """MediaItem class"""
 
 from datetime import datetime
-from typing import Any, Literal, TYPE_CHECKING, cast
+from typing import Any, Literal, TYPE_CHECKING
 
 import sqlalchemy
 from loguru import logger
@@ -752,7 +752,7 @@ class MediaItem(BaseModel):
 
         return False
 
-    def _get_top_parent(self) -> "MediaItem":
+    def get_top_parent(self) -> "MediaItem":
         """Return the top-most parent item in the hierarchy."""
 
         if isinstance(self, Season):

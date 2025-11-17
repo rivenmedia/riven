@@ -1,8 +1,31 @@
 import sqlalchemy
+
+from typing import Any
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.engine import Dialect
 
 from program.media.filesystem_entry import FilesystemEntry
 from program.media.models import MediaMetadata
+
+
+class MediaMetadataDecorator(TypeDecorator[MediaMetadata]):
+    """Custom SQLAlchemy type decorator for MediaMetadata JSON serialization"""
+
+    impl = sqlalchemy.JSON
+    cache_ok = True
+
+    def process_bind_param(self, value: MediaMetadata | None, dialect: Dialect):
+        if value is None:
+            return None
+
+        return value.model_dump()
+
+    def process_result_value(self, value: dict[str, Any] | None, dialect: Dialect):
+        if value is None:
+            return None
+
+        return MediaMetadata.model_validate(value)
 
 
 class MediaEntry(FilesystemEntry):
@@ -40,7 +63,7 @@ class MediaEntry(FilesystemEntry):
     # Unified media metadata (combines parsed and probed data)
     # Stores MediaMetadata model: {video, audio_tracks, subtitle_tracks, quality_source, etc.}
     media_metadata: Mapped[MediaMetadata | None] = mapped_column(
-        sqlalchemy.JSON,
+        MediaMetadataDecorator,
         nullable=True,
         comment="Unified media metadata combining parsed (RTN) and probed (ffprobe) data",
     )
@@ -95,8 +118,6 @@ class MediaEntry(FilesystemEntry):
         canonical_path = generate_clean_path(
             item=item,
             original_filename=self.original_filename,
-            file_size=self.file_size or 0,
-            media_metadata=self.media_metadata,
         )
 
         # ALWAYS include the base path (/movies or /shows)
