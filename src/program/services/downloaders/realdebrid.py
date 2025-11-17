@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import Optional, Tuple
 
 import requests
 from loguru import logger
@@ -220,7 +220,7 @@ class RealDebridDownloader(DownloaderBase):
 
         if info.status == "waiting_files_selection":
             video_exts = tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS)
-            video_ids: List[int] = [
+            video_ids: list[int] = [
                 file_id
                 for file_id, meta in info.files.items()
                 if meta["filename"].lower().endswith(video_exts)
@@ -238,7 +238,7 @@ class RealDebridDownloader(DownloaderBase):
                 return None, "failed to refresh torrent info after selection", None
 
         if info.status == "downloaded":
-            files: List[DebridFile] = []
+            files: list[DebridFile] = []
             for file_id, meta in info.files.items():
                 if meta.get("selected", 0) != 1:
                     continue
@@ -302,49 +302,55 @@ class RealDebridDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             RealDebridError: If the API returns a failing status.
         """
+
         magnet = f"magnet:?xt=urn:btih:{infohash}"
-        resp: SmartResponse = self.api.session.post(
+        response = self.api.session.post(
             "torrents/addMagnet", data={"magnet": magnet.lower()}
         )
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise RealDebridError(self._handle_error(resp))
+        self._maybe_backoff(response)
+        if not response.ok:
+            raise RealDebridError(self._handle_error(response))
 
-        tid = getattr(resp.data, "id", None)
+        tid = getattr(response.data, "id", None)
         if not tid:
             raise RealDebridError("No torrent ID returned by Real-Debrid.")
         return tid
 
-    def select_files(self, torrent_id: str, ids: Optional[List[int]] = None) -> None:
+    def select_files(self, torrent_id: str, ids: Optional[list[int]] = None) -> None:
         """
         Select files within a torrent. If ids is None/empty, selects all files.
         """
+
         selection = ",".join(str(x) for x in ids) if ids else "all"
-        resp: SmartResponse = self.api.session.post(
+        response = self.api.session.post(
             f"torrents/selectFiles/{torrent_id}",
             data={"files": selection},
         )
-        if not resp.ok:
-            raise RealDebridError(self._handle_error(resp))
+
+        if not response.ok:
+            raise RealDebridError(self._handle_error(response))
 
     def get_torrent_info(self, torrent_id: str) -> Optional[TorrentInfo]:
         """
         Retrieve torrent information and normalize into TorrentInfo.
         Returns None on API-level failure (non-OK) to match current behavior.
         """
+
         if not torrent_id:
             logger.debug("No torrent ID provided")
             return None
 
-        resp: SmartResponse = self.api.session.get(f"torrents/info/{torrent_id}")
-        self._maybe_backoff(resp)
-        if not resp.ok:
+        response = self.api.session.get(f"torrents/info/{torrent_id}")
+        self._maybe_backoff(response)
+
+        if not response.ok:
             logger.debug(
-                f"Failed to get torrent info for {torrent_id}: {self._handle_error(resp)}"
+                f"Failed to get torrent info for {torrent_id}: {self._handle_error(response)}"
             )
             return None
 
-        data = resp.data
+        data = response.data
+
         if getattr(data, "error", None):
             logger.debug(
                 f"Failed to get torrent info for {torrent_id}: '{data.error}' "
@@ -366,6 +372,7 @@ class RealDebridDownloader(DownloaderBase):
 
         # Correlate files to torrent links if torrent is downloaded
         links = data.links
+
         if data.status == "downloaded" and links:
             try:
                 # Get selected files in order (these correspond to links by index)

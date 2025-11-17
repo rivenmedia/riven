@@ -1,6 +1,6 @@
 import hashlib
 from abc import abstractmethod
-from typing import Dict, Generic, Optional, Tuple, TypeVar
+from typing import Optional, TypeVar
 
 import bencodepy
 from loguru import logger
@@ -43,10 +43,10 @@ class ScraperService(Runner[T]):
     def validate(self) -> bool: ...
 
     @abstractmethod
-    def run(self, item: MediaItem) -> Dict[str, str]: ...
+    def run(self, item: MediaItem) -> dict[str, str]: ...
 
     @abstractmethod
-    def scrape(self, item: MediaItem) -> Dict[str, str]: ...
+    def scrape(self, item: MediaItem) -> dict[str, str]: ...
 
     @staticmethod
     def get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:

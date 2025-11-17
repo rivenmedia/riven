@@ -1,13 +1,14 @@
 import os
+
+from collections.abc import Callable
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Callable, List, Literal, Optional, Set, Union
-
+from typing import Annotated, Literal, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from kink import di
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
 from program.db import db_functions
@@ -160,14 +161,14 @@ async def get_items(
     limit: Annotated[int, Query(gt=0, description="Number of items per page")] = 50,
     page: Annotated[int, Query(gt=0, description="Page number")] = 1,
     type: Annotated[
-        Optional[List[MediaTypeEnum]], Query(description="Filter by media type(s)")
+        Optional[list[MediaTypeEnum]], Query(description="Filter by media type(s)")
     ] = None,
     states: Annotated[
-        Optional[List[Union[States, StatesFilter]]],
+        Optional[list[Union[States, StatesFilter]]],
         Query(description="Filter by state(s)"),
     ] = None,
     sort: Annotated[
-        Optional[List[SortOrderEnum]],
+        Optional[list[SortOrderEnum]],
         Query(
             description="Sort order(s). Multiple sorts allowed but only one per type (title or date)"
         ),
@@ -201,7 +202,7 @@ async def get_items(
         )
 
     if type:
-        media_types: Set[str] = {t.value for t in type}
+        media_types: set[str] = {t.value for t in type}
 
         if MediaTypeEnum.ANIME in type:
             media_types.remove(MediaTypeEnum.ANIME.value)

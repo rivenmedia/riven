@@ -3,7 +3,7 @@ Base provider interface for subtitle providers.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Any
+from typing import Optional, Any
 
 
 class SubtitleProvider(ABC):
@@ -20,7 +20,7 @@ class SubtitleProvider(ABC):
         season: Optional[int] = None,
         episode: Optional[int] = None,
         language: str = "en",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search for subtitles.
 
@@ -35,12 +35,12 @@ class SubtitleProvider(ABC):
             language: ISO 639-3 language code
 
         Returns:
-            List of subtitle results
+            list of subtitle results
         """
         pass
 
     @abstractmethod
-    def download_subtitle(self, subtitle_info: Dict[str, Any]) -> Optional[str]:
+    def download_subtitle(self, subtitle_info: dict[str, Any]) -> Optional[str]:
         """Download subtitle content."""
         pass
 

@@ -218,7 +218,7 @@ class LibraryProfile(BaseModel):
     )
 
     @field_validator("library_path")
-    def validate_library_path(cls, v):
+    def validate_library_path(cls, v: str):
         """Validate library_path format"""
         if not v:
             raise ValueError("library_path cannot be empty")
@@ -1006,11 +1006,12 @@ class AppModel(Observable):
     )
 
     @field_validator("log_level", mode="before")
-    def check_debug(cls, v):
+    def check_debug(cls, v: str | bool):
         if v == True:
             return "DEBUG"
         elif v == False:
             return "INFO"
+
         return v.upper()
 
     def __init__(self, **data: Any):

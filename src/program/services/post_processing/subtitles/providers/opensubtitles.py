@@ -6,7 +6,7 @@ import base64
 import time
 import zlib
 from xmlrpc.client import ServerProxy
-from typing import List, Dict, Optional, Any
+from typing import Optional, Any
 
 from babelfish import Language, Error as BabelfishError
 from loguru import logger
@@ -166,7 +166,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
         season: Optional[int] = None,
         episode: Optional[int] = None,
         language: str = "en",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search subtitles using multi-strategy approach.
 
@@ -187,7 +187,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
             language: Language code (ISO 639-1, ISO 639-2, or ISO 639-3)
 
         Returns:
-            List of subtitle results, prioritized by match type
+            list of subtitle results, prioritized by match type
         """
         try:
             if not self._ensure_authenticated():
@@ -328,7 +328,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
                 logger.error(f"OpenSubtitles search error: {e}")
             return []
 
-    def download_subtitle(self, subtitle_info: Dict[str, Any]) -> Optional[str]:
+    def download_subtitle(self, subtitle_info: dict[str, Any]) -> Optional[str]:
         """Download subtitle content from OpenSubtitles."""
         try:
             if not self._ensure_authenticated():
@@ -367,7 +367,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
     def _calculate_score(
         self,
-        subtitle_item: Dict[str, Any],
+        subtitle_item: dict[str, Any],
         is_hash_match: bool,
         is_tag_match: bool = False,
         is_imdb_match: bool = False,

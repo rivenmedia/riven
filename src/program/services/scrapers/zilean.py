@@ -1,7 +1,5 @@
 """Zilean scraper module"""
 
-from typing import Dict
-
 from loguru import logger
 
 from program.media.item import Episode, MediaItem, Season, Show
@@ -51,7 +49,7 @@ class Zilean(ScraperService[ZileanConfig]):
             logger.error(f"Zilean failed to initialize: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
+    def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape the Zilean site for the given media items and update the object with scraped items"""
 
         try:
@@ -64,7 +62,7 @@ class Zilean(ScraperService[ZileanConfig]):
 
         return {}
 
-    def _build_query_params(self, item: MediaItem) -> Dict[str, str]:
+    def _build_query_params(self, item: MediaItem) -> dict[str, str]:
         """Build the query params for the Zilean API"""
         params = {"Query": item.get_top_title()}
         if isinstance(item, Show):
@@ -76,7 +74,7 @@ class Zilean(ScraperService[ZileanConfig]):
             params["Episode"] = item.number
         return params
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Zilean` scrape method"""
         url = f"{self.settings.url}/dmm/filtered"
         params = self._build_query_params(item)
@@ -86,7 +84,7 @@ class Zilean(ScraperService[ZileanConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents: Dict[str, str] = {}
+        torrents: dict[str, str] = {}
         for result in response.data:
             if not result.raw_title or not result.info_hash:
                 continue

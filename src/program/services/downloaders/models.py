@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
 import regex
 from pydantic import BaseModel, Field
@@ -121,7 +121,7 @@ class DebridFile(BaseModel):
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
-    def to_dict(self) -> Dict[str, Union[int, str]]:
+    def to_dict(self) -> dict[str, Union[int, str]]:
         """Convert the DebridFile to a dictionary"""
         return {
             "filename": self.filename,
@@ -135,7 +135,7 @@ class TorrentContainer(BaseModel):
     """Represents a collection of files from an infohash from a debrid service"""
 
     infohash: str
-    files: List[DebridFile] = Field(default_factory=list)
+    files: list[DebridFile] = Field(default_factory=list)
     torrent_id: Optional[Union[int, str]] = None  # Cached torrent_id to avoid re-adding
     torrent_info: Optional["TorrentInfo"] = None  # Cached info to avoid re-fetching
 
@@ -145,11 +145,11 @@ class TorrentContainer(BaseModel):
         return len(self.files) > 0
 
     @property
-    def file_ids(self) -> List[int]:
+    def file_ids(self) -> list[int]:
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id is not None]
 
-    def to_dict(self) -> Dict[str, Union[str, Dict]]:
+    def to_dict(self) -> dict[str, Union[str, dict]]:
         """Convert the TorrentContainer to a dictionary including the infohash"""
         return {
             "infohash": self.infohash,
@@ -170,10 +170,10 @@ class TorrentInfo(BaseModel):
     expires_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     alternative_filename: Optional[str] = None
-    files: Dict[int, Dict[str, Union[int, str]]] = Field(
+    files: dict[int, dict[str, Union[int, str]]] = Field(
         default_factory=dict
     )  # Real-Debrid only
-    links: List[str] = Field(default_factory=list)  # Real-Debrid download links
+    links: list[str] = Field(default_factory=list)  # Real-Debrid download links
 
     @property
     def size_mb(self) -> float:
@@ -186,7 +186,7 @@ class TorrentInfo(BaseModel):
         return len(self.files) > 0
 
     @property
-    def file_ids(self) -> List[int]:
+    def file_ids(self) -> list[int]:
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id]
 

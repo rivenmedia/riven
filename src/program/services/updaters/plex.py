@@ -1,7 +1,5 @@
 """Plex Updater module"""
 
-from typing import Dict, List
-
 from kink import di
 from loguru import logger
 from plexapi.exceptions import BadRequest, Unauthorized
@@ -20,7 +18,7 @@ class PlexUpdater(BaseUpdater):
         self.library_path = settings_manager.settings.updaters.library_path
         self.settings = settings_manager.settings.updaters.plex
         self.api = None
-        self.sections: Dict[LibrarySection, List[str]] = {}
+        self.sections: dict[LibrarySection, list[str]] = {}
         self._initialize()
 
     def validate(self) -> bool:  # noqa: C901

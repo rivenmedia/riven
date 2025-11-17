@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 from RTN import ParsedData, parse
 
@@ -165,7 +165,7 @@ def get_resolution(torrent: Stream) -> Resolution:
     return RESOLUTION_MAP.get(resolution, Resolution.UNKNOWN)
 
 
-def _sort_streams_by_quality(streams: List[Stream]) -> List[Stream]:
+def _sort_streams_by_quality(streams: list[Stream]) -> list[Stream]:
     """Sort streams by resolution (highest first) and then by rank (highest first)."""
     return sorted(
         streams,

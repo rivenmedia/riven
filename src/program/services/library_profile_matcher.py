@@ -4,8 +4,7 @@ Evaluates MediaItem metadata against library profile filter rules to determine
 which library profiles a media item should be placed in.
 """
 
-from typing import List, Optional
-from loguru import logger
+from typing import Optional
 
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.models import LibraryProfileFilterRules
@@ -26,7 +25,7 @@ class LibraryProfileMatcher:
     def __init__(self):
         self.key = "library_profile_matcher"
 
-    def get_matching_profiles(self, item: MediaItem) -> List[str]:
+    def get_matching_profiles(self, item: MediaItem) -> list[str]:
         """
         Get list of library profile keys that match the given MediaItem.
 
@@ -38,7 +37,7 @@ class LibraryProfileMatcher:
             item: MediaItem to evaluate
 
         Returns:
-            List of profile keys (e.g., ['kids', 'anime']) in settings order.
+            list of profile keys (e.g., ['kids', 'anime']) in settings order.
             Empty list if no profiles match.
 
         Example:
@@ -162,7 +161,7 @@ class LibraryProfileMatcher:
         return True
 
     def _matches_list_filter(
-        self, item_values: List[str], filter_values: List[str], filter_name: str
+        self, item_values: list[str], filter_values: list[str], filter_name: str
     ) -> bool:
         """
         Check if item values match filter with inclusion/exclusion support.
@@ -220,7 +219,7 @@ class LibraryProfileMatcher:
 
         return True
 
-    def _matches_content_type(self, item_type: str, allowed_types: List[str]) -> bool:
+    def _matches_content_type(self, item_type: str, allowed_types: list[str]) -> bool:
         """
         Check if item type matches allowed content types with hierarchical matching.
 
@@ -230,7 +229,7 @@ class LibraryProfileMatcher:
 
         Args:
             item_type: The type of the MediaItem (movie, show, season, episode)
-            allowed_types: List of allowed content types from filter rules
+            allowed_types: list of allowed content types from filter rules
 
         Returns:
             True if item type matches any allowed type (with hierarchy), False otherwise
@@ -245,34 +244,34 @@ class LibraryProfileMatcher:
 
         return False
 
-    def _get_normalized_genres(self, item: MediaItem) -> List[str]:
+    def _get_normalized_genres(self, item: MediaItem) -> list[str]:
         """Get normalized genre list (lowercase) from MediaItem."""
         if not item.genres:
             return []
         return [g.lower() for g in item.genres if g]
 
-    def _get_normalized_networks(self, item: MediaItem) -> List[str]:
+    def _get_normalized_networks(self, item: MediaItem) -> list[str]:
         """Get normalized network list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "HBO Max") or a list of strings.
         """
         v = getattr(item, "network", None)
         return self._normalize_str_list(v)
 
-    def _get_normalized_countries(self, item: MediaItem) -> List[str]:
+    def _get_normalized_countries(self, item: MediaItem) -> list[str]:
         """Get normalized country list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "USA") or a list of strings/codes.
         """
         v = getattr(item, "country", None)
         return self._normalize_str_list(v)
 
-    def _get_normalized_languages(self, item: MediaItem) -> List[str]:
+    def _get_normalized_languages(self, item: MediaItem) -> list[str]:
         """Get normalized language list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "eng") or a list of ISO 639-3 codes.
         """
         v = getattr(item, "language", None)
         return self._normalize_str_list(v)
 
-    def _normalize_str_list(self, value) -> List[str]:
+    def _normalize_str_list(self, value) -> list[str]:
         """Normalize a string or iterable of strings into a lowercase list.
         - None -> []
         - "HBO Max" -> ["hbo max"]

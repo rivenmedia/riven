@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import time
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 from loguru import logger
 
@@ -253,7 +252,7 @@ class AllDebridDownloader(DownloaderBase):
         if not files_data:
             return None, "no files present in the torrent", None
 
-        files: List[DebridFile] = []
+        files: list[DebridFile] = []
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
         self._extract_files_recursive(files_data, item_type, files, infohash)
@@ -265,7 +264,7 @@ class AllDebridDownloader(DownloaderBase):
         return TorrentContainer(infohash=infohash, files=files), None, info
 
     def _add_link_to_files_recursive(
-        self, files: List, download_link: str, result: List
+        self, files: list, download_link: str, result: list
     ) -> None:
         """
         Recursively process files/folders and add download link to actual files.
@@ -300,9 +299,9 @@ class AllDebridDownloader(DownloaderBase):
 
     def _extract_files_recursive(
         self,
-        file_list: List,
+        file_list: list,
         item_type: str,
-        files: List[DebridFile],
+        files: list[DebridFile],
         infohash: str,
         path_prefix: str = "",
     ) -> None:
@@ -393,7 +392,7 @@ class AllDebridDownloader(DownloaderBase):
 
         return int(magnet_id)
 
-    def select_files(self, torrent_id: int, file_ids: List[int]) -> None:
+    def select_files(self, torrent_id: int, file_ids: list[int]) -> None:
         """
         Select which files to download from the magnet.
 
@@ -402,12 +401,12 @@ class AllDebridDownloader(DownloaderBase):
         """
         pass
 
-    def _get_magnet_files(self, magnet_id: int) -> Optional[List]:
+    def _get_magnet_files(self, magnet_id: int) -> Optional[list]:
         """
         Get the files and download links for a magnet.
 
         Returns:
-            List of file objects with 'n' (name), 's' (size), 'l' (link), and optionally 'e' (entries) fields.
+            list of file objects with 'n' (name), 's' (size), 'l' (link), and optionally 'e' (entries) fields.
         """
         try:
             # Get the magnet status which includes links

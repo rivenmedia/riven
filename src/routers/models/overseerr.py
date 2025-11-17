@@ -1,4 +1,4 @@
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
@@ -60,10 +60,10 @@ class OverseerrWebhook(BaseModel):
     request: Optional[RequestInfo] = None
     issue: Optional[IssueInfo] = None
     comment: Optional[CommentInfo] = None
-    extra: List[dict[str, Any]] = []
+    extra: list[dict[str, Any]] = []
 
     @property
-    def requested_seasons(self) -> Optional[List[int]]:
+    def requested_seasons(self) -> Optional[list[int]]:
         for extra in self.extra:
             if extra["name"] == "Requested Seasons":
                 return [int(x) for x in extra["value"].split(",")]

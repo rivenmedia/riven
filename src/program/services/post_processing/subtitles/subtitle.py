@@ -5,7 +5,7 @@ Handles subtitle fetching from various providers and stores them in the database
 for serving via RivenVFS.
 """
 
-from typing import List, Optional
+from typing import Optional
 from sqlalchemy.orm import object_session
 from loguru import logger
 
@@ -13,8 +13,7 @@ from program.db.db import db
 from program.media.item import Episode, MediaItem, Movie
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
-from program.services.filesystem.filesystem_service import FilesystemService
-from program.core.runner import MediaItemGenerator, Runner
+from program.core.runner import Runner
 from program.settings.models import SubtitleConfig
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
@@ -71,15 +70,15 @@ class SubtitleService(Runner[SubtitleConfig]):
         # if provider_configs.get("opensubtitlescom", {}).get("enabled"):
         #     ...
 
-    def _parse_languages(self, language_codes: List[str]) -> List[str]:
+    def _parse_languages(self, language_codes: list[str]) -> list[str]:
         """
         Parse and validate language codes.
 
         Args:
-            language_codes: List of language codes (ISO 639-1, ISO 639-2, or ISO 639-3)
+            language_codes: list of language codes (ISO 639-1, ISO 639-2, or ISO 639-3)
 
         Returns:
-            List of valid ISO 639-3 language codes
+            list of valid ISO 639-3 language codes
         """
         from .providers.opensubtitles import _normalize_language_to_alpha3
 

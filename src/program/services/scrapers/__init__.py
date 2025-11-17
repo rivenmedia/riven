@@ -1,7 +1,6 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, Generator, List
 
 from loguru import logger
 
@@ -96,10 +95,10 @@ class Scraping(Runner[ScraperModel]):
 
         yield RunnerResult(media_items=[item])
 
-    def scrape(self, item: MediaItem, verbose_logging=True) -> Dict[str, Stream]:
+    def scrape(self, item: MediaItem, verbose_logging=True) -> dict[str, Stream]:
         """Scrape an item."""
 
-        results: Dict[str, str] = {}
+        results: dict[str, str] = {}
         results_lock = threading.RLock()
 
         def run_service(svc, it) -> None:
@@ -139,11 +138,11 @@ class Scraping(Runner[ScraperModel]):
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams: Dict[str, Stream] = _parse_results(
+        sorted_streams: dict[str, Stream] = _parse_results(
             item, results, verbose_logging
         )
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
-            top_results: List[Stream] = list(sorted_streams.values())[:10]
+            top_results: list[Stream] = list(sorted_streams.values())[:10]
             logger.debug(
                 f"Displaying top {len(top_results)} results for {item.log_string}"
             )

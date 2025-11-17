@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -8,11 +8,11 @@ from fastapi import WebSocket, WebSocketDisconnect
 class ConnectionManager:
     def __init__(self):
         # Store active connections by topic
-        self.active_connections: Dict[str, List[WebSocket]] = {}
+        self.active_connections: dict[str, list[WebSocket]] = {}
         # Message queue for each topic
-        self.message_queues: Dict[str, asyncio.Queue] = {}
+        self.message_queues: dict[str, asyncio.Queue] = {}
         # Background tasks
-        self.background_tasks: List[asyncio.Task] = []
+        self.background_tasks: list[asyncio.Task] = []
 
     async def connect(self, websocket: WebSocket, topic: str):
         await websocket.accept()

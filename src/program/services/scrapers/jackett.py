@@ -1,8 +1,7 @@
 """Jackett scraper module"""
 
 import concurrent.futures
-from types import SimpleNamespace
-from typing import List, Optional
+from typing import Optional
 
 from loguru import logger
 from pydantic import BaseModel
@@ -24,8 +23,8 @@ class JackettIndexer(BaseModel):
     link: Optional[str] = None
     type: Optional[str] = None
     language: Optional[str] = None
-    tv_search_capabilities: Optional[List[str]] = None
-    movie_search_capabilities: Optional[List[str]] = None
+    tv_search_capabilities: Optional[list[str]] = None
+    movie_search_capabilities: Optional[list[str]] = None
 
 
 class Jackett(ScraperService[JackettConfig]):
@@ -116,7 +115,7 @@ class Jackett(ScraperService[JackettConfig]):
             return torrents
 
         if hasattr(response.data, "Results"):
-            urls_to_fetch = []  # List of (result, title) tuples that need URL fetching
+            urls_to_fetch = []  # list of (result, title) tuples that need URL fetching
 
             # First pass: extract infohashes from available fields and collect URLs that need fetching
             for result in response.data.Results:

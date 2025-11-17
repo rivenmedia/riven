@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
-import requests
 from loguru import logger
 
 from program.services.downloaders.models import (
@@ -240,7 +239,7 @@ class DebridLinkDownloader(DownloaderBase):
         # Status "downloaded" means completed/cached
         # Also check if downloadPercent == 100
         if info.status == "downloaded" or info.progress >= 100:
-            files: List[DebridFile] = []
+            files: list[DebridFile] = []
             for file_id, meta in info.files.items():
                 # Debrid-Link doesn't have a "selected" field, all files are available
                 try:
@@ -301,7 +300,7 @@ class DebridLinkDownloader(DownloaderBase):
             raise DebridLinkError("No torrent ID returned by Debrid-Link.")
         return str(tid)
 
-    def select_files(self, torrent_id: str, file_ids: List[int]) -> None:
+    def select_files(self, torrent_id: str, file_ids: list[int]) -> None:
         """
         Select which files to download from the torrent.
 

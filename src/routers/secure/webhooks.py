@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from kink import di
 import pydantic
@@ -18,7 +18,7 @@ router = APIRouter(
 
 
 @router.post("/overseerr")
-async def overseerr(request: Request) -> Dict[str, Any]:
+async def overseerr(request: Request) -> dict[str, Any]:
     """Webhook for Overseerr"""
     try:
         response = await request.json()

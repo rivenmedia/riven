@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, Literal, Optional, TypeAlias, Union
+from typing import Any, Literal, Optional, TypeAlias, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -42,7 +42,7 @@ class Stream(BaseModel):
 
 class ScrapeItemResponse(BaseModel):
     message: str
-    streams: Dict[str, Stream]
+    streams: dict[str, Stream]
 
 
 class StartSessionResponse(BaseModel):
@@ -67,7 +67,7 @@ class SessionResponse(BaseModel):
     message: str
 
 
-ContainerMap: TypeAlias = Dict[str, DebridFile]
+ContainerMap: TypeAlias = dict[str, DebridFile]
 
 
 class Container(RootModel[ContainerMap]):
@@ -90,7 +90,7 @@ class Container(RootModel[ContainerMap]):
     root: ContainerMap
 
 
-SeasonEpisodeMap: TypeAlias = Dict[int, Dict[int, DebridFile]]
+SeasonEpisodeMap: TypeAlias = dict[int, dict[int, DebridFile]]
 
 
 class ShowFileData(RootModel[SeasonEpisodeMap]):
@@ -133,14 +133,14 @@ class ScrapingSession:
         self.torrent_id: Optional[Union[int, str]] = None
         self.torrent_info: Optional[TorrentInfo] = None
         self.containers: Optional[TorrentContainer] = None
-        self.selected_files: Optional[Dict[str, Dict[str, Union[str, int]]]] = None
+        self.selected_files: Optional[dict[str, dict[str, Union[str, int]]]] = None
         self.created_at: datetime = datetime.now()
         self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
 
 
 class ScrapingSessionManager:
     def __init__(self):
-        self.sessions: Dict[str, ScrapingSession] = {}
+        self.sessions: dict[str, ScrapingSession] = {}
         self.downloader: Optional[Downloader] = None
 
     def set_downloader(self, downloader: Downloader):
@@ -166,7 +166,9 @@ class ScrapingSessionManager:
 
     def get_session(self, session_id: str) -> Optional[ScrapingSession]:
         """Get a scraping session by ID"""
+
         session = self.sessions.get(session_id)
+
         if not session:
             return None
 
@@ -289,7 +291,7 @@ def scrape_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        streams: Dict[str, Stream] = scraper.scrape(item)
+        streams: dict[str, Stream] = scraper.scrape(item)
         log_string = item.log_string
 
     return {
