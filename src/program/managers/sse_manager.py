@@ -5,7 +5,7 @@ from typing import Any
 class ServerSentEventManager:
     def __init__(self):
         # Store active subscriber queues by event type
-        self.subscribers: dict[str, list[asyncio.Queue]] = {}
+        self.subscribers: dict[str, list[asyncio.Queue[Any]]] = {}
 
     def publish_event(self, event_type: str, data: Any):
         """
@@ -21,7 +21,7 @@ class ServerSentEventManager:
             return
 
         # Send to all active subscribers for this event type
-        dead_queues = []
+        dead_queues: list[asyncio.Queue[Any]] = []
 
         for queue in self.subscribers[event_type]:
             try:
@@ -41,7 +41,7 @@ class ServerSentEventManager:
         """
 
         # Create a queue for this subscriber
-        queue = asyncio.Queue(maxsize=100)
+        queue = asyncio.Queue[Any](maxsize=100)
 
         # Register this subscriber
         if event_type not in self.subscribers:

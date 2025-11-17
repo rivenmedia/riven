@@ -5,7 +5,7 @@ from fractions import Fraction
 from pydantic import BaseModel, Field
 
 
-class VideoTrack(BaseModel):
+class FFProbeVideoTrack(BaseModel):
     """Model representing video track metadata"""
 
     codec: str | None = Field(default="", description="Codec of the video track")
@@ -17,7 +17,7 @@ class VideoTrack(BaseModel):
     )
 
 
-class AudioTrack(BaseModel):
+class FFProbeAudioTrack(BaseModel):
     """Model representing audio track metadata"""
 
     codec: str | None = Field(default="", description="Codec of the audio track")
@@ -28,7 +28,7 @@ class AudioTrack(BaseModel):
     language: str | None = Field(default="", description="Language of the audio track")
 
 
-class SubtitleTrack(BaseModel):
+class FFProbeSubtitleTrack(BaseModel):
     """Model representing subtitle track metadata"""
 
     codec: str | None = Field(default="", description="Codec of the subtitle track")
@@ -37,12 +37,14 @@ class SubtitleTrack(BaseModel):
     )
 
 
-class MediaMetadata(BaseModel):
+class FFProbeMediaMetadata(BaseModel):
     """Model representing complete media file metadata"""
 
     filename: str = Field(default="", description="Name of the media file")
     file_size: int = Field(default=0, description="Size of the media file in bytes")
-    video: VideoTrack = Field(default=VideoTrack(), description="Video track metadata")
+    video: FFProbeVideoTrack = Field(
+        default=FFProbeVideoTrack(), description="Video track metadata"
+    )
     duration: float = Field(
         default=0.0,
         description="Duration of the video in seconds",
@@ -51,8 +53,10 @@ class MediaMetadata(BaseModel):
     bitrate: int = Field(
         default=0, description="Bitrate of the video in bits per second"
     )
-    audio: list[AudioTrack] = Field(default=[], description="Audio tracks in the video")
-    subtitles: list[SubtitleTrack] = Field(
+    audio: list[FFProbeAudioTrack] = Field(
+        default=[], description="Audio tracks in the video"
+    )
+    subtitles: list[FFProbeSubtitleTrack] = Field(
         default=[], description="Subtitles in the video"
     )
 
@@ -67,7 +71,7 @@ class MediaMetadata(BaseModel):
         return round(self.duration / 60, 2)
 
 
-def parse_media_file(file_path: str | Path) -> MediaMetadata:
+def parse_media_file(file_path: str | Path) -> FFProbeMediaMetadata:
     """
     Parse a media file using ffprobe and return its metadata.
 
@@ -104,7 +108,7 @@ def parse_media_file(file_path: str | Path) -> MediaMetadata:
         probe_data = orjson.loads(result)
 
         format_info = probe_data.get("format", {})
-        metadata = MediaMetadata(
+        metadata = FFProbeMediaMetadata(
             filename=path.name,
             file_size=int(format_info.get("size", 0)),
             duration=round(float(format_info.get("duration", 0)), 2),
@@ -131,7 +135,7 @@ def parse_media_file(file_path: str | Path) -> MediaMetadata:
                     else float(frame_rate)
                 )
 
-                video_data = VideoTrack(
+                video_data = FFProbeVideoTrack(
                     codec=stream.get("codec_name", "unknown"),
                     width=stream.get("width", 0),
                     height=stream.get("height", 0),
@@ -140,7 +144,7 @@ def parse_media_file(file_path: str | Path) -> MediaMetadata:
 
             elif codec_type == "audio":
                 audio_tracks.append(
-                    AudioTrack(
+                    FFProbeAudioTrack(
                         codec=stream.get("codec_name", None),
                         channels=int(stream.get("channels", 0)),
                         sample_rate=int(stream.get("sample_rate", 0)),
@@ -150,7 +154,7 @@ def parse_media_file(file_path: str | Path) -> MediaMetadata:
 
             elif codec_type == "subtitle":
                 subtitle_tracks.append(
-                    SubtitleTrack(
+                    FFProbeSubtitleTrack(
                         codec=stream.get("codec_name", "unknown"),
                         language=stream.get("tags", {}).get("language", None),
                     )

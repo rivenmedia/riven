@@ -1,6 +1,5 @@
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column
-from typing import Optional
 
 from program.media.filesystem_entry import FilesystemEntry
 
@@ -85,6 +84,7 @@ class MediaEntry(FilesystemEntry):
 
         # Get the associated MediaItem
         item = self.media_item
+
         if not item:
             return []
 
@@ -129,7 +129,7 @@ class MediaEntry(FilesystemEntry):
         provider: str,
         provider_download_id: str,
         file_size: int = 0,
-        media_metadata: Optional[dict] = None,
+        media_metadata: dict | None = None,
     ) -> "MediaEntry":
         """
         Create a MediaEntry representing a virtual (RivenVFS) media file.
@@ -154,7 +154,7 @@ class MediaEntry(FilesystemEntry):
             media_metadata=media_metadata,
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int | str | bool | None]:
         """
         Provide a dictionary representation of the MediaEntry.
 
@@ -179,6 +179,7 @@ class MediaEntry(FilesystemEntry):
                 "media_item_id": associated MediaItem ID or None
             }
         """
+
         base_dict = super().to_dict()
         base_dict.update(
             {
@@ -191,6 +192,7 @@ class MediaEntry(FilesystemEntry):
                 "provider_download_id": self.provider_download_id,
             }
         )
+
         return base_dict
 
 

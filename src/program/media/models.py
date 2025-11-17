@@ -9,7 +9,9 @@ inspection via ffprobe) into a single, coherent structure.
 from datetime import datetime
 from enum import Enum
 from typing import Literal
+from RTN import ParsedData
 from pydantic import BaseModel, Field
+from program.utils.ffprobe import FFProbeMediaMetadata
 
 
 class DataSource(str, Enum):
@@ -123,18 +125,19 @@ class MediaMetadata(BaseModel):
     video: VideoMetadata | None = None
 
     # === Audio Properties ===
-    audio_tracks: list[AudioMetadata] = Field(default_factory=list)
+    audio_tracks: list[AudioMetadata] = Field(default_factory=list[AudioMetadata])
 
     # === Subtitle Properties ===
-    subtitle_tracks: list[SubtitleMetadata] = Field(default_factory=list)
+    subtitle_tracks: list[SubtitleMetadata] = Field(
+        default_factory=list[SubtitleMetadata]
+    )
 
     # === File Properties (probed only) ===
     duration: float | None = None  # seconds
     file_size: int | None = None  # bytes
     bitrate: int | None = None  # bits/sec
-    container_format: list[str] = Field(
-        default_factory=list
-    )  # e.g., ["matroska", "webm"]
+    # e.g., ["matroska", "webm"]
+    container_format: list[str] = Field(default_factory=list[str])
 
     # === Release Metadata (parsed only) ===
     quality_source: str | None = None  # e.g., "BluRay", "WEB-DL", "HDTV"
@@ -147,8 +150,8 @@ class MediaMetadata(BaseModel):
     is_extended: bool = False
 
     # === Episode Information (parsed only) ===
-    seasons: list[int] = Field(default_factory=list)
-    episodes: list[int] = Field(default_factory=list)
+    seasons: list[int] = Field(default_factory=list[int])
+    episodes: list[int] = Field(default_factory=list[int])
 
     # === Metadata Tracking ===
     data_source: DataSource = DataSource.PARSED
@@ -157,7 +160,9 @@ class MediaMetadata(BaseModel):
 
     @classmethod
     def from_parsed_data(
-        cls, parsed_data: dict, filename: str | None = None
+        cls,
+        parsed_data: ParsedData,
+        filename: str | None = None,
     ) -> "MediaMetadata":
         """
         Create MediaMetadata from RTN ParsedData dict.
@@ -172,7 +177,8 @@ class MediaMetadata(BaseModel):
 
         resolution_width = None
         resolution_height = None
-        res = parsed_data.get("resolution", None)
+        res = parsed_data.resolution
+
         if res == "2160p":
             resolution_width = 3840
             resolution_height = 2160
@@ -193,29 +199,30 @@ class MediaMetadata(BaseModel):
             resolution_height = 360
 
         bit_depth = None
-        if parsed_data.get("bit_depth"):
-            bd = parsed_data.get("bit_depth")
-            if bd:
-                try:
-                    bit_depth = int(bd.replace("bit", ""))
-                except (ValueError, TypeError):
-                    # PTT/RTN should only return `10bit` or `8bit` 99% of the time
-                    # but let's add a failsafe just in case
-                    from program.utils import logger
 
-                    logger.debug(f"Failed to parse bit_depth '{bd}' as int")
-                    bit_depth = None
+        if bd := parsed_data.bit_depth:
+            try:
+                bit_depth = int(bd.replace("bit", ""))
+            except (ValueError, TypeError):
+                # PTT/RTN should only return `10bit` or `8bit` 99% of the time
+                # but let's add a failsafe just in case
+                from program.utils import logger
 
-        codec = parsed_data.get("codec")
+                logger.debug(f"Failed to parse bit_depth '{bd}' as int")
+                bit_depth = None
+
+        codec = parsed_data.codec
 
         # Join them into a single string for storage
         hdr_type = None
-        hdr = parsed_data.get("hdr")
+        hdr = parsed_data.hdr
+
         if hdr:
             hdr_type = "+".join(hdr)
 
         # Create video metadata if we have any video info
         video = None
+
         if resolution_height or codec or bit_depth or hdr_type:
             video = VideoMetadata(
                 codec=codec,
@@ -226,48 +233,52 @@ class MediaMetadata(BaseModel):
             )
 
         # Extract audio tracks from parsed data
-        audio_tracks = []
-        if parsed_data.get("audio"):
-            for audio_codec in parsed_data["audio"]:
+        audio_tracks: list[AudioMetadata] = []
+
+        if parsed_data.audio:
+            for audio_codec in parsed_data.audio:
                 audio_tracks.append(AudioMetadata(codec=audio_codec))
 
         # Extract subtitle tracks from parsed data
-        subtitle_tracks = []
-        if parsed_data.get("subbed", False):
-            for lang in parsed_data["languages"]:
+        subtitle_tracks: list[SubtitleMetadata] = []
+
+        if parsed_data.subbed:
+            for lang in parsed_data.languages:
                 subtitle_tracks.append(SubtitleMetadata(language=lang))
 
-        quality_source = parsed_data.get("quality") or None
+        quality_source = parsed_data.quality
         qs = None
+
         if quality_source:
             qs = quality_source.lower()
 
-        _edition = parsed_data.get("edition", "")
+        _edition = parsed_data.edition or ""
+
         if _edition:
             _edition = _edition.lower()
 
         return cls(
-            filename=filename or parsed_data.get("raw_title"),
-            parsed_title=parsed_data.get("parsed_title"),
-            year=parsed_data.get("year") or None,
+            filename=filename or parsed_data.raw_title,
+            parsed_title=parsed_data.parsed_title,
+            year=parsed_data.year or None,
             video=video,
             audio_tracks=audio_tracks,
             subtitle_tracks=subtitle_tracks,
             quality_source=quality_source,
             is_remux="remux" in qs if qs else False,
-            is_proper=parsed_data.get("proper", False),
-            is_repack=parsed_data.get("repack", False),
+            is_proper=parsed_data.proper,
+            is_repack=parsed_data.repack,
             is_remastered="remastered" in _edition if _edition else False,
-            is_upscaled=parsed_data.get("upscaled", False),
+            is_upscaled=parsed_data.upscaled,
             is_directors_cut="directors" in _edition if _edition else False,
             is_extended="extended" in _edition if _edition else False,
-            seasons=parsed_data.get("season", []),
-            episodes=parsed_data.get("episode", []),
+            seasons=parsed_data.seasons,
+            episodes=parsed_data.episodes,
             data_source=DataSource.PARSED,
             parsed_at=datetime.utcnow().isoformat(),
         )
 
-    def update_from_probed_data(self, probed_data: dict) -> None:
+    def update_from_probed_data(self, probed_data: FFProbeMediaMetadata) -> None:
         """
         Update MediaMetadata with ffprobe data, overriding parsed data where applicable.
 
@@ -275,53 +286,52 @@ class MediaMetadata(BaseModel):
             probed_data: Dictionary from ffprobe MediaMetadata.model_dump()
         """
         # Update filename if not set
-        if not self.filename and probed_data.get("filename"):
-            self.filename = probed_data["filename"]
+        if not self.filename and probed_data.filename:
+            self.filename = probed_data.filename
 
         # Update file properties (probed only)
-        self.duration = probed_data.get("duration")
-        self.file_size = probed_data.get("file_size")
-        self.bitrate = probed_data.get("bitrate")
-        self.container_format = probed_data.get("format", [])
+        self.duration = probed_data.duration
+        self.file_size = probed_data.file_size
+        self.bitrate = probed_data.bitrate
+        self.container_format = probed_data.format
 
         # Update video metadata (probed data overrides parsed)
-        if probed_data.get("video"):
-            video_data = probed_data["video"]
+        if probed_data.video:
+            video_data = probed_data.video
+
             if self.video:
                 # Update existing video metadata
-                self.video.codec = video_data.get("codec") or self.video.codec
-                self.video.resolution_width = video_data.get("width")
-                self.video.resolution_height = video_data.get("height")
-                self.video.frame_rate = video_data.get("frame_rate")
+                self.video.codec = video_data.codec or self.video.codec
+                self.video.resolution_width = video_data.width
+                self.video.resolution_height = video_data.height
+                self.video.frame_rate = video_data.frame_rate
                 # Keep parsed bit_depth and hdr_type if not in probed data
             else:
                 # Create new video metadata
                 self.video = VideoMetadata(
-                    codec=video_data.get("codec"),
-                    resolution_width=video_data.get("width"),
-                    resolution_height=video_data.get("height"),
-                    frame_rate=video_data.get("frame_rate"),
+                    codec=video_data.codec,
+                    resolution_width=video_data.width,
+                    resolution_height=video_data.height,
+                    frame_rate=video_data.frame_rate,
                 )
 
         # Update audio tracks (probed data replaces parsed)
-        if probed_data.get("audio"):
+        if probed_data.audio:
             self.audio_tracks = [
                 AudioMetadata(
-                    codec=track.get("codec"),
-                    channels=track.get("channels"),
-                    sample_rate=track.get("sample_rate"),
-                    language=track.get("language"),
+                    codec=track.codec,
+                    channels=track.channels,
+                    sample_rate=track.sample_rate,
+                    language=track.language,
                 )
-                for track in probed_data["audio"]
+                for track in probed_data.audio
             ]
 
         # Update subtitle tracks (probed data replaces parsed)
-        if probed_data.get("subtitles"):
+        if probed_data.subtitles:
             self.subtitle_tracks = [
-                SubtitleMetadata(
-                    codec=track.get("codec"), language=track.get("language")
-                )
-                for track in probed_data["subtitles"]
+                SubtitleMetadata(codec=track.codec, language=track.language)
+                for track in probed_data.subtitles
             ]
 
         # Update data source and timestamp
@@ -329,4 +339,5 @@ class MediaMetadata(BaseModel):
             self.data_source = DataSource.HYBRID
         elif self.data_source == DataSource.PROBED:
             pass  # Already probed
+
         self.probed_at = datetime.utcnow().isoformat()

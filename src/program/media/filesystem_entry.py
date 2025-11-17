@@ -77,7 +77,7 @@ class FilesystemEntry(BaseModel):
     def __repr__(self):
         return f"<FilesystemEntry(id={self.id}, type='{self.entry_type}')>"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int | str | bool | None]:
         """
         Provide a dictionary representation of the FilesystemEntry.
 

@@ -611,13 +611,14 @@ def generate_clean_path(
     item: MediaItem,
     original_filename: str,
     file_size: int = 0,
-    media_metadata: Optional[dict] = None,
+    media_metadata: dict | None = None,
 ) -> str:
     """
     Convenience function for generating clean VFS paths.
 
     This is the main entry point for path generation.
     """
+
     return naming_service.generate_clean_path(
         item, original_filename, file_size, media_metadata
     )
