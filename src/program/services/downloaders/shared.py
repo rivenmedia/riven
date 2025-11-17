@@ -56,7 +56,7 @@ class DownloaderBase(ABC):
             infohash: The hash of the torrent to add
 
         Returns:
-            Union[int, str]: The ID of the added torrent
+            int | str: The ID of the added torrent
 
         Notes:
             The return type changes depending on the downloader
