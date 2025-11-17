@@ -1,5 +1,6 @@
 {
   "ignore": ["src/schemas", "src/tests"],
   "deprecateTypingAliases": true,
-  "typeCheckingMode": "strict"
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": false
 }
