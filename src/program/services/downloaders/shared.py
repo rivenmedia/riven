@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Union
 
 from RTN import ParsedData, parse
 
@@ -36,7 +35,7 @@ class DownloaderBase(ABC):
         self,
         infohash: str,
         item_type: str,
-    ) -> Optional[TorrentContainer]:
+    ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash
 
@@ -64,7 +63,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def select_files(self, torrent_id: Union[int, str], file_ids: list[int]) -> None:
+    def select_files(self, torrent_id: int | str, file_ids: list[int]) -> None:
         """
         Select which files to download from the torrent
 
@@ -74,7 +73,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def get_torrent_info(self, torrent_id: Union[int, str]) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID
 
@@ -86,7 +85,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def delete_torrent(self, torrent_id: Union[int, str]) -> None:
+    def delete_torrent(self, torrent_id: int | str) -> None:
         """
         Delete a torrent from the service
 
@@ -95,7 +94,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def get_user_info(self) -> Optional[UserInfo]:
+    def get_user_info(self) -> UserInfo | None:
         """
         Get normalized user information from the debrid service
 
@@ -165,7 +164,7 @@ def get_resolution(torrent: Stream) -> Resolution:
     return RESOLUTION_MAP.get(resolution, Resolution.UNKNOWN)
 
 
-def _sort_streams_by_quality(streams: list[Stream]) -> list[Stream]:
+def sort_streams_by_quality(streams: list[Stream]) -> list[Stream]:
     """Sort streams by resolution (highest first) and then by rank (highest first)."""
     return sorted(
         streams,

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import regex
 from pydantic import BaseModel, Field
@@ -22,16 +22,18 @@ ALLOWED_VIDEO_EXTENSIONS = [
     "ts",
 ]
 
-ANIME_SPECIALS_PATTERN: regex.Pattern = regex.compile(
+ANIME_SPECIALS_PATTERN: regex.Pattern[str] = regex.compile(
     r"\b(OVA|NCED|NCOP|NC|OVA|ED(\d?v?\d?)|OPv?(\d+)?|SP\d+)\b", regex.IGNORECASE
 )
 
 VIDEO_EXTENSIONS: list[str] = (
     settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
 )
+
 VALID_VIDEO_EXTENSIONS = [
     ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTENSIONS
 ]
+
 if not VALID_VIDEO_EXTENSIONS:
     VALID_VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
 
@@ -47,11 +49,11 @@ episode_max_filesize: int = (
 # constraints for filesizes, follows the format tuple(min, max)
 FILESIZE_MOVIE_CONSTRAINT: tuple[int, int] = (
     movie_min_filesize if movie_min_filesize >= 0 else 0,
-    movie_max_filesize if movie_max_filesize > 0 else float("inf"),
+    movie_max_filesize if movie_max_filesize > 0 else int("inf"),
 )
 FILESIZE_EPISODE_CONSTRAINT: tuple[int, int] = (
     episode_min_filesize if episode_min_filesize >= 0 else 0,
-    episode_max_filesize if episode_max_filesize > 0 else float("inf"),
+    episode_max_filesize if episode_max_filesize > 0 else int("inf"),
 )
 
 
@@ -70,10 +72,10 @@ class InvalidDebridFileException(Exception):
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 
-    file_id: Optional[int] = Field(default=None)
-    filename: Optional[str] = Field(default=None)
-    filesize: Optional[int] = Field(default=None)
-    download_url: Optional[str] = Field(default=None)
+    file_id: int | None = Field(default=None)
+    filename: str | None = Field(default=None)
+    filesize: int | None = Field(default=None)
+    download_url: str | None = Field(default=None)
 
     @classmethod
     def create(
@@ -82,10 +84,11 @@ class DebridFile(BaseModel):
         filename: str | None = None,
         filesize_bytes: int | None = None,
         filetype: Literal["movie", "show", "season", "episode"] | None = None,
-        file_id: Optional[int] = None,
+        file_id: int | None = None,
         limit_filesize: bool = True,
-    ) -> Optional["DebridFile"]:
+    ) -> "DebridFile | None":
         """Factory method to validate and create a DebridFile"""
+
         filename_lower = filename.lower()
 
         if "sample" in filename_lower:
@@ -121,8 +124,9 @@ class DebridFile(BaseModel):
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
-    def to_dict(self) -> dict[str, Union[int, str]]:
+    def to_dict(self) -> dict[str, int | str | None]:
         """Convert the DebridFile to a dictionary"""
+
         return {
             "filename": self.filename,
             "filesize": self.filesize,
@@ -135,9 +139,9 @@ class TorrentContainer(BaseModel):
     """Represents a collection of files from an infohash from a debrid service"""
 
     infohash: str
-    files: list[DebridFile] = Field(default_factory=list)
-    torrent_id: Optional[Union[int, str]] = None  # Cached torrent_id to avoid re-adding
-    torrent_info: Optional["TorrentInfo"] = None  # Cached info to avoid re-fetching
+    files: list[DebridFile] = Field(default_factory=list[DebridFile])
+    torrent_id: int | str | None = None  # Cached torrent_id to avoid re-adding
+    torrent_info: "TorrentInfo | None" = None  # Cached info to avoid re-fetching
 
     @property
     def cached(self) -> bool:
@@ -149,7 +153,7 @@ class TorrentContainer(BaseModel):
         """Get the file ids of the cached files"""
         return [file.file_id for file in self.files if file.file_id is not None]
 
-    def to_dict(self) -> dict[str, Union[str, dict]]:
+    def to_dict(self) -> dict[str, str | dict]:
         """Convert the TorrentContainer to a dictionary including the infohash"""
         return {
             "infohash": self.infohash,
@@ -160,20 +164,24 @@ class TorrentContainer(BaseModel):
 class TorrentInfo(BaseModel):
     """Torrent information from a debrid service"""
 
-    id: Union[int, str]
+    id: int | str
     name: str
-    status: Optional[str] = None
-    infohash: Optional[str] = None
-    progress: Optional[float] = None
-    bytes: Optional[int] = None
-    created_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    alternative_filename: Optional[str] = None
-    files: dict[int, dict[str, Union[int, str]]] = Field(
-        default_factory=dict
-    )  # Real-Debrid only
-    links: list[str] = Field(default_factory=list)  # Real-Debrid download links
+    status: str | None = None
+    infohash: str | None = None
+    progress: float | None = None
+    bytes: int | None = None
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
+    completed_at: datetime | None = None
+    alternative_filename: str | None = None
+
+    # Real-Debrid only
+    files: dict[int, dict[str, int | str | None]] = Field(
+        default_factory=dict[int, dict[str, int | str | None]]
+    )
+
+    # Real-Debrid download links
+    links: list[str] = Field(default_factory=list)
 
     @property
     def size_mb(self) -> float:
@@ -188,13 +196,14 @@ class TorrentInfo(BaseModel):
     @property
     def file_ids(self) -> list[int]:
         """Get the file ids of the cached files"""
+
         return [file.file_id for file in self.files if file.file_id]
 
 
 class DownloadedTorrent(BaseModel):
     """Represents the result of a download operation"""
 
-    id: Union[int, str]
+    id: int | str
     infohash: str
     container: TorrentContainer
     info: TorrentInfo
@@ -204,14 +213,14 @@ class UserInfo(BaseModel):
     """Normalized user information across different debrid services"""
 
     service: Literal["realdebrid", "debridlink", "alldebrid"]
-    username: Optional[str] = None
-    email: Optional[str] = None
-    user_id: Union[int, str]
+    username: str | None = None
+    email: str | None = None
+    user_id: int | str
     premium_status: Literal["free", "premium"]
-    premium_expires_at: Optional[datetime] = None
-    premium_days_left: Optional[int] = None
+    premium_expires_at: datetime | None = None
+    premium_days_left: int | None = None
 
     # Service-specific fields (optional)
-    points: Optional[int] = None  # Real-Debrid
-    total_downloaded_bytes: Optional[int] = None
-    cooldown_until: Optional[datetime] = None
+    points: int | None = None  # Real-Debrid
+    total_downloaded_bytes: int | None = None
+    cooldown_until: datetime | None = None

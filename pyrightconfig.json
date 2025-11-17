@@ -4,5 +4,6 @@
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": false,
   "reportUnknownMemberType": "none",
-  "reportUnknownLambdaType": "none"
+  "reportUnknownLambdaType": "none",
+  "reportUnreachable": "warning"
 }

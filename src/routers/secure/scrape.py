@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, TypeAlias, Union
+from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -50,7 +50,7 @@ class StartSessionResponse(BaseModel):
     session_id: str
     torrent_id: str
     torrent_info: TorrentInfo
-    containers: Optional[TorrentContainer]
+    containers: TorrentContainer | None
     expires_at: str
 
 
@@ -117,11 +117,11 @@ class ScrapingSession:
         self,
         id: str,
         item_id: str,
-        media_type: Optional[Literal["movie", "tv"]] = None,
-        imdb_id: Optional[str] = None,
-        tmdb_id: Optional[str] = None,
-        tvdb_id: Optional[str] = None,
-        magnet: str = None,
+        media_type: Literal["movie", "tv"] | None = None,
+        imdb_id: str | None = None,
+        tmdb_id: str | None = None,
+        tvdb_id: str | None = None,
+        magnet: str | None = None,
     ):
         self.id = id
         self.item_id = item_id
@@ -130,10 +130,10 @@ class ScrapingSession:
         self.tmdb_id = tmdb_id
         self.tvdb_id = tvdb_id
         self.magnet = magnet
-        self.torrent_id: Optional[Union[int, str]] = None
-        self.torrent_info: Optional[TorrentInfo] = None
-        self.containers: Optional[TorrentContainer] = None
-        self.selected_files: Optional[dict[str, dict[str, Union[str, int]]]] = None
+        self.torrent_id: int | str | None = None
+        self.torrent_info: TorrentInfo | None = None
+        self.containers: TorrentContainer | None = None
+        self.selected_files: dict[str, dict[str, str | int]] | None = None
         self.created_at: datetime = datetime.now()
         self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
 
@@ -141,7 +141,7 @@ class ScrapingSession:
 class ScrapingSessionManager:
     def __init__(self):
         self.sessions: dict[str, ScrapingSession] = {}
-        self.downloader: Optional[Downloader] = None
+        self.downloader: Downloader | None = None
 
     def set_downloader(self, downloader: Downloader):
         """Set the downloader for the session manager"""
@@ -151,10 +151,10 @@ class ScrapingSessionManager:
         self,
         item_id: str,
         magnet: str,
-        media_type: Optional[Literal["movie", "tv"]] = None,
-        imdb_id: Optional[str] = None,
-        tmdb_id: Optional[str] = None,
-        tvdb_id: Optional[str] = None,
+        media_type: Literal["movie", "tv"] | None = None,
+        imdb_id: str | None = None,
+        tmdb_id: str | None = None,
+        tvdb_id: str | None = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
@@ -164,7 +164,7 @@ class ScrapingSessionManager:
         self.sessions[session_id] = session
         return session
 
-    def get_session(self, session_id: str) -> Optional[ScrapingSession]:
+    def get_session(self, session_id: str) -> ScrapingSession | None:
         """Get a scraping session by ID"""
 
         session = self.sessions.get(session_id)
@@ -178,7 +178,7 @@ class ScrapingSessionManager:
 
         return session
 
-    def update_session(self, session_id: str, **kwargs) -> Optional[ScrapingSession]:
+    def update_session(self, session_id: str, **kwargs) -> ScrapingSession | None:
         """Update a scraping session"""
         session = self.get_session(session_id)
         if not session:
@@ -237,17 +237,17 @@ def initialize_downloader(downloader: Downloader):
 @router.get("/scrape", summary="Get streams for an item", operation_id="scrape_item")
 def scrape_item(
     request: Request,
-    item_id: Optional[str] = None,
-    tmdb_id: Optional[str] = None,
-    tvdb_id: Optional[str] = None,
-    imdb_id: Optional[str] = None,
-    media_type: Optional[Literal["movie", "tv"]] = None,
+    item_id: str | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: Literal["movie", "tv"] | None = None,
 ) -> ScrapeItemResponse:
     """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
     if services := di[Program].services:
-        indexer = services[IndexerService]
-        scraper = services[Scraping]
+        indexer = services.indexer
+        scraper = services.scraping
     else:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
@@ -308,12 +308,12 @@ def scrape_item(
 async def start_manual_session(
     request: Request,
     background_tasks: BackgroundTasks,
-    item_id: Optional[str] = None,
-    tmdb_id: Optional[str] = None,
-    tvdb_id: Optional[str] = None,
-    imdb_id: Optional[str] = None,
-    media_type: Optional[Literal["movie", "tv"]] = None,
-    magnet: Optional[str] = None,
+    item_id: str | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: Literal["movie", "tv"] | None = None,
+    magnet: str | None = None,
 ) -> StartSessionResponse:
     session_manager.cleanup_expired(background_tasks)
 
@@ -322,8 +322,8 @@ async def start_manual_session(
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
     if services := di[Program].services:
-        indexer = services[IndexerService]
-        downloader = services[Downloader]
+        indexer = services.indexer
+        downloader = services.downloader
     else:
         raise HTTPException(status_code=412, detail="Required services not initialized")
 
@@ -413,7 +413,7 @@ async def start_manual_session(
 def manual_select_files(
     request: Request, session_id: str, files: Container
 ) -> SelectFilesResponse:
-    downloader: Downloader = di[Program].services.get(Downloader)
+    downloader: Downloader = di[Program].services.downloader
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -446,8 +446,8 @@ def manual_select_files(
 )
 async def manual_update_attributes(
     request: Request,
-    session_id,
-    data: Union[DebridFile, ShowFileData],
+    session_id: str,
+    data: DebridFile | ShowFileData,
     session: Session = Depends(get_db),
 ) -> UpdateAttributesResponse:
     """
@@ -520,7 +520,6 @@ async def manual_update_attributes(
             item.reset()
 
             # Ensure a staging MediaEntry exists and is linked
-            from sqlalchemy import select
             from program.media.media_entry import MediaEntry
 
             fs_entry = None
@@ -607,9 +606,9 @@ async def manual_update_attributes(
 
     # Sync VFS to reflect any deleted/updated entries
     # Must happen AFTER commit so the database reflects the changes
-    from program.services.filesystem import FilesystemService
 
-    filesystem_service = di[Program].services.get(FilesystemService)
+    filesystem_service = di[Program].services.filesystem
+
     if filesystem_service and filesystem_service.riven_vfs:
         filesystem_service.riven_vfs.sync(item)
         logger.debug("VFS synced after manual scraping update")
@@ -668,6 +667,7 @@ async def parse_torrent_titles(
     request: Request, titles: list[str]
 ) -> ParseTorrentTitleResponse:
     parsed_titles = []
+
     if titles:
         for title in titles:
             data = {}
@@ -679,6 +679,8 @@ async def parse_torrent_titles(
             return ParseTorrentTitleResponse(
                 message="Parsed torrent titles", data=parsed_titles
             )
+
+        return ParseTorrentTitleResponse(message="No titles could be parsed", data=[])
     else:
         return ParseTorrentTitleResponse(message="No titles provided", data=[])
 

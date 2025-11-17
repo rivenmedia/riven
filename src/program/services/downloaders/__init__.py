@@ -18,7 +18,7 @@ from program.services.downloaders.models import (
 )
 from program.services.downloaders.shared import (
     DownloaderBase,
-    _sort_streams_by_quality,
+    sort_streams_by_quality,
     parse_filename,
 )
 from program.utils.request import CircuitBreakerOpen
@@ -95,7 +95,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         try:
             # Sort streams by resolution and rank (highest first) using simple, fast sorting
-            sorted_streams = _sort_streams_by_quality(item.streams)
+            sorted_streams = sort_streams_by_quality(item.streams)
 
             tried_streams = 0
 
