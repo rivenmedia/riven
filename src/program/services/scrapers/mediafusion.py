@@ -2,7 +2,7 @@
 
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.settings.models import AppModel, MediafusionConfig
@@ -154,7 +154,7 @@ class Mediafusion(ScraperService[MediafusionConfig]):
             description_split = stream.description.replace("📂 ", "")
             raw_title = description_split.split("\n")[0]
             if scrape_type == "series":
-                if item.type == "episode":
+                if isinstance(item, Episode):
                     raw_title = raw_title.split(" ┈➤ ")[-1].strip()
                 else:
                     raw_title = raw_title.split(" ┈➤ ")[0].strip()

@@ -5,7 +5,7 @@ from typing import Generator
 
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
@@ -126,15 +126,19 @@ class Updater(Runner):
 
     def get_items_to_update(self, item: MediaItem) -> list[MediaItem]:
         """Get the list of files to update for the given item."""
-        if item.type in ["movie", "episode"]:
+
+        if isinstance(item, (Movie, Episode)):
             return [item]
-        if item.type == "show":
+
+        if isinstance(item, Show):
             return [
                 e
                 for season in item.seasons
                 for e in season.episodes
                 if e.available_in_vfs
             ]
-        if item.type == "season":
+
+        if isinstance(item, Season):
             return [e for e in item.episodes if e.available_in_vfs]
+
         return []

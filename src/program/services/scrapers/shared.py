@@ -10,7 +10,7 @@ from RTN import (
     DefaultRanking,
 )
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
 from program.settings.manager import settings_manager
 from program.settings.models import RTNSettingsModel, ScraperModel
@@ -55,7 +55,7 @@ def _parse_results(
                 aliases=aliases,
             )
 
-            if item.type == "movie":
+            if isinstance(item, Movie):
                 # If movie item, disregard torrents with seasons and episodes
                 if torrent.data.episodes or torrent.data.seasons:
                     logger.trace(
@@ -63,7 +63,7 @@ def _parse_results(
                     )
                     continue
 
-            if item.type == "show":
+            if isinstance(item, Show):
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
                 if torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
@@ -94,7 +94,7 @@ def _parse_results(
                     )
                     continue
 
-            if item.type == "season":
+            if isinstance(item, Season):
                 if torrent.data.seasons and item.number not in torrent.data.seasons:
                     logger.trace(
                         f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}"
@@ -123,7 +123,7 @@ def _parse_results(
                     )
                     continue
 
-            if item.type == "episode":
+            if isinstance(item, Episode):
                 # Disregard torrents with incorrect episode number logic:
                 skip = False
                 # If the torrent has episodes, but the episode number is not present
@@ -200,6 +200,7 @@ def _parse_results(
 
 def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
     """Check if the year of the torrent is within the range of the item."""
+
     return data.year in [
         item.aired_at.year - 1,
         item.aired_at.year,
@@ -209,11 +210,12 @@ def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
 
 def _get_item_country(item: MediaItem) -> str:
     """Get the country code for a country."""
+
     country = ""
 
-    if item.type == "season":
+    if isinstance(item, Season):
         country = item.parent.country.upper()
-    elif item.type == "episode":
+    elif isinstance(item, Episode):
         country = item.parent.parent.country.upper()
     else:
         country = item.country.upper()

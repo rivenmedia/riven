@@ -7,7 +7,7 @@ from apprise import Apprise
 from loguru import logger
 
 from program.managers.sse_manager import sse_manager
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Season
 from program.media.state import States
 from program.settings.manager import settings_manager
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
@@ -80,15 +80,16 @@ class NotificationService(Runner[NotificationsModel]):
             previous_state: Optional previous state (for state change notifications)
             new_state: Optional new state (for state change notifications)
         """
+
         # Handle state change notifications
         if previous_state is not None and new_state is not None:
             self._notify_state_change(item, previous_state, new_state)
 
         item_to_notify = item
 
-        if item.type == "episode":
+        if isinstance(item, Episode):
             item_to_notify = item.parent.parent
-        elif item.type == "season":
+        elif isinstance(item, Season):
             item_to_notify = item.parent
 
         # Handle completion notifications

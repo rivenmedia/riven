@@ -78,10 +78,10 @@ class DebridFile(BaseModel):
     @classmethod
     def create(
         cls,
-        path: str = None,
-        filename: str = None,
-        filesize_bytes: int = None,
-        filetype: Literal["movie", "show", "season", "episode"] = None,
+        path: str | None = None,
+        filename: str | None = None,
+        filesize_bytes: int | None = None,
+        filetype: Literal["movie", "show", "season", "episode"] | None = None,
         file_id: Optional[int] = None,
         limit_filesize: bool = True,
     ) -> Optional["DebridFile"]:
@@ -99,6 +99,7 @@ class DebridFile(BaseModel):
 
         if limit_filesize:
             filesize_mb = filesize_bytes / 1_000_000
+
             if filetype == "movie":
                 if not (
                     FILESIZE_MOVIE_CONSTRAINT[0]

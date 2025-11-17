@@ -1,6 +1,6 @@
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
@@ -41,17 +41,19 @@ class PostProcessing(Runner[PostProcessingModel]):
         Returns:
             List of movie/episode items to process
         """
-        if item.type in ["movie", "episode"]:
+
+        if isinstance(item, (Movie, Episode)):
             return [item]
-        elif item.type == "show":
+        elif isinstance(item, Show):
             return [
                 e
                 for s in item.seasons
                 for e in s.episodes
                 if e.last_state == States.Completed
             ]
-        elif item.type == "season":
+        elif isinstance(item, Season):
             return [e for e in item.episodes if e.last_state == States.Completed]
+
         return []
 
     def run(self, item: MediaItem) -> MediaItemGenerator:

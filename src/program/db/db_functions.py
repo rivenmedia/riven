@@ -321,13 +321,13 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
             "last_state": item.last_state,
         }
 
-        if item.type == "show":
+        if isinstance(item, Show):
             calendar[item.id]["release_data"] = item.release_data
 
-        if item.type == "season":
+        if isinstance(item, Season):
             calendar[item.id]["season"] = item.number
 
-        if item.type == "episode":
+        if isinstance(item, Episode):
             calendar[item.id]["season"] = item.parent.number
             calendar[item.id]["episode"] = item.number
 
@@ -371,10 +371,6 @@ def run_thread_with_db_item(
                     input_item = session.merge(input_item)
                     return_value = fn(input_item)
 
-                    logger.debug(
-                        f"input item return_value: {return_value}, type: {type(return_value)}"
-                    )
-
                     runner_result = next(return_value, None)
 
                     if runner_result:
@@ -409,10 +405,6 @@ def run_thread_with_db_item(
 
             if event.content_item:
                 return_value = fn(event.content_item)
-
-                logger.debug(
-                    f"content_item return_value: {return_value}, type: {type(return_value)}"
-                )
 
                 runner_result = next(return_value, None)
 
@@ -471,10 +463,6 @@ def run_thread_with_db_item(
     else:
         # Content services dont pass events
         runner_result = fn()
-
-        logger.debug(
-            f"no event runner_result: {runner_result}, type: {type(runner_result)}"
-        )
 
         if runner_result:
             for i in runner_result:

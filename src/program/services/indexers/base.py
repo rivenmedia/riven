@@ -2,7 +2,7 @@
 
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Movie, Show
 from program.settings.manager import settings_manager
 from program.core.runner import Runner
 from program.settings.models import IndexerModel
@@ -40,32 +40,32 @@ class BaseIndexer(Runner[IndexerModel]):
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))
 
-    def copy_items[A: MediaItem, B: MediaItem](self, itema: A, itemb: B):
+    def copy_items[T: MediaItem](self, item_a: MediaItem, item_b: T) -> T:
         """Copy attributes from itema to itemb recursively."""
 
-        is_anime = itema.is_anime or itemb.is_anime
+        is_anime = item_a.is_anime or item_b.is_anime
 
-        if itema.type == "mediaitem" and itemb.type == "show":
-            itema.seasons = itemb.seasons
+        if isinstance(item_a, MediaItem) and isinstance(item_b, Show):
+            item_a.seasons = item_b.seasons
 
-        if itemb.type == "show" and itema.type != "movie":
-            for seasona in itema.seasons:
-                for seasonb in itemb.seasons:
-                    if seasona.number == seasonb.number:  # Check if seasons match
-                        for episodea in seasona.episodes:
-                            for episodeb in seasonb.episodes:
+        if isinstance(item_b, Show) and not isinstance(item_a, Movie):
+            for season_a in item_a.seasons:
+                for season_b in item_b.seasons:
+                    if season_a.number == season_b.number:  # Check if seasons match
+                        for episode_a in season_a.episodes:
+                            for episode_b in season_b.episodes:
                                 if (
-                                    episodea.number == episodeb.number
+                                    episode_a.number == episode_b.number
                                 ):  # Check if episodes match
-                                    self.copy_attributes(episodea, episodeb)
-                        seasonb.set("is_anime", is_anime)
-            itemb.set("is_anime", is_anime)
-        elif itemb.type == "movie":
-            self.copy_attributes(itema, itemb)
-            itemb.set("is_anime", is_anime)
+                                    self.copy_attributes(episode_a, episode_b)
+                        season_b.set("is_anime", is_anime)
+            item_b.set("is_anime", is_anime)
+        elif isinstance(item_b, Movie):
+            self.copy_attributes(item_a, item_b)
+            item_b.set("is_anime", is_anime)
         else:
             logger.error(
-                f"Item types {itema.type} and {itemb.type} do not match cant copy metadata"
+                f"Item types {item_a.type} and {item_b.type} do not match cant copy metadata"
             )
 
-        return itemb
+        return item_b

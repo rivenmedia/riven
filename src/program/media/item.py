@@ -231,7 +231,7 @@ class MediaItem(BaseModel):
         if find_and_blacklist_stream(self.streams):
             return True
 
-        if self.type == "episode":
+        if isinstance(self, Episode):
             if self.parent and find_and_blacklist_stream(self.parent.streams):
                 return True
 
@@ -591,9 +591,9 @@ class MediaItem(BaseModel):
             str: The show's title for seasons and episodes (parent for season, grandparent for episode); otherwise the item's own title.
         """
 
-        if self.type == "season":
+        if isinstance(self, Season):
             return self.parent.title
-        elif self.type == "episode":
+        elif isinstance(self, Episode):
             return self.parent.parent.title
         else:
             return self.title
@@ -643,18 +643,18 @@ class MediaItem(BaseModel):
             imdb_id (str | None): IMDb identifier string from the show (top-level) when this item is a season or episode; otherwise the item's own `imdb_id`. May be `None` if no identifier is set.
         """
 
-        if self.type == "season":
+        if isinstance(self, Season):
             return self.parent.imdb_id
-        elif self.type == "episode":
+        elif isinstance(self, Episode):
             return self.parent.parent.imdb_id
         return self.imdb_id
 
     def get_aliases(self) -> dict | None:
         """Get the aliases of the item."""
 
-        if self.type == "season":
+        if isinstance(self, Season):
             return self.parent.aliases
-        elif self.type == "episode":
+        elif isinstance(self, Episode):
             return self.parent.parent.aliases
         else:
             return self.aliases
@@ -669,12 +669,12 @@ class MediaItem(BaseModel):
         For a show, resets all seasons and their episodes; for a season, resets its episodes. After child resets, resets this item and updates its stored state.
         """
 
-        if self.type == "show":
+        if isinstance(self, Show):
             for season in self.seasons:
                 for episode in season.episodes:
                     episode._reset()
                 season._reset()
-        elif self.type == "season":
+        elif isinstance(self, Season):
             for episode in self.episodes:
                 episode._reset()
 
@@ -762,12 +762,10 @@ class MediaItem(BaseModel):
     def _get_top_parent(self) -> "MediaItem":
         """Return the top-most parent item in the hierarchy."""
 
-        if self.type == "season" and getattr(self, "parent", None):
+        if isinstance(self, Season):
             return self.parent
 
-        if self.type == "episode" and getattr(
-            getattr(self, "parent", None), "parent", None
-        ):
+        if isinstance(self, Episode):
             return self.parent.parent
 
         return self

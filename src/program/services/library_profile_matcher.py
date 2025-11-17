@@ -7,7 +7,7 @@ which library profiles a media item should be placed in.
 from typing import List, Optional
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.models import LibraryProfileFilterRules
 from program.settings.manager import settings_manager
 
@@ -306,9 +306,10 @@ class LibraryProfileMatcher:
         For shows/seasons/episodes, uses the show's aired_at year.
         For movies, uses the year field directly.
         """
-        if item.type in ["show", "season", "episode"]:
+        if isinstance(item, (Show, Season, Episode)):
             # For TV content, get the show's aired_at year
             show = item.get_top_title()
+
             if show and hasattr(show, "aired_at") and show.aired_at:
                 try:
                     return int(show.aired_at.split("-")[0])

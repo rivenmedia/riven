@@ -56,17 +56,11 @@ def determine_base_path(item: MediaItem, settings=None, is_anime: bool = False) 
 
     The deprecated separate_anime_dirs setting is ignored - use library profiles instead.
     """
-    # Check by type attribute first (for compatibility with mock objects)
-    item_type = getattr(item, "type", None)
 
-    if item_type == "movie" or isinstance(item, Movie):
-        return "/movies"
-    elif item_type in ["show", "season", "episode"] or isinstance(
-        item, (Show, Season, Episode)
-    ):
+    if isinstance(item, (Show, Season, Episode)):
         return "/shows"
-    else:
-        return "/movies"  # Fallback
+
+    return "/movies"
 
 
 def create_folder_structure(item: MediaItem, base_path: str) -> str:

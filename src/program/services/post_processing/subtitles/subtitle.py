@@ -10,7 +10,7 @@ from sqlalchemy.orm import object_session
 from loguru import logger
 
 from program.db.db import db
-from program.media.item import Episode, MediaItem
+from program.media.item import Episode, MediaItem, Movie
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
 from program.services.filesystem.filesystem_service import FilesystemService
@@ -559,8 +559,9 @@ class SubtitleService(Runner[SubtitleConfig]):
         Returns:
             True if subtitles should be fetched
         """
+
         # Only fetch subtitles for movies and episodes
-        if item.type not in ["movie", "episode"]:
+        if not isinstance(item, (Movie, Episode)):
             return False
 
         # Check if item has a filesystem entry

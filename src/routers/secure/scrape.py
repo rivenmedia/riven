@@ -13,7 +13,7 @@ from sqlalchemy.orm import object_session
 
 from program.db import db_functions
 from program.db.db import db, get_db
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Season, Show
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
@@ -566,7 +566,7 @@ async def manual_update_attributes(
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
-                    if item.type == "show":
+                    if isinstance(item, Show):
                         if episode := item.get_absolute_episode(
                             episode_number, season_number
                         ):
@@ -576,7 +576,7 @@ async def manual_update_attributes(
                                 f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
                             )
                             continue
-                    elif item.type == "season":
+                    elif isinstance(item, Season):
                         if episode := item.parent.get_absolute_episode(
                             episode_number, season_number
                         ):
@@ -586,7 +586,7 @@ async def manual_update_attributes(
                                 f"Failed to find season {season_number} for {item.log_string}"
                             )
                             continue
-                    elif item.type == "episode":
+                    elif isinstance(item, Episode):
                         if (
                             season_number != item.parent.number
                             and episode_number != item.number

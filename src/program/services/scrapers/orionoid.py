@@ -2,7 +2,7 @@
 
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
@@ -139,9 +139,9 @@ class Orionoid(ScraperService[OrionoidConfig]):
             "protocoltorrent": "magnet",
         }
 
-        if item.type == "season":
+        if isinstance(item, Season):
             params["numberseason"] = item.number
-        elif item.type == "episode":
+        elif isinstance(item, Episode):
             params["numberseason"] = item.parent.number
             params["numberepisode"] = item.number
 
@@ -149,9 +149,9 @@ class Orionoid(ScraperService[OrionoidConfig]):
             params["access"] = "realdebridtorrent"
             params["debridlookup"] = "realdebrid"
 
-        if item.type in ["show", "season", "episode"]:
+        if isinstance(item, (Show, Season, Episode)):
             params["idtvdb"] = item.tvdb_id
-        elif item.type == "movie":
+        elif isinstance(item, Movie):
             params["idtmdb"] = item.tmdb_id
 
         for key, value in self.settings.parameters:

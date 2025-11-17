@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
 
-from program.media.item import Episode, MediaItem, Movie, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.media.stream import Stream
 from program.media.media_entry import MediaEntry
@@ -306,7 +306,7 @@ class Downloader(Runner[None, DownloaderBase]):
             episode_cap: int | None = None
             show: Show | None = None
 
-            if item.type in ("show", "season", "episode"):
+            if isinstance(item, (Show, Season, Episode)):
                 show = (
                     item
                     if item.type == "show"
@@ -341,7 +341,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 except Exception as e:
                     continue
 
-                if item.type in ("show", "season", "episode"):
+                if isinstance(item, (Show, Season, Episode)):
                     if not file_data.episodes:
                         continue
                     elif 0 in file_data.episodes and len(file_data.episodes) == 1:
@@ -405,12 +405,12 @@ class Downloader(Runner[None, DownloaderBase]):
 
         found = False
 
-        if item.type == "movie" and file_data.type == "movie":
+        if isinstance(item, Movie) and file_data.type == "movie":
             logger.debug("match_file_to_item: movie match -> updating attributes")
             self._update_attributes(item, file, download_result, service, file_data)
             return True
 
-        if item.type in ("show", "season", "episode"):
+        if isinstance(item, (Show, Season, Episode)):
             season_number = file_data.seasons[0] if file_data.seasons else None
 
             for file_episode in file_data.episodes:

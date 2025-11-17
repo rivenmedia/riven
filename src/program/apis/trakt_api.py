@@ -343,7 +343,7 @@ class TraktAPI:
 
                 response_data = (
                     PageResponse[GetAllMovieAliases200ResponseInner]
-                    .model_validate(response.json())
+                    .model_validate({"data": response.json()})
                     .data
                 )
 

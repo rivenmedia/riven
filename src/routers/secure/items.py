@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, object_session
 
 from program.db import db_functions
 from program.db.db import db, get_db
-from program.media.item import MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Season, Show
 from program.media.state import States
 from program.services.content import Overseerr
 from program.services.filesystem.filesystem_service import FilesystemService
@@ -104,15 +104,18 @@ def apply_item_mutation(
 
     # Update parent states (non-recursive)
     try:
-        if item.type == "episode":
+        if isinstance(item, Episode):
             season = session.get(Season, getattr(item, "parent_id", None))
+
             if season:
                 MediaItem.store_state(season)
                 show = session.get(Show, getattr(season, "parent_id", None))
+
                 if show:
                     MediaItem.store_state(show)
-        elif item.type == "season":
+        elif isinstance(item, Season):
             show = session.get(Show, getattr(item, "parent_id", None))
+
             if show:
                 MediaItem.store_state(show)
     except Exception as e:

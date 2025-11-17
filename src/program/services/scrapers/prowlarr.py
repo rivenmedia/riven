@@ -8,7 +8,7 @@ from loguru import logger
 from pydantic import BaseModel
 from requests import ReadTimeout, RequestException
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
@@ -258,10 +258,11 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
     def build_search_params(self, indexer: Indexer, item: MediaItem) -> dict:
         """Build a search query for a single indexer."""
+
         params = {}
         item_title = (
             item.get_top_title()
-            if item.type in ("show", "season", "episode")
+            if isinstance(item, (Show, Season, Episode))
             else item.title
         )
         search_params = indexer.capabilities.search_params
@@ -270,7 +271,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             params["query"] = query
             params["type"] = search_type
 
-        if item.type == "movie":
+        if isinstance(item, Movie):
             if "imdbId" in search_params.movie:
                 set_query_and_type(item.imdb_id, "movie-search")
             if "q" in search_params.movie:
@@ -282,7 +283,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                     f"Indexer {indexer.name} does not support movie search"
                 )
 
-        elif item.type == "show":
+        elif isinstance(item, Show):
             if "imdbId" in search_params.tv:
                 set_query_and_type(item.imdb_id, "tv-search")
             elif "q" in search_params.tv:
@@ -292,7 +293,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             else:
                 raise ValueError(f"Indexer {indexer.name} does not support show search")
 
-        elif item.type == "season":
+        elif isinstance(item, Season):
             if "q" in search_params.tv:
                 set_query_and_type(f"{item_title} S{item.number}", "tv-search")
                 if "season" in search_params.tv:
@@ -305,7 +306,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                     f"Indexer {indexer.name} does not support season search"
                 )
 
-        elif item.type == "episode":
+        elif isinstance(item, Episode):
             if "q" in search_params.tv:
                 if "ep" in search_params.tv:
                     query = f"{item_title}"

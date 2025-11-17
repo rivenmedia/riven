@@ -140,17 +140,11 @@ class NamingService:
         Returns:
             Base path string ("/movies" or "/shows")
         """
-        # Check by type attribute first (for compatibility with mock objects)
-        item_type = getattr(item, "type", None)
 
-        if item_type == "movie" or isinstance(item, Movie):
-            return "/movies"
-        elif item_type in ["show", "season", "episode"] or isinstance(
-            item, (Show, Season, Episode)
-        ):
+        if isinstance(item, (Show, Season, Episode)):
             return "/shows"
-        else:
-            return "/movies"  # Fallback
+
+        return "/movies"
 
     def _create_folder_structure(self, item: MediaItem, base_path: str) -> str:
         """

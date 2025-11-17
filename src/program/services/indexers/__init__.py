@@ -5,7 +5,7 @@ from loguru import logger
 from sqlalchemy import select
 
 from program.db.db import db
-from program.media.item import MediaItem, Movie, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.services.indexers.base import BaseIndexer
 from program.services.indexers.tmdb_indexer import TMDBIndexer
@@ -37,15 +37,13 @@ class IndexerService(BaseIndexer):
             logger.error("Item is None")
             return
 
-        item_type = in_item.type or "mediaitem"
-
-        if item_type == "movie" or (in_item.tmdb_id and not in_item.tvdb_id):
+        if isinstance(in_item, Movie) or (in_item.tmdb_id and not in_item.tvdb_id):
             yield from self.tmdb_indexer.run(in_item, log_msg)
-        elif item_type in ["show", "season", "episode"] or (
+        elif isinstance(in_item, (Show, Season, Episode)) or (
             in_item.tvdb_id and not in_item.tmdb_id
         ):
             yield from self.tvdb_indexer.run(in_item, log_msg)
-        elif item_type == "mediaitem":
+        elif isinstance(in_item, MediaItem):
             item = None
 
             if not item:
