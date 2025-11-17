@@ -131,6 +131,6 @@ extend-select = [
 ]
 
 [tool.pyright]
-exclude = [
+ignore = [
   "src/schemas"
 ]
