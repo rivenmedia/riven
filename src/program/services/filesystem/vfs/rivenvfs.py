@@ -521,6 +521,7 @@ class RivenVFS(pyfuse3.Operations):
             True if successfully added, False otherwise
         """
         from program.media.media_entry import MediaEntry
+        from program.services.media_analysis import media_analysis_service
 
         # Only process if this item has a filesystem entry
         if not item.filesystem_entry:
@@ -531,6 +532,39 @@ class RivenVFS(pyfuse3.Operations):
         if not isinstance(entry, MediaEntry):
             logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
             return False
+
+        # Ensure we have an unrestricted URL available before analysis/VFS registration
+        if not getattr(entry, "unrestricted_url", None):
+            try:
+                if getattr(self, "vfs_db", None) and getattr(
+                    entry, "original_filename", None
+                ):
+                    resolved = self.vfs_db.get_entry_by_original_filename(
+                        original_filename=entry.original_filename,
+                        force_resolve=True,
+                    )
+                    if resolved and isinstance(resolved, dict):
+                        url = resolved.get("url") or resolved.get("unrestricted_url")
+                        if url:
+                            entry.unrestricted_url = url
+
+                    if not resolved:
+                        logger.debug(
+                            f"Failed to pre-resolve unrestricted URL for {item.log_string}"
+                        )
+                        return False
+            except Exception as e:
+                logger.debug(
+                    f"Failed to pre-resolve unrestricted URL for {item.log_string}: {e}"
+                )
+                return False
+
+        # add probed data
+        if media_analysis_service.should_submit(item):
+            success = media_analysis_service.run(item)
+            if not success:
+                logger.error(f"Failed to analyze media file for {item.log_string}")
+                return False
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)
