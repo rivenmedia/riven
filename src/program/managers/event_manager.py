@@ -14,7 +14,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from program.db import db_functions
-from program.db.db import db, db_session
+from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.types import Event, Service
@@ -345,7 +345,7 @@ class EventManager:
             suppress_logs (bool): If True, suppresses debug logging for this operation.
         """
 
-        with db.Session() as session:
+        with db_session() as session:
             item_id, related_ids = db_functions.get_item_ids(session, item_id)
             ids_to_cancel = set([item_id] + related_ids)
 
