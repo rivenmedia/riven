@@ -11,13 +11,15 @@ metadata that can be used for intelligent subtitle selection and
 upgrade decisions.
 """
 
+import os
 import traceback
 
 from loguru import logger
+from program.utils.ffprobe import parse_media_file
+from program.media.models import MediaMetadata
 
 from program.media.item import MediaItem
-from program.media.models import MediaMetadata
-from program.utils.ffprobe import parse_media_url
+from program.settings.manager import settings_manager
 
 
 class MediaAnalysisService:
@@ -82,24 +84,49 @@ class MediaAnalysisService:
             logger.warning(f"No filesystem entry for {item.log_string}, cannot analyze")
             return
 
-        if not item.filesystem_entry.unrestricted_url:
-            logger.warning(f"No download URL for {item.log_string}, cannot analyze")
-            return
-
         entry = item.filesystem_entry
 
         try:
             logger.debug(f"Analyzing media file for {item.log_string}")
-            if self._analyze_with_ffprobe(entry.unrestricted_url, item):
-                logger.debug(f"Media analysis completed for {item.log_string}")
-                return True
+            # Get the mounted VFS path for ffprobe
+            # Note: We use mount_path (host VFS mount) not library_path (container path)
+            mount_path = settings_manager.settings.filesystem.mount_path
+
+            # Generate VFS path from entry
+            vfs_paths = entry.get_all_vfs_paths()
+            if not vfs_paths:
+                logger.warning(
+                    f"No VFS paths for {item.log_string}, cannot run ffprobe"
+                )
+                return
+
+            # Use the first (base) path for ffprobe
+            vfs_path = vfs_paths[0]
+            full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
+
+            # Run ffprobe analysis
+            metadata_updated = self._analyze_with_ffprobe(full_path, item)
+
+            # Sync VFS to update filenames with new metadata (resolution, codec, etc.)
+            if metadata_updated:
+                from program.program import riven
+                from program.services.filesystem import FilesystemService
+
+                filesystem_service = riven.services.get(FilesystemService)
+                if filesystem_service and filesystem_service.riven_vfs:
+                    filesystem_service.riven_vfs.sync(item)
+                    logger.debug(
+                        f"VFS synced after media analysis for {item.log_string}"
+                    )
+
+            logger.debug(f"Media analysis completed for {item.log_string}")
+
         except FileNotFoundError:
             logger.warning(f"VFS file not found for {item.log_string}, cannot analyze")
         except Exception as e:
             logger.error(f"Failed to analyze media file for {item.log_string}: {e}")
-        return False
 
-    def _analyze_with_ffprobe(self, playback_url: str, item: MediaItem) -> bool:
+    def _analyze_with_ffprobe(self, file_path: str, item: MediaItem) -> bool:
         """
         Analyze media file with ffprobe and update MediaMetadata.
 
@@ -111,13 +138,11 @@ class MediaAnalysisService:
             True if metadata was updated, False otherwise
         """
         try:
-            if not playback_url:
-                logger.debug(
-                    f"Download URL not found to run ffprobe with item: {item.log_string}"
-                )
+            if not os.path.exists(file_path):
+                logger.debug(f"File not found for ffprobe: {file_path}")
                 return False
 
-            ffprobe_metadata = parse_media_url(playback_url)
+            ffprobe_metadata = parse_media_file(file_path)
             if ffprobe_metadata:
                 ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
 
@@ -149,6 +174,3 @@ class MediaAnalysisService:
                 f"FFprobe analysis failed for {item.log_string}: {traceback.format_exc()}"
             )
             return False
-
-
-media_analysis_service = MediaAnalysisService()
