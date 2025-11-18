@@ -15,6 +15,7 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
 )
 from program.media.item import MediaItem
+from program.program import Program
 from program.types import Event
 from routers.secure.items import apply_item_mutation
 
@@ -316,7 +317,6 @@ class VFSDatabase:
         Returns:
             Dictionary with entry metadata and URLs, or None if not found
         """
-        from program.program import Program
 
         class GetEntryByOriginalFilenameResult(TypedDict):
             original_filename: str

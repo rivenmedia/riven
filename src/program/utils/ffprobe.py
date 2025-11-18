@@ -1,6 +1,6 @@
 import subprocess
 import orjson
-from urllib.parse import urlparse
+from pathlib import Path
 from typing import Optional, List
 from fractions import Fraction
 from pydantic import BaseModel, Field
@@ -68,7 +68,7 @@ class MediaMetadata(BaseModel):
         return round(self.duration / 60, 2)
 
 
-def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
+def parse_media_file(file_path: str | Path) -> Optional[MediaMetadata]:
     """
     Parse a media file using ffprobe and return its metadata.
 
@@ -83,8 +83,9 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
         subprocess.CalledProcessError: If ffprobe returns an error
         ValueError: If an unexpected error occurs while parsing the file
     """
-    if not download_url:
-        raise ValueError("No download URL provided")
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File {path} does not exist.")
 
     try:
         cmd = [
@@ -95,7 +96,7 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
             "json",
             "-show_format",
             "-show_streams",
-            download_url,
+            str(path),
         ]
 
         result = subprocess.check_output(cmd, text=True)
@@ -103,7 +104,7 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
 
         format_info = probe_data.get("format", {})
         metadata_dict = {
-            "filename": urlparse(download_url).path.split("/")[-1],
+            "filename": path.name,
             "file_size": int(format_info.get("size", 0)),
             "duration": round(float(format_info.get("duration", 0)), 2),
             "format": (
@@ -121,9 +122,7 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
         for stream in probe_data.get("streams", []):
             codec_type = stream.get("codec_type")
 
-            if codec_type == "video" and not video_data:
-                # apparently theres multiple video codecs..
-                # the first one should always be correct though.
+            if codec_type == "video":
                 frame_rate = stream.get("r_frame_rate", "0/1")
                 fps = (
                     float(Fraction(frame_rate))
@@ -166,7 +165,9 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
 
         return MediaMetadata(**metadata_dict)
 
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"ffprobe FileNotFound: {e}")
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"ffprobe error: {e}")
     except Exception as e:
-        raise ValueError(f"Unexpected error during ffprobe of {download_url}: {e}")
+        raise ValueError(f"Unexpected error during ffprobe of {file_path}: {e}")

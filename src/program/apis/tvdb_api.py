@@ -87,7 +87,6 @@ class TVDBApi:
                         logger.error("Failed to refresh expired TVDB token")
                         return None
                     logger.debug("Refreshed TVDB token")
-                    self._save_token_to_file(token)
                     return token
             return None
         except Exception as e:
