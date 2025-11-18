@@ -11,7 +11,6 @@ from program.apis.tvdb_api import TVDBApi
 from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
-from program.settings.manager import settings_manager
 
 
 class TVDBIndexer(BaseIndexer):
@@ -21,6 +20,7 @@ class TVDBIndexer(BaseIndexer):
 
     def __init__(self):
         super().__init__()
+
         self.key = "tvdbindexer"
         self.api = di[TVDBApi]
         self.trakt_api = di[TraktAPI]

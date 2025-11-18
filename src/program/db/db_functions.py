@@ -360,6 +360,13 @@ def run_thread_with_db_item(
                             )
                             program.em.remove_id_from_queues(input_item.id)
 
+                        if item.is_excluded:
+                            logger.trace(
+                                f"Item {item.log_string} is excluded, deleting from DB."
+                            )
+
+                            session.delete(item)
+
                         if not cancellation_event.is_set():
                             # Update parent item based on type
                             if input_item.type == "episode":
