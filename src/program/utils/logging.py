@@ -34,7 +34,7 @@ def setup_logger(level):
     log_levels = {
         "PROGRAM": (20, "cc6600", "🤖"),
         "DATABASE": (5, "d834eb", "🛢️"),  # trace
-        "DEBRID": (20, "cc3333", "🔗"),
+        "DEBRID": (20, "20B2AA", "🔗"),
         "FILESYSTEM": (5, "F9E79F", "🔗"),  # trace
         "VFS": (5, "9B59B6", "🧲"),  # trace
         "FUSE": (5, "999999", "⚙️"),  # trace
