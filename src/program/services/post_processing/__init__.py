@@ -72,6 +72,17 @@ class PostProcessing:
             if MediaAnalysisService.should_submit(process_item):
                 self.services[MediaAnalysisService].run(process_item)
 
+                # Check if item was reset due to dead link during media analysis
+                # When a dead link is detected, the item's filesystem_entry is cleared
+                # and a re-download is triggered. We should abort this pipeline to avoid
+                # sending notifications for the failed download.
+                if not process_item.filesystem_entry:
+                    logger.warning(
+                        f"Item {process_item.log_string} was reset during media analysis "
+                        "(likely due to dead link). Aborting post-processing pipeline."
+                    )
+                    return  # Don't yield - let the new download handle notifications
+
             # Run subtitle service second (uses metadata from analysis)
             if self.services[SubtitleService].should_submit(process_item):
                 self.services[SubtitleService].run(process_item)
