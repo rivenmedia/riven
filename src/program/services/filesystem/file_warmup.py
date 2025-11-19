@@ -1,38 +1,35 @@
 """
 Lightweight file warmup service for validating VFS accessibility.
 
-This service performs a minimal read test on media files to:
+This service performs a minimal stat check (like ls -la) on media files to:
 1. Verify debrid links are still accessible
 2. Force VFS to unrestrict links (catching dead torrents early)
 3. Warm VFS cache for media servers
 4. Avoid expensive ffprobe analysis before notifications
 
-Much faster than media_analysis (~100x) since it only reads a small chunk
-instead of analyzing the entire file.
+Extremely fast since it only stats the file (gets metadata) without reading
+any actual file content.
 """
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+from loguru import logger
 from program.media.item import MediaItem
 from program.settings.manager import settings_manager
-from utils.logger import logger
 
 
 class FileWarmupService:
     """
     Service to warm up VFS files and validate link accessibility.
 
-    Performs minimal read operations to ensure files are accessible
-    before notifying media servers. Much faster than full media analysis.
+    Performs minimal stat operations (like ls -la) to ensure files are accessible
+    before notifying media servers. Much faster than reading file contents.
     """
 
-    # Read size for warmup (5MB is enough to trigger VFS validation)
-    WARMUP_READ_SIZE = 5 * 1024 * 1024  # 5MB
-
-    # Maximum concurrent file reads
-    MAX_WORKERS = 5
+    # Maximum concurrent file checks
+    MAX_WORKERS = 10
 
     @staticmethod
     def should_submit(item: MediaItem) -> bool:
@@ -57,7 +54,7 @@ class FileWarmupService:
         """
         Warm up file(s) for the given item.
 
-        Performs lightweight read test to validate VFS accessibility.
+        Performs lightweight stat check (like ls -la) to validate VFS accessibility.
         For episodes, only warms the specific episode.
         For shows/seasons, caller should iterate episodes.
 
@@ -160,7 +157,10 @@ class FileWarmupService:
 
     def _warm_single_file(self, file_path: str, item: MediaItem) -> bool:
         """
-        Perform warmup read on a single file.
+        Perform warmup check on a single file using stat (like ls -la).
+
+        This minimal check forces VFS to unrestrict the link without reading
+        any file contents. Much faster than reading data.
 
         Args:
             file_path: Full path to file
@@ -170,31 +170,31 @@ class FileWarmupService:
             True if file is accessible, False otherwise
         """
         try:
-            if not os.path.exists(file_path):
-                logger.debug(f"File not found for warmup: {file_path}")
-                return False
-
-            # Read first chunk to trigger VFS validation
+            # Just stat the file (like ls -la does)
             # This will:
             # 1. Force VFS to unrestrict the link
             # 2. Catch dead/expired debrid links
-            # 3. Warm the VFS cache
-            with open(file_path, 'rb') as f:
-                data = f.read(self.WARMUP_READ_SIZE)
+            # 3. Be extremely fast (no data read)
+            file_stat = os.stat(file_path)
 
-            if not data:
+            # Verify file has size
+            if file_stat.st_size == 0:
                 logger.warning(f"File is empty: {file_path}")
                 return False
 
             logger.debug(
-                f"Warmed up {len(data) / (1024*1024):.1f}MB for {item.log_string}"
+                f"File warmup OK: {item.log_string} "
+                f"({file_stat.st_size / (1024*1024*1024):.2f}GB)"
             )
             return True
 
+        except FileNotFoundError:
+            logger.debug(f"File not found for warmup: {file_path}")
+            return False
         except OSError as e:
             # OS errors typically indicate VFS/link issues
-            logger.error(f"OS error warming file {file_path}: {e}")
+            logger.error(f"OS error checking file {file_path}: {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error warming file {file_path}: {e}")
+            logger.error(f"Unexpected error checking file {file_path}: {e}")
             return False
