@@ -272,100 +272,96 @@ class Downloader:
         self, container: TorrentContainer, service
     ) -> Optional[TorrentContainer]:
         """
-        Validate download URLs in a TorrentContainer by attempting to unrestrict them.
+        Validate that a torrent's download URLs are accessible by testing one file as a canary.
 
-        Filters out files with invalid/inaccessible URLs and returns a container with only
-        valid files. If no valid files remain, returns None.
+        Since all files in a cached torrent share the same availability status on the debrid
+        service, we only need to validate one file to know if the entire torrent is accessible.
 
         Parameters:
             container: TorrentContainer with files to validate
             service: Debrid service instance to use for unrestricting
 
         Returns:
-            TorrentContainer with only valid files, or None if no valid files remain
+            The original container if validation succeeds, None if torrent is inaccessible
         """
         import time
+        import requests
 
         if not container or not container.files:
             return container
 
-        valid_files = []
-
+        # Find the first file with a download_url to use as canary
+        canary_file = None
         for file in container.files:
-            if not hasattr(file, 'download_url') or not file.download_url:
-                # No download URL to validate, keep the file
-                valid_files.append(file)
-                continue
+            if hasattr(file, 'download_url') and file.download_url:
+                canary_file = file
+                break
 
-            # Try to unrestrict the URL with retry logic
-            max_attempts = 3
-            valid = False
+        if not canary_file:
+            # No files have download URLs, nothing to validate
+            return container
 
-            for attempt in range(max_attempts):
-                try:
-                    unrestricted = service.unrestrict_link(file.download_url)
-                    if unrestricted and (
-                        (isinstance(unrestricted, dict) and unrestricted.get('download'))
-                        or (hasattr(unrestricted, 'download') and unrestricted.download)
-                    ):
-                        # Got unrestricted URL, now verify it's actually accessible
-                        unrestricted_url = (
-                            unrestricted.get('download') if isinstance(unrestricted, dict)
-                            else unrestricted.download
-                        )
+        # Try to validate the canary file with retry logic
+        max_attempts = 3
 
-                        # Test accessibility with a HEAD request
-                        import requests
-                        try:
-                            head_response = requests.head(unrestricted_url, timeout=5, allow_redirects=True)
-                            if head_response.status_code == 200:
-                                # URL is valid and accessible
-                                valid = True
-                                break
-                            else:
-                                logger.debug(
-                                    f"URL validation failed for {file.filename}: HTTP {head_response.status_code}"
-                                )
-                                break  # Don't retry if file is genuinely inaccessible
-                        except requests.exceptions.RequestException as e:
-                            # Network error - this might be transient, allow retry
-                            if attempt < max_attempts - 1:
-                                raise  # Re-raise to trigger retry logic
-                            else:
-                                logger.debug(
-                                    f"URL accessibility check failed for {file.filename}: {e}"
-                                )
-                    else:
-                        logger.debug(
-                            f"URL validation failed for {file.filename}: no download URL in response"
-                        )
-                        break  # Don't retry if unrestrict succeeded but returned invalid data
+        for attempt in range(max_attempts):
+            try:
+                unrestricted = service.unrestrict_link(canary_file.download_url)
+                if unrestricted and (
+                    (isinstance(unrestricted, dict) and unrestricted.get('download'))
+                    or (hasattr(unrestricted, 'download') and unrestricted.download)
+                ):
+                    # Got unrestricted URL, now verify it's actually accessible
+                    unrestricted_url = (
+                        unrestricted.get('download') if isinstance(unrestricted, dict)
+                        else unrestricted.download
+                    )
 
-                except Exception as e:
-                    if attempt < max_attempts - 1:
-                        # Exponential backoff: 1s, 2s, 4s
-                        wait_time = 2 ** attempt
-                        logger.debug(
-                            f"URL validation attempt {attempt + 1}/{max_attempts} failed for {file.filename}: {e}. Retrying in {wait_time}s..."
-                        )
-                        time.sleep(wait_time)
-                    else:
-                        logger.debug(
-                            f"URL validation failed for {file.filename} after {max_attempts} attempts: {e}"
-                        )
+                    # Test accessibility with a HEAD request
+                    try:
+                        head_response = requests.head(unrestricted_url, timeout=5, allow_redirects=True)
+                        if head_response.status_code == 200:
+                            # Canary file is valid, entire torrent is accessible
+                            logger.debug(
+                                f"Torrent validated via canary file: {canary_file.filename}"
+                            )
+                            return container
+                        else:
+                            logger.debug(
+                                f"URL validation failed for canary file {canary_file.filename}: HTTP {head_response.status_code}"
+                            )
+                            return None
+                    except requests.exceptions.RequestException as e:
+                        # Network error - this might be transient, allow retry
+                        if attempt < max_attempts - 1:
+                            raise  # Re-raise to trigger retry logic
+                        else:
+                            logger.debug(
+                                f"URL accessibility check failed for canary file {canary_file.filename}: {e}"
+                            )
+                            return None
+                else:
+                    logger.debug(
+                        f"URL validation failed for canary file {canary_file.filename}: no download URL in response"
+                    )
+                    return None
 
-            if valid:
-                valid_files.append(file)
-            else:
-                logger.debug(f"Filtering out file with invalid URL: {file.filename}")
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    # Exponential backoff: 1s, 2s, 4s
+                    wait_time = 2 ** attempt
+                    logger.debug(
+                        f"URL validation attempt {attempt + 1}/{max_attempts} failed for canary file {canary_file.filename}: {e}. Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    logger.debug(
+                        f"URL validation failed for canary file {canary_file.filename} after {max_attempts} attempts: {e}"
+                    )
+                    return None
 
-        if not valid_files:
-            logger.debug("No valid files remaining after URL validation")
-            return None
-
-        # Return container with filtered files
-        container.files = valid_files
-        return container
+        # If we get here, all retry attempts failed
+        return None
 
     def update_item_attributes(
         self, item: MediaItem, download_result: DownloadedTorrent, service=None
