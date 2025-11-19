@@ -74,6 +74,30 @@ class FilesystemService:
             yield item
             return
 
+        # Get MediaAnalysisService once before the loop
+        from program.program import riven
+        from program.services.post_processing import PostProcessing
+        from program.services.post_processing.media_analysis import MediaAnalysisService
+
+        post_processing = riven.services.get(PostProcessing)
+        media_analysis = post_processing.services.get(MediaAnalysisService) if post_processing else None
+
+        # Identify items that need analysis (avoid duplicate should_submit calls)
+        items_needing_analysis_set = set()
+        if media_analysis:
+            items_needing_analysis_set = {
+                i for i in items_to_process
+                if media_analysis.should_submit(i)
+            }
+
+        if items_needing_analysis_set:
+            logger.info(
+                f"Starting media analysis for {item.log_string} "
+                f"({len(items_needing_analysis_set)} file{'s' if len(items_needing_analysis_set) != 1 else ''})"
+            )
+
+        analyzed_count = 0
+
         # Process each episode/movie
         for episode_or_movie in items_to_process:
             success = self.riven_vfs.add(episode_or_movie)
@@ -86,21 +110,23 @@ class FilesystemService:
 
             # Run media analysis immediately after VFS registration succeeds
             # This ensures metadata is available BEFORE Plex/Emby/Jellyfin are notified
-            try:
-                from program.program import riven
-                from program.services.post_processing import PostProcessing
-                from program.services.post_processing.media_analysis import MediaAnalysisService
+            if episode_or_movie in items_needing_analysis_set:
+                try:
+                    media_analysis.run(episode_or_movie)
+                    analyzed_count += 1
+                    logger.debug(f"Media analysis completed for {episode_or_movie.log_string}")
+                except Exception as e:
+                    logger.warning(f"Media analysis failed for {episode_or_movie.log_string}: {e}")
 
-                # Get the existing MediaAnalysisService instance instead of creating a new one
-                post_processing = riven.services.get(PostProcessing)
-                if post_processing:
-                    media_analysis = post_processing.services.get(MediaAnalysisService)
-                    if media_analysis and media_analysis.should_submit(episode_or_movie):
-                        media_analysis.run(episode_or_movie)
-                        logger.debug(f"Media analysis completed for {episode_or_movie.log_string} before updater notification")
-            except Exception as e:
-                logger.warning(f"Media analysis failed for {episode_or_movie.log_string}: {e}")
-                # Don't fail VFS registration if analysis fails
+                # Check if item was reset due to dead link during media analysis
+                # When a dead link is detected, the item's filesystem_entry is cleared
+                # and a re-download is triggered. Skip this item and let the new download handle it.
+                if not episode_or_movie.filesystem_entry:
+                    logger.info(
+                        f"Item {episode_or_movie.log_string} was reset during media analysis "
+                        "(dead link detected). New download will handle media analysis and notification."
+                    )
+                    continue
 
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
