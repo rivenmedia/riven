@@ -32,7 +32,7 @@ class ListrrAPI:
 
     def get_shows(
         self,
-        content_lists,
+        content_lists: list[str],
     ) -> list[tuple[str | None, str | None]]:
         """Fetch unique show IDs from Listrr for a given list of content."""
 
@@ -74,7 +74,7 @@ class ListrrAPI:
 
     def get_movies(
         self,
-        content_lists,
+        content_lists: list[str],
     ) -> list[tuple[str | None, str | None]]:
         """Fetch unique movie IDs from Listrr for a given list of content."""
 

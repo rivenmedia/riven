@@ -1118,7 +1118,7 @@ class Episode(MediaItem):
         foreign_keys="Episode.parent_id",
         lazy="joined",
     )
-    absolute_number: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=True)
+    absolute_number: Mapped[int | None]
 
     __mapper_args__ = {
         "polymorphic_identity": "episode",

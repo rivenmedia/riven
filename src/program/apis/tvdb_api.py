@@ -4,19 +4,16 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from kink import inject
 from loguru import logger
 from pydantic import BaseModel
 
 from program.utils import data_dir_path
 from program.utils.request import SmartSession
 from schemas.tvdb import (
-    EpisodeExtendedRecord,
     SearchByRemoteIdResult,
     SeasonExtendedRecord,
     SeriesExtendedRecord,
     Translation,
-    Updates200Response,
 )
 
 
@@ -89,7 +86,6 @@ class TVDBToken(BaseModel):
         )
 
 
-@inject
 class TVDBApi:
     """TVDB API client"""
 
@@ -205,32 +201,6 @@ class TVDBApi:
             logger.error(f"Error getting season details: {str(e)}")
             return None
 
-    def get_episode(self, episode_id: str) -> EpisodeExtendedRecord | None:
-        """Get episode details."""
-
-        try:
-            response = self.session.get(
-                f"episodes/{episode_id}/extended",
-                headers=self._get_headers(),
-            )
-
-            if not response.ok:
-                logger.error(f"Failed to get episode details: {response.status_code}")
-                return None
-
-            from schemas.tvdb import GetEpisodeExtended200Response
-
-            validated_response = GetEpisodeExtended200Response.from_dict(
-                response.json()
-            )
-
-            assert validated_response
-
-            return validated_response.data
-        except Exception as e:
-            logger.error(f"Error getting episode details: {str(e)}")
-            return None
-
     def get_translation(self, series_id: int, language: str) -> Translation | None:
         """Get translation title for a series. Language must be 3 letter code."""
 
@@ -257,7 +227,7 @@ class TVDBApi:
             logger.error(f"Error getting translation title: {str(e)}")
             return None
 
-    def get_aliases(self, series_data) -> dict[str, list[str]] | None:
+    def get_aliases(self, series_data: SeriesRelease) -> dict[str, list[str]] | None:
         """
         Get aliases for a series, grouped by language.
 
@@ -265,141 +235,19 @@ class TVDBApi:
             dict[str, list[str]]: A dictionary where keys are language codes and values are lists of alias names.
         """
 
-        aliases_by_lang: dict[str, list[str]] = {}
+        if not series_data.aliases:
+            return None
 
-        for alias in getattr(series_data, "aliases", []):
-            lang = getattr(alias, "language", None)
-            name = getattr(alias, "name", None)
+        aliases_by_lang = dict[str, list[str]]({})
+
+        for alias in series_data.aliases:
+            lang = alias.language
+            name = alias.name
 
             if lang and name:
                 aliases_by_lang.setdefault(lang, []).append(name)
 
         return aliases_by_lang
-
-    def get_updates(
-        self,
-        update_type: str = "episodes",
-        since: int | None = None,
-    ) -> Updates200Response | None:
-        """
-        Get updates for a given type and since timestamp.
-
-        Args:
-            update_type: The type of updates to get. Defaults to "episodes".
-            since: The since timestamp. Defaults to None.
-
-        Returns:
-            dict | None: The updates.
-        """
-
-        response = self.session.get(
-            url=f"updates?{update_type}&since={since}&action=update",
-            headers=self._get_headers(),
-        )
-
-        if not response.ok:
-            logger.error(f"Failed to get updates: {response.status_code}")
-            return None
-
-        return Updates200Response.from_dict(response.json())
-
-    def get_new_releases(
-        self,
-        update_type: str = "episodes",
-        hours: int = 24,
-    ) -> list[str]:
-        """
-        Get new releases for a given type and since timestamp.
-
-        Args:
-            update_type: Type of updates to get (episodes, series, etc.)
-            hours: Number of hours to look back for updates
-
-        Returns:
-            List of record IDs from TVDB updates
-        """
-
-        pages_checked = 0
-        ids_to_check = []
-
-        def process_page(data):
-            """Process a single page of updates and extract record IDs"""
-
-            nonlocal pages_checked
-
-            if not data or not hasattr(data, "data"):
-                return []
-
-            pages_checked += 1
-
-            return [
-                (str(object=u.seriesId), str(u.recordId))
-                for u in data.data
-                if hasattr(u, "seriesId")
-                and hasattr(u, "recordId")
-                and u.seriesId
-                and u.recordId
-            ]
-
-        def get_page(url: str):
-            """Get a specific page using the next URL"""
-
-            response = self.session.get(
-                url,
-                headers=self._get_headers(),
-            )
-
-            if not response.ok:
-                logger.error(f"Failed to get updates page: {response.status_code}")
-                return None
-
-            return Updates200Response.from_dict(response.json())
-
-        def get_epoch_hours_ago(hours: int = 24) -> int:
-            """Get timestamp for hours ago"""
-
-            import time
-
-            return int(time.time()) - (hours * 3600)
-
-        try:
-            epoch_hours_ago = get_epoch_hours_ago(hours)
-            updates = self.get_updates(since=epoch_hours_ago, update_type=update_type)
-
-            if not updates:
-                logger.info(
-                    f"No updates found for type {update_type} in the last {hours} hours"
-                )
-
-                return ids_to_check
-
-            # Process first page
-            page_ids = process_page(updates)
-            ids_to_check.extend(page_ids)
-
-            # Process subsequent pages if they exist
-            current_response = updates
-
-            while current_response.links and current_response.links.next:
-                next_page_data = get_page(current_response.links.next)
-
-                if next_page_data:
-                    page_ids = process_page(next_page_data)
-                    ids_to_check.extend(page_ids)
-                    current_response = next_page_data
-                else:
-                    break
-
-            logger.info(
-                f"Found {len(ids_to_check)} {update_type} updates in the last {hours} hours from {pages_checked} pages"
-            )
-
-            self.last_new_release_check = datetime.now()
-
-            return ids_to_check
-        except Exception as e:
-            logger.error(f"Error getting new releases: {str(e)}")
-            return ids_to_check
 
     def _load_token_from_file(self) -> TVDBToken | None:
         """Load token from file if it exists and is valid"""

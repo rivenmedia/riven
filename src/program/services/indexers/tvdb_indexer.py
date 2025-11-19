@@ -11,8 +11,8 @@ from program.apis.tvdb_api import SeriesRelease, TVDBApi
 from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
-from schemas.tvdb import SeasonExtendedRecord
 from program.core.runner import MediaItemGenerator, RunnerResult
+from schemas.tvdb import SeasonExtendedRecord, EpisodeBaseRecord
 
 
 class TVDBIndexer(BaseIndexer):
@@ -30,10 +30,6 @@ class TVDBIndexer(BaseIndexer):
         log_msg: bool = True,
     ) -> MediaItemGenerator[Show]:
         """Run the TVDB indexer for the given item."""
-
-        if not in_item:
-            logger.error("Item is None")
-            return
 
         if in_item.type not in ["show", "mediaitem", "season", "episode"]:
             logger.debug(
@@ -73,7 +69,7 @@ class TVDBIndexer(BaseIndexer):
                 show = in_item
             elif isinstance(in_item, Season):
                 show = in_item.parent
-            elif isinstance(in_item, Episode):
+            else:
                 show = in_item.parent.parent if in_item.parent else None
 
             if not show:
@@ -475,9 +471,7 @@ class TVDBIndexer(BaseIndexer):
                         show.add_season(season_item)
 
                     # Handle episodes for this season
-                    if (episodes := extended_data.episodes) and isinstance(
-                        episodes, list
-                    ):
+                    if episodes := extended_data.episodes:
                         # Build a map of existing episodes by number
                         existing_episodes: dict[int, Episode] = {
                             cast(int, e.number): e for e in season_item.episodes
@@ -543,7 +537,11 @@ class TVDBIndexer(BaseIndexer):
         except Exception as e:
             logger.error(f"Error updating season metadata: {str(e)}")
 
-    def _create_season_from_data(self, season_data, show: Show) -> Season | None:
+    def _create_season_from_data(
+        self,
+        season_data: SeasonExtendedRecord,
+        show: Show,
+    ) -> Season | None:
         """Create a Season object from TVDB season data."""
         try:
             season_number = season_data.number
@@ -590,7 +588,11 @@ class TVDBIndexer(BaseIndexer):
             logger.error(f"Error creating season from TVDB data: {str(e)}")
             return None
 
-    def _update_episode_metadata(self, episode: Episode, episode_data):
+    def _update_episode_metadata(
+        self,
+        episode: Episode,
+        episode_data: EpisodeBaseRecord,
+    ):
         """Update an existing Episode object with fresh TVDB metadata."""
         try:
             # Parse aired date
@@ -612,20 +614,26 @@ class TVDBIndexer(BaseIndexer):
             episode.poster_path = episode_data.poster_path
             episode.aired_at = aired_at
             episode.year = year
-            episode.absolute_number = episode_data.absoluteNumber
+            episode.absolute_number = episode_data.absolute_number
             # Note: is_anime and other attributes are inherited from show via __getattribute__
 
         except Exception as e:
             logger.error(f"Error updating episode metadata: {str(e)}")
 
-    def _create_episode_from_data(self, episode_data, season: Season) -> Episode | None:
+    def _create_episode_from_data(
+        self,
+        episode_data: EpisodeBaseRecord,
+        season: Season,
+    ) -> Episode | None:
         """Create an Episode object from TVDB episode data."""
         try:
             episode_number = episode_data.number
+
             if episode_number is None:
                 return None
 
             aired_at = None
+
             if first_aired := episode_data.aired:
                 try:
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")
@@ -633,6 +641,7 @@ class TVDBIndexer(BaseIndexer):
                     pass
 
             year = None
+
             if hasattr(episode_data, "year") and episode_data.year:
                 year = int(episode_data.year)
 
@@ -646,11 +655,12 @@ class TVDBIndexer(BaseIndexer):
                 "type": "episode",
                 "is_anime": season.is_anime,
                 "requested_at": datetime.now(),
-                "absolute_number": episode_data.absoluteNumber,
+                "absolute_number": episode_data.absolute_number,
             }
 
             episode = Episode(episode_item)
             episode.parent = season
+
             return episode
         except Exception as e:
             logger.error(f"Error creating episode from TVDB data: {str(e)}")

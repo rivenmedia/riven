@@ -3,6 +3,7 @@ from typing import Literal
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from kink import di
+from kink.errors.service_error import ServiceError
 from loguru import logger
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import Date, cast, func, select
@@ -178,13 +179,14 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
 
 @router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
 async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
-    trakt_api = di[TraktAPI]
-    trakt_api_key = settings_manager.settings.content.trakt.api_key
-
-    if trakt_api is None:
+    try:
+        trakt_api = di[TraktAPI]
+    except ServiceError:
         raise HTTPException(status_code=404, detail="Trakt Api not found")
 
-    if trakt_api_key is None:
+    trakt_api_key = settings_manager.settings.content.trakt.api_key
+
+    if not trakt_api_key:
         raise HTTPException(
             status_code=404, detail="Trakt Api key not found in settings"
         )
