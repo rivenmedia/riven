@@ -105,19 +105,7 @@ class MediaAnalysisService:
             full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
 
             # Run ffprobe analysis
-            metadata_updated = self._analyze_with_ffprobe(full_path, item)
-
-            # Sync VFS to update filenames with new metadata (resolution, codec, etc.)
-            if metadata_updated:
-                from program.program import riven
-                from program.services.filesystem import FilesystemService
-
-                filesystem_service = riven.services.get(FilesystemService)
-                if filesystem_service and filesystem_service.riven_vfs:
-                    filesystem_service.riven_vfs.sync(item)
-                    logger.debug(
-                        f"VFS synced after media analysis for {item.log_string}"
-                    )
+            self._analyze_with_ffprobe(full_path, item)
 
             logger.debug(f"Media analysis completed for {item.log_string}")
 
