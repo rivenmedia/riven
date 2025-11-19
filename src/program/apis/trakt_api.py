@@ -2,7 +2,7 @@
 import re
 
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 from urllib.parse import urlencode
 
 from loguru import logger
@@ -14,13 +14,15 @@ from program.settings.models import TraktModel
 from program.utils.request import SmartSession
 from schemas.trakt import GetMovies200ResponseInnerMovie, GetShows200ResponseInnerShow
 
+MediaType = Literal["movies", "shows"]
+
 
 class Watchlist(BaseModel):
     movie: GetMovies200ResponseInnerMovie | None
     show: GetShows200ResponseInnerShow | None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Watchlist | None":
+    def from_dict(cls, data: dict[str, Any]) -> "Watchlist | None":
         try:
             return cls.model_validate(data)
         except Exception:
@@ -56,7 +58,7 @@ class TraktAPI:
         "0183a05ad97098d87287fe46da4ae286f434f32e8e951caad4cc147c947d79a3",
     )
 
-    patterns: dict[str, re.Pattern] = {
+    patterns = {
         "user_list": re.compile(r"https://trakt.tv/users/([^/]+)/lists/([^/]+)"),
         "short_list": re.compile(r"https://trakt.tv/lists/\d+"),
     }
@@ -106,7 +108,7 @@ class TraktAPI:
     def _fetch_data(
         self,
         url: str,
-        model_validator: Callable[[dict], DataModel | None],
+        model_validator: Callable[[dict[str, Any]], DataModel | None],
         *,
         limit: int | None = None,
     ) -> list[DataModel]:
@@ -187,7 +189,7 @@ class TraktAPI:
 
         return all_data
 
-    def get_watchlist_items(self, user):
+    def get_watchlist_items(self, user: str):
         """Get watchlist items from Trakt with pagination support."""
 
         return self._fetch_data(
@@ -195,7 +197,7 @@ class TraktAPI:
             model_validator=Watchlist.from_dict,
         )
 
-    def get_user_list(self, user, list_name):
+    def get_user_list(self, user: str, list_name: str):
         """Get user list items from Trakt with pagination support."""
 
         from schemas.trakt import GetItemsOnAPersonalList200ResponseInner
@@ -205,7 +207,7 @@ class TraktAPI:
             model_validator=GetItemsOnAPersonalList200ResponseInner.from_dict,
         )
 
-    def get_collection_items(self, user, media_type):
+    def get_collection_items(self, user: str, media_type: MediaType):
         """Get collections from Trakt with pagination support."""
 
         from schemas.trakt import GetCollection200ResponseInner
@@ -259,7 +261,7 @@ class TraktAPI:
             limit=limit,
         )
 
-    def get_most_played_movies(self, period="weekly", limit: int | None = None):
+    def get_most_played_movies(self, period: str = "weekly", limit: int | None = None):
         """Get most played items from Trakt with pagination support."""
 
         from schemas.trakt import GetTheMostPlayedMovies200ResponseInner
@@ -270,7 +272,7 @@ class TraktAPI:
             limit=limit,
         )
 
-    def get_most_played_shows(self, period="weekly", limit: int | None = None):
+    def get_most_played_shows(self, period: str = "weekly", limit: int | None = None):
         """Get most played items from Trakt with pagination support."""
 
         from schemas.trakt import GetTheMostPlayedShows200ResponseInner
@@ -281,7 +283,9 @@ class TraktAPI:
             limit=limit,
         )
 
-    def extract_user_list_from_url(self, url) -> tuple:
+    def extract_user_list_from_url(
+        self, url: str
+    ) -> tuple[str, str] | tuple[None, None]:
         """Extract user and list name from Trakt URL"""
 
         def match_full_url(url: str) -> tuple[str, ...] | tuple[None, None]:
@@ -337,7 +341,7 @@ class TraktAPI:
             response = self.session.get(url, timeout=30)
 
             if response.ok and response.data:
-                aliases = {}
+                aliases = dict[str, list[str]]({})
 
                 from schemas.trakt import GetAllMovieAliases200ResponseInner
 
@@ -438,10 +442,15 @@ class TraktAPI:
         response = self.session.post(token_url, data=payload, headers=headers)
 
         if response.ok:
-            token_data = response.data
 
-            self.settings.access_token = token_data.get("access_token")
-            self.settings.refresh_token = token_data.get("refresh_token")
+            class OAuthTokenResponse(BaseModel):
+                access_token: str
+                refresh_token: str
+
+            token_data = OAuthTokenResponse.model_validate(response.json())
+
+            self.settings.access_token = token_data.access_token
+            self.settings.refresh_token = token_data.refresh_token
 
             settings_manager.save()  # Save the tokens to settings
 
