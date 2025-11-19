@@ -2,7 +2,7 @@ import random
 
 
 class UserAgentFactory:
-    def __init__(self, user_agents: list):
+    def __init__(self, user_agents: list[str]):
         self.user_agents = user_agents
 
     def get_random_user_agent(self):

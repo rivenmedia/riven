@@ -4,7 +4,6 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
-from collections.abc import Generator
 from loguru import logger
 
 from program.media.item import MediaItem

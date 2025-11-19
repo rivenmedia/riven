@@ -243,6 +243,7 @@ class Downloader(Runner[None, DownloaderBase]):
         Validate a single stream by ensuring its files match the item's requirements.
         Uses the primary service for backward compatibility.
         """
+
         return self.validate_stream_on_service(stream, item, self.service)
 
     def validate_stream_on_service(
@@ -321,6 +322,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
                 try:
                     method_1 = sum(len(season.episodes) for season in show.seasons)
+
                     try:
                         method_2 = show.seasons[-1].episodes[-1].number
                     except IndexError:
@@ -464,11 +466,10 @@ class Downloader(Runner[None, DownloaderBase]):
                     )
                     found = True
 
-        if found and item.type in ("show", "season"):
-            item.active_stream = {
-                "infohash": download_result.infohash,
-                "id": download_result.info.id,
-            }
+        if found and isinstance(item, (Show, Season)):
+            item.active_stream = Stream(
+                torrent=download_result,
+            )
 
         return found
 

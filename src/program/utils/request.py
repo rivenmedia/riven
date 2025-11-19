@@ -1,3 +1,5 @@
+from collections.abc import Generator
+from datetime import datetime
 import json
 import random
 import ssl
@@ -5,6 +7,7 @@ import time
 import threading
 from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
+from typing import Any, cast
 from urllib.parse import urlparse
 from contextlib import closing
 
@@ -12,7 +15,6 @@ import httpx
 import requests
 from loguru import logger
 from lxml import etree
-from urllib3.util.retry import Retry
 
 
 class TokenBucket:
@@ -252,63 +254,6 @@ class SmartResponse(requests.Response):
         return element_to_simplenamespace(root)
 
 
-class LogRetry(Retry):
-    """Retry that logs Retry-After-derived sleep before the next retry."""
-
-    def increment(
-        self,
-        method=None,
-        url=None,
-        response=None,
-        error=None,
-        *_args,
-        **kwargs,
-    ):
-        """Let urllib3 compute the next retry state first"""
-
-        new_retry = super().increment(
-            method=method,
-            url=url,
-            response=response,
-            error=error,
-            *_args,
-            **kwargs,
-        )
-
-        try:
-            if response is not None and self.respect_retry_after_header:
-                ra = response.headers.get("Retry-After")
-
-                if ra:
-                    delay = None
-
-                    try:
-                        delay = int(ra)
-                    except ValueError:
-                        try:
-                            dt = parsedate_to_datetime(ra)
-                            delay = max(0, int(round(dt.timestamp() - time.time())))
-                        except Exception:
-                            delay = None
-
-                    # If parsing failed, fall back to exponential backoff time (for completeness)
-                    if delay is None:
-                        delay = new_retry.get_backoff_time() or 0
-
-                    status = getattr(response, "status", None) or getattr(
-                        response, "status_code", "unknown"
-                    )
-
-                    logger.warning(
-                        f"Retry-After detected for {method.upper()} {url}: status={status}, retrying in {int(round(delay))}s"
-                    )
-        except Exception:
-            # Never break the retry pipeline due to logging
-            pass
-
-        return new_retry
-
-
 class SmartSession:
     """
     SmartSession adds automatic SmartResponse wrapping, rate limiting, circuit breaker, proxies, and retries.
@@ -345,11 +290,21 @@ class SmartSession:
             retries (int): Number of retries for failed requests.
             backoff_factor (float): Backoff factor for retries.
         """
+
         # Tuned for higher concurrency and longer keep-alive to reduce reconnect overhead
         self._limits = httpx.Limits(
-            max_connections=200, max_keepalive_connections=100, keepalive_expiry=60.0
+            max_connections=200,
+            max_keepalive_connections=100,
+            keepalive_expiry=60.0,
         )
-        self._timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+
+        self._timeout = httpx.Timeout(
+            connect=5.0,
+            read=30.0,
+            write=10.0,
+            pool=5.0,
+        )
+
         # Reuse a single SSLContext per session to enable TLS session resumption and avoid repeated CA setup
         self._ssl_context = ssl.create_default_context()
 
@@ -360,7 +315,7 @@ class SmartSession:
                 proxies.get("http") or proxies.get("all") or proxies.get("all://")
             )
             https_proxy = proxies.get("https") or http_proxy
-            transports = {}
+            transports = dict[str, Any]()
 
             if http_proxy:
                 transports["http://"] = httpx.HTTPTransport(proxy=http_proxy)
@@ -385,6 +340,7 @@ class SmartSession:
         self.breakers: dict[str, CircuitBreaker] = {}
         self.retries = int(retries)
         self.backoff_factor = float(backoff_factor)
+
         # requests-compatible attributes that callers may set
         self.proxies = proxies or {}
         self.headers: dict[str, str] = {}
@@ -401,7 +357,7 @@ class SmartSession:
                 self.breakers[domain] = CircuitBreaker(name=domain)
 
     # --- public API ---
-    def request(self, method: str, url: str, **kwargs) -> SmartResponse:
+    def request(self, method: str, url: str, **kwargs: dict[Any, Any]) -> SmartResponse:
         """
         Make a request with automatic SmartResponse, rate limiting, and circuit breaker.
 
@@ -459,8 +415,9 @@ class SmartSession:
             req_timeout = self._client.timeout
 
         # Security/auth params (per-request verify/cert not supported by httpx; use client-level)
-        _ = kwargs.pop("verify", None)
-        _ = kwargs.pop("cert", None)
+        kwargs.pop("verify", None)
+        kwargs.pop("cert", None)
+
         auth = kwargs.pop("auth", self.auth)
         cookies = kwargs.pop("cookies", self.cookies)
 
@@ -482,7 +439,7 @@ class SmartSession:
                     or per_request_proxies.get("all://")
                 )
                 https_proxy = per_request_proxies.get("https") or http_proxy
-                transports = {}
+                transports = dict[str, Any]()
 
                 if http_proxy:
                     transports["http://"] = httpx.HTTPTransport(proxy=http_proxy)
@@ -538,23 +495,20 @@ class SmartSession:
                                 "; ".join(f"{k}={v}" for k, v in cookies.items()),
                             )
 
-                        req_kwargs: dict = {}
-
-                        for key in ("params", "data", "json", "files", "content"):
-                            if key in kwargs:
-                                req_kwargs[key] = kwargs[key]
-
                         req = active_client.build_request(
                             method.upper(),
                             url,
                             headers=headers,
-                            **req_kwargs,
+                            params=kwargs.get("params"),
+                            data=kwargs.get("data"),
+                            json=kwargs.get("json"),
+                            files=kwargs.get("files"),
+                            content=kwargs.get("content"),
                         )
 
                         hx_resp = active_client.send(
                             req,
                             stream=True,
-                            timeout=req_timeout,
                             auth=auth,
                             follow_redirects=follow_redirects,
                         )
@@ -577,7 +531,8 @@ class SmartSession:
                             time.sleep(delay)
                             continue
 
-                    resp = self._to_smart_response(hx_resp, url, stream=stream)
+                    response = self._to_smart_response(hx_resp, url, stream=stream)
+
                     # If we used a temporary client for per-request proxies, ensure it closes appropriately
                     if tmp_client is not None:
                         if stream:
@@ -592,20 +547,22 @@ class SmartSession:
                                     except Exception:
                                         pass
 
-                            resp.close = _close  # type: ignore[assignment]
+                            response.close = _close
+
                             # Prevent outer finally from closing the client prematurely
                             tmp_client = None
                         else:
                             # Non-streaming: active content is read; defer closing to outer finally or context manager
                             pass
+
                     success_for_breaker = not (
-                        resp.status_code == 429 or 500 <= resp.status_code < 600
+                        response.status_code == 429 or 500 <= response.status_code < 600
                     )
 
                     if breaker:
                         breaker.after_request(success_for_breaker)
 
-                    return resp
+                    return response
 
                 except httpx.TimeoutException as e:
                     if attempt <= self.retries:
@@ -638,37 +595,35 @@ class SmartSession:
         else:
             if tmp_client is not None:
                 try:
-                    resp = _run_with_client(client)
-                    return resp
+                    return _run_with_client(tmp_client)
                 finally:
                     # Close tmp_client if still owned here (not handed off for streaming)
-                    if tmp_client is not None:
-                        try:
-                            tmp_client.close()
-                        except Exception:
-                            pass
+                    try:
+                        tmp_client.close()
+                    except Exception:
+                        pass
             else:
                 return _run_with_client(client)
 
-    def get(self, url: str, **kwargs) -> SmartResponse:
+    def get(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
         return self.request("GET", url, **kwargs)
 
-    def post(self, url: str, **kwargs) -> SmartResponse:
+    def post(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
         return self.request("POST", url, **kwargs)
 
-    def put(self, url: str, **kwargs) -> SmartResponse:
+    def put(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
         return self.request("PUT", url, **kwargs)
 
-    def delete(self, url: str, **kwargs) -> SmartResponse:
+    def delete(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
         return self.request("DELETE", url, **kwargs)
 
-    def patch(self, url: str, **kwargs) -> SmartResponse:
+    def patch(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
         return self.request("PATCH", url, **kwargs)
 
-    def head(self, url: str, **kwargs) -> SmartResponse:
+    def head(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
         return self.request("HEAD", url, **kwargs)
 
-    def options(self, url: str, **kwargs) -> SmartResponse:
+    def options(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
         return self.request("OPTIONS", url, **kwargs)
 
     def close(self):
@@ -686,16 +641,18 @@ class SmartSession:
     # --- helpers ---
     def _to_smart_response(
         self,
-        hx_resp: httpx.Response,
+        httpx_response: httpx.Response,
         url: str,
         stream: bool = False,
     ) -> SmartResponse:
         """
         Convert httpx.Response to a SmartResponse (requests.Response subclass).
+
         If stream is True, avoid pre-reading content and provide lazy access via .content/.iter_content.
         """
+
         r = requests.Response()
-        r.status_code = hx_resp.status_code
+        r.status_code = httpx_response.status_code
 
         if stream:
             # Do not pre-read body; let .content or .iter_content consume it on demand
@@ -715,51 +672,59 @@ class SmartSession:
                     except Exception:
                         pass
 
-            r.raw = _RawAdapter(hx_resp)
+            r.raw = _RawAdapter(httpx_response)
 
             # Provide iter_content similar to requests
-            def _iter_content(chunk_size: int = 8192, decode_unicode: bool = False):
-                yield from hx_resp.iter_bytes(chunk_size=chunk_size)
+            def _iter_content(
+                chunk_size: int | None = 8192,
+                decode_unicode: bool = False,
+            ) -> Generator[bytes]:
+                yield from httpx_response.iter_bytes(chunk_size=chunk_size)
 
-            r.iter_content = _iter_content  # type: ignore[attr-defined]
+            r.iter_content = _iter_content
+
             # Ensure context manager closes underlying response
-            r.close = hx_resp.close  # type: ignore[assignment]
+            r.close = httpx_response.close
         else:
             # Non-streaming: read content now and release the connection promptly
-            r._content = hx_resp.content or b""
+            r._content = httpx_response.content or b""
+
             try:
-                hx_resp.close()
+                httpx_response.close()
             except Exception:
                 pass
 
         try:
-            r.headers.update(dict(hx_resp.headers))
+            r.headers.update(dict(httpx_response.headers))
         except Exception:
             pass
 
-        r.url = str(hx_resp.request.url) if hx_resp.request is not None else url
-        r.reason = hx_resp.reason_phrase
+        r.url = str(httpx_response.request.url)
+        r.reason = httpx_response.reason_phrase
 
-        if hx_resp.encoding:
-            r.encoding = hx_resp.encoding
+        if httpx_response.encoding:
+            r.encoding = httpx_response.encoding
 
         r.__class__ = SmartResponse
 
-        return r
+        return cast(SmartResponse, r)
 
-    def _compute_retry_delay(self, hx_resp: httpx.Response, attempt: int) -> float:
+    def _compute_retry_delay(
+        self, httpx_response: httpx.Response, attempt: int
+    ) -> float:
         # Honor Retry-After if present
 
         try:
-            ra = hx_resp.headers.get("Retry-After")
+            ra = httpx_response.headers.get("Retry-After")
         except Exception:
             ra = None
+
         if ra:
             try:
                 return max(0.0, float(int(ra)))
             except Exception:
                 try:
-                    dt = parsedate_to_datetime(ra)
+                    dt = cast(datetime | None, parsedate_to_datetime(ra))
                     return max(0.0, float(int(round(dt.timestamp() - time.time()))))
                 except Exception:
                     pass
@@ -767,7 +732,9 @@ class SmartSession:
         return self._backoff(attempt)
 
     def _backoff(self, attempt: int) -> float:
-        """Exponential backoff with equal jitter to reduce thundering herds.
+        """
+        Exponential backoff with equal jitter to reduce thundering herds.
+
         See: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
         """
 

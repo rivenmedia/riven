@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from loguru import logger
+from pydantic import BaseModel
 
 from program.services.downloaders.models import (
     DebridFile,
@@ -15,6 +16,21 @@ from program.settings.manager import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
+
+
+class AllDebridFile(BaseModel):
+    """Represents a file in AllDebrid's torrent structure."""
+
+    n: str  # Name
+    s: int  # Size in bytes
+    l: str  # Download link
+
+
+class AllDebridDirectory(BaseModel):
+    """Represents a directory in AllDebrid's torrent structure."""
+
+    n: str  # Name
+    e: list[AllDebridFile | AllDebridDirectory]  # Entries (files and subdirectories)
 
 
 class AllDebridError(Exception):
@@ -34,6 +50,7 @@ class AllDebridAPI:
             api_key: AllDebrid API key.
             proxy_url: Optional proxy URL used for both HTTP and HTTPS.
         """
+
         self.api_key = api_key
         self.proxy_url = proxy_url
 
@@ -41,8 +58,10 @@ class AllDebridAPI:
         # Using conservative 10 req/sec (600 capacity)
         rate_limits = {"api.alldebrid.com": {"rate": 10, "capacity": 600}}
         proxies = None
+
         if proxy_url:
             proxies = {"http": proxy_url, "https": proxy_url}
+
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
@@ -50,6 +69,7 @@ class AllDebridAPI:
             retries=2,
             backoff_factor=0.5,
         )
+
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
 
 
@@ -105,55 +125,67 @@ class AllDebridDownloader(DownloaderBase):
         """
         try:
             user_info = self.get_user_info()
+
             if not user_info:
                 logger.error("Failed to get AllDebrid user info")
                 return False
+
             if user_info.premium_status != "premium":
                 logger.error("AllDebrid premium membership required")
                 return False
+
             if user_info.premium_expires_at:
                 logger.info(premium_days_left(user_info.premium_expires_at))
+
             return True
         except Exception as e:
             logger.error(f"Failed to validate AllDebrid premium status: {e}")
             return False
 
-    def _handle_error(self, resp: SmartResponse) -> str:
+    def _handle_error(self, response: SmartResponse) -> str:
         """
         Map HTTP status codes and AllDebrid error codes to error messages.
         """
-        status = resp.status_code
-        if status == 400:
-            return "Bad request"
-        elif status == 401:
-            return "Unauthorized - check API key"
-        elif status == 403:
-            return "Forbidden"
-        elif status == 404:
-            return "Not found"
-        elif status == 429:
-            return "Rate limit exceeded"
-        elif status >= 500:
-            return "AllDebrid server error"
-        else:
-            # AllDebrid returns errors in data.error.message format
-            if hasattr(resp.data, "error"):
-                error = resp.data.error
-                if hasattr(error, "message"):
-                    return error.message
-                elif hasattr(error, "code"):
-                    return error.code
-            return f"HTTP {status}"
 
-    def _maybe_backoff(self, resp: SmartResponse) -> None:
+        status = response.status_code
+
+        match status:
+            case 400:
+                return "Bad request"
+            case 401:
+                return "Unauthorized - check API key"
+            case 403:
+                return "Forbidden"
+            case 404:
+                return "Not found"
+            case 429:
+                return "Rate limit exceeded"
+            case _ if status >= 500:
+                return "AllDebrid server error"
+            case _:
+                # AllDebrid returns errors in data.error.message format
+                if hasattr(response.data, "error"):
+                    error = response.data.error
+
+                    if hasattr(error, "message"):
+                        return error.message
+                    elif hasattr(error, "code"):
+                        return error.code
+
+                return f"HTTP {status}"
+
+    def _maybe_backoff(self, response: SmartResponse) -> None:
         """
         Check if we should back off based on response.
         """
-        if resp.status_code == 429:
+
+        if response.status_code == 429:
             logger.warning("AllDebrid rate limit hit, backing off")
 
     def get_instant_availability(
-        self, infohash: str, item_type: str
+        self,
+        infohash: str,
+        item_type: str,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -162,7 +194,7 @@ class AllDebridDownloader(DownloaderBase):
         AllDebrid doesn't have a separate cache check endpoint,
         so we add the magnet and check its status.
         """
-        container: TorrentContainer | None = None
+
         torrent_id: int | None = None
 
         try:
@@ -170,8 +202,10 @@ class AllDebridDownloader(DownloaderBase):
             container, reason, info = self._process_torrent(
                 torrent_id, infohash, item_type
             )
+
             if container is None and reason:
                 logger.debug(f"Availability check failed [{infohash}]: {reason}")
+
                 # Failed validation - delete the torrent
                 if torrent_id:
                     try:
@@ -180,6 +214,7 @@ class AllDebridDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
+
                 return None
 
             # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
@@ -191,37 +226,45 @@ class AllDebridDownloader(DownloaderBase):
 
         except CircuitBreakerOpen:
             logger.debug(f"Circuit breaker OPEN for AllDebrid; skipping {infohash}")
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             raise
         except AllDebridError as e:
             logger.warning(f"Availability check failed [{infohash}]: {e}")
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             return None
         except InvalidDebridFileException as e:
             logger.debug(
                 f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
             )
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             return None
         except Exception as e:
             logger.debug(f"Availability check failed [{infohash}]: {e}")
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             return None
 
     def _process_torrent(
@@ -238,6 +281,7 @@ class AllDebridDownloader(DownloaderBase):
         """
 
         info = self.get_torrent_info(torrent_id)
+
         if not info:
             return None, "no torrent info returned by AllDebrid", None
 
@@ -253,6 +297,7 @@ class AllDebridDownloader(DownloaderBase):
             return None, "no files present in the torrent", None
 
         files = list[DebridFile]([])
+
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
         self._extract_files_recursive(files_data, item_type, files, infohash)
@@ -265,9 +310,9 @@ class AllDebridDownloader(DownloaderBase):
 
     def _add_link_to_files_recursive(
         self,
-        files: list,
+        files: list[AllDebridFile | AllDebridDirectory],
         download_link: str,
-        result: list,
+        result: list[AllDebridFile],
     ) -> None:
         """
         Recursively process files/folders and add download link to actual files.
@@ -280,29 +325,27 @@ class AllDebridDownloader(DownloaderBase):
 
         We need to find the actual files (those with 's' field) and add the 'l' field.
         """
+
         for file_obj in files:
-            # Check if this is a folder (has 'e' field with entries)
-            entries = getattr(file_obj, "e", None)
-            if entries and isinstance(entries, list):
+            if isinstance(file_obj, AllDebridDirectory):
                 # This is a folder, recurse into it
-                self._add_link_to_files_recursive(entries, download_link, result)
+                self._add_link_to_files_recursive(
+                    files=file_obj.e,
+                    download_link=download_link,
+                    result=result,
+                )
             else:
-                # This is a file, add the download link
-                file_with_link = type(
-                    "obj",
-                    (object,),
-                    {
-                        "n": getattr(file_obj, "n", ""),
-                        "s": getattr(file_obj, "s", 0),
-                        "e": None,
-                        "l": download_link,
-                    },
-                )()
-                result.append(file_with_link)
+                result.append(
+                    AllDebridFile(
+                        n=file_obj.n,
+                        s=file_obj.s,
+                        l=download_link,
+                    )
+                )
 
     def _extract_files_recursive(
         self,
-        file_list: list,
+        file_list: list[AllDebridFile | AllDebridDirectory],
         item_type: str,
         files: list[DebridFile],
         infohash: str,
@@ -317,22 +360,24 @@ class AllDebridDownloader(DownloaderBase):
         - 'l' (link): download link (only for files, not folders)
         - 'e' (entries): array of nested files/folders (only for folders)
         """
-        for file_entry in file_list:
-            name = getattr(file_entry, "n", "")
-            entries = getattr(file_entry, "e", None)
 
+        for file_entry in file_list:
+            name = file_entry.n
             current_path = f"{path_prefix}/{name}" if path_prefix else name
 
-            # Check if this is a folder (has entries) or a file (has link)
-            if entries and isinstance(entries, list):
+            if isinstance(file_entry, AllDebridDirectory):
                 # This is a folder, recurse into it
                 self._extract_files_recursive(
-                    entries, item_type, files, infohash, current_path
+                    file_list=file_entry.e,
+                    item_type=item_type,
+                    files=files,
+                    infohash=infohash,
+                    path_prefix=current_path,
                 )
             else:
                 # This is a file - it should have 'l' (link) and 's' (size)
-                link = getattr(file_entry, "l", "")
-                size = getattr(file_entry, "s", 0)
+                link = file_entry.l
+                size = file_entry.s
 
                 if not link:
                     continue
@@ -363,20 +408,25 @@ class AllDebridDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             AllDebridError: If the API returns a failing status.
         """
+
         magnet_url = f"magnet:?xt=urn:btih:{infohash}"
-        resp: SmartResponse = self.api.session.post(
-            "magnet/upload", data={"magnets[]": magnet_url}
+        response = self.api.session.post(
+            "magnet/upload",
+            data={"magnets[]": magnet_url},
         )
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise AllDebridError(self._handle_error(resp))
+        self._maybe_backoff(response)
+
+        if not response.ok:
+            raise AllDebridError(self._handle_error(response))
 
         # AllDebrid API returns {status: "success", data: {magnets: [{id: ...}]}}
-        data = resp.data
+        data = response.data
+
         if not hasattr(data, "data"):
             raise AllDebridError("Invalid response format from AllDebrid")
 
         magnets = getattr(data.data, "magnets", None)
+
         if not magnets:
             raise AllDebridError("No magnet ID returned by AllDebrid")
 
@@ -384,12 +434,14 @@ class AllDebridDownloader(DownloaderBase):
         if isinstance(magnets, list):
             if len(magnets) == 0:
                 raise AllDebridError("No magnet ID returned by AllDebrid")
+
             magnet_info = magnets[0]
         else:
             # Single SimpleNamespace object
             magnet_info = magnets
 
         magnet_id = getattr(magnet_info, "id", None)
+
         if not magnet_id:
             raise AllDebridError("No magnet ID in response")
 
@@ -402,36 +454,42 @@ class AllDebridDownloader(DownloaderBase):
         Note: AllDebrid doesn't require explicit file selection.
         Files are automatically available once the magnet is ready.
         """
+
         pass
 
-    def _get_magnet_files(self, magnet_id: int) -> list | None:
+    def _get_magnet_files(
+        self,
+        magnet_id: int,
+    ) -> list[AllDebridFile | AllDebridDirectory] | None:
         """
         Get the files and download links for a magnet.
 
         Returns:
             list of file objects with 'n' (name), 's' (size), 'l' (link), and optionally 'e' (entries) fields.
         """
+
         try:
             # Get the magnet status which includes links
-            status_resp: SmartResponse = self.api.session.post(
+            response = self.api.session.post(
                 "magnet/status", data={"id": str(magnet_id)}
             )
-            self._maybe_backoff(status_resp)
+            self._maybe_backoff(response)
 
-            if not status_resp.ok:
+            if not response.ok:
                 return None
 
-            status_data = status_resp.data
+            data = response.data
 
             # Check for error
-            if hasattr(status_data, "error"):
+            if hasattr(data, "error"):
                 return None
 
-            if not hasattr(status_data, "data"):
+            if not hasattr(data, "data"):
                 return None
 
             # Get magnets from status response
-            magnets = getattr(status_data.data, "magnets", None)
+            magnets = getattr(data.data, "magnets", None)
+
             if not magnets:
                 return None
 
@@ -439,6 +497,7 @@ class AllDebridDownloader(DownloaderBase):
             if isinstance(magnets, list):
                 if len(magnets) == 0:
                     return None
+
                 magnet_obj = magnets[0]
             else:
                 magnet_obj = magnets
@@ -447,8 +506,10 @@ class AllDebridDownloader(DownloaderBase):
             # Structure: links[].link = download URL, links[].files = file/folder objects
             # For season packs: links[].files[0].e = array of episode files
             links = getattr(magnet_obj, "links", None)
+
             if links and isinstance(links, list) and len(links) > 0:
                 all_files = []
+
                 for link_obj in links:
                     download_link = getattr(link_obj, "link", None)
                     link_files = getattr(link_obj, "files", None)
@@ -482,19 +543,21 @@ class AllDebridDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             AllDebridError: If the API returns a failing status.
         """
-        # AllDebrid API expects ID as string
-        resp: SmartResponse = self.api.session.post(
-            "magnet/status", data={"id": str(torrent_id)}
-        )
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise AllDebridError(self._handle_error(resp))
 
-        data = resp.data
+        # AllDebrid API expects ID as string
+        response = self.api.session.post("magnet/status", data={"id": str(torrent_id)})
+        self._maybe_backoff(response)
+
+        if not response.ok:
+            raise AllDebridError(self._handle_error(response))
+
+        data = response.data
+
         if not hasattr(data, "data"):
             raise AllDebridError("Invalid response format from AllDebrid")
 
         magnets = getattr(data.data, "magnets", None)
+
         if not magnets:
             raise AllDebridError(f"Magnet {torrent_id} not found")
 
@@ -502,6 +565,7 @@ class AllDebridDownloader(DownloaderBase):
         if isinstance(magnets, list):
             if len(magnets) == 0:
                 raise AllDebridError(f"Magnet {torrent_id} not found")
+
             magnet_data = magnets[0]
         else:
             # Single SimpleNamespace object
@@ -556,13 +620,13 @@ class AllDebridDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             AllDebridError: If the API returns a failing status.
         """
+
         # AllDebrid API expects ID as string
-        resp: SmartResponse = self.api.session.post(
-            "magnet/delete", data={"id": str(torrent_id)}
-        )
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise AllDebridError(self._handle_error(resp))
+        response = self.api.session.post("magnet/delete", data={"id": str(torrent_id)})
+        self._maybe_backoff(response)
+
+        if not response.ok:
+            raise AllDebridError(self._handle_error(response))
 
     def unrestrict_link(self, link: str) -> object | None:
         """
@@ -574,15 +638,16 @@ class AllDebridDownloader(DownloaderBase):
         Returns:
             Object with 'download', 'filename', 'filesize' attributes, or None on error.
         """
+
         try:
-            resp: SmartResponse = self.api.session.get(
-                "link/unlock", params={"link": link}
-            )
-            self._maybe_backoff(resp)
-            if not resp.ok:
+            response = self.api.session.get("link/unlock", params={"link": link})
+            self._maybe_backoff(response)
+
+            if not response.ok:
                 return None
 
-            data = resp.data
+            data = response.data
+
             if not hasattr(data, "data"):
                 return None
 
@@ -593,11 +658,10 @@ class AllDebridDownloader(DownloaderBase):
                 return None
 
             # Return an object with attributes (matching RealDebrid's format)
-            class UnrestrictedLink:
-                def __init__(self, download, filename, filesize):
-                    self.download = download
-                    self.filename = filename
-                    self.filesize = filesize
+            class UnrestrictedLink(BaseModel):
+                download: str
+                filename: str
+                filesize: int
 
             return UnrestrictedLink(
                 download=unrestricted_url,
@@ -616,17 +680,20 @@ class AllDebridDownloader(DownloaderBase):
             UserInfo with normalized fields, or None on error.
         """
         try:
-            resp: SmartResponse = self.api.session.get("user")
-            self._maybe_backoff(resp)
-            if not resp.ok:
-                logger.error(f"Failed to get user info: {self._handle_error(resp)}")
+            response = self.api.session.get("user")
+            self._maybe_backoff(response)
+
+            if not response.ok:
+                logger.error(f"Failed to get user info: {self._handle_error(response)}")
                 return None
 
-            data = resp.data
+            data = response.data
+
             if not hasattr(data, "data"):
                 return None
 
             user_data = getattr(data.data, "user", None)
+
             if not user_data:
                 return None
 
@@ -637,6 +704,7 @@ class AllDebridDownloader(DownloaderBase):
 
             if is_premium:
                 premium_until = getattr(user_data, "premiumUntil", 0)
+
                 if premium_until > 0:
                     premium_expires_at = datetime.fromtimestamp(
                         premium_until, tz=timezone.utc

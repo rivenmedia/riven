@@ -48,7 +48,12 @@ class MediaItem(BaseDbModel):
     indexed_at: Mapped[datetime | None]
     scraped_at: Mapped[datetime | None]
     scraped_times: Mapped[int] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[Stream | None] = mapped_column(sqlalchemy.JSON, nullable=True)
+    active_stream: Mapped[Stream | None] = relationship(
+        secondary="ActiveStreamRelation",
+        back_populates="active_parents",
+        lazy="selectin",
+        cascade="all",
+    )
     streams: Mapped[list[Stream]] = relationship(
         secondary="StreamRelation",
         back_populates="parents",

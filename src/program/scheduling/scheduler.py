@@ -25,7 +25,7 @@ from program.settings.manager import settings_manager
 from program.types import Event
 from program.utils.logging import log_cleaner, logger
 from program.apis.tvdb_api import SeriesRelease
-from src.schemas.tvdb.models.series_airs_days import SeriesAirsDays
+from schemas.tvdb.models.series_airs_days import SeriesAirsDays
 
 if TYPE_CHECKING:
     from program.program import Program

@@ -1,6 +1,5 @@
 """Mdblist content module"""
 
-from collections.abc import Generator
 from kink import di
 from loguru import logger
 

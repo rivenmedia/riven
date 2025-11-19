@@ -31,7 +31,11 @@ class LoguruHandler(logging.Handler):
 
 # Alembic configuration
 config = context.config
-config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.host))
+config.set_main_option(
+    "sqlalchemy.url",
+    "postgresql+psycopg2://postgres:rkApFWOCN5hbNVYor9qLanWoplYqSP6N@localhost:5432/riven",
+)
+# config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.host))
 
 # Set MetaData object for autogenerate support
 target_metadata = db.Model.metadata
@@ -90,6 +94,8 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
+    logger.debug(f"Connecting to database at {connectable.url}, {configuration}")
 
     with connectable.connect() as connection:
         connection = connection.execution_options(isolation_level="AUTOCOMMIT")

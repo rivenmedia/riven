@@ -45,9 +45,9 @@ class RealDebridAPI:
 
         # 250 req/min ~= 4.17 rps with capacity 250
         rate_limits = {"api.real-debrid.com": {"rate": 250 / 60, "capacity": 250}}
-        proxies = None
-        if proxy_url:
-            proxies = {"http": proxy_url, "https": proxy_url}
+
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
@@ -62,7 +62,7 @@ class RealDebridDownloader(DownloaderBase):
     """
     Real-Debrid downloader with lean exception handling.
 
-    Notes on failure & breaker behavior:
+    Notes on failure & breaker behaviour:
     - Network/transport failures are retried by SmartSession, then counted against the per-domain
       CircuitBreaker; once OPEN, SmartSession raises CircuitBreakerOpen before the request.
     - HTTP status codes are not exceptions; we check response.ok and map to messages via _handle_error(...).
@@ -86,6 +86,7 @@ class RealDebridDownloader(DownloaderBase):
 
         proxy_url = self.PROXY_URL or None
         self.api = RealDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
+
         return self._validate_premium()
 
     def _validate_settings(self) -> bool:
@@ -93,11 +94,14 @@ class RealDebridDownloader(DownloaderBase):
         Returns:
             True when enabled and API key present; otherwise False.
         """
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.api_key:
             logger.warning("Real-Debrid API key is not set")
             return False
+
         return True
 
     def _validate_premium(self) -> bool:
@@ -105,12 +109,15 @@ class RealDebridDownloader(DownloaderBase):
         Returns:
             True if premium membership is active; otherwise False.
         """
+
         user_info = self.get_user_info()
+
         if not user_info.premium_status:
             logger.error("Premium membership required")
             return False
 
         logger.info(premium_days_left(user_info.premium_expires_at))
+
         return True
 
     def get_instant_availability(
@@ -210,7 +217,9 @@ class RealDebridDownloader(DownloaderBase):
         Returns:
             (TorrentContainer or None, human-readable reason string if None, TorrentInfo or None)
         """
+
         info = self.get_torrent_info(torrent_id)
+
         if not info:
             return None, "no torrent info returned by Real-Debrid", None
 
@@ -224,6 +233,7 @@ class RealDebridDownloader(DownloaderBase):
                 for file_id, meta in info.files.items()
                 if meta["filename"].lower().endswith(video_exts)
             ]
+
             if not video_ids:
                 return None, "no video files found to select", None
 
@@ -233,11 +243,13 @@ class RealDebridDownloader(DownloaderBase):
             # Refresh info - REQUIRED to verify torrent is actually downloaded after selection
             # Real-Debrid may still be processing, so we need to check the actual status
             info = self.get_torrent_info(torrent_id)
+
             if not info:
                 return None, "failed to refresh torrent info after selection", None
 
         if info.status == "downloaded":
             files: list[DebridFile] = []
+
             for file_id, meta in info.files.items():
                 if meta.get("selected", 0) != 1:
                     continue
@@ -254,6 +266,7 @@ class RealDebridDownloader(DownloaderBase):
                     if isinstance(df, DebridFile):
                         # Download URL is already available from get_torrent_info()
                         download_url = meta.get("download_url", "")
+
                         if download_url:  # Empty string is falsy, so this works
                             df.download_url = download_url
                             logger.debug(
@@ -263,11 +276,11 @@ class RealDebridDownloader(DownloaderBase):
                             logger.warning(
                                 f"No download URL available for {meta['filename']}"
                             )
+
                         files.append(df)
                 except InvalidDebridFileException as e:
-                    logger.debug(
-                        f"{infohash}: {e}"
-                    )  # noisy per-file details kept at debug
+                    # noisy per-file details kept at debug
+                    logger.debug(f"{infohash}: {e}")
 
             if not files:
                 return None, "no valid files after validation", None
@@ -307,12 +320,15 @@ class RealDebridDownloader(DownloaderBase):
             "torrents/addMagnet", data={"magnet": magnet.lower()}
         )
         self._maybe_backoff(response)
+
         if not response.ok:
             raise RealDebridError(self._handle_error(response))
 
         tid = getattr(response.data, "id", None)
+
         if not tid:
             raise RealDebridError("No torrent ID returned by Real-Debrid.")
+
         return tid
 
     def select_files(self, torrent_id: str, ids: list[int] | None = None) -> None:
@@ -517,13 +533,14 @@ class RealDebridDownloader(DownloaderBase):
             UserInfo: Normalized user information including premium status and expiration
         """
         try:
-            resp: SmartResponse = self.api.session.get("user")
-            self._maybe_backoff(resp)
-            if not resp.ok:
-                logger.error(f"Failed to get user info: {self._handle_error(resp)}")
+            response = self.api.session.get("user")
+            self._maybe_backoff(response)
+
+            if not response.ok:
+                logger.error(f"Failed to get user info: {self._handle_error(response)}")
                 return None
 
-            data = resp.data
+            data = response.data
 
             # Parse expiration datetime
             expiration = None

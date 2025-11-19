@@ -41,11 +41,11 @@ class BaseIndexer(Runner[IndexerModel]):
             target.set(attr, getattr(source, attr, None))
 
     def copy_items[T: MediaItem](self, item_a: MediaItem, item_b: T) -> T:
-        """Copy attributes from itema to itemb recursively."""
+        """Copy attributes from item A to item B recursively."""
 
         is_anime = item_a.is_anime or item_b.is_anime
 
-        if isinstance(item_a, MediaItem) and isinstance(item_b, Show):
+        if isinstance(item_b, Show):
             item_a.seasons = item_b.seasons
 
         if isinstance(item_b, Show) and not isinstance(item_a, Movie):

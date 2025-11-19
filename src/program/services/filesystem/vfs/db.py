@@ -94,10 +94,13 @@ class VFSDatabase:
                 - `modified`: ISO 8601 modification timestamp or `None` if not available.
             None: If no entry exists and the path does not correspond to any virtual directory.
         """
+
         path = self._norm(path)
+
         with db_session() as s:
             # Query FilesystemEntry for virtual files only
             fe = s.query(FilesystemEntry).filter_by(path=path).one_or_none()
+
             if fe:
                 return {
                     "virtual_path": fe.path,
@@ -159,10 +162,11 @@ class VFSDatabase:
                 - created (str|None): ISO 8601 timestamp of creation, or None if not available.
                 - modified (str|None): ISO 8601 timestamp of last modification, or None if not available.
         """
+
         path = self._norm(path)
         prefix = "/" if path == "/" else path + "/"
         out: list[VFSEntry] = []
-        seen_names = set()
+        seen_names = set[str]()
 
         with db_session() as s:
             # Query all FilesystemEntry records under this path

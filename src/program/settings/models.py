@@ -387,7 +387,7 @@ class FilesystemModel(Observable):
         "season_dir_template",
         "episode_file_template",
     )
-    def validate_naming_template(cls, v: str, info) -> str:
+    def validate_naming_template(cls, v: str) -> str:
         """Validate that naming template string is syntactically valid."""
         from string import Formatter
 
@@ -400,6 +400,7 @@ class FilesystemModel(Observable):
                     if "[" in key and "]" in key:
                         parts = key.replace("]", "").split("[")
                         value = kwargs.get(parts[0], {})
+
                         for part in parts[1:]:
                             if isinstance(value, dict):
                                 value = value.get(part, "")
@@ -411,14 +412,18 @@ class FilesystemModel(Observable):
                                     value = ""
                             else:
                                 value = ""
+
                         return value or ""
+
                     # Simple key access
                     return kwargs.get(key, "")
+
                 return super().get_value(key, args, kwargs)
 
-            def format_field(self, value, format_spec):
+            def format_field(self, value: str | None, format_spec: str):
                 if value is None or value == "":
                     return ""
+
                 return super().format_field(value, format_spec)
 
         try:
@@ -452,7 +457,9 @@ class FilesystemModel(Observable):
                 "directors_cut": "Director's Cut",
                 "edition": "Extended Director's Cut",
             }
+
             formatter.format(v, **test_data)
+
             return v
         except Exception as e:
             raise ValueError(f"Invalid naming template syntax: {e}")
@@ -465,9 +472,10 @@ class Updatable(Observable):
     update_interval: int = Field(default=80, description="Update interval in seconds")
 
     @field_validator("update_interval")
-    def check_update_interval(cls, v):
+    def check_update_interval(cls, v: int):
         if v < (limit := 5):
             raise ValueError(f"update_interval must be at least {limit} seconds")
+
         return v
 
 
@@ -541,7 +549,7 @@ class MdblistModel(Updatable):
     enabled: bool = Field(default=False, description="Enable MDBList integration")
     api_key: str = Field(default="", description="MDBList API key")
     lists: list[int | str] = Field(
-        default_factory=list, description="MDBList list IDs to monitor"
+        default_factory=list[int | str], description="MDBList list IDs to monitor"
     )
     update_interval: int = Field(
         default=86400, ge=1, description="Update interval in seconds (24 hours default)"
@@ -906,9 +914,10 @@ class LoggingModel(Observable):
     )
 
     @field_validator("compression", mode="before")
-    def check_compression(cls, v):
+    def check_compression(cls, v: str | None):
         if v == "" or not v:
             return "disabled"
+
         return v
 
 

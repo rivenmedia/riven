@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 import regex
 from pydantic import BaseModel, Field
@@ -42,12 +42,12 @@ episode_max_filesize = settings_manager.settings.downloaders.episode_filesize_mb
 # constraints for filesizes, follows the format tuple(min, max)
 FILESIZE_MOVIE_CONSTRAINT = (
     movie_min_filesize,
-    movie_max_filesize,
+    movie_max_filesize if movie_max_filesize > 0 else None,
 )
 
 FILESIZE_EPISODE_CONSTRAINT = (
     episode_min_filesize,
-    episode_max_filesize,
+    episode_max_filesize if episode_max_filesize > 0 else None,
 )
 
 
@@ -74,16 +74,16 @@ class DebridFile(BaseModel):
     @classmethod
     def create(
         cls,
+        filesize_bytes: int,
         path: str | None = None,
         filename: str | None = None,
-        filesize_bytes: int | None = None,
         filetype: Literal["movie", "show", "season", "episode"] | None = None,
         file_id: int | None = None,
         limit_filesize: bool = True,
     ) -> "DebridFile | None":
         """Factory method to validate and create a DebridFile"""
 
-        filename_lower = filename.lower()
+        filename_lower = filename.lower() if filename else ""
 
         if "sample" in filename_lower:
             raise InvalidDebridFileException(f"Skipping sample file: '{filename}'")
@@ -101,7 +101,7 @@ class DebridFile(BaseModel):
                 if not (
                     FILESIZE_MOVIE_CONSTRAINT[0]
                     <= filesize_mb
-                    <= FILESIZE_MOVIE_CONSTRAINT[1]
+                    <= (FILESIZE_MOVIE_CONSTRAINT[1] or float("inf"))
                 ):
                     raise InvalidDebridFileException(
                         f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_MOVIE_CONSTRAINT[0]}MB to {FILESIZE_MOVIE_CONSTRAINT[1]}MB"
@@ -110,7 +110,7 @@ class DebridFile(BaseModel):
                 if not (
                     FILESIZE_EPISODE_CONSTRAINT[0]
                     <= filesize_mb
-                    <= FILESIZE_EPISODE_CONSTRAINT[1]
+                    <= (FILESIZE_EPISODE_CONSTRAINT[1] or float("inf"))
                 ):
                     raise InvalidDebridFileException(
                         f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_EPISODE_CONSTRAINT[0]}MB to {FILESIZE_EPISODE_CONSTRAINT[1]}MB"
@@ -140,15 +140,18 @@ class TorrentContainer(BaseModel):
     @property
     def cached(self) -> bool:
         """Check if the torrent is cached"""
+
         return len(self.files) > 0
 
     @property
     def file_ids(self) -> list[int]:
         """Get the file ids of the cached files"""
+
         return [file.file_id for file in self.files if file.file_id is not None]
 
-    def to_dict(self) -> dict[str, str | dict]:
+    def to_dict(self) -> dict[str, str | dict[str, Any]]:
         """Convert the TorrentContainer to a dictionary including the infohash"""
+
         return {
             "infohash": self.infohash,
             "files": {file.file_id: file.to_dict() for file in self.files if file},
@@ -180,11 +183,13 @@ class TorrentInfo(BaseModel):
     @property
     def size_mb(self) -> float:
         """Convert bytes to megabytes"""
+
         return self.bytes / 1_000_000 if self.bytes else 0
 
     @property
     def cached(self) -> bool:
         """Check if the torrent is cached"""
+
         return len(self.files) > 0
 
     @property

@@ -58,13 +58,13 @@ class TMDBIndexer(BaseIndexer):
                 yield RunnerResult(media_items=[item])
                 return
 
-        # Scenario 2: Reindexing existing Movie - update in-place
+        # Scenario 2: Re-indexing existing Movie - update in-place
         elif isinstance(in_item, Movie):
             if self._update_movie_metadata(in_item):
                 in_item.indexed_at = datetime.now()
                 if log_msg:
                     logger.debug(
-                        f"Reindexed Movie {in_item.log_string} (IMDB: {in_item.imdb_id}, TMDB: {in_item.tmdb_id})"
+                        f"Re-indexed Movie {in_item.log_string} (IMDB: {in_item.imdb_id}, TMDB: {in_item.tmdb_id})"
                     )
 
                 yield RunnerResult(media_items=[in_item])
