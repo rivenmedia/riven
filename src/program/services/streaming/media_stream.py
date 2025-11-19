@@ -3,11 +3,10 @@ import trio_util
 import pyfuse3
 import httpx
 
-from dataclasses import dataclass
 from functools import cached_property
 from contextlib import asynccontextmanager
 from loguru import logger
-from typing import Literal
+from typing import Any, Literal
 from http import HTTPStatus
 from kink import di
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -249,7 +248,7 @@ class MediaStream:
         self,
         position: int,
         *,
-        task_status=trio.TASK_STATUS_IGNORED,
+        task_status: trio.TaskStatus = trio.TASK_STATUS_IGNORED,
     ) -> None:
         has_started = False
 
@@ -742,7 +741,7 @@ class MediaStream:
 
         if settings_manager.settings.enable_network_tracing:
 
-            async def trace_log(event_name, info):
+            async def trace_log(event_name: str, info: Any):
                 logger.log(
                     "NETWORK",
                     self.build_log_message(f"{event_name} - {info}"),

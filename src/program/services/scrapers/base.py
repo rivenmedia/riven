@@ -1,6 +1,6 @@
 import hashlib
 from abc import abstractmethod
-from typing import TypeVar
+from typing import Literal, TypeVar, cast
 
 import bencodepy
 from loguru import logger
@@ -27,7 +27,7 @@ class ScraperService(Runner[T]):
 
     requires_imdb_id: bool = False
 
-    def __init__(self, service_name):
+    def __init__(self, service_name: str):
         self.key = service_name
         self.initialized = False
 
@@ -49,7 +49,9 @@ class ScraperService(Runner[T]):
     def scrape(self, item: MediaItem) -> dict[str, str]: ...
 
     @staticmethod
-    def get_stremio_identifier(item: MediaItem) -> tuple[str | None, str, str]:
+    def get_stremio_identifier(
+        item: MediaItem,
+    ) -> tuple[str | None, Literal["series", "movie"], str | None]:
         """
         Get the Stremio identifier for a given item.
 
@@ -108,9 +110,10 @@ class ScraperService(Runner[T]):
             # If it's a successful response, try to parse as torrent file
             if r.status_code == 200:
                 try:
-                    torrent_dict = bencodepy.decode(r.content)
+                    torrent_dict = cast(dict[bytes, bytes], bencodepy.decode(r.content))
                     info = torrent_dict[b"info"]
                     infohash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
+
                     return infohash.lower()
                 except Exception:
                     # Not a valid torrent file, try to extract from URL

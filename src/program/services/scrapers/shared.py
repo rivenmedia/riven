@@ -1,5 +1,6 @@
 """Shared functions for scrapers."""
 
+from datetime import datetime
 from loguru import logger
 from RTN import (
     RTN,
@@ -21,8 +22,10 @@ ranking_model: BaseRankingModel = DefaultRanking()
 rtn = RTN(ranking_settings, ranking_model)
 
 
-def _parse_results(
-    item: MediaItem, results: dict[str, str], log_msg: bool = True
+def parse_results(
+    item: MediaItem,
+    results: dict[str, str],
+    log_msg: bool = True,
 ) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
 
@@ -30,13 +33,11 @@ def _parse_results(
     processed_infohashes: set[str] = set()
     correct_title: str = item.get_top_title()
 
-    aliases: dict[str, list[str]] = (
-        item.get_aliases() if scraping_settings.enable_aliases else {}
+    aliases = (
+        {k: v for k, v in a.items() if k not in ranking_settings.languages.exclude}
+        if scraping_settings.enable_aliases and (a := item.get_aliases())
+        else {}
     )
-    # we should remove keys from aliases if we are excluding the language
-    aliases = {
-        k: v for k, v in aliases.items() if k not in ranking_settings.languages.exclude
-    }
 
     logger.debug(f"Processing {len(results)} results for {item.log_string}")
 
@@ -151,14 +152,19 @@ def _parse_results(
                 # If country is present, then check to make sure it's correct. (Covers: US, UK, NZ, AU)
                 if (
                     torrent.data.country
-                    and torrent.data.country not in _get_item_country(item)
+                    and (item_country := _get_item_country(item))
+                    and torrent.data.country not in item_country
                 ):
                     logger.trace(
                         f"Skipping torrent for incorrect country with {item.log_string}: {raw_title}"
                     )
                     continue
 
-            if torrent.data.year and not _check_item_year(item, torrent.data):
+            if (
+                torrent.data.year
+                and item.aired_at
+                and not _check_item_year(item.aired_at, torrent.data)
+            ):
                 # If year is present, then check to make sure it's correct
                 logger.debug(
                     f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}"
@@ -183,14 +189,21 @@ def _parse_results(
 
     if torrents:
         logger.debug(f"Found {len(torrents)} streams for {item.log_string}")
-        torrents = sort_torrents(torrents, bucket_limit=scraping_settings.bucket_limit)
-        torrents_dict = {}
-        for torrent in torrents.values():
-            torrents_dict[torrent.infohash.lower()] = Stream(torrent)
-        logger.debug(
-            f"Kept {len(torrents_dict)} streams for {item.log_string} after processing bucket limit"
+
+        sorted_torrents = sort_torrents(
+            torrents, bucket_limit=scraping_settings.bucket_limit
         )
-        return torrents_dict
+
+        torrent_stream_map = {
+            torrent.infohash.lower(): Stream(torrent)
+            for torrent in sorted_torrents.values()
+        }
+
+        logger.debug(
+            f"Kept {len(torrent_stream_map)} streams for {item.log_string} after processing bucket limit"
+        )
+
+        return torrent_stream_map
 
     return {}
 
@@ -198,27 +211,30 @@ def _parse_results(
 # helper functions
 
 
-def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
+def _check_item_year(aired_at: datetime, data: ParsedData) -> bool:
     """Check if the year of the torrent is within the range of the item."""
 
     return data.year in [
-        item.aired_at.year - 1,
-        item.aired_at.year,
-        item.aired_at.year + 1,
+        aired_at.year - 1,
+        aired_at.year,
+        aired_at.year + 1,
     ]
 
 
-def _get_item_country(item: MediaItem) -> str:
+def _get_item_country(item: MediaItem) -> str | None:
     """Get the country code for a country."""
 
-    country = ""
+    country = None
 
-    if isinstance(item, Season):
+    if isinstance(item, Season) and item.parent.country:
         country = item.parent.country.upper()
-    elif isinstance(item, Episode):
+    elif isinstance(item, Episode) and item.parent.parent.country:
         country = item.parent.parent.country.upper()
-    else:
+    elif item.country:
         country = item.country.upper()
+
+    if not country:
+        return None
 
     # need to normalize
     if country == "USA":

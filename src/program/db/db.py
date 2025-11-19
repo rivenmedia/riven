@@ -31,7 +31,7 @@ db_host = str(settings_manager.settings.database.host)
 db = SQLAlchemy(db_host, engine_options=engine_options)
 
 
-class BaseModel(orm.DeclarativeBase):
+class BaseDbModel(orm.DeclarativeBase):
     """Base class for all database models"""
 
     pass

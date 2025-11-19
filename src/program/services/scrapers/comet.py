@@ -60,19 +60,24 @@ class Comet(ScraperService[CometConfig]):
 
     def validate(self) -> bool:
         """Validate the Comet settings."""
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.url:
             logger.error("Comet URL is not configured and will not be used.")
             return False
+
         if "elfhosted" in self.settings.url.lower():
             logger.warning(
                 "Elfhosted Comet instance is no longer supported. Please use a different instance."
             )
             return False
+
         if not isinstance(self.settings.ratelimit, bool):
             logger.error("Comet ratelimit must be a valid boolean.")
             return False
+
         try:
             response = self.session.get("/manifest.json", timeout=self.timeout)
             if response.ok:
@@ -81,6 +86,7 @@ class Comet(ScraperService[CometConfig]):
             logger.error(
                 f"Comet failed to initialize: {e}",
             )
+
         return False
 
     def run(self, item: MediaItem) -> dict[str, str]:
@@ -103,12 +109,15 @@ class Comet(ScraperService[CometConfig]):
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Comet` scrape method"""
+
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
+
         if not imdb_id:
             return {}
 
         url = f"/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
         response = self.session.get(url, timeout=self.timeout)
+
         if not response.ok or not getattr(response.data, "streams", None):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}

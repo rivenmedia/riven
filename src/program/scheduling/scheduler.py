@@ -24,6 +24,8 @@ from program.scheduling.models import ScheduledStatus, ScheduledTask
 from program.settings.manager import settings_manager
 from program.types import Event
 from program.utils.logging import log_cleaner, logger
+from program.apis.tvdb_api import SeriesRelease
+from src.schemas.tvdb.models.series_airs_days import SeriesAirsDays
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -430,7 +432,7 @@ class ProgramScheduler:
         )
 
         for show in ongoing_shows:
-            rd = show.release_data or {}
+            rd = show.release_data
             next_air = self._compute_next_air_datetime(rd, now)
 
             if next_air and next_air > now:
@@ -447,7 +449,9 @@ class ProgramScheduler:
                         )
             else:
                 fallback_time = (now + timedelta(days=1)).replace(
-                    minute=0, second=0, microsecond=0
+                    minute=0,
+                    second=0,
+                    microsecond=0,
                 )
 
                 if not self._has_future_task(session, show.id, "reindex_show", now):
@@ -502,7 +506,7 @@ class ProgramScheduler:
 
     @staticmethod
     def _compute_next_air_datetime(
-        release_data: dict,
+        release_data: SeriesRelease | None,
         ref: datetime,
     ) -> datetime | None:
         """Compute the next air datetime from a TVDB-like payload.
@@ -512,6 +516,7 @@ class ProgramScheduler:
         2) Otherwise, use airs_days + airs_time to find the next matching weekday.
         All times honor release_data['timezone'] when provided, then converted to local naive.
         """
+
         if not release_data:
             return None
 
@@ -525,14 +530,14 @@ class ProgramScheduler:
 
             # fall through to weekday computation if next_aired is in the past
 
-        hm = ProgramScheduler._parse_airs_time(release_data)
+        hm = ProgramScheduler._parse_airs_time(release_data.airs_time)
 
         if hm is None:
             return None
 
         hour, minute = hm
 
-        valid_days = ProgramScheduler._valid_weekdays(release_data)
+        valid_days = ProgramScheduler._valid_weekdays(release_data.airs_days)
 
         if not valid_days:
             return None
@@ -555,8 +560,9 @@ class ProgramScheduler:
         return None
 
     @staticmethod
-    def _to_local_naive(release_data: dict, dt: datetime) -> datetime:
-        """Convert a naive datetime in a source timezone (if provided) to local naive.
+    def _to_local_naive(timezone: str | None, dt: datetime) -> datetime:
+        """
+        Convert a naive datetime in a source timezone (if provided) to local naive.
 
         If release_data['timezone'] is provided and recognized by zoneinfo, interpret
         the naive datetime in that zone and convert to local time. Otherwise, treat
@@ -568,11 +574,9 @@ class ProgramScheduler:
         except Exception:
             ZoneInfo = None
 
-        tz_name = (release_data or {}).get("timezone")
-
-        if tz_name and ZoneInfo is not None:
+        if timezone and ZoneInfo is not None:
             try:
-                tz = ZoneInfo(tz_name)
+                tz = ZoneInfo(timezone)
                 aware = dt.replace(tzinfo=tz)
                 local_tz = datetime.now().astimezone().tzinfo
 
@@ -581,14 +585,14 @@ class ProgramScheduler:
                     return aware_local.replace(tzinfo=None)
             except Exception:
                 return dt
+
         return dt
 
     @staticmethod
-    def _parse_next_aired_datetime(release_data: dict) -> datetime | None:
+    def _parse_next_aired_datetime(release_data: SeriesRelease) -> datetime | None:
         """Parse release_data['next_aired'] into a datetime, combining with airs_time if needed."""
 
-        next_aired = (release_data or {}).get("next_aired")
-        airs_time = (release_data or {}).get("airs_time")
+        next_aired = release_data.next_aired
 
         if not next_aired:
             return None
@@ -601,6 +605,8 @@ class ProgramScheduler:
                 return datetime.fromisoformat(na_str)
             except Exception:
                 return None
+
+        airs_time = release_data.airs_time
 
         # Date-only
         try:
@@ -618,10 +624,8 @@ class ProgramScheduler:
             return None
 
     @staticmethod
-    def _parse_airs_time(release_data: dict) -> tuple[int, int] | None:
+    def _parse_airs_time(airs_time: str | None) -> tuple[int, int] | None:
         """Parse HH:MM from release_data['airs_time'] if present and valid."""
-
-        airs_time = (release_data or {}).get("airs_time")
 
         if not airs_time:
             return None
@@ -633,10 +637,12 @@ class ProgramScheduler:
             return None
 
     @staticmethod
-    def _valid_weekdays(release_data: dict) -> list[int]:
+    def _valid_weekdays(series_airs_days: SeriesAirsDays | None) -> list[int]:
         """Return list of weekday indices [0..6] marked True in release_data['airs_days']."""
 
-        airs_days = (release_data or {}).get("airs_days") or {}
+        if not series_airs_days:
+            return []
+
         day_map = [
             "monday",
             "tuesday",
@@ -647,4 +653,8 @@ class ProgramScheduler:
             "sunday",
         ]
 
-        return [i for i, name in enumerate(day_map) if airs_days.get(name) is True]
+        return [
+            i
+            for i, name in enumerate(day_map)
+            if getattr(series_airs_days, name) is True
+        ]

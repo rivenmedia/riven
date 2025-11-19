@@ -35,7 +35,7 @@ Service = (
 @dataclass
 class ProcessedEvent:
     service: Service | None
-    related_media_items: list[MediaItem]
+    related_media_items: list[MediaItem] | None
 
 
 @dataclass

@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
@@ -26,9 +26,7 @@ router = APIRouter(
 
 @router.get("/health", operation_id="health")
 async def health(request: Request) -> MessageResponse:
-    return {
-        "message": str(di[Program].initialized),
-    }
+    return MessageResponse(message=str(di[Program].initialized))
 
 
 class DownloaderUserInfo(BaseModel):
@@ -74,7 +72,7 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
             )
 
         # Get user info from all initialized services
-        services_info = []
+        services_info = list[DownloaderUserInfo]()
 
         for service in downloader.initialized_services:
             try:
@@ -132,14 +130,12 @@ async def generate_apikey() -> MessageResponse:
     settings_manager.settings.api_key = new_key
     settings_manager.save()
 
-    return {
-        "message": new_key,
-    }
+    return MessageResponse(message=new_key)
 
 
 @router.get("/services", operation_id="services")
 async def get_services(request: Request) -> dict[str, bool]:
-    data = {}
+    data = dict[str, bool]()
 
     services = di[Program].services
 
@@ -165,16 +161,14 @@ class TraktOAuthInitiateResponse(BaseModel):
 
 @router.get("/trakt/oauth/initiate", operation_id="trakt_oauth_initiate")
 async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
-    trakt_api = di[TraktAPI]
-
-    if trakt_api is None:
+    try:
+        trakt_api = di[TraktAPI]
+    except ServiceError:
         raise HTTPException(status_code=404, detail="Trakt service not found")
 
     auth_url = trakt_api.build_oauth_url()
 
-    return {
-        "auth_url": auth_url,
-    }
+    return TraktOAuthInitiateResponse(auth_url=auth_url)
 
 
 @router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
@@ -194,9 +188,7 @@ async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
     success = trakt_api.handle_oauth_callback(trakt_api_key, code)
 
     if success:
-        return {
-            "message": "OAuth token obtained successfully",
-        }
+        return MessageResponse(message="OAuth token obtained successfully")
     else:
         raise HTTPException(status_code=400, detail="Failed to obtain OAuth token")
 
@@ -229,8 +221,6 @@ async def get_stats(_: Request) -> StatsResponse:
         StatsResponse: Aggregated statistics with keys `total_items`, `total_movies`, `total_shows`, `total_seasons`, `total_episodes`, `total_symlinks`, `incomplete_items`, `incomplete_retries`, and `states`.
     """
 
-    payload = {}
-
     with db_session() as session:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
@@ -257,7 +247,7 @@ async def get_stats(_: Request) -> StatsResponse:
             total_episodes = conn.execute(select(func.count(Episode.id))).scalar_one()
             total_items = conn.execute(select(func.count(MediaItem.id))).scalar_one()
 
-            activity = {}
+            activity = dict[str, int]()
 
             activity_result = conn.execute(
                 select(
@@ -272,7 +262,7 @@ async def get_stats(_: Request) -> StatsResponse:
             for date, count in activity_result:
                 activity[date.isoformat()] = count
 
-            media_year_releases = []
+            media_year_releases = list[dict[str, int | None]]()
 
             media_year_result = conn.execute(
                 select(MediaItem.year, func.count(MediaItem.id)).group_by(
@@ -285,7 +275,7 @@ async def get_stats(_: Request) -> StatsResponse:
 
             # Use a server-side cursor for batch processing
             batch_size = 1000
-            incomplete_retries = {}
+            incomplete_retries = dict[int, int]()
 
             result = conn.execute(
                 select(MediaItem.id, MediaItem.scraped_times).where(
@@ -302,7 +292,7 @@ async def get_stats(_: Request) -> StatsResponse:
                 for media_item_id, scraped_times in batch:
                     incomplete_retries[media_item_id] = scraped_times
 
-            states = {}
+            states = dict[States, int]()
 
             for state in States:
                 states[state] = conn.execute(
@@ -311,18 +301,18 @@ async def get_stats(_: Request) -> StatsResponse:
                     )
                 ).scalar_one()
 
-            payload["total_items"] = total_items
-            payload["total_movies"] = total_movies
-            payload["total_shows"] = total_shows
-            payload["total_seasons"] = total_seasons
-            payload["total_episodes"] = total_episodes
-            payload["total_symlinks"] = total_symlinks
-            payload["incomplete_items"] = len(incomplete_retries)
-            payload["states"] = states
-            payload["activity"] = activity
-            payload["media_year_releases"] = media_year_releases
-
-    return StatsResponse(**payload)
+    return StatsResponse(
+        total_items=total_items,
+        total_movies=total_movies,
+        total_shows=total_shows,
+        total_seasons=total_seasons,
+        total_episodes=total_episodes,
+        total_symlinks=total_symlinks,
+        incomplete_items=len(incomplete_retries),
+        states=states,
+        activity=activity,
+        media_year_releases=media_year_releases,
+    )
 
 
 class LogsResponse(BaseModel):
@@ -331,7 +321,7 @@ class LogsResponse(BaseModel):
 
 @router.get("/logs", operation_id="logs")
 async def get_logs() -> LogsResponse:
-    log_file_path = None
+    log_file_path: str | None = None
 
     for handler in logger._core.handlers.values():
         if ".log" in handler._name:
@@ -343,9 +333,9 @@ async def get_logs() -> LogsResponse:
 
     try:
         with open(log_file_path, "r") as log_file:
-            log_contents = (
-                log_file.read().splitlines()
-            )  # Read the file and split into lines without newline characters
+            # Read the file and split into lines without newline characters
+            log_contents = log_file.read().splitlines()
+
         return LogsResponse(logs=log_contents)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read log file: {e}")
@@ -356,9 +346,7 @@ class EventResponse(BaseModel):
 
 
 @router.get("/events", operation_id="events")
-async def get_events(
-    request: Request,
-) -> EventResponse:
+async def get_events(request: Request) -> EventResponse:
     events = di[Program].em.get_event_updates()
     return EventResponse(events=events)
 
@@ -373,9 +361,11 @@ async def get_mount_files() -> MountResponse:
     import os
 
     mount_dir = str(settings_manager.settings.filesystem.mount_path)
-    file_map = {}
 
-    def scan_dir(path):
+    # `filename: filepath`
+    file_map = dict[str, str]()
+
+    def scan_dir(path: str):
         with os.scandir(path) as entries:
             for entry in entries:
                 if entry.is_file():
@@ -383,7 +373,8 @@ async def get_mount_files() -> MountResponse:
                 elif entry.is_dir():
                     scan_dir(entry.path)
 
-    scan_dir(mount_dir)  # dict of `filename: filepath``
+    scan_dir(mount_dir)
+
     return MountResponse(files=file_map)
 
 
@@ -398,7 +389,7 @@ class UploadLogsResponse(BaseModel):
 async def upload_logs() -> UploadLogsResponse:
     """Upload the latest log file to paste.c-net.org"""
 
-    log_file_path = None
+    log_file_path: str | None = None
 
     for handler in logger._core.handlers.values():
         if ".log" in handler._name:
@@ -420,7 +411,10 @@ async def upload_logs() -> UploadLogsResponse:
 
         if response.status_code == 200:
             logger.info(f"Uploaded log file to {response.text.strip()}")
-            return UploadLogsResponse(success=True, url=response.text.strip())
+
+            return UploadLogsResponse(
+                success=True, url=HttpUrl(url=response.text.strip())
+            )
         else:
             logger.error(f"Failed to upload log file: {response.status_code}")
             raise HTTPException(status_code=500, detail="Failed to upload log file")
@@ -431,7 +425,9 @@ async def upload_logs() -> UploadLogsResponse:
 
 
 class CalendarResponse(BaseModel):
-    data: dict
+    data: dict[int, dict[str, Any]] = Field(
+        description="Dictionary with dates as keys and lists of media items as values"
+    )
 
 
 @router.get(
@@ -448,7 +444,7 @@ async def fetch_calendar(_: Request) -> CalendarResponse:
 
 
 class VFSStatsResponse(BaseModel):
-    stats: dict[str, dict] = Field(description="VFS statistics")
+    stats: dict[str, dict[str, Any]] = Field(description="VFS statistics")
 
 
 @router.get(
@@ -468,4 +464,4 @@ async def get_vfs_stats(request: Request) -> VFSStatsResponse:
 
     assert vfs
 
-    return VFSStatsResponse(stats=vfs._opener_stats)
+    return VFSStatsResponse(stats=vfs.opener_stats)

@@ -26,7 +26,7 @@ def process_event(
         service=None,
         related_media_items=[],
     )
-    items_to_submit: list[MediaItem] = []
+    items_to_submit = list[MediaItem]()
 
     if existing_item and existing_item.last_state in [States.Paused, States.Failed]:
         return no_further_processing
@@ -41,16 +41,23 @@ def process_event(
 
         logger.debug(f"Submitting {log_string} to IndexerService")
 
+        related_media_items = list[MediaItem]()
+
+        if content_item:
+            related_media_items.append(content_item)
+        elif existing_item:
+            related_media_items.append(existing_item)
+
         return ProcessedEvent(
             service=services.indexer,
-            related_media_items=[content_item or existing_item],
+            related_media_items=related_media_items,
         )
 
     elif existing_item and existing_item.last_state in [
         States.PartiallyCompleted,
         States.Ongoing,
     ]:
-        if existing_item.type == "show":
+        if isinstance(existing_item, Show):
             incomplete_seasons = [
                 s
                 for s in existing_item.seasons
@@ -60,8 +67,9 @@ def process_event(
             for season in incomplete_seasons:
                 processed_event = process_event(emitted_by, season, None)
 
-                items_to_submit += processed_event.related_media_items
-        elif existing_item.type == "season":
+                if processed_event.related_media_items:
+                    items_to_submit += processed_event.related_media_items
+        elif isinstance(existing_item, Season):
             incomplete_episodes = [
                 e for e in existing_item.episodes if e.last_state != States.Completed
             ]
@@ -69,7 +77,8 @@ def process_event(
             for episode in incomplete_episodes:
                 processed_event = process_event(emitted_by, episode, None)
 
-                items_to_submit += processed_event.related_media_items
+                if processed_event.related_media_items:
+                    items_to_submit += processed_event.related_media_items
 
     elif existing_item and existing_item.last_state == States.Indexed:
         next_service = services.scraping

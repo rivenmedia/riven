@@ -7,7 +7,7 @@ import sqlalchemy
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column
 
-from program.db.db import BaseModel
+from program.db.db import BaseDbModel
 
 
 class ScheduledStatus(str, Enum):
@@ -19,7 +19,7 @@ class ScheduledStatus(str, Enum):
     Cancelled = "cancelled"
 
 
-class ScheduledTask(BaseModel):
+class ScheduledTask(BaseDbModel):
     """Persisted schedule entry for running item-related tasks at specific times.
 
     Decoupled by design: references item_id without foreign keys.
@@ -58,7 +58,7 @@ class ScheduledTask(BaseModel):
         ),
     )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int | str | datetime | None]:
         """Serialize to a dict for logging/debugging."""
         return {
             "id": self.id,
@@ -67,11 +67,7 @@ class ScheduledTask(BaseModel):
             "scheduled_for": (
                 self.scheduled_for.isoformat() if self.scheduled_for else None
             ),
-            "status": (
-                self.status.value
-                if isinstance(self.status, ScheduledStatus)
-                else str(self.status)
-            ),
+            "status": self.status.value,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "executed_at": self.executed_at.isoformat() if self.executed_at else None,
             "offset_seconds": self.offset_seconds,

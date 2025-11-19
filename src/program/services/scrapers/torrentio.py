@@ -39,29 +39,35 @@ class Torrentio(ScraperService[TorrentioConfig]):
             if self.settings.proxy_url
             else None
         )
+
         self._initialize()
 
     def validate(self) -> bool:
         """Validate the Torrentio settings."""
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.url:
             logger.error("Torrentio URL is not configured and will not be used.")
             return False
-        if not isinstance(self.timeout, int) or self.timeout <= 0:
-            logger.error("Torrentio timeout is not set or invalid.")
+
+        if self.timeout <= 0:
+            logger.error("Torrentio timeout must be a positive integer.")
             return False
+
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
+
             response = self.session.get(
                 url, timeout=10, headers=self.headers, proxies=self.proxies
             )
+
             if response.ok:
                 return True
         except Exception as e:
-            logger.error(
-                f"Torrentio failed to initialize: {e}",
-            )
+            logger.error(f"Torrentio failed to initialize: {e}")
+
             return False
         return True
 
@@ -77,18 +83,21 @@ class Torrentio(ScraperService[TorrentioConfig]):
                 )
             else:
                 logger.exception(f"Torrentio exception thrown: {str(e)}")
+
         return {}
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Torrentio` scrape method"""
 
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
+
         if not imdb_id:
             return {}
 
         url = (
             f"{self.settings.url}/{self.settings.filter}/stream/{scrape_type}/{imdb_id}"
         )
+
         if identifier:
             url += identifier
 
@@ -98,6 +107,7 @@ class Torrentio(ScraperService[TorrentioConfig]):
             headers=self.headers,
             proxies=self.proxies,
         )
+
         if (
             not response.ok
             or not hasattr(response.data, "streams")
@@ -107,6 +117,7 @@ class Torrentio(ScraperService[TorrentioConfig]):
             return {}
 
         torrents: dict[str, str] = {}
+
         for stream in response.data.streams:
             if not stream.infoHash:
                 continue

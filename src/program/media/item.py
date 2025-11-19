@@ -15,7 +15,9 @@ from sqlalchemy.orm import (
 
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
-from program.db.db import BaseModel, db_session
+from program.db.db import BaseDbModel, db_session
+from program.media.media_entry import MediaEntry
+from program.apis.tvdb_api import SeriesRelease
 
 from .stream import Stream
 
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
 
 
-class MediaItem(BaseModel):
+class MediaItem(BaseDbModel):
     """MediaItem class"""
 
     __tablename__ = "MediaItem"
@@ -32,7 +34,7 @@ class MediaItem(BaseModel):
     imdb_id: Mapped[str | None]
     tvdb_id: Mapped[str | None]
     tmdb_id: Mapped[str | None]
-    title: Mapped[str | None]
+    title: Mapped[str]
     poster_path: Mapped[str | None]
     number: Mapped[int | None]
     type: Mapped[Literal["episode", "season", "show", "movie", "mediaitem"]] = (
@@ -46,7 +48,7 @@ class MediaItem(BaseModel):
     indexed_at: Mapped[datetime | None]
     scraped_at: Mapped[datetime | None]
     scraped_times: Mapped[int] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[dict | None] = mapped_column(sqlalchemy.JSON, nullable=True)
+    active_stream: Mapped[Stream | None] = mapped_column(sqlalchemy.JSON, nullable=True)
     streams: Mapped[list[Stream]] = relationship(
         secondary="StreamRelation",
         back_populates="parents",
@@ -60,7 +62,7 @@ class MediaItem(BaseModel):
         cascade="all",
     )
 
-    aliases: Mapped[dict | None] = mapped_column(sqlalchemy.JSON, default={})
+    aliases: Mapped[dict[str, list[str]]] = mapped_column(sqlalchemy.JSON, default={})
     is_anime: Mapped[bool | None] = mapped_column(sqlalchemy.Boolean, default=False)
     network: Mapped[str | None]
     country: Mapped[str | None]
@@ -122,7 +124,7 @@ class MediaItem(BaseModel):
         Index("ix_mediaitem_type_aired_at", "type", "aired_at"),  # Composite index
     )
 
-    def __init__(self, item: dict | None) -> None:
+    def __init__(self, item: dict[str, Any] | None) -> None:
         if item is None:
             return
 
@@ -139,7 +141,7 @@ class MediaItem(BaseModel):
         self.blacklisted_streams = []
 
         # Media related
-        self.title = item.get("title")
+        self.title = item.get("title", "")
         self.poster_path = item.get("poster_path")
         self.imdb_id = item.get("imdb_id")
         self.tvdb_id = item.get("tvdb_id")
@@ -202,13 +204,12 @@ class MediaItem(BaseModel):
             logger.debug(f"No active stream for {self.log_string}, will not blacklist")
             return False
 
-        def find_and_blacklist_stream(streams):
+        def find_and_blacklist_stream(streams: list[Stream]) -> bool:
             stream = next(
                 (
                     s
                     for s in streams
-                    if self.active_stream
-                    and s.infohash == self.active_stream.get("infohash")
+                    if self.active_stream and s.infohash == self.active_stream.infohash
                 ),
                 None,
             )
@@ -289,14 +290,9 @@ class MediaItem(BaseModel):
 
         from sqlalchemy.exc import IntegrityError
         from program.scheduling.models import ScheduledTask, ScheduledStatus
-        from program.db.db import db
 
         if not self.id:
             logger.error("Cannot schedule task for unsaved item (missing id)")
-            return False
-
-        if not run_at:
-            logger.error("Cannot schedule task without a run_at time")
             return False
 
         try:
@@ -335,8 +331,6 @@ class MediaItem(BaseModel):
         except Exception as e:
             logger.error(f"Failed to schedule task for {self.log_string}: {e}")
             return False
-
-        return False
 
     @property
     def is_released(self) -> bool:
@@ -397,7 +391,6 @@ class MediaItem(BaseModel):
         season_number = None
         episode_number = None
         parent_ids = {
-            "trakt_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
             "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
             "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
             "tmdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
@@ -406,11 +399,6 @@ class MediaItem(BaseModel):
         if isinstance(self, Season):
             parent_title = self.parent.title
             season_number = self.number
-            parent_ids["trakt_id"] = (
-                self.parent.trakt_id
-                if hasattr(self, "parent") and hasattr(self.parent, "trakt_id")
-                else None
-            )
             parent_ids["imdb_id"] = (
                 self.parent.imdb_id
                 if hasattr(self, "parent") and hasattr(self.parent, "imdb_id")
@@ -430,11 +418,6 @@ class MediaItem(BaseModel):
             parent_title = self.parent.parent.title
             season_number = self.parent.number
             episode_number = self.number
-            parent_ids["trakt_id"] = (
-                self.parent.parent.trakt_id
-                if hasattr(self, "parent") and hasattr(self.parent, "trakt_id")
-                else None
-            )
             parent_ids["imdb_id"] = (
                 self.parent.parent.imdb_id
                 if hasattr(self, "parent")
@@ -470,7 +453,6 @@ class MediaItem(BaseModel):
             "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
             "parent_ids": parent_ids,
             "state": self.last_state.name if self.last_state else self.state.name,
-            "imdb_link": self.imdb_link if hasattr(self, "imdb_link") else None,
             "aired_at": str(self.aired_at),
             "genres": self.genres if hasattr(self, "genres") else None,
             "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
@@ -489,30 +471,24 @@ class MediaItem(BaseModel):
         return data
 
     def to_extended_dict(
-        self, abbreviated_children=False, with_streams=False
+        self,
+        with_streams: bool = False,
     ) -> dict[str, Any]:
         """Convert item to extended dictionary (API response)"""
 
         dict = self.to_dict()
-        match self:
-            case Show():
-                dict["seasons"] = (
-                    [
-                        season.to_extended_dict(with_streams=with_streams)
-                        for season in self.seasons
-                    ]
-                    if not abbreviated_children
-                    else self.represent_children
-                )
-            case Season():
-                dict["episodes"] = (
-                    [
-                        episode.to_extended_dict(with_streams=with_streams)
-                        for episode in self.episodes
-                    ]
-                    if not abbreviated_children
-                    else self.represent_children
-                )
+
+        if isinstance(self, Show):
+            dict["seasons"] = [
+                season.to_extended_dict(with_streams=with_streams)
+                for season in self.seasons
+            ]
+        elif isinstance(self, Season):
+            dict["episodes"] = [
+                episode.to_extended_dict(with_streams=with_streams)
+                for episode in self.episodes
+            ]
+
         dict["language"] = self.language if hasattr(self, "language") else None
         dict["country"] = self.country if hasattr(self, "country") else None
         dict["network"] = self.network if hasattr(self, "network") else None
@@ -533,7 +509,9 @@ class MediaItem(BaseModel):
             self.filesystem_entry.to_dict() if self.filesystem_entry else None
         )
         dict["media_metadata"] = (
-            self.filesystem_entry.media_metadata if self.filesystem_entry else None
+            self.filesystem_entry.media_metadata
+            if isinstance(self.filesystem_entry, MediaEntry)
+            else None
         )
         dict["subtitles"] = (
             [subtitle.to_dict() for subtitle in self.subtitles]
@@ -541,42 +519,43 @@ class MediaItem(BaseModel):
             else []
         )
         # Include embedded subtitles from media_metadata
-        if self.filesystem_entry and self.filesystem_entry.media_metadata:
-            embedded_subs = self.filesystem_entry.media_metadata.get(
-                "subtitle_tracks", []
-            )
+        if self.media_entry and self.media_entry.media_metadata:
+            embedded_subs = self.media_entry.media_metadata.subtitle_tracks
+
             if embedded_subs:
-                dict["subtitles"].extend(embedded_subs)
+                dict["subtitles"].extend([sub.model_dump() for sub in embedded_subs])
+
         return dict
 
     def __iter__(self):
         for attr, _ in vars(self).items():
             yield attr
 
-    def __eq__(self, other):
+    def __eq__(self, other: object):
         if type(other) == type(self):
             return self.id == other.id
+
         return False
 
     def copy(self, other: "MediaItem"):
-        self.id = getattr(other, "id")
+        self.id = other.id
 
-        if hasattr(self, "number"):
-            self.number = getattr(other, "number", None)
+        if other.number is not None:
+            self.number = other.number
 
         return self
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Any = None):
         """Get item attribute"""
 
         return getattr(self, key, default)
 
-    def set(self, key, value):
+    def set(self, key: str, value: Any):
         """Set item attribute"""
 
         _set_nested_attr(self, key, value)
 
-    def get_top_title(self) -> str | None:
+    def get_top_title(self) -> str:
         """
         Return the top-level title for this media item.
 
@@ -611,7 +590,25 @@ class MediaItem(BaseModel):
             The filesystem path string from the first entry, or None if no entries exist.
         """
 
-        return self.filesystem_entries[0].path if self.filesystem_entries else None
+        return self.media_entry.path if self.media_entry else None
+
+    @property
+    def media_entry(self) -> "MediaEntry | None":
+        """
+        Return the first MediaEntry for this media item, if any.
+
+        Returns:
+            The first `MediaEntry` instance if any exist, otherwise `None`.
+        """
+
+        media_entries = [
+            entry for entry in self.filesystem_entries if isinstance(entry, MediaEntry)
+        ]
+
+        if not media_entries:
+            return None
+
+        return media_entries[0]
 
     @property
     def available_in_vfs(self) -> bool:
@@ -642,7 +639,7 @@ class MediaItem(BaseModel):
             return self.parent.parent.imdb_id
         return self.imdb_id
 
-    def get_aliases(self) -> dict | None:
+    def get_aliases(self) -> dict[str, list[str]] | None:
         """Get the aliases of the item."""
 
         if isinstance(self, Season):
@@ -666,6 +663,7 @@ class MediaItem(BaseModel):
             for season in self.seasons:
                 for episode in season.episodes:
                     episode._reset()
+
                 season._reset()
         elif isinstance(self, Season):
             for episode in self.episodes:
@@ -707,7 +705,7 @@ class MediaItem(BaseModel):
 
         # Clear streams using ORM relationship operations (database CASCADE handles orphans)
         self.streams.clear()
-        self.active_stream = {}
+        self.active_stream = None
 
         # Reset scraping metadata
         self.updated = False
@@ -732,10 +730,6 @@ class MediaItem(BaseModel):
 
         return "Unknown"
 
-    @property
-    def collection(self):
-        return self.parent.collection if self.parent else self.id
-
     def is_parent_blocked(self) -> bool:
         """Return True if self or any parent is paused using targeted lookups (no relationship refresh)."""
 
@@ -744,7 +738,7 @@ class MediaItem(BaseModel):
 
         session = object_session(self)
 
-        if session and hasattr(self, "parent"):
+        if session and isinstance(self, Season | Episode):
             session.refresh(self, ["parent"])
 
             if self.parent:
@@ -778,11 +772,11 @@ class Movie(MediaItem):
         "polymorphic_load": "selectin",
     }
 
-    def copy(self, other):
+    def copy(self, other: "Movie"):
         super().copy(other)
         return self
 
-    def __init__(self, item):
+    def __init__(self, item: dict[str, Any]):
         self.type = "movie"
         super().__init__(item)
 
@@ -808,7 +802,9 @@ class Show(MediaItem):
         cascade="all, delete-orphan",
         order_by="Season.number",
     )
-    release_data: Mapped[dict | None] = mapped_column(sqlalchemy.JSON, default={})
+    release_data: Mapped[SeriesRelease | None] = mapped_column(
+        sqlalchemy.JSON, default={}
+    )
     tvdb_status: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
 
     __mapper_args__ = {
@@ -816,7 +812,7 @@ class Show(MediaItem):
         "polymorphic_load": "selectin",
     }
 
-    def __init__(self, item: dict):
+    def __init__(self, item: dict[str, Any]):
         self.type = "show"
         self.locations = item.get("locations", [])
         self.seasons = item.get("seasons", [])
@@ -976,7 +972,7 @@ class Season(MediaItem):
 
         return super().store_state(given_state)
 
-    def __init__(self, item: dict):
+    def __init__(self, item: dict[str, Any]):
         self.type = "season"
         self.number = item.get("number", None)
         self.episodes = item.get("episodes", [])
@@ -1075,9 +1071,6 @@ class Season(MediaItem):
 
         return self
 
-    def represent_children(self):
-        return [e.log_string for e in self.episodes]
-
     def add_episode(self, episode: "Episode"):
         """Add episode to season"""
 
@@ -1092,7 +1085,7 @@ class Season(MediaItem):
     def log_string(self):
         return self.parent.log_string + " S" + str(self.number).zfill(2)
 
-    def get_top_title(self) -> str | None:
+    def get_top_title(self) -> str:
         """Get the top title of the season."""
 
         session = object_session(self)
@@ -1125,7 +1118,7 @@ class Episode(MediaItem):
         "polymorphic_load": "selectin",
     }
 
-    def __init__(self, item: dict):
+    def __init__(self, item: dict[str, Any]):
         self.type = "episode"
         self.number = item.get("number", None)
 
@@ -1139,8 +1132,10 @@ class Episode(MediaItem):
 
     def copy(self, other: "Episode", copy_parent: bool = True):
         super(Episode, self).copy(other)
+
         if copy_parent and other.parent:
             self.parent = Season(item={}).copy(other.parent)
+
         return self
 
     def __getattribute__(self, name: str):
@@ -1179,7 +1174,7 @@ class Episode(MediaItem):
         return getattr(self.parent.parent, "title")
 
 
-def _set_nested_attr(obj, key, value):
+def _set_nested_attr(obj: object, key: str, value: Any):
     if "." in key:
         parts = key.split(".", 1)
         current_key, rest_of_keys = parts[0], parts[1]

@@ -44,25 +44,20 @@ class Jackett(ScraperService[JackettConfig]):
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
             try:
-                if (
-                    not isinstance(self.settings.timeout, int)
-                    or self.settings.timeout <= 0
-                ):
-                    logger.error("Jackett timeout is not set or invalid.")
-                    return False
-                if not isinstance(self.settings.ratelimit, bool):
-                    logger.error("Jackett ratelimit must be a valid boolean.")
+                if self.settings.timeout <= 0:
+                    logger.error("Jackett timeout must be a positive integer")
                     return False
 
-                if self.settings.ratelimit:
-                    rate_limits = {
+                rate_limits = (
+                    {
                         get_hostname_from_url(self.settings.url): {
                             "rate": 300 / 60,
                             "capacity": 300,
                         }
                     }
-                else:
-                    rate_limits = {}
+                    if self.settings.ratelimit
+                    else {}
+                )
 
                 self.session = SmartSession(
                     base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
@@ -104,12 +99,14 @@ class Jackett(ScraperService[JackettConfig]):
 
         torrents: dict[str, str] = {}
         query = item.log_string
+
         if item.type == "movie":
             query = f"{query} ({item.aired_at.year})"
 
         logger.debug(f"Searching for '{query}' in Jackett")
         response = f"/indexers/test:passed/results?apikey={self.api_key}&Query={query}"
         response = self.session.get(response, timeout=self.settings.timeout)
+
         if not response.ok or not hasattr(response, "data"):
             return torrents
 

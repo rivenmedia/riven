@@ -24,15 +24,17 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         self.timeout = self.settings.timeout
         self.encrypted_string = None
 
-        if self.settings.ratelimit:
-            rate_limits = {
+        rate_limits = (
+            {
+                # 1000 calls per minute
                 get_hostname_from_url(self.settings.url): {
                     "rate": 1000 / 60,
                     "capacity": 1000,
-                }  # 1000 calls per minute
+                }
             }
-        else:
-            rate_limits = {}
+            if self.settings.ratelimit
+            else {}
+        )
 
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
@@ -77,9 +79,11 @@ class Mediafusion(ScraperService[MediafusionConfig]):
             response = self.session.post(
                 "/encrypt-user-data", json=payload, headers=headers
             )
+
             if not response.data or response.data.status != "success":
                 logger.error(f"Failed to encrypt user data: {response.data.message}")
                 return False
+
             self.encrypted_string = response.data.encrypted_str
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
@@ -87,6 +91,7 @@ class Mediafusion(ScraperService[MediafusionConfig]):
 
         try:
             response = self.session.get("/manifest.json", timeout=self.timeout)
+
             return response.ok
         except Exception as e:
             logger.error(f"Mediafusion failed to initialize: {e}")
@@ -109,6 +114,7 @@ class Mediafusion(ScraperService[MediafusionConfig]):
                 logger.warning(f"Mediafusion timeout for item: {item.log_string}")
             else:
                 logger.exception(f"Mediafusion exception thrown: {e}")
+
         return {}
 
     def scrape(self, item: MediaItem) -> dict[str, str]:

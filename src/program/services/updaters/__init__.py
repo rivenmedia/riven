@@ -1,7 +1,6 @@
 """Updater module"""
 
 import os
-from typing import Generator
 
 from loguru import logger
 
@@ -32,6 +31,7 @@ class Updater(Runner):
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
+
         initialized_services = [
             service for service in self.services.values() if service.initialized
         ]
@@ -55,9 +55,10 @@ class Updater(Runner):
         Yields:
             MediaItem: The item after processing
         """
+
         logger.debug(f"Starting update process for {item.log_string}")
         items = self.get_items_to_update(item)
-        refreshed_paths = set()  # Track refreshed paths to avoid duplicates
+        refreshed_paths = set[str]()  # Track refreshed paths to avoid duplicates
 
         for _item in items:
             # Get all VFS paths from the entry's helper method
@@ -112,7 +113,9 @@ class Updater(Runner):
         Returns:
             bool: True if at least one service refreshed successfully, False otherwise
         """
+
         success = False
+
         for service in self.services.values():
             if service.initialized:
                 try:

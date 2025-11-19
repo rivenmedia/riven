@@ -205,7 +205,7 @@ class RivenVFS(pyfuse3.Operations):
         self._next_fh = pyfuse3.FileHandleT(1)
 
         # Opener statistics
-        self._opener_stats: dict[str, dict[str, Any]] = {}
+        self.opener_stats: dict[str, dict[str, Any]] = {}
 
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)

@@ -195,7 +195,7 @@ class SmartResponse(requests.Response):
         Lazily parse the response content into a SimpleNamespace object.
 
         Returns:
-            SimpleNamespace or dict: Parsed response data.
+            "SimpleNamespace" or dict: Parsed response data.
         """
 
         if self._cached_data is not None:

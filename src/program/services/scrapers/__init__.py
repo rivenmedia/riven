@@ -7,7 +7,7 @@ from loguru import logger
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
-from program.services.scrapers.shared import _parse_results
+from program.services.scrapers.shared import parse_results
 from program.settings.manager import settings_manager
 
 from program.services.scrapers.comet import Comet
@@ -138,7 +138,7 @@ class Scraping(Runner[ScraperModel]):
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams: dict[str, Stream] = _parse_results(
+        sorted_streams: dict[str, Stream] = parse_results(
             item, results, verbose_logging
         )
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):

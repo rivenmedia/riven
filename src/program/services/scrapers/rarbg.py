@@ -9,12 +9,12 @@ from program.settings.models import RarbgConfig
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Rarbg(ScraperService):
+class Rarbg(ScraperService[RarbgConfig]):
     """Scraper for `TheRARBG`"""
 
     def __init__(self):
         super().__init__("therarbg")
-        self.settings: RarbgConfig = settings_manager.settings.scraping.rarbg
+        self.settings = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout
 
         if self.settings.ratelimit:
@@ -37,14 +37,18 @@ class Rarbg(ScraperService):
 
     def validate(self) -> bool:
         """Validate the TheRARBG settings."""
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.url:
             logger.error("TheRARBG URL is not configured and will not be used.")
             return False
-        if not isinstance(self.timeout, int) or self.timeout <= 0:
-            logger.error("TheRARBG timeout is not set or invalid.")
+
+        if self.timeout <= 0:
+            logger.error("TheRARBG timeout must be a positive integer.")
             return False
+
         try:
             url = "/get-posts/keywords:Game%20of%20Thrones:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
             response = self.session.get(url, timeout=10)
@@ -77,6 +81,7 @@ class Rarbg(ScraperService):
             if item.type != "movie"
             else f"{item.log_string} ({item.aired_at.year})"
         )
+
         url = f"/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
 
         torrents: dict[str, str] = {}
@@ -85,6 +90,7 @@ class Rarbg(ScraperService):
 
         while current_url:
             response = self.session.get(current_url, timeout=self.timeout)
+
             if not response.ok or not hasattr(response, "data"):
                 break
 
@@ -101,6 +107,7 @@ class Rarbg(ScraperService):
                 break
 
             current_url = None
+
             if (
                 hasattr(response.data, "links")
                 and response.data.links

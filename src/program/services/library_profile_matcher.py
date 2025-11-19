@@ -4,6 +4,7 @@ Evaluates MediaItem metadata against library profile filter rules to determine
 which library profiles a media item should be placed in.
 """
 
+from typing import Any
 from program.media.item import Episode, MediaItem, Season, Show
 from program.settings.models import LibraryProfileFilterRules
 from program.settings.manager import settings_manager
@@ -45,7 +46,7 @@ class LibraryProfileMatcher:
         """
         profiles = settings_manager.settings.filesystem.library_profiles or {}
 
-        matching_profiles = []
+        matching_profiles = list[str]([])
 
         for profile_key, profile in profiles.items():
             # Skip disabled profiles
@@ -188,8 +189,8 @@ class LibraryProfileMatcher:
         item_values_lower = [v.lower() for v in item_values]
 
         # Split into inclusions and exclusions
-        inclusions = []
-        exclusions = []
+        inclusions = list[str]()
+        exclusions = list[str]()
 
         for value in filter_values:
             if value.startswith("!"):
@@ -269,31 +270,39 @@ class LibraryProfileMatcher:
         v = getattr(item, "language", None)
         return self._normalize_str_list(v)
 
-    def _normalize_str_list(self, value) -> list[str]:
+    def _normalize_str_list(self, value: Any) -> list[str]:
         """Normalize a string or iterable of strings into a lowercase list.
         - None -> []
         - "HBO Max" -> ["hbo max"]
         - ["USA", "UK"] -> ["usa", "uk"]
         - Filters out empty strings and trims whitespace
         """
+
         if not value:
             return []
+
         if isinstance(value, str):
             v = value.strip()
             return [v.lower()] if v else []
+
         # Try to iterate (handles lists/tuples/sets)
         try:
-            result = []
+            result = list[str]()
+
             for x in value:
                 if x is None:
                     continue
+
                 s = str(x).strip()
+
                 if s:
                     result.append(s.lower())
+
             return result
         except TypeError:
             # Not iterable; fallback to string cast
             s = str(value).strip()
+
             return [s.lower()] if s else []
 
     def _get_year(self, item: MediaItem) -> int | None:
@@ -303,15 +312,21 @@ class LibraryProfileMatcher:
         For shows/seasons/episodes, uses the show's aired_at year.
         For movies, uses the year field directly.
         """
-        if isinstance(item, (Show, Season, Episode)):
-            # For TV content, get the show's aired_at year
-            show = item.get_top_title()
 
-            if show and hasattr(show, "aired_at") and show.aired_at:
-                try:
-                    return int(show.aired_at.split("-")[0])
-                except (ValueError, IndexError, AttributeError):
-                    return None
+        if isinstance(item, Episode):
+            # For episodes, get the parent show
+            show = item.parent.parent
+        elif isinstance(item, Season):
+            # For seasons, get the parent show
+            show = item.parent
+        else:
+            show = item
+
+        if show.aired_at:
+            try:
+                return int(show.aired_at.split("-")[0])
+            except (ValueError, IndexError, AttributeError):
+                return None
 
         # For movies or if show year not available, use year field
         if hasattr(item, "year") and item.year:

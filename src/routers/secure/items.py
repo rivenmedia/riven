@@ -72,7 +72,7 @@ def handle_ids(ids: str) -> list[int]:
 
 # Convenience helper to mutate an item and update states consistently
 def apply_item_mutation(
-    program,
+    program: Program,
     session: Session,
     item: MediaItem,
     mutation_fn: "Callable[[MediaItem, Session], None]",
@@ -130,10 +130,7 @@ class StateResponse(BaseModel):
 
 @router.get("/states", operation_id="get_states")
 async def get_states() -> StateResponse:
-    return {
-        "success": True,
-        "states": [state for state in States],
-    }
+    return StateResponse(states=[state._name_ for state in States], success=True)
 
 
 class ItemsResponse(BaseModel):
@@ -224,7 +221,8 @@ async def get_items(
 
     if sort:
         # Verify we don't have multiple sorts of the same type
-        sort_types = set()
+        sort_types = set[str]()
+
         for sort_criterion in sort:
             sort_type = sort_criterion.sort_type
             if sort_type in sort_types:
@@ -310,7 +308,7 @@ async def add_items(
         all_tvdb_ids = [id for id in all_tvdb_ids if id]
 
     added_count = 0
-    items = []
+    items = list[MediaItem]()
 
     with db_session() as session:
         if media_type == "movie" and tmdb_ids:
@@ -358,7 +356,7 @@ async def add_items(
                 di[Program].em.add_item(item)
                 added_count += 1
 
-    return {"message": f"Added {added_count} item(s) to the queue"}
+    return MessageResponse(message=f"Added {added_count} item(s) to the queue")
 
 
 @router.get(
@@ -397,10 +395,12 @@ async def get_item(
             raise HTTPException(status_code=400, detail="Invalid media type")
 
         try:
-            item: MediaItem = session.execute(query).unique().scalar_one_or_none()
+            item = session.execute(query).unique().scalar_one_or_none()
+
             if item:
                 if extended:
                     return item.to_extended_dict()
+
                 return item.to_dict()
             else:
                 raise HTTPException(status_code=404, detail="Item not found")
