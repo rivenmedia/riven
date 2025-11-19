@@ -87,11 +87,17 @@ class FilesystemService:
             # Run media analysis immediately after VFS registration succeeds
             # This ensures metadata is available BEFORE Plex/Emby/Jellyfin are notified
             try:
+                from program.program import riven
+                from program.services.post_processing import PostProcessing
                 from program.services.post_processing.media_analysis import MediaAnalysisService
-                media_analysis = MediaAnalysisService()
-                if media_analysis.should_submit(episode_or_movie):
-                    media_analysis.run(episode_or_movie)
-                    logger.debug(f"Media analysis completed for {episode_or_movie.log_string} before updater notification")
+
+                # Get the existing MediaAnalysisService instance instead of creating a new one
+                post_processing = riven.services.get(PostProcessing)
+                if post_processing:
+                    media_analysis = post_processing.services.get(MediaAnalysisService)
+                    if media_analysis and media_analysis.should_submit(episode_or_movie):
+                        media_analysis.run(episode_or_movie)
+                        logger.debug(f"Media analysis completed for {episode_or_movie.log_string} before updater notification")
             except Exception as e:
                 logger.warning(f"Media analysis failed for {episode_or_movie.log_string}: {e}")
                 # Don't fail VFS registration if analysis fails
