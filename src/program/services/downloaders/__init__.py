@@ -111,6 +111,14 @@ class Downloader:
                             )
                             continue
 
+                        # Validate download URLs by attempting to unrestrict them
+                        container = self._validate_container_urls(container, service)
+                        if not container:
+                            logger.debug(
+                                f"Stream {stream.infohash} has no valid download URLs on {service.key}"
+                            )
+                            continue
+
                         # Try to download using this service
                         download_result = self.download_cached_stream_on_service(
                             stream, container, service
@@ -259,6 +267,105 @@ class Downloader:
             return container
 
         return None
+
+    def _validate_container_urls(
+        self, container: TorrentContainer, service
+    ) -> Optional[TorrentContainer]:
+        """
+        Validate download URLs in a TorrentContainer by attempting to unrestrict them.
+
+        Filters out files with invalid/inaccessible URLs and returns a container with only
+        valid files. If no valid files remain, returns None.
+
+        Parameters:
+            container: TorrentContainer with files to validate
+            service: Debrid service instance to use for unrestricting
+
+        Returns:
+            TorrentContainer with only valid files, or None if no valid files remain
+        """
+        import time
+
+        if not container or not container.files:
+            return container
+
+        valid_files = []
+
+        for file in container.files:
+            if not hasattr(file, 'download_url') or not file.download_url:
+                # No download URL to validate, keep the file
+                valid_files.append(file)
+                continue
+
+            # Try to unrestrict the URL with retry logic
+            max_attempts = 3
+            valid = False
+
+            for attempt in range(max_attempts):
+                try:
+                    unrestricted = service.unrestrict_link(file.download_url)
+                    if unrestricted and (
+                        (isinstance(unrestricted, dict) and unrestricted.get('download'))
+                        or (hasattr(unrestricted, 'download') and unrestricted.download)
+                    ):
+                        # Got unrestricted URL, now verify it's actually accessible
+                        unrestricted_url = (
+                            unrestricted.get('download') if isinstance(unrestricted, dict)
+                            else unrestricted.download
+                        )
+
+                        # Test accessibility with a HEAD request
+                        import requests
+                        try:
+                            head_response = requests.head(unrestricted_url, timeout=5, allow_redirects=True)
+                            if head_response.status_code == 200:
+                                # URL is valid and accessible
+                                valid = True
+                                break
+                            else:
+                                logger.debug(
+                                    f"URL validation failed for {file.filename}: HTTP {head_response.status_code}"
+                                )
+                                break  # Don't retry if file is genuinely inaccessible
+                        except requests.exceptions.RequestException as e:
+                            # Network error - this might be transient, allow retry
+                            if attempt < max_attempts - 1:
+                                raise  # Re-raise to trigger retry logic
+                            else:
+                                logger.debug(
+                                    f"URL accessibility check failed for {file.filename}: {e}"
+                                )
+                    else:
+                        logger.debug(
+                            f"URL validation failed for {file.filename}: no download URL in response"
+                        )
+                        break  # Don't retry if unrestrict succeeded but returned invalid data
+
+                except Exception as e:
+                    if attempt < max_attempts - 1:
+                        # Exponential backoff: 1s, 2s, 4s
+                        wait_time = 2 ** attempt
+                        logger.debug(
+                            f"URL validation attempt {attempt + 1}/{max_attempts} failed for {file.filename}: {e}. Retrying in {wait_time}s..."
+                        )
+                        time.sleep(wait_time)
+                    else:
+                        logger.debug(
+                            f"URL validation failed for {file.filename} after {max_attempts} attempts: {e}"
+                        )
+
+            if valid:
+                valid_files.append(file)
+            else:
+                logger.debug(f"Filtering out file with invalid URL: {file.filename}")
+
+        if not valid_files:
+            logger.debug("No valid files remaining after URL validation")
+            return None
+
+        # Return container with filtered files
+        container.files = valid_files
+        return container
 
     def update_item_attributes(
         self, item: MediaItem, download_result: DownloadedTorrent, service=None
