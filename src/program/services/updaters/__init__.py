@@ -6,6 +6,7 @@ from typing import Generator
 from loguru import logger
 
 from program.media.item import MediaItem
+from program.media.media_entry import MediaEntry
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
@@ -61,15 +62,20 @@ class Updater:
 
         for _item in items:
             # Get all VFS paths from the entry's helper method
-            fe = getattr(_item, "filesystem_entry", None)
-            if not fe:
+            try:
+                me: MediaEntry = _item.media_entry
+            except ValueError as e:
+                logger.debug(f"Skipping Updater: {e}")
+                continue
+
+            if not me:
                 logger.debug(
                     f"No filesystem entry for {_item.log_string}; skipping updater"
                 )
                 continue
 
             try:
-                all_vfs_paths = fe.get_all_vfs_paths()
+                all_vfs_paths = me.get_all_vfs_paths()
             except Exception as e:
                 logger.error(f"Failed to get VFS paths for {_item.log_string}: {e}")
                 continue

@@ -528,23 +528,21 @@ class RivenVFS(pyfuse3.Operations):
             logger.debug(f"Item {item.id} has no filesystem_entry, skipping VFS add")
             return False
 
-        entry = item.filesystem_entry
+        entry = item.media_entry
         if not isinstance(entry, MediaEntry):
             logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
             return False
 
         # Ensure we have an unrestricted URL available before analysis/VFS registration
-        if not getattr(entry, "unrestricted_url", None):
+        if not entry.unrestricted_url:
             try:
-                if getattr(self, "vfs_db", None) and getattr(
-                    entry, "original_filename", None
-                ):
+                if self.vfs_db and entry.original_filename:
                     resolved = self.vfs_db.get_entry_by_original_filename(
                         original_filename=entry.original_filename,
                         force_resolve=True,
                     )
                     if resolved and isinstance(resolved, dict):
-                        url = resolved.get("url") or resolved.get("unrestricted_url")
+                        url = resolved.get("unrestricted_url") or resolved.get("url")
                         if url:
                             entry.unrestricted_url = url
 
