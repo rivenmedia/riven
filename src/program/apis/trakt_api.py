@@ -189,7 +189,7 @@ class TraktAPI:
 
         return all_data
 
-    def get_watchlist_items(self, user: str):
+    def get_watchlist_items(self, user: str) -> list[Watchlist]:
         """Get watchlist items from Trakt with pagination support."""
 
         return self._fetch_data(

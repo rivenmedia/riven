@@ -596,13 +596,16 @@ class TraktModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Trakt integration")
     api_key: str = Field(default="", description="Trakt API key")
     watchlist: list[str] = Field(
-        default_factory=list, description="Trakt usernames for watchlist monitoring"
+        default_factory=list[str],
+        description="Trakt usernames for watchlist monitoring",
     )
     user_lists: list[str] = Field(
-        default_factory=list, description="Trakt user list URLs to monitor"
+        default_factory=list[str],
+        description="Trakt user list URLs to monitor",
     )
     collection: list[str] = Field(
-        default_factory=list, description="Trakt usernames for collection monitoring"
+        default_factory=list[str],
+        description="Trakt usernames for collection monitoring",
     )
     fetch_trending: bool = Field(
         default=False, description="Fetch trending content from Trakt"

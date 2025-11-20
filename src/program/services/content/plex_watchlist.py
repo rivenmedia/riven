@@ -87,15 +87,13 @@ class PlexWatchlist(ContentService[PlexWatchlistModel]):
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
 
         try:
-            watchlist_items: list[dict[str, str]] = self.api.get_items_from_watchlist()
-            rss_items: list[tuple[str, str]] = (
-                self.api.get_items_from_rss() if self.api.rss_enabled else []
-            )
+            watchlist_items = self.api.get_items_from_watchlist()
+            rss_items = self.api.get_items_from_rss() if self.api.rss_enabled else []
         except Exception as e:
             logger.warning(f"Error fetching items: {e}")
             return
 
-        items_to_yield: list[MediaItem] = []
+        items_to_yield = list[MediaItem]()
 
         if watchlist_items:
             for d in watchlist_items:

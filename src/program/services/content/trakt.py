@@ -1,7 +1,7 @@
 """Trakt content module"""
 
 from datetime import datetime, timedelta
-from typing import Literal, TypeIs
+from typing import Any, Literal, TypeIs
 
 from kink import di
 from loguru import logger
@@ -138,10 +138,10 @@ class TraktContent(ContentService[TraktModel]):
             + most_watched_ids
         )
 
-        items_to_yield = []
+        items_to_yield = list[MediaItem]()
 
         for _id, _type in all_ids:
-            if _type == "movie" and not item_exists_by_any_id(tmdb_id=_id):
+            if _type == "movie" and not item_exists_by_any_id(tmdb_id=str(_id)):
                 items_to_yield.append(
                     MediaItem(
                         {
@@ -150,7 +150,7 @@ class TraktContent(ContentService[TraktModel]):
                         }
                     )
                 )
-            elif _type == "show" and not item_exists_by_any_id(tvdb_id=_id):
+            elif _type == "show" and not item_exists_by_any_id(tvdb_id=str(_id)):
                 items_to_yield.append(
                     MediaItem(
                         {
@@ -167,13 +167,13 @@ class TraktContent(ContentService[TraktModel]):
 
         yield RunnerResult(media_items=items_to_yield)
 
-    def _get_watchlist(self, watchlist_users: list) -> list:
+    def _get_watchlist(self, watchlist_users: list[str]) -> list[tuple[int, str]]:
         """Get IDs and types from Trakt watchlist"""
 
         if not watchlist_users:
-            return []
+            return list[tuple[int, str]]()
 
-        ids = []
+        ids = list[tuple[int, str]]()
 
         for user in watchlist_users:
             items = self.api.get_watchlist_items(user)
@@ -181,13 +181,13 @@ class TraktContent(ContentService[TraktModel]):
 
         return ids
 
-    def _get_collection(self, collection_users: list) -> list:
+    def _get_collection(self, collection_users: list[str]) -> list[tuple[int, str]]:
         """Get IDs and types from Trakt collection"""
 
         if not collection_users:
-            return []
+            return list[tuple[int, str]]()
 
-        ids = []
+        ids = list[tuple[int, str]]()
 
         for user in collection_users:
             items = self.api.get_collection_items(user, "movies")
@@ -196,13 +196,13 @@ class TraktContent(ContentService[TraktModel]):
 
         return ids
 
-    def _get_list(self, list_items: list) -> list[tuple[str, str]]:
+    def _get_list(self, list_items: list[str]) -> list[tuple[str, str]]:
         """Get IDs and types from Trakt user list"""
 
         if not list_items or not any(list_items):
-            return []
+            return list[tuple[str, str]]()
 
-        ids = []
+        ids = list[tuple[str, str]]([])
 
         for url in list_items:
             user, list_name = self.api.extract_user_list_from_url(url)
@@ -278,31 +278,31 @@ class TraktContent(ContentService[TraktModel]):
             | list[GetTrendingShows200ResponseInner | GetTrendingMovies200ResponseInner]
             | list[GetPopularShows200ResponseInner | GetPopularMovies200ResponseInner]
         ),
-    ):
+    ) -> list[tuple[int, Literal["show", "movie"]]]:
         """Extract IDs and types from a list of items"""
 
         class ItemWithShow:
             show: GetShows200ResponseInnerShow
 
             @staticmethod
-            def is_type_of(item) -> TypeIs["ItemWithShow"]:
+            def is_type_of(item: Any) -> TypeIs["ItemWithShow"]:
                 return hasattr(item, "show")
 
         class ItemWithMovie:
             movie: GetMovies200ResponseInnerMovie
 
             @staticmethod
-            def is_type_of(item) -> TypeIs["ItemWithMovie"]:
+            def is_type_of(item: Any) -> TypeIs["ItemWithMovie"]:
                 return hasattr(item, "movie")
 
         class ItemWithIDs:
             ids: GetShows200ResponseInnerShowIds | GetMovies200ResponseInnerMovieIds
 
             @staticmethod
-            def is_type_of(item) -> TypeIs["ItemWithIDs"]:
+            def is_type_of(item: Any) -> TypeIs["ItemWithIDs"]:
                 return hasattr(item, "ids")
 
-        _ids: list[tuple[int, Literal["show", "movie"]]] = []
+        _ids = list[tuple[int, Literal["show", "movie"]]]()
 
         for item in items:
             if ItemWithShow.is_type_of(item):
