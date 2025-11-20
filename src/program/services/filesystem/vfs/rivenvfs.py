@@ -519,8 +519,6 @@ class RivenVFS(pyfuse3.Operations):
             True if successfully added, False otherwise
         """
 
-        from program.services.media_analysis import media_analysis_service
-
         # Only process if this item has a filesystem entry
         if not item.filesystem_entry:
             logger.debug(f"Item {item.id} has no filesystem_entry, skipping VFS add")
@@ -537,13 +535,6 @@ class RivenVFS(pyfuse3.Operations):
                 f"Item {item.id} filesystem_entry URL is invalid, skipping VFS add"
             )
             return False
-
-        # add probed data
-        # if media_analysis_service.should_submit(item):
-        #     success = media_analysis_service.run(item)
-        #     if not success:
-        #         logger.error(f"Failed to analyze media file for {item.log_string}")
-        #         return False
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)

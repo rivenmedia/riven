@@ -155,6 +155,7 @@ class LibraryProfileMatcher:
                 [item_rating.lower()] if item_rating else [],
                 rules.content_ratings,
                 "content_ratings",
+                item.log_string,
             ):
                 return False
 
@@ -162,7 +163,11 @@ class LibraryProfileMatcher:
         return True
 
     def _matches_list_filter(
-        self, item_values: List[str], filter_values: List[str], filter_name: str
+        self,
+        item_values: List[str],
+        filter_values: List[str],
+        filter_name: str,
+        log_string: str,
     ) -> bool:
         """
         Check if item values match filter with inclusion/exclusion support.
@@ -206,9 +211,9 @@ class LibraryProfileMatcher:
         if exclusions:
             for exclusion in exclusions:
                 if exclusion in item_values_lower:
-                    logger.debug(
-                        f"Item excluded by {filter_name} filter: "
-                        f"item has '{exclusion}' which is in exclusion list"
+                    logger.trace(
+                        f"{log_string} excluded by {filter_name} filter: "
+                        f"'{exclusion}' found in exclusion list"
                     )
                     return False
 
