@@ -49,15 +49,18 @@ class MediaAnalysisService:
         Returns:
             True if analysis should run, False otherwise
         """
+        from program.media.media_entry import MediaEntry
+
         if item.type not in ["movie", "episode"]:
             return False
 
-        if not item.filesystem_entry:
+        if not item.media_entry:
             return False
 
         # Skip if already probed (check for probed_at timestamp in media_metadata)
-        if item.filesystem_entry.media_metadata:
-            metadata = item.filesystem_entry.media_metadata
+        entry: MediaEntry = item.media_entry
+        if hasattr(entry, "media_metadata") and entry.media_metadata:
+            metadata = entry.media_metadata
             if metadata.get("probed_at"):
                 return False
 

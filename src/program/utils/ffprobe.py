@@ -1,6 +1,5 @@
 import subprocess
 import orjson
-from urllib.parse import urlparse
 from typing import Optional, List
 from fractions import Fraction
 from pydantic import BaseModel, Field
@@ -68,6 +67,26 @@ class MediaMetadata(BaseModel):
         return round(self.duration / 60, 2)
 
 
+def extract_filename_from_url(download_url: str) -> str:
+    """
+    Extract a UTF-8 decoded filename from a URL.
+
+    This will:
+    - Take the last path segment
+    - URL-decode percent-encoded characters (e.g. `%20` -> space)
+    - Assume UTF-8, which is the standard for URL encoding
+    """
+    from urllib.parse import unquote, urlparse
+
+    parsed = urlparse(download_url)
+    path = parsed.path or ""
+    if not path:
+        return ""
+
+    raw_name = path.rsplit("/", 1)[-1]
+    return unquote(raw_name, encoding="utf-8", errors="replace")
+
+
 def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
     """
     Parse a media file using ffprobe and return its metadata.
@@ -90,20 +109,55 @@ def parse_media_url(download_url: str) -> Optional[MediaMetadata]:
         cmd = [
             "ffprobe",
             "-v",
-            "quiet",
+            "error",
+            "-analyzeduration",
+            "2M",
+            "-probesize",
+            "10M",
             "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
+            "json=compact=1",
+            "-show_entries",
+            (
+                "format=filename,size,duration,bit_rate,format_name:"
+                "stream=index,codec_name,codec_type,width,height,"
+                "r_frame_rate,channels,sample_rate,bit_rate:"
+                "stream_tags=language,title"
+            ),
+            "-i",
             download_url,
         ]
 
-        result = subprocess.check_output(cmd, text=True)
-        probe_data = orjson.loads(result)
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,  # keep bytes for orjson
+            )
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr.decode("utf-8", errors="ignore") if exc.stderr else ""
+            raise RuntimeError(
+                f"ffprobe error while probing {download_url}: {stderr}"
+            ) from exc
+        except Exception as exc:
+            raise ValueError(
+                f"Unexpected error invoking ffprobe for {download_url}: {exc}"
+            ) from exc
 
-        format_info = probe_data.get("format", {})
+        try:
+            probe_data = orjson.loads(result.stdout)
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to parse ffprobe JSON output for {download_url}: {exc}"
+            ) from exc
+
+        if not probe_data:
+            raise ValueError(f"ffprobe returned no data for {download_url}")
+
+        format_info = probe_data.get("format", {}) or {}
         metadata_dict = {
-            "filename": urlparse(download_url).path.split("/")[-1],
+            "filename": extract_filename_from_url(download_url),
             "file_size": int(format_info.get("size", 0)),
             "duration": round(float(format_info.get("duration", 0)), 2),
             "format": (

@@ -551,7 +551,7 @@ class SubtitleService:
         embedded_languages = self._get_embedded_subtitle_languages(item)
 
         # Get already downloaded subtitle languages from database
-        downloaded_languages = set()
+        downloaded_languages: set[str] = set()
         try:
             with db.Session() as session:
                 existing_subtitles = (
@@ -564,15 +564,14 @@ class SubtitleService:
             )
 
         # Combine embedded and downloaded languages
-        available_languages = embedded_languages | downloaded_languages
+        available_languages: set[str] = embedded_languages | downloaded_languages
 
         # Check if any wanted language is missing
         missing_languages = set(self.languages) - available_languages
 
         if not missing_languages:
             logger.debug(
-                f"All wanted subtitle languages already available for {item.log_string} "
-                f"(embedded: {embedded_languages}, downloaded: {downloaded_languages})"
+                f"All wanted subtitle languages already available for {item.log_string}"
             )
             return False
 
