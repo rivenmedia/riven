@@ -1,11 +1,12 @@
 ﻿from typing import Literal, cast
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import regex
 from loguru import logger
 from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
 from plexapi.video import Movie, Show
+from plexapi.media import Guid
 
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
@@ -16,6 +17,20 @@ TVDBID_REGEX = regex.compile(r"tvdb://(\d+)")
 
 class GuidModel(BaseModel):
     id: str
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        if not any(
+            [
+                v.startswith("imdb://"),
+                v.startswith("tmdb://"),
+                v.startswith("tvdb://"),
+            ]
+        ):
+            raise ValueError(f"Invalid GUID format: {v}")
+
+        return v
 
 
 class PlexAPIError(Exception):
@@ -93,7 +108,7 @@ class PlexAPI:
             MediaContainer: MediaContainerModel
 
         if response.ok:
-            data = ResponseData.model_validate(response.data)
+            data = ResponseData.model_validate(response.json())
 
             return next(
                 (
@@ -131,7 +146,7 @@ class PlexAPI:
 
                     items: list[ItemModel]
 
-                data = RSSResponseData.model_validate(response.data)
+                data = RSSResponseData.model_validate(response.json())
 
                 for item in data.items:
                     if item.category == "movie":
@@ -192,8 +207,8 @@ class PlexAPI:
 
                 if item.guids:
                     guids = [
-                        GuidModel.model_validate({"id": guid})
-                        for guid in cast(list[str], item.guids)
+                        GuidModel.model_validate(guid.__dict__)
+                        for guid in cast(list[Guid], item.guids)
                     ]
 
                     imdb_id = next(

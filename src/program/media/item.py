@@ -5,7 +5,7 @@ from typing import Any, Literal, TYPE_CHECKING
 
 import sqlalchemy
 from loguru import logger
-from sqlalchemy import Index
+from sqlalchemy import Dialect, Index, TypeDecorator
 from sqlalchemy.orm import (
     Mapped,
     mapped_column,
@@ -141,7 +141,6 @@ class MediaItem(Base):
 
         self.scraped_at = None
         self.scraped_times = 0
-        self.active_stream = item.get("active_stream", {})
         self.streams = []
         self.blacklisted_streams = []
 
@@ -799,6 +798,24 @@ class Movie(MediaItem):
 class Show(MediaItem):
     """Show class"""
 
+    class SeriesReleaseDecorator(TypeDecorator[SeriesRelease]):
+        """Custom SQLAlchemy type decorator for SeriesRelease JSON serialization"""
+
+        impl = sqlalchemy.JSON
+        cache_ok = True
+
+        def process_bind_param(self, value: SeriesRelease | None, dialect: Dialect):
+            if value is None:
+                return None
+
+            return value.model_dump()
+
+        def process_result_value(self, value: dict[str, Any] | None, dialect: Dialect):
+            if value is None:
+                return None
+
+            return SeriesRelease.model_validate(value)
+
     __tablename__ = "Show"
 
     id: Mapped[int] = mapped_column(
@@ -811,10 +828,10 @@ class Show(MediaItem):
         cascade="all, delete-orphan",
         order_by="Season.number",
     )
-    release_data: Mapped[SeriesRelease | None] = mapped_column(
-        sqlalchemy.JSON, default={}
+    release_data: Mapped[SeriesRelease] = mapped_column(
+        SeriesReleaseDecorator, default={}
     )
-    tvdb_status: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
+    tvdb_status: Mapped[str | None]
 
     __mapper_args__ = {
         "polymorphic_identity": "show",

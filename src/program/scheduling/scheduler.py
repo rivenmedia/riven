@@ -389,6 +389,7 @@ class ProgramScheduler:
         self, session: Session, now: datetime, offset_seconds: int
     ) -> None:
         """Schedule movie_release for future-dated movies that are not completed."""
+
         upcoming_movies = (
             session.execute(
                 select(Movie)
@@ -402,14 +403,19 @@ class ProgramScheduler:
         )
         for mv in upcoming_movies:
             if (
-                not self._has_future_task(session, mv.id, "movie_release", now)
+                not self._has_future_task(
+                    session=session,
+                    item_id=mv.id,
+                    task_type="movie_release",
+                    now=now,
+                )
                 and mv.aired_at
             ):
                 run_at = mv.aired_at + timedelta(seconds=offset_seconds)
 
                 try:
                     mv.schedule(
-                        run_at,
+                        run_at=run_at,
                         task_type="movie_release",
                         offset_seconds=offset_seconds,
                         reason="monitor:movie_release",

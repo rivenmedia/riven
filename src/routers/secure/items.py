@@ -844,7 +844,7 @@ async def reset_item_streams(
     def mutation(i: MediaItem, s: Session):
         i.streams.clear()
         i.blacklisted_streams.clear()
-        i.active_stream = {}
+        i.active_stream = None
 
     apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
     db.commit()
