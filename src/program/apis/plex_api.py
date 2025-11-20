@@ -1,14 +1,21 @@
-﻿import regex
+﻿from typing import Literal, cast
+from pydantic import BaseModel
+import regex
 from loguru import logger
 from plexapi.library import LibrarySection
 from plexapi.myplex import MyPlexAccount
 from plexapi.server import PlexServer
+from plexapi.video import Movie, Show
 
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession
 
 TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")
 TVDBID_REGEX = regex.compile(r"tvdb://(\d+)")
+
+
+class GuidModel(BaseModel):
+    id: str
 
 
 class PlexAPIError(Exception):
@@ -45,6 +52,7 @@ class PlexAPI:
         except Exception as e:
             logger.error(f"Failed to authenticate Plex account: {e}")
             return False
+
         return True
 
     def validate_server(self):
@@ -73,13 +81,24 @@ class PlexAPI:
 
         response = self.session.get(url)
 
-        if response.ok and hasattr(response.data, "MediaContainer"):
-            metadata = response.data.MediaContainer.Metadata[0]
+        class ResponseData(BaseModel):
+            class MediaContainerModel(BaseModel):
+
+                class MetadataModel(BaseModel):
+
+                    Guid: list[GuidModel]
+
+                Metadata: list[MetadataModel]
+
+            MediaContainer: MediaContainerModel
+
+        if response.ok:
+            data = ResponseData.model_validate(response.data)
 
             return next(
                 (
                     guid.id.split("//")[-1]
-                    for guid in metadata.Guid
+                    for guid in data.MediaContainer.Metadata[0].Guid
                     if "imdb://" in guid.id
                 ),
                 None,
@@ -100,43 +119,55 @@ class PlexAPI:
             try:
                 response = self.session.get(rss_url + "?format=json", timeout=60)
 
-                if not response.ok or not hasattr(response.data, "items"):
+                if not response.ok:
                     logger.error(f"Failed to fetch Plex RSS feed from {rss_url}")
                     continue
 
-                for _item in response.data.items:
-                    if _item.category == "movie":
+                class RSSResponseData(BaseModel):
+                    class ItemModel(BaseModel):
+                        category: Literal["movie", "show"]
+                        title: str
+                        guids: list[str]
+
+                    items: list[ItemModel]
+
+                data = RSSResponseData.model_validate(response.data)
+
+                for item in data.items:
+                    if item.category == "movie":
                         tmdb_id = next(
                             (
                                 guid.split("//")[-1]
-                                for guid in _item.guids
+                                for guid in item.guids
                                 if guid.startswith("tmdb://")
                             ),
                             "",
                         )
+
                         if tmdb_id:
                             rss_items.append(("movie", tmdb_id))
                         else:
                             logger.log(
                                 "NOT_FOUND",
-                                f"Failed to extract appropriate ID from {_item.title}",
+                                f"Failed to extract appropriate ID from {item.title}",
                             )
 
-                    elif _item.category == "show":
+                    elif item.category == "show":
                         tvdb_id = next(
                             (
                                 guid.split("//")[-1]
-                                for guid in _item.guids
+                                for guid in item.guids
                                 if guid.startswith("tvdb://")
                             ),
                             "",
                         )
+
                         if tvdb_id:
                             rss_items.append(("show", tvdb_id))
                         else:
                             logger.log(
                                 "NOT_FOUND",
-                                f"Failed to extract appropriate ID from {_item.title}",
+                                f"Failed to extract appropriate ID from {item.title}",
                             )
 
             except Exception as e:
@@ -150,8 +181,8 @@ class PlexAPI:
 
         assert self.account
 
-        items = self.account.watchlist()
-        watchlist_items: list[dict[str, str | None]] = []
+        items = cast(list[Movie | Show], self.account.watchlist())
+        watchlist_items = list[dict[str, str | None]]()
 
         for item in items:
             try:
@@ -159,11 +190,16 @@ class PlexAPI:
                 tmdb_id: str | None = None
                 tvdb_id: str | None = None
 
-                if hasattr(item, "guids") and item.guids:
+                if item.guids:
+                    guids = [
+                        GuidModel.model_validate({"id": guid})
+                        for guid in cast(list[str], item.guids)
+                    ]
+
                     imdb_id = next(
                         (
                             guid.id.split("//")[-1]
-                            for guid in item.guids
+                            for guid in guids
                             if guid.id.startswith("imdb://")
                         ),
                         None,
@@ -173,7 +209,7 @@ class PlexAPI:
                         tmdb_id = next(
                             (
                                 guid.id.split("//")[-1]
-                                for guid in item.guids
+                                for guid in guids
                                 if guid.id.startswith("tmdb://")
                             ),
                             "",
@@ -182,7 +218,7 @@ class PlexAPI:
                         tvdb_id = next(
                             (
                                 guid.id.split("//")[-1]
-                                for guid in item.guids
+                                for guid in guids
                                 if guid.id.startswith("tvdb://")
                             ),
                             "",
@@ -214,7 +250,7 @@ class PlexAPI:
 
         return watchlist_items
 
-    def update_section(self, section, path: str) -> bool:
+    def update_section(self, section: LibrarySection, path: str) -> bool:
         """Update the Plex section for the given path"""
         try:
             section.update(str(path))
@@ -231,7 +267,10 @@ class PlexAPI:
         # Skip sections without locations and non-movie/show sections
         sections = [
             section
-            for section in self.plex_server.library.sections()
+            for section in cast(
+                list[LibrarySection],
+                self.plex_server.library.sections(),
+            )
             if section.type in ["show", "movie"] and section.locations
         ]
         # Map sections with their locations with the section obj as key and the location strings as values

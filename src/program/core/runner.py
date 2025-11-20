@@ -32,7 +32,7 @@ class Runner(ABC, Generic[TSettings, TService]):
 
     is_content_service: bool = False
     settings: TSettings
-    services: list[TService] | dict[type[TService], TService]
+    services: list[TService] | dict[TService, TService]
 
     def __init__(self):
         super().__init__()

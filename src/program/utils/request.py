@@ -357,7 +357,7 @@ class SmartSession:
                 self.breakers[domain] = CircuitBreaker(name=domain)
 
     # --- public API ---
-    def request(self, method: str, url: str, **kwargs: dict[Any, Any]) -> SmartResponse:
+    def request(self, method: str, url: str, **kwargs: Any) -> SmartResponse:
         """
         Make a request with automatic SmartResponse, rate limiting, and circuit breaker.
 
@@ -605,25 +605,25 @@ class SmartSession:
             else:
                 return _run_with_client(client)
 
-    def get(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
+    def get(self, url: str, **kwargs: Any) -> SmartResponse:
         return self.request("GET", url, **kwargs)
 
-    def post(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
+    def post(self, url: str, **kwargs: Any) -> SmartResponse:
         return self.request("POST", url, **kwargs)
 
-    def put(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
+    def put(self, url: str, **kwargs: Any) -> SmartResponse:
         return self.request("PUT", url, **kwargs)
 
-    def delete(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
+    def delete(self, url: str, **kwargs: Any) -> SmartResponse:
         return self.request("DELETE", url, **kwargs)
 
-    def patch(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
+    def patch(self, url: str, **kwargs: Any) -> SmartResponse:
         return self.request("PATCH", url, **kwargs)
 
-    def head(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
+    def head(self, url: str, **kwargs: Any) -> SmartResponse:
         return self.request("HEAD", url, **kwargs)
 
-    def options(self, url: str, **kwargs: dict[str, Any]) -> SmartResponse:
+    def options(self, url: str, **kwargs: Any) -> SmartResponse:
         return self.request("OPTIONS", url, **kwargs)
 
     def close(self):
