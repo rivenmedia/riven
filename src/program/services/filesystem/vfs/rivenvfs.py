@@ -32,10 +32,8 @@ Usage:
 
 from __future__ import annotations
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, contextmanager
-from http import HTTPStatus
+from contextlib import asynccontextmanager
 
-import httpx
 import pyfuse3
 import trio
 import os
@@ -62,7 +60,6 @@ from program.services.filesystem.vfs.vfs_node import (
     VFSRoot,
 )
 
-from program.utils.async_client import AsyncClient
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
 from program.services.filesystem.vfs.db import VFSDatabase
@@ -78,6 +75,7 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
+from program.utils.debrid_cdn_url import DebridCDNUrl
 
 from ...streaming import (
     Cache,
@@ -520,7 +518,7 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully added, False otherwise
         """
-        from program.media.media_entry import MediaEntry
+
         from program.services.media_analysis import media_analysis_service
 
         # Only process if this item has a filesystem entry
@@ -529,33 +527,16 @@ class RivenVFS(pyfuse3.Operations):
             return False
 
         entry = item.media_entry
-        if not isinstance(entry, MediaEntry):
-            logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
-            return False
 
-        # Ensure we have an unrestricted URL available before analysis/VFS registration
+        entry.unrestricted_url = DebridCDNUrl(
+            filename=entry.original_filename
+        ).validate()
+
         if not entry.unrestricted_url:
-            try:
-                if self.vfs_db and entry.original_filename:
-                    resolved = self.vfs_db.get_entry_by_original_filename(
-                        original_filename=entry.original_filename,
-                        force_resolve=True,
-                    )
-                    if resolved and isinstance(resolved, dict):
-                        url = resolved.get("unrestricted_url") or resolved.get("url")
-                        if url:
-                            entry.unrestricted_url = url
-
-                    if not resolved:
-                        logger.debug(
-                            f"Failed to pre-resolve unrestricted URL for {item.log_string}"
-                        )
-                        return False
-            except Exception as e:
-                logger.debug(
-                    f"Failed to pre-resolve unrestricted URL for {item.log_string}: {e}"
-                )
-                return False
+            logger.debug(
+                f"Item {item.id} filesystem_entry URL is invalid, skipping VFS add"
+            )
+            return False
 
         # add probed data
         if media_analysis_service.should_submit(item):
@@ -1683,36 +1664,7 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
-                entry_info = await trio.to_thread.run_sync(
-                    lambda: self.vfs_db.get_entry_by_original_filename(
-                        original_filename=node.original_filename,
-                    )
-                )
-
-                if (
-                    not entry_info
-                    or not entry_info["url"]
-                    or not entry_info["provider"]
-                ):
-                    raise pyfuse3.FUSEError(errno.ENOENT)
-
-                try:
-                    # Test URL availability
-                    async with di[AsyncClient].stream(
-                        method="GET",
-                        url=entry_info["url"],
-                    ) as response:
-                        response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    status_code = e.response.status_code
-
-                    if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                        await trio.to_thread.run_sync(
-                            lambda: self.vfs_db.get_entry_by_original_filename(
-                                original_filename=node.original_filename,
-                                force_resolve=True,
-                            )
-                        )
+                DebridCDNUrl(filename=node.original_filename).validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."
