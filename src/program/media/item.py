@@ -10,6 +10,7 @@ from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from program.db.db import db
+from program.media.media_entry import MediaEntry
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
 
@@ -598,6 +599,19 @@ class MediaItem(db.Model):
             if self.filesystem_entries
             else False
         )
+
+    @property
+    def media_entry(self) -> MediaEntry:
+        """Return the MediaEntry for this item"""
+        entries = [
+            entry for entry in self.filesystem_entries if isinstance(entry, MediaEntry)
+        ]
+
+        if not entries:
+            raise ValueError(f"No MediaEntry found for {self.log_string}")
+
+        # when we introduce multi profiles, this will need to be updated
+        return entries[0]
 
     def get_top_imdb_id(self) -> str:
         """
