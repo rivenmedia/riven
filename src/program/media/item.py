@@ -8,6 +8,7 @@ from loguru import logger
 from PTT import parse_title
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from program.db.db import db
 from program.media.state import States
@@ -999,7 +1000,13 @@ class Season(MediaItem):
 
     @property
     def log_string(self):
-        return self.parent.log_string + " S" + str(self.number).zfill(2)
+        try:
+            return self.parent.log_string + " S" + str(self.number).zfill(2)
+        except DetachedInstanceError:
+            # Handle detached instance - provide fallback without database access
+            if self.id:
+                return f"Season {self.number} (Item ID {self.id})"
+            return f"Season {self.number}"
 
     def get_top_title(self) -> str:
         """Get the top title of the season."""
@@ -1084,7 +1091,13 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        return f"{self.parent.log_string}E{self.number:02}"
+        try:
+            return f"{self.parent.log_string}E{self.number:02}"
+        except DetachedInstanceError:
+            # Handle detached instance - provide fallback without database access
+            if self.id:
+                return f"Episode {self.number} (Item ID {self.id})"
+            return f"Episode {self.number}"
 
     def get_top_title(self) -> str:
         return self.parent.parent.title
