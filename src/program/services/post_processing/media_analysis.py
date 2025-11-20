@@ -58,16 +58,15 @@ class MediaAnalysisService:
             return False
 
         # Skip if already probed (check for probed_at timestamp in media_metadata)
-        # Wrap in try/except to handle KeyError from deferred loader when item was reset
-        try:
-            if item.filesystem_entry.media_metadata:
-                metadata = item.filesystem_entry.media_metadata
-                if metadata.get("probed_at"):
-                    return False
-        except KeyError:
-            # Item may have been reset, filesystem_entry is in invalid state
-            logger.debug(f"Cannot check media_metadata for {item.log_string} (item may have been reset)")
+        # Check filesystem_entry again as it may have been reset during concurrent operations
+        if not item.filesystem_entry:
+            logger.debug(f"Cannot check media_metadata for {item.log_string} (filesystem_entry was reset)")
             return False
+
+        if item.filesystem_entry.media_metadata:
+            metadata = item.filesystem_entry.media_metadata
+            if metadata.get("probed_at"):
+                return False
 
         return True
 

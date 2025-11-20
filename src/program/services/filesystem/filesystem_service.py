@@ -156,18 +156,22 @@ class FilesystemService:
             item: MediaItem with dead link
         """
         try:
-            from program.db.db_functions import apply_item_mutation
+            from routers.secure.items import apply_item_mutation
             from program.program import riven
+            from program.db.db import db
 
             def mutation(i: MediaItem, s):
                 i.blacklist_active_stream()
                 i.reset()
 
-            apply_item_mutation(
-                program=riven,
-                item=item,
-                mutation_fn=mutation,
-            )
+            with db.Session() as session:
+                apply_item_mutation(
+                    program=riven,
+                    session=session,
+                    item=item,
+                    mutation_fn=mutation,
+                )
+                session.commit()
 
             logger.info(
                 f"Reset {item.log_string} due to dead link. "

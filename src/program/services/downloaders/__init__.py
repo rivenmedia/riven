@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
+import time
+import requests
 
 from loguru import logger
 
@@ -18,7 +20,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from RTN import ParsedData
-from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
+from program.services.downloaders.shared import DownloaderBase, _sort_streams_by_quality, parse_filename
 from program.utils.request import CircuitBreakerOpen
 
 from .realdebrid import RealDebridDownloader
@@ -269,7 +271,7 @@ class Downloader:
         return None
 
     def _validate_container_urls(
-        self, container: TorrentContainer, service
+        self, container: TorrentContainer, service: DownloaderBase
     ) -> Optional[TorrentContainer]:
         """
         Validate that a torrent's download URLs are accessible by testing one file as a canary.
@@ -284,9 +286,6 @@ class Downloader:
         Returns:
             The original container if validation succeeds, None if torrent is inaccessible
         """
-        import time
-        import requests
-
         if not container or not container.files:
             return container
 
