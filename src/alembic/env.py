@@ -5,8 +5,18 @@ from sqlalchemy import engine_from_config, pool, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from alembic import context
-from program.db.db import db
+from program.db.db import db, Base
 from program.settings.manager import settings_manager
+
+from program.media import (
+    MediaItem,
+    FilesystemEntry,
+    StreamRelation,
+    ActiveStreamRelation,
+    StreamBlacklistRelation,
+    Stream,
+)
+from program.scheduling import ScheduledTask
 
 
 # Loguru handler for alembic logs
@@ -34,7 +44,7 @@ config = context.config
 config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.host))
 
 # Set MetaData object for autogenerate support
-target_metadata = db.Model.metadata
+target_metadata = Base.metadata
 
 
 def reset_database(connection) -> bool:
@@ -90,8 +100,6 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-
-    logger.debug(f"Connecting to database at {connectable.url}, {configuration}")
 
     with connectable.connect() as connection:
         connection = connection.execution_options(isolation_level="AUTOCOMMIT")

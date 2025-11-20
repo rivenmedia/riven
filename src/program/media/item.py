@@ -15,7 +15,7 @@ from sqlalchemy.orm import (
 
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
-from program.db.db import BaseDbModel, db_session
+from program.db.db import Base, db_session
 from program.media.media_entry import MediaEntry
 from program.apis.tvdb_api import SeriesRelease
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
 
 
-class MediaItem(BaseDbModel):
+class MediaItem(Base):
     """MediaItem class"""
 
     __tablename__ = "MediaItem"

@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from program.db.db import BaseDbModel
+from program.db.db import Base
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
 
-class FilesystemEntry(BaseDbModel):
+class FilesystemEntry(Base):
     """Base model for all virtual filesystem entries in RivenVFS"""
 
     __tablename__ = "FilesystemEntry"

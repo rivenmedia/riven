@@ -5,14 +5,14 @@ from RTN import Torrent
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from program.db.db import BaseDbModel
+from program.db.db import Base
 
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
 
-class StreamRelation(BaseDbModel):
+class StreamRelation(Base):
     __tablename__ = "StreamRelation"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
@@ -29,7 +29,7 @@ class StreamRelation(BaseDbModel):
     )
 
 
-class ActiveStreamRelation(BaseDbModel):
+class ActiveStreamRelation(Base):
     __tablename__ = "ActiveStreamRelation"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
@@ -46,7 +46,7 @@ class ActiveStreamRelation(BaseDbModel):
     )
 
 
-class StreamBlacklistRelation(BaseDbModel):
+class StreamBlacklistRelation(Base):
     __tablename__ = "StreamBlacklistRelation"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
@@ -63,7 +63,7 @@ class StreamBlacklistRelation(BaseDbModel):
     )
 
 
-class Stream(BaseDbModel):
+class Stream(Base):
     __tablename__ = "Stream"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)

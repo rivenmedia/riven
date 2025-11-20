@@ -7,7 +7,7 @@ import sqlalchemy
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column
 
-from program.db.db import BaseDbModel
+from program.db.db import Base
 
 
 class ScheduledStatus(str, Enum):
@@ -19,7 +19,7 @@ class ScheduledStatus(str, Enum):
     Cancelled = "cancelled"
 
 
-class ScheduledTask(BaseDbModel):
+class ScheduledTask(Base):
     """Persisted schedule entry for running item-related tasks at specific times.
 
     Decoupled by design: references item_id without foreign keys.
