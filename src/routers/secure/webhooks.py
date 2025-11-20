@@ -30,7 +30,15 @@ async def overseerr(request: Request) -> Dict[str, Any]:
         logger.error(f"Failed to process request: {e}")
         return {"success": False, "message": str(e)}
 
-    overseerr: Overseerr = request.app.program.all_services[Overseerr]
+    if (
+        hasattr(request.app.program, "all_services")
+        and Overseerr in request.app.program.all_services
+    ):
+        overseerr: Overseerr = request.app.program.all_services[Overseerr]
+    else:
+        logger.error("Overseerr not initialized yet")
+        return {"success": False, "message": "Overseerr not initialized"}
+
     if not overseerr.initialized:
         logger.error("Overseerr not initialized")
         return {"success": False, "message": "Overseerr not initialized"}

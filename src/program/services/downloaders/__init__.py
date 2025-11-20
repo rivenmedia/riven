@@ -19,6 +19,7 @@ from program.services.downloaders.models import (
 )
 from RTN import ParsedData
 from program.services.downloaders.shared import _sort_streams_by_quality, parse_filename
+from program.settings.manager import settings_manager
 from program.utils.request import CircuitBreakerOpen
 
 from .realdebrid import RealDebridDownloader
@@ -48,6 +49,9 @@ class Downloader:
         self._circuit_breaker_retries = {}
         # Track per-service cooldowns when circuit breaker is open
         self._service_cooldowns = {}  # {service.key: datetime}
+        self.subtitles_enabled = (
+            settings_manager.settings.post_processing.subtitle.enabled
+        )
 
     def validate(self):
         if not self.initialized_services:
@@ -164,7 +168,23 @@ class Downloader:
 
                 # If stream succeeded on any service, we're done
                 if download_success:
-                    break
+                    # add probed data
+                    if self.subtitles_enabled:
+                        from program.services.media_analysis import (
+                            media_analysis_service,
+                        )
+
+                        if media_analysis_service.should_submit(item):
+                            success = media_analysis_service.run(item)
+                            if not success:
+                                logger.error(
+                                    f"Failed to analyze media file for {item.log_string}"
+                                )
+                            else:
+                                logger.debug(
+                                    f"Media analysis completed for {item.log_string}"
+                                )
+                                break
 
                 # Only blacklist if stream genuinely failed on ALL available services
                 # Don't blacklist if we hit circuit breaker in single-provider mode

@@ -66,7 +66,7 @@ class MediaAnalysisService:
 
         return True
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> bool:
         """
         Analyze media file and store metadata.
 
@@ -83,11 +83,11 @@ class MediaAnalysisService:
         """
         if not item.filesystem_entry:
             logger.warning(f"No filesystem entry for {item.log_string}, cannot analyze")
-            return
+            return False
 
         if not item.filesystem_entry.unrestricted_url:
             logger.warning(f"No download URL for {item.log_string}, cannot analyze")
-            return
+            return False
 
         entry = item.filesystem_entry
 

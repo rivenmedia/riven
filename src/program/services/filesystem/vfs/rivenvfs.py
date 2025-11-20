@@ -539,11 +539,11 @@ class RivenVFS(pyfuse3.Operations):
             return False
 
         # add probed data
-        if media_analysis_service.should_submit(item):
-            success = media_analysis_service.run(item)
-            if not success:
-                logger.error(f"Failed to analyze media file for {item.log_string}")
-                return False
+        # if media_analysis_service.should_submit(item):
+        #     success = media_analysis_service.run(item)
+        #     if not success:
+        #         logger.error(f"Failed to analyze media file for {item.log_string}")
+        #         return False
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)

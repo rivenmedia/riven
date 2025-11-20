@@ -287,7 +287,7 @@ class SubtitleService:
                 tags.append("Proper")
             if parsed.repack:
                 tags.append("Repack")
-            if parsed.remux:
+            if "remux" in quality.lower():
                 tags.append("Remux")
             if parsed.extended:
                 tags.append("Extended")
