@@ -58,6 +58,11 @@ class MediaAnalysisService:
             return False
 
         # Skip if already probed (check for probed_at timestamp in media_metadata)
+        # Check filesystem_entry again as it may have been reset during concurrent operations
+        if not item.filesystem_entry:
+            logger.debug(f"Cannot check media_metadata for {item.log_string} (filesystem_entry was reset)")
+            return False
+
         if item.filesystem_entry.media_metadata:
             metadata = item.filesystem_entry.media_metadata
             if metadata.get("probed_at"):
@@ -105,19 +110,7 @@ class MediaAnalysisService:
             full_path = os.path.join(mount_path, vfs_path.lstrip("/"))
 
             # Run ffprobe analysis
-            metadata_updated = self._analyze_with_ffprobe(full_path, item)
-
-            # Sync VFS to update filenames with new metadata (resolution, codec, etc.)
-            if metadata_updated:
-                from program.program import riven
-                from program.services.filesystem import FilesystemService
-
-                filesystem_service = riven.services.get(FilesystemService)
-                if filesystem_service and filesystem_service.riven_vfs:
-                    filesystem_service.riven_vfs.sync(item)
-                    logger.debug(
-                        f"VFS synced after media analysis for {item.log_string}"
-                    )
+            self._analyze_with_ffprobe(full_path, item)
 
             logger.debug(f"Media analysis completed for {item.log_string}")
 
