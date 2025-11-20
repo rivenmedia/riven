@@ -1,6 +1,5 @@
 """Listrr content module"""
 
-from collections.abc import Generator
 from kink import di
 from loguru import logger
 
@@ -48,7 +47,7 @@ class Listrr(ContentService[ListrrModel]):
             ("movie_lists", self.settings.movie_lists),
             ("show_lists", self.settings.show_lists),
         ]:
-            if content_list is None or not any(content_list):
+            if not content_list:
                 continue
 
             for item in content_list:

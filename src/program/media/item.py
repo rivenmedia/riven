@@ -595,6 +595,10 @@ class MediaItem(BaseDbModel):
             The filesystem path string from the first entry, or None if no entries exist.
         """
 
+        logger.debug(
+            f"Getting filesystem path for item {self.log_string}: {self.media_entry}"
+        )
+
         return self.media_entry.path if self.media_entry else None
 
     @property
