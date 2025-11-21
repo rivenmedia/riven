@@ -14,6 +14,10 @@ from program.media.subtitle_entry import SubtitleEntry
 from program.settings.manager import settings_manager
 from program.core.runner import Runner
 from program.settings.models import SubtitleConfig
+from program.services.post_processing.subtitles.providers.base import (
+    SubtitleItem,
+    SubtitleProvider,
+)
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
 
@@ -30,7 +34,7 @@ class SubtitleService(Runner[SubtitleConfig]):
             return
 
         # Initialize providers
-        self.providers = []
+        self.providers = list[SubtitleProvider]()
         self._initialize_providers()
 
         if not self.providers:
@@ -79,12 +83,14 @@ class SubtitleService(Runner[SubtitleConfig]):
         Returns:
             list of valid ISO 639-3 language codes
         """
-        from .providers.opensubtitles import _normalize_language_to_alpha3
 
-        valid_languages = []
+        from .providers.opensubtitles import normalize_language_to_alpha3
+
+        valid_languages = list[str]()
+
         for lang_code in language_codes:
             try:
-                normalized = _normalize_language_to_alpha3(lang_code)
+                normalized = normalize_language_to_alpha3(lang_code)
                 if (
                     normalized
                     and normalized != "eng"
@@ -140,7 +146,13 @@ class SubtitleService(Runner[SubtitleConfig]):
 
             # Get video file information
             # Get VFS paths (use base path for video_path)
-            vfs_paths = item.filesystem_entry.get_all_vfs_paths()
+
+            media_entry = item.media_entry
+
+            assert media_entry
+
+            vfs_paths = media_entry.get_all_vfs_paths()
+
             if not vfs_paths:
                 logger.warning(
                     f"No VFS paths for {item.log_string}, cannot fetch subtitles"
@@ -149,7 +161,7 @@ class SubtitleService(Runner[SubtitleConfig]):
 
             video_path = vfs_paths[0]  # Use base path
             video_hash = self._calculate_video_hash(item)
-            original_filename = item.filesystem_entry.get_original_filename()
+            original_filename = media_entry.get_original_filename()
 
             # Build search tags from media_metadata for better OpenSubtitles matching
             # Tags are release group names and format identifiers (BluRay, HDTV, etc.)
@@ -217,17 +229,18 @@ class SubtitleService(Runner[SubtitleConfig]):
         Returns:
             Set of ISO 639-3 language codes (e.g., {'eng', 'spa', 'fre'})
         """
-        embedded_languages = set()
+
+        embedded_languages = set[str]()
 
         try:
-            if not item.filesystem_entry or not item.filesystem_entry.media_metadata:
+            media_entry = item.media_entry
+
+            if not media_entry or not media_entry.media_metadata:
                 return embedded_languages
 
-            media_metadata = item.filesystem_entry.media_metadata
-            subtitle_tracks = media_metadata.get("subtitle_tracks", [])
+            for track in media_entry.media_metadata.subtitle_tracks:
+                lang = track.language
 
-            for track in subtitle_tracks:
-                lang = track.get("language")
                 if lang and lang != "unknown":
                     # Convert to ISO 639-3 if needed
                     # FFprobe typically returns ISO 639-2 (3-letter codes)
@@ -256,10 +269,11 @@ class SubtitleService(Runner[SubtitleConfig]):
         Returns:
             Comma-separated tags string (e.g., "BluRay,ETRG") or None
         """
-        tags = []
+
+        tags = list[str]()
 
         try:
-            if not item.filesystem_entry or not item.filesystem_entry.media_metadata:
+            if not (media_entry := item.media_entry) or not media_entry.media_metadata:
                 return None
 
             # MediaMetadata stores parsed data from RTN at the top level
@@ -268,39 +282,49 @@ class SubtitleService(Runner[SubtitleConfig]):
 
             # Re-parse the original filename to get release group and quality info
             # This is necessary because MediaMetadata doesn't store all RTN fields
-            original_filename = item.filesystem_entry.original_filename
+            original_filename = media_entry.get_original_filename()
+
             if not original_filename:
                 return None
 
             parsed = parse(original_filename)
+
             if not parsed:
                 return None
 
             # Add release group if available
             release_group = parsed.group
+
             if release_group:
                 tags.append(release_group)
 
             # Add quality/format tag (BluRay, HDTV, DVD, etc.)
             quality = parsed.quality
+
             if quality:
                 tags.append(quality)
 
             # Add other relevant tags
             if parsed.proper:
                 tags.append("Proper")
+
             if parsed.repack:
                 tags.append("Repack")
-            if parsed.remux:
+
+            if getattr(parsed, "remux", False):
                 tags.append("Remux")
+
             if parsed.extended:
                 tags.append("Extended")
+
             if parsed.unrated:
                 tags.append("Unrated")
 
             if tags:
                 tags_str = ",".join([t.lower() for t in tags])
+
                 logger.debug(f"Built search tags for {item.log_string}: {tags_str}")
+
                 return tags_str
 
         except Exception as e:
@@ -319,10 +343,12 @@ class SubtitleService(Runner[SubtitleConfig]):
             OpenSubtitles hash or None if calculation fails
         """
         try:
-            assert item.filesystem_entry
+            media_entry = item.media_entry
+
+            assert media_entry
 
             # Get file size from filesystem entry
-            file_size = item.filesystem_entry.file_size
+            file_size = media_entry.file_size
 
             if not file_size or file_size < 128 * 1024:  # 128KB minimum
                 logger.debug(
@@ -336,7 +362,8 @@ class SubtitleService(Runner[SubtitleConfig]):
             mount_path = settings_manager.settings.filesystem.mount_path
 
             # Get VFS paths from MediaEntry (use base path)
-            vfs_paths = item.filesystem_entry.get_all_vfs_paths()
+            vfs_paths = media_entry.get_all_vfs_paths()
+
             if not vfs_paths:
                 logger.debug(
                     f"No VFS paths for {item.log_string}, cannot calculate hash"
@@ -363,6 +390,7 @@ class SubtitleService(Runner[SubtitleConfig]):
                 logger.debug(
                     f"Calculated OpenSubtitles hash for {item.log_string}: {video_hash}"
                 )
+
                 return video_hash
 
         except FileNotFoundError:
@@ -413,7 +441,7 @@ class SubtitleService(Runner[SubtitleConfig]):
             return
 
         # Search for subtitles across all providers
-        all_results = []
+        all_results = list[SubtitleItem]()
 
         for provider in self.providers:
             try:
@@ -438,12 +466,12 @@ class SubtitleService(Runner[SubtitleConfig]):
             return
 
         # Sort by score (highest first)
-        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        all_results.sort(key=lambda x: x.score, reverse=True)
 
         # Try to download the best subtitle
         for subtitle_info in all_results[:3]:  # Try top 3 results
             try:
-                provider_name = subtitle_info.get("provider")
+                provider_name = subtitle_info.provider
                 provider = next(
                     (p for p in self.providers if p.name == provider_name), None
                 )
@@ -457,10 +485,12 @@ class SubtitleService(Runner[SubtitleConfig]):
                 if not content:
                     continue
 
-                assert item.filesystem_entry
+                media_entry = item.media_entry
+
+                assert media_entry
 
                 # Get parent MediaEntry's original_filename
-                parent_original_filename = item.filesystem_entry.original_filename
+                parent_original_filename = media_entry.original_filename
 
                 if not parent_original_filename:
                     logger.error(
@@ -474,8 +504,8 @@ class SubtitleService(Runner[SubtitleConfig]):
                     parent_original_filename=parent_original_filename,
                     content=content,
                     file_hash=video_hash,
-                    video_file_size=item.filesystem_entry.file_size,
-                    opensubtitles_id=subtitle_info.get("id"),
+                    video_file_size=media_entry.file_size,
+                    opensubtitles_id=subtitle_info.id,
                 )
 
                 # Associate with media item
@@ -510,7 +540,7 @@ class SubtitleService(Runner[SubtitleConfig]):
 
             except Exception as e:
                 logger.error(
-                    f"Failed to download subtitle from {subtitle_info.get('provider')}: {e}"
+                    f"Failed to download subtitle from {subtitle_info.provider}: {e}"
                 )
 
         logger.warning(
@@ -574,7 +604,8 @@ class SubtitleService(Runner[SubtitleConfig]):
         embedded_languages = self._get_embedded_subtitle_languages(item)
 
         # Get already downloaded subtitle languages from database
-        downloaded_languages = set()
+        downloaded_languages = set[str]()
+
         try:
             with db_session() as session:
                 existing_subtitles = (

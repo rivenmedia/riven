@@ -55,7 +55,7 @@ class SubtitleProvider(ABC):
         pass
 
     @abstractmethod
-    def download_subtitle(self, subtitle_info: dict[str, Any]) -> str | None:
+    def download_subtitle(self, subtitle_info: SubtitleItem) -> str | None:
         """Download subtitle content."""
         pass
 

@@ -50,7 +50,7 @@ class OpenSubtitlesDownloadSubtitleResponse(BaseModel):
     data: list[dict[str, Any]] | None
 
 
-def _normalize_language_to_alpha3(language: str) -> str:
+def normalize_language_to_alpha3(language: str) -> str:
     """
     Convert language code to ISO 639-3 (3-letter code) for OpenSubtitles API.
 
@@ -242,7 +242,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
                 return []
 
             # Normalize language to ISO 639-3 format for OpenSubtitles API
-            opensubtitles_lang = _normalize_language_to_alpha3(language)
+            opensubtitles_lang = normalize_language_to_alpha3(language)
 
             # Build search criteria array (multiple strategies in one request)
             search_criteria = list[dict[str, str]]()
