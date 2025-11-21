@@ -5,7 +5,6 @@ import regex
 from pydantic import BaseModel, Field
 
 from program.settings.manager import settings_manager
-from src.program.services.downloaders.realdebrid import RealDebridFile
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = [
@@ -119,7 +118,7 @@ class DebridFile(BaseModel):
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
-    def to_dict(self) -> dict[str, int | str | None]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the DebridFile to a dictionary"""
 
         return {
@@ -150,7 +149,7 @@ class TorrentContainer(BaseModel):
 
         return [file.file_id for file in self.files if file.file_id is not None]
 
-    def to_dict(self) -> dict[str, str | dict[str, Any]]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the TorrentContainer to a dictionary including the infohash"""
 
         return {
