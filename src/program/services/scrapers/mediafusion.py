@@ -1,17 +1,31 @@
 """Mediafusion scraper module"""
 
-from typing import Dict
-
 from loguru import logger
+from pydantic import BaseModel, Field
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem
 from program.services.scrapers.base import ScraperService
-from program.settings.manager import settings_manager
-from program.settings.models import AppModel
+from program.settings import settings_manager
+from program.settings.models import AppModel, MediafusionConfig
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class Mediafusion(ScraperService):
+class MediaFusionEncryptUserDataResponse(BaseModel):
+    status: str
+    encrypted_str: str
+    message: str | None = None
+
+
+class MediaFusionScrapeResponse(BaseModel):
+    class MediaFusionStream(BaseModel):
+        title: str
+        description: str
+        info_hash: str | None = Field(alias="infoHash")
+
+    streams: list[MediaFusionStream]
+
+
+class Mediafusion(ScraperService[MediafusionConfig]):
     # This service requires an IMDb id
     requires_imdb_id = True
 
@@ -26,15 +40,17 @@ class Mediafusion(ScraperService):
         self.timeout = self.settings.timeout
         self.encrypted_string = None
 
-        if self.settings.ratelimit:
-            rate_limits = {
+        rate_limits = (
+            {
+                # 1000 calls per minute
                 get_hostname_from_url(self.settings.url): {
                     "rate": 1000 / 60,
                     "capacity": 1000,
-                }  # 1000 calls per minute
+                }
             }
-        else:
-            rate_limits = {}
+            if self.settings.ratelimit
+            else {}
+        )
 
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
@@ -46,28 +62,29 @@ class Mediafusion(ScraperService):
 
     def validate(self) -> bool:
         """Validate the Mediafusion settings."""
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.url:
             logger.error("Mediafusion URL is not configured and will not be used.")
             return False
+
         if "elfhosted" in self.settings.url.lower():
             logger.warning(
                 "Elfhosted Mediafusion instance is no longer supported. Please use a different instance."
             )
             return False
-        if not isinstance(self.timeout, int) or self.timeout <= 0:
+
+        if self.timeout <= 0:
             logger.error("Mediafusion timeout is not set or invalid.")
-            return False
-        if not isinstance(self.settings.ratelimit, bool):
-            logger.error("Mediafusion ratelimit must be a valid boolean.")
             return False
 
         payload = {
             "max_streams_per_resolution": 100,
             "live_search_streams": True,
             "show_full_torrent_name": True,
-            "torrent_sorting_priority": [],  # Disable sort order. This doesnt matter as we sort later.
+            "torrent_sorting_priority": [],  # Disable sort order. This doesn't matter as we sort later.
             "nudity_filter": ["Disable"],
             "certification_filter": ["Disable"],
         }
@@ -78,26 +95,37 @@ class Mediafusion(ScraperService):
             response = self.session.post(
                 "/encrypt-user-data", json=payload, headers=headers
             )
-            if not response.data or response.data.status != "success":
-                logger.error(f"Failed to encrypt user data: {response.data.message}")
+
+            if not response.ok:
+                logger.error(
+                    f"Mediafusion encrypt user data request failed with status code {response.status_code}"
+                )
                 return False
-            self.encrypted_string = response.data.encrypted_str
+
+            data = MediaFusionEncryptUserDataResponse.model_validate(response.json())
+
+            if data.status != "success":
+                logger.error(f"Failed to encrypt user data: {data.message}")
+                return False
+
+            self.encrypted_string = data.encrypted_str
         except Exception as e:
             logger.error(f"Failed to encrypt user data: {e}")
             return False
 
         try:
             response = self.session.get("/manifest.json", timeout=self.timeout)
+
             return response.ok
         except Exception as e:
             logger.error(f"Mediafusion failed to initialize: {e}")
             return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the mediafusion site for the given media items
-        and update the object with scraped streams"""
-        if not item:
-            return {}
+    def run(self, item: MediaItem) -> dict[str, str]:
+        """
+        Scrape the mediafusion site for the given media items
+        and update the object with scraped streams
+        """
 
         try:
             return self.scrape(item)
@@ -110,31 +138,45 @@ class Mediafusion(ScraperService):
                 logger.warning(f"Mediafusion timeout for item: {item.log_string}")
             else:
                 logger.exception(f"Mediafusion exception thrown: {e}")
+
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Mediafusion` scrape method"""
+
         identifier, scrape_type, imdb_id = self.get_stremio_identifier(item)
+
         if not imdb_id:
             return {}
 
         url = f"/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
+
         if identifier:
             url += identifier
 
         response = self.session.get(f"{url}.json", timeout=self.timeout)
-        if not response.ok or len(response.data.streams) == 0:
+
+        if not response.ok:
+            logger.debug(
+                f"Mediafusion scrape request failed with status code {response.status_code} for {item.log_string}"
+            )
+            return {}
+
+        data = MediaFusionScrapeResponse.model_validate(response.json())
+
+        if not data.streams:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents: Dict[str, str] = {}
-        for stream in response.data.streams:
-            if hasattr(stream, "title") and "rate-limit exceeded" in stream.title:
+        torrents = dict[str, str]()
+
+        for stream in data.streams:
+            if "rate-limit exceeded" in stream.title:
                 raise Exception(
                     f"Mediafusion rate-limit exceeded for item: {item.log_string}"
                 )
 
-            if not all(hasattr(stream, "infoHash") for stream in response.data.streams):
+            if not all(stream.info_hash for stream in data.streams):
                 logger.debug(
                     "Streams were found but were filtered due to your MediaFusion settings."
                 )
@@ -148,16 +190,20 @@ class Mediafusion(ScraperService):
                     .replace("🚫", "")
                 )
                 logger.debug(filtered_message)
+
                 return torrents
 
             description_split = stream.description.replace("📂 ", "")
             raw_title = description_split.split("\n")[0]
+
             if scrape_type == "series":
-                if item.type == "episode":
+                if isinstance(item, Episode):
                     raw_title = raw_title.split(" ┈➤ ")[-1].strip()
                 else:
                     raw_title = raw_title.split(" ┈➤ ")[0].strip()
-            info_hash = stream.infoHash
+
+            info_hash = stream.info_hash
+
             if info_hash and info_hash not in torrents:
                 torrents[info_hash] = raw_title
 

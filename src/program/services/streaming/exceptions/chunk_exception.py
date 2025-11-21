@@ -1,4 +1,3 @@
-from loguru import logger
 from ordered_set import OrderedSet
 from ..chunker import Chunk
 

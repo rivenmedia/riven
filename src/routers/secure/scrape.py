@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
-from typing import Any, Dict, Literal, Optional, TypeAlias, Union
+from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from kink import di
 from loguru import logger
 from PTT import parse_title
 from pydantic import BaseModel, RootModel
@@ -11,8 +12,8 @@ from sqla_wrapper import Session
 from sqlalchemy.orm import object_session
 
 from program.db import db_functions
-from program.db.db import db, get_db
-from program.media.item import MediaItem
+from program.db.db import db_session
+from program.media.item import Episode, MediaItem, Season, Show
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
@@ -21,10 +22,10 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.services.indexers import IndexerService
-from program.services.scrapers import Scraping
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
+from program.program import Program
 from ..models.shared import MessageResponse
 
 
@@ -40,7 +41,7 @@ class Stream(BaseModel):
 
 class ScrapeItemResponse(BaseModel):
     message: str
-    streams: Dict[str, Stream]
+    streams: dict[str, Stream]
 
 
 class StartSessionResponse(BaseModel):
@@ -48,7 +49,7 @@ class StartSessionResponse(BaseModel):
     session_id: str
     torrent_id: str
     torrent_info: TorrentInfo
-    containers: Optional[TorrentContainer]
+    containers: TorrentContainer | None
     expires_at: str
 
 
@@ -65,7 +66,7 @@ class SessionResponse(BaseModel):
     message: str
 
 
-ContainerMap: TypeAlias = Dict[str, DebridFile]
+ContainerMap: TypeAlias = dict[str, DebridFile]
 
 
 class Container(RootModel[ContainerMap]):
@@ -88,7 +89,7 @@ class Container(RootModel[ContainerMap]):
     root: ContainerMap
 
 
-SeasonEpisodeMap: TypeAlias = Dict[int, Dict[int, DebridFile]]
+SeasonEpisodeMap: TypeAlias = dict[int, dict[int, DebridFile]]
 
 
 class ShowFileData(RootModel[SeasonEpisodeMap]):
@@ -115,11 +116,11 @@ class ScrapingSession:
         self,
         id: str,
         item_id: str,
-        media_type: Optional[Literal["movie", "tv"]] = None,
-        imdb_id: Optional[str] = None,
-        tmdb_id: Optional[str] = None,
-        tvdb_id: Optional[str] = None,
-        magnet: str = None,
+        media_type: Literal["movie", "tv"] | None = None,
+        imdb_id: str | None = None,
+        tmdb_id: str | None = None,
+        tvdb_id: str | None = None,
+        magnet: str | None = None,
     ):
         self.id = id
         self.item_id = item_id
@@ -128,18 +129,18 @@ class ScrapingSession:
         self.tmdb_id = tmdb_id
         self.tvdb_id = tvdb_id
         self.magnet = magnet
-        self.torrent_id: Optional[Union[int, str]] = None
-        self.torrent_info: Optional[TorrentInfo] = None
-        self.containers: Optional[TorrentContainer] = None
-        self.selected_files: Optional[Dict[str, Dict[str, Union[str, int]]]] = None
+        self.torrent_id: int | str | None = None
+        self.torrent_info: TorrentInfo | None = None
+        self.containers: TorrentContainer | None = None
+        self.selected_files: dict[str, dict[str, str | int]] | None = None
         self.created_at: datetime = datetime.now()
         self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
 
 
 class ScrapingSessionManager:
     def __init__(self):
-        self.sessions: Dict[str, ScrapingSession] = {}
-        self.downloader: Optional[Downloader] = None
+        self.sessions: dict[str, ScrapingSession] = {}
+        self.downloader: Downloader | None = None
 
     def set_downloader(self, downloader: Downloader):
         """Set the downloader for the session manager"""
@@ -149,10 +150,10 @@ class ScrapingSessionManager:
         self,
         item_id: str,
         magnet: str,
-        media_type: Optional[Literal["movie", "tv"]] = None,
-        imdb_id: Optional[str] = None,
-        tmdb_id: Optional[str] = None,
-        tvdb_id: Optional[str] = None,
+        media_type: Literal["movie", "tv"] | None = None,
+        imdb_id: str | None = None,
+        tmdb_id: str | None = None,
+        tvdb_id: str | None = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
@@ -162,9 +163,11 @@ class ScrapingSessionManager:
         self.sessions[session_id] = session
         return session
 
-    def get_session(self, session_id: str) -> Optional[ScrapingSession]:
+    def get_session(self, session_id: str) -> ScrapingSession | None:
         """Get a scraping session by ID"""
+
         session = self.sessions.get(session_id)
+
         if not session:
             return None
 
@@ -174,9 +177,11 @@ class ScrapingSessionManager:
 
         return session
 
-    def update_session(self, session_id: str, **kwargs) -> Optional[ScrapingSession]:
+    def update_session(self, session_id: str, **kwargs: Any) -> ScrapingSession | None:
         """Update a scraping session"""
+
         session = self.get_session(session_id)
+
         if not session:
             return None
 
@@ -188,18 +193,22 @@ class ScrapingSessionManager:
 
     def abort_session(self, session_id: str):
         """Abort a scraping session"""
+
         session = self.sessions.pop(session_id, None)
+
         if session and session.torrent_id and self.downloader:
             try:
                 self.downloader.delete_torrent(session.torrent_id)
                 logger.debug(f"Deleted torrent for aborted session {session_id}")
             except Exception as e:
                 logger.error(f"Failed to delete torrent for session {session_id}: {e}")
+
         if session:
             logger.debug(f"Aborted session {session_id} for item {session.item_id}")
 
     def complete_session(self, session_id: str):
         """Complete a scraping session"""
+
         session = self.get_session(session_id)
         if not session:
             return
@@ -209,6 +218,7 @@ class ScrapingSessionManager:
 
     def cleanup_expired(self, background_tasks: BackgroundTasks):
         """Cleanup expired scraping sessions"""
+
         current_time = datetime.now()
         expired = [
             session_id
@@ -233,26 +243,26 @@ def initialize_downloader(downloader: Downloader):
 @router.get("/scrape", summary="Get streams for an item", operation_id="scrape_item")
 def scrape_item(
     request: Request,
-    item_id: Optional[str] = None,
-    tmdb_id: Optional[str] = None,
-    tvdb_id: Optional[str] = None,
-    imdb_id: Optional[str] = None,
-    media_type: Optional[Literal["movie", "tv"]] = None,
+    item_id: str | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: Literal["movie", "tv"] | None = None,
 ) -> ScrapeItemResponse:
     """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
-    if services := request.app.program.services:
-        indexer = services[IndexerService]
-        scraper = services[Scraping]
+    if services := di[Program].services:
+        indexer = services.indexer
+        scraper = services.scraping
     else:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
     log_string = None
     item = None
 
-    with db.Session() as db_session:
+    with db_session():
         if item_id:
-            item = db_functions.get_item_by_id(item_id)
+            item = db_functions.get_item_by_id(int(item_id))
         elif tmdb_id and media_type == "movie":
             prepared_item = MediaItem(
                 {
@@ -287,13 +297,13 @@ def scrape_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        streams: Dict[str, Stream] = scraper.scrape(item)
+        streams = scraper.scrape(item)
         log_string = item.log_string
 
-    return {
-        "message": f"Manually scraped streams for item {log_string}",
-        "streams": streams,
-    }
+    return ScrapeItemResponse(
+        message=f"Manually scraped streams for item {log_string}",
+        streams=streams,
+    )
 
 
 @router.post(
@@ -304,12 +314,12 @@ def scrape_item(
 async def start_manual_session(
     request: Request,
     background_tasks: BackgroundTasks,
-    item_id: Optional[str] = None,
-    tmdb_id: Optional[str] = None,
-    tvdb_id: Optional[str] = None,
-    imdb_id: Optional[str] = None,
-    media_type: Optional[Literal["movie", "tv"]] = None,
-    magnet: Optional[str] = None,
+    item_id: str | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: Literal["movie", "tv"] | None = None,
+    magnet: str | None = None,
 ) -> StartSessionResponse:
     session_manager.cleanup_expired(background_tasks)
 
@@ -317,9 +327,9 @@ async def start_manual_session(
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
-    if services := request.app.program.services:
-        indexer = services[IndexerService]
-        downloader = services[Downloader]
+    if services := di[Program].services:
+        indexer = services.indexer
+        downloader = services.downloader
     else:
         raise HTTPException(status_code=412, detail="Required services not initialized")
 
@@ -409,7 +419,7 @@ async def start_manual_session(
 def manual_select_files(
     request: Request, session_id: str, files: Container
 ) -> SelectFilesResponse:
-    downloader: Downloader = request.app.program.services.get(Downloader)
+    downloader: Downloader = di[Program].services.downloader
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -429,10 +439,10 @@ def manual_select_files(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {
-        "message": f"Selected files for {session.item_id}",
-        "download_type": download_type,
-    }
+    return SelectFilesResponse(
+        message=f"Selected files for {session.item_id}",
+        download_type=download_type,
+    )
 
 
 @router.post(
@@ -442,9 +452,9 @@ def manual_select_files(
 )
 async def manual_update_attributes(
     request: Request,
-    session_id,
-    data: Union[DebridFile, ShowFileData],
-    session: Session = Depends(get_db),
+    session_id: str,
+    data: DebridFile | ShowFileData,
+    session: Session = Depends(db_session),
 ) -> UpdateAttributesResponse:
     """
     Apply selected file attributes from a scraping session to the referenced media item(s).
@@ -461,15 +471,19 @@ async def manual_update_attributes(
     Raises:
         HTTPException: 404 if the session or target item cannot be found; 500 if the session lacks an associated item ID.
     """
+
     session = session_manager.get_session(session_id)
     log_string = None
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
+
     if not session.item_id:
         session_manager.abort_session(session_id)
         raise HTTPException(status_code=500, detail="No item ID found")
 
     item = None
+
     if session.media_type == "tv" and session.tvdb_id:
         item = db_functions.get_item_by_external_id(tvdb_id=str(session.tvdb_id))
     elif session.media_type == "movie" and session.tmdb_id:
@@ -479,10 +493,13 @@ async def manual_update_attributes(
 
     if not item:
         item_data = {}
+
         if session.imdb_id:
             item_data["imdb_id"] = session.imdb_id
+
         if session.tmdb_id:
             item_data["tmdb_id"] = session.tmdb_id
+
         if session.tvdb_id:
             item_data["tvdb_id"] = session.tvdb_id
 
@@ -491,6 +508,7 @@ async def manual_update_attributes(
             item_data["requested_at"] = datetime.now()
             prepared_item = MediaItem(item_data)
             item = next(IndexerService().run(prepared_item), None)
+
             if item:
                 session.merge(item)
                 session.commit()
@@ -499,7 +517,7 @@ async def manual_update_attributes(
             raise HTTPException(status_code=404, detail="Item not found")
 
         item = session.merge(item)
-        item_ids_to_submit = set()
+        item_ids_to_submit = set[int]()
 
         def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
             """
@@ -512,11 +530,10 @@ async def manual_update_attributes(
                 data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
                 session (ScrapingSession): Scraping session containing the magnet and torrent_info used to set active_stream and rank the stream.
             """
-            request.app.program.em.cancel_job(item.id)
+            di[Program].em.cancel_job(item.id)
             item.reset()
 
             # Ensure a staging MediaEntry exists and is linked
-            from sqlalchemy import select
             from program.media.media_entry import MediaEntry
 
             fs_entry = None
@@ -564,7 +581,7 @@ async def manual_update_attributes(
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
-                    if item.type == "show":
+                    if isinstance(item, Show):
                         if episode := item.get_absolute_episode(
                             episode_number, season_number
                         ):
@@ -574,7 +591,7 @@ async def manual_update_attributes(
                                 f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
                             )
                             continue
-                    elif item.type == "season":
+                    elif isinstance(item, Season):
                         if episode := item.parent.get_absolute_episode(
                             episode_number, season_number
                         ):
@@ -584,7 +601,7 @@ async def manual_update_attributes(
                                 f"Failed to find season {season_number} for {item.log_string}"
                             )
                             continue
-                    elif item.type == "episode":
+                    elif isinstance(item, Episode):
                         if (
                             season_number != item.parent.number
                             and episode_number != item.number
@@ -603,15 +620,15 @@ async def manual_update_attributes(
 
     # Sync VFS to reflect any deleted/updated entries
     # Must happen AFTER commit so the database reflects the changes
-    from program.services.filesystem import FilesystemService
 
-    filesystem_service = request.app.program.services.get(FilesystemService)
+    filesystem_service = di[Program].services.filesystem
+
     if filesystem_service and filesystem_service.riven_vfs:
         filesystem_service.riven_vfs.sync(item)
         logger.debug("VFS synced after manual scraping update")
 
     for item_id in item_ids_to_submit:
-        request.app.program.em.add_event(Event("ManualAPI", item_id))
+        di[Program].em.add_event(Event("ManualAPI", item_id))
 
     return {"message": f"Updated given data to {log_string}"}
 
@@ -625,11 +642,13 @@ async def abort_manual_session(
     _: Request, background_tasks: BackgroundTasks, session_id: str
 ) -> SessionResponse:
     session = session_manager.get_session(session_id)
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     background_tasks.add_task(session_manager.abort_session, session_id)
-    return {"message": f"Aborted session {session_id}"}
+
+    return SessionResponse(message=f"Aborted session {session_id}")
 
 
 @router.post(
@@ -647,7 +666,8 @@ async def complete_manual_session(_: Request, session_id: str) -> SessionRespons
         raise HTTPException(status_code=400, detail="Session is incomplete")
 
     session_manager.complete_session(session_id)
-    return {"message": f"Completed session {session_id}"}
+
+    return SessionResponse(message=f"Completed session {session_id}")
 
 
 class ParseTorrentTitleResponse(BaseModel):
@@ -664,6 +684,7 @@ async def parse_torrent_titles(
     request: Request, titles: list[str]
 ) -> ParseTorrentTitleResponse:
     parsed_titles = []
+
     if titles:
         for title in titles:
             data = {}
@@ -675,6 +696,8 @@ async def parse_torrent_titles(
             return ParseTorrentTitleResponse(
                 message="Parsed torrent titles", data=parsed_titles
             )
+
+        return ParseTorrentTitleResponse(message="No titles could be parsed", data=[])
     else:
         return ParseTorrentTitleResponse(message="No titles provided", data=[])
 
@@ -686,11 +709,25 @@ async def parse_torrent_titles(
 )
 async def overseerr_requests(
     request: Request,
-    filter: Optional[str] = None,
+    filter: (
+        Literal[
+            "all",
+            "approved",
+            "available",
+            "pending",
+            "processing",
+            "unavailable",
+            "failed",
+            "deleted",
+            "completed",
+        ]
+        | None
+    ) = None,
     take: int = 100000,
-    db: Session = Depends(get_db),
+    db: Session = Depends(db_session),
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""
+
     from program.apis.overseerr_api import OverseerrAPI
     from program.db.db_functions import item_exists_by_any_id
     from kink import di
@@ -721,7 +758,9 @@ async def overseerr_requests(
             persisted_items.append(persisted)
         db.commit()
 
+        from program.services.content.overseerr import Overseerr
+
         for persisted in persisted_items:
-            request.app.program.em.add_item(persisted, service="Overseerr")
+            di[Program].em.add_item(persisted, service=Overseerr.__class__.__name__)
 
     return MessageResponse(message="Submitted overseerr requests to the queue")

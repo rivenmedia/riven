@@ -1,14 +1,9 @@
 """Model for subtitle entries"""
 
-from typing import Optional, TYPE_CHECKING
-
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column
 
 from program.media.filesystem_entry import FilesystemEntry
-
-if TYPE_CHECKING:
-    from program.media.item import MediaItem
 
 
 class SubtitleEntry(FilesystemEntry):
@@ -31,7 +26,7 @@ class SubtitleEntry(FilesystemEntry):
 
     # Original filename of the parent MediaEntry (video file)
     # Used to generate subtitle paths dynamically alongside the video
-    parent_original_filename: Mapped[Optional[str]] = mapped_column(
+    parent_original_filename: Mapped[str | None] = mapped_column(
         sqlalchemy.String,
         nullable=True,
         index=True,
@@ -39,20 +34,20 @@ class SubtitleEntry(FilesystemEntry):
     )
 
     # Subtitle content stored directly in database (SRT format)
-    content: Mapped[Optional[str]] = mapped_column(sqlalchemy.Text, nullable=True)
+    content: Mapped[str | None] = mapped_column(sqlalchemy.Text, nullable=True)
 
     # OpenSubtitles hash of the video file this subtitle is for
-    file_hash: Mapped[Optional[str]] = mapped_column(
+    file_hash: Mapped[str | None] = mapped_column(
         sqlalchemy.String, nullable=True, index=True
     )
 
     # Size of the VIDEO file (needed for OpenSubtitles API, not the subtitle file size)
-    video_file_size: Mapped[Optional[int]] = mapped_column(
+    video_file_size: Mapped[int | None] = mapped_column(
         sqlalchemy.BigInteger, nullable=True
     )
 
     # OpenSubtitles subtitle ID for tracking
-    opensubtitles_id: Mapped[Optional[str]] = mapped_column(
+    opensubtitles_id: Mapped[str | None] = mapped_column(
         sqlalchemy.String, nullable=True, index=True
     )
 
@@ -72,7 +67,7 @@ class SubtitleEntry(FilesystemEntry):
     def __repr__(self):
         return f"<SubtitleEntry(id={self.id}, language='{self.language}', parent='{self.parent_original_filename}')>"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int | str | bool | None]:
         """
         Serialize the SubtitleEntry ORM instance into a plain dictionary.
 
@@ -109,11 +104,11 @@ class SubtitleEntry(FilesystemEntry):
         cls,
         language: str,
         parent_original_filename: str,
-        content: str = None,
-        file_hash: str = None,
-        video_file_size: int = None,
-        opensubtitles_id: str = None,
-        subtitle_file_size: int = None,
+        content: str | None = None,
+        file_hash: str | None = None,
+        video_file_size: int | None = None,
+        opensubtitles_id: str | None = None,
+        subtitle_file_size: int | None = None,
     ) -> "SubtitleEntry":
         """
         Create a SubtitleEntry for a virtual subtitle file in RivenVFS.

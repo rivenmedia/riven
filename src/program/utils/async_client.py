@@ -1,7 +1,7 @@
 import httpx
 from loguru import logger
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
 class AsyncClient(httpx.AsyncClient):

@@ -16,19 +16,25 @@ import traceback
 
 from loguru import logger
 from program.utils.ffprobe import parse_media_file
-from program.media.models import MediaMetadata
+from program.media.models import DataSource, MediaMetadata
 
-from program.media.item import MediaItem
-from program.settings.manager import settings_manager
+from program.media.item import Episode, MediaItem, Movie
+from program.settings import settings_manager
+from program.core.runner import Runner
 
 
-class MediaAnalysisService:
+class MediaAnalysisService(Runner):
     """Service for analyzing media files and extracting metadata."""
 
     def __init__(self):
-        self.key = "media_analysis"
+        super().__init__()
+
         self.initialized = True
         logger.info("Media Analysis service initialized")
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "media_analysis"
 
     @property
     def enabled(self) -> bool:
@@ -51,21 +57,25 @@ class MediaAnalysisService:
         Returns:
             True if analysis should run, False otherwise
         """
-        if item.type not in ["movie", "episode"]:
+        if not isinstance(item, (Movie, Episode)):
             return False
 
         if not item.filesystem_entry:
             return False
 
+        media_entry = item.media_entry
+
+        assert media_entry
+
         # Skip if already probed (check for probed_at timestamp in media_metadata)
-        if item.filesystem_entry.media_metadata:
-            metadata = item.filesystem_entry.media_metadata
-            if metadata.get("probed_at"):
+        if media_entry.media_metadata:
+            metadata = media_entry.media_metadata
+            if metadata.probed_at:
                 return False
 
         return True
 
-    def run(self, item: MediaItem):
+    def run(self, item: MediaItem) -> None:
         """
         Analyze media file and store metadata.
 
@@ -84,20 +94,25 @@ class MediaAnalysisService:
             logger.warning(f"No filesystem entry for {item.log_string}, cannot analyze")
             return
 
-        entry = item.filesystem_entry
+        media_entry = item.media_entry
+
+        assert media_entry
 
         try:
             logger.debug(f"Analyzing media file for {item.log_string}")
+
             # Get the mounted VFS path for ffprobe
             # Note: We use mount_path (host VFS mount) not library_path (container path)
             mount_path = settings_manager.settings.filesystem.mount_path
 
             # Generate VFS path from entry
-            vfs_paths = entry.get_all_vfs_paths()
+            vfs_paths = media_entry.get_all_vfs_paths()
+
             if not vfs_paths:
                 logger.warning(
                     f"No VFS paths for {item.log_string}, cannot run ffprobe"
                 )
+
                 return
 
             # Use the first (base) path for ffprobe
@@ -110,9 +125,11 @@ class MediaAnalysisService:
             # Sync VFS to update filenames with new metadata (resolution, codec, etc.)
             if metadata_updated:
                 from program.program import riven
-                from program.services.filesystem import FilesystemService
 
-                filesystem_service = riven.services.get(FilesystemService)
+                assert riven.services
+
+                filesystem_service = riven.services.filesystem
+
                 if filesystem_service and filesystem_service.riven_vfs:
                     filesystem_service.riven_vfs.sync(item)
                     logger.debug(
@@ -143,14 +160,17 @@ class MediaAnalysisService:
                 return False
 
             ffprobe_metadata = parse_media_file(file_path)
+
             if ffprobe_metadata:
-                ffprobe_dict = ffprobe_metadata.model_dump(mode="json")
+                media_entry = item.media_entry
+
+                assert media_entry
 
                 # Get or create MediaMetadata
-                if item.filesystem_entry.media_metadata:
+                if media_entry.media_metadata:
                     # Update existing metadata with probed data
-                    metadata = MediaMetadata(**item.filesystem_entry.media_metadata)
-                    metadata.update_from_probed_data(ffprobe_dict)
+                    metadata = media_entry.media_metadata
+                    metadata.update_from_probed_data(ffprobe_metadata)
                 else:
                     # Create new metadata from probed data only
                     # This shouldn't happen since downloader creates it, but handle it anyway
@@ -158,16 +178,20 @@ class MediaAnalysisService:
                         f"No existing metadata for {item.log_string}, creating from probed data only"
                     )
                     metadata = MediaMetadata(
-                        filename=ffprobe_dict.get("filename"), data_source="probed"
+                        filename=ffprobe_metadata.filename,
+                        data_source=DataSource.PROBED,
                     )
-                    metadata.update_from_probed_data(ffprobe_dict)
+                    metadata.update_from_probed_data(ffprobe_metadata)
 
                 # Store updated metadata
-                item.filesystem_entry.media_metadata = metadata.model_dump(mode="json")
+                media_entry.media_metadata = metadata
+
                 logger.debug(f"ffprobe analysis successful for {item.log_string}")
+
                 return True
 
             logger.warning(f"ffprobe returned no data for {item.log_string}")
+
             return False
         except Exception:
             logger.error(

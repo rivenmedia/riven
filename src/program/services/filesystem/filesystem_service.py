@@ -4,26 +4,35 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
-from typing import Generator
+from typing import TYPE_CHECKING
 from loguru import logger
 
-from program.media.item import MediaItem
-from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.settings.models import FilesystemModel
+
+if TYPE_CHECKING:
+    from program.media.item import MediaItem
 
 
-class FilesystemService:
+class FilesystemService(Runner[FilesystemModel]):
     """Filesystem service for VFS-only mode"""
 
     def __init__(self, downloader: Downloader):
-        # Service key matches settings category name for reinitialization logic
-        self.key = "filesystem"
+        super().__init__()
+
+        from program.settings import settings_manager
+
         # Use filesystem settings
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
         self.downloader = downloader  # Store for potential reinit
         self._initialize_rivenvfs(downloader)
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "filesystem"
 
     def _initialize_rivenvfs(self, downloader: Downloader):
         """Initialize or synchronize RivenVFS"""
@@ -50,28 +59,17 @@ class FilesystemService:
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
-        """
-        Process a MediaItem by registering its leaf media entries with the configured RivenVFS.
-
-        Expands parent items (shows/seasons) into leaf items (episodes/movies), processes each leaf entry via add(), and yields the original input item for downstream state transitions. If RivenVFS is not available or there are no leaf items to process, the original item is yielded unchanged.
-
-        Parameters:
-            item (MediaItem): The media item (episode, movie, season, or show) to process.
-
-        Returns:
-            Generator[MediaItem, None, None]: Yields the original `item` once processing completes (or immediately if processing cannot proceed).
-        """
+    def run(self, item: "MediaItem") -> MediaItemGenerator:
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
-            yield item
+            yield RunnerResult(media_items=[item])
             return
 
         # Expand parent items (show/season) to leaf items (episodes/movies)
         items_to_process = get_items_to_update(item)
         if not items_to_process:
             logger.debug(f"No items to process for {item.log_string}")
-            yield item
+            yield RunnerResult(media_items=[item])
             return
 
         # Process each episode/movie
@@ -87,7 +85,7 @@ class FilesystemService:
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
         # Yield the original item for state transition
-        yield item
+        yield RunnerResult(media_items=[item])
 
     def close(self):
         """
@@ -132,3 +130,8 @@ class FilesystemService:
     def initialized(self) -> bool:
         """Check if the filesystem service is properly initialized"""
         return self.validate()
+
+    @initialized.setter
+    def initialized(self, value: bool) -> None:
+        # Setting initialized is a no-op
+        pass

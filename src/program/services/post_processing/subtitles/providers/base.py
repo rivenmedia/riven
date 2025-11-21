@@ -3,7 +3,21 @@ Base provider interface for subtitle providers.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Any
+
+from pydantic import BaseModel
+
+
+class SubtitleItem(BaseModel):
+    id: str
+    language: str
+    filename: str
+    download_count: int
+    rating: float
+    matched_by: str
+    movie_hash: str | None
+    movie_name: str | None
+    provider: str
+    score: float
 
 
 class SubtitleProvider(ABC):
@@ -13,14 +27,14 @@ class SubtitleProvider(ABC):
     def search_subtitles(
         self,
         imdb_id: str,
-        video_hash: Optional[str] = None,
-        file_size: Optional[int] = None,
-        filename: Optional[str] = None,
-        search_tags: Optional[str] = None,
-        season: Optional[int] = None,
-        episode: Optional[int] = None,
+        video_hash: str | None = None,
+        file_size: int | None = None,
+        filename: str | None = None,
+        search_tags: str | None = None,
+        season: int | None = None,
+        episode: int | None = None,
         language: str = "en",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[SubtitleItem]:
         """
         Search for subtitles.
 
@@ -35,12 +49,12 @@ class SubtitleProvider(ABC):
             language: ISO 639-3 language code
 
         Returns:
-            List of subtitle results
+            list of subtitle results
         """
         pass
 
     @abstractmethod
-    def download_subtitle(self, subtitle_info: Dict[str, Any]) -> Optional[str]:
+    def download_subtitle(self, subtitle_info: SubtitleItem) -> str | None:
         """Download subtitle content."""
         pass
 

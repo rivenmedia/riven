@@ -2,7 +2,6 @@
 
 import base64
 import re
-from typing import Optional
 
 from loguru import logger
 
@@ -22,6 +21,7 @@ def normalize_infohash(infohash: str) -> str:
     Returns:
         str: The normalized 40-character hexadecimal infohash (lowercase)
     """
+
     if len(infohash) == 32:
         # Convert base32 to base16
         try:
@@ -35,7 +35,7 @@ def normalize_infohash(infohash: str) -> str:
     return infohash.lower()
 
 
-def extract_infohash(text: str) -> Optional[str]:
+def extract_infohash(text: str) -> str | None:
     """
     Extracts infohash from btih: pattern in strings.
     Supports both 40-character hex and 32-character base32 formats.
@@ -46,12 +46,15 @@ def extract_infohash(text: str) -> Optional[str]:
     Returns:
         str | None: The normalized 40-character infohash, or None if not found
     """
+
     if not text:
         return None
 
     match = INFOHASH_PATTERN.search(text)
+
     if match:
         infohash = match.group(1)
+
         return normalize_infohash(infohash)
 
     return None

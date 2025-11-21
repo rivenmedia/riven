@@ -1,0 +1,9 @@
+{
+  "ignore": ["src/schemas", "src/tests", "src/alembic"],
+  "deprecateTypingAliases": true,
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": false,
+  "reportUnknownMemberType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportUnreachable": "warning"
+}

@@ -29,7 +29,7 @@ class VFSNode:
         if self.parent is None:
             return "/"
 
-        parts = []
+        parts = list[str]([])
         current = self
 
         while current.parent is not None:

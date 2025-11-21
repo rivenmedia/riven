@@ -22,11 +22,13 @@ class BaseUpdater(ABC):
         Args:
             service_name: Name of the service (e.g., "Plex", "Emby", "Jellyfin")
         """
+
         self.key = service_name
         self.initialized = False
 
     def _initialize(self):
         """Initialize the updater by validating configuration."""
+
         if self.validate():
             self.initialized = True
             logger.success(f"{self.__class__.__name__} updater initialized")
@@ -39,6 +41,7 @@ class BaseUpdater(ABC):
         Returns:
             bool: True if validation successful, False otherwise
         """
+
         pass
 
     @abstractmethod
@@ -55,4 +58,5 @@ class BaseUpdater(ABC):
         Returns:
             bool: True if refresh was triggered successfully, False otherwise
         """
+
         pass

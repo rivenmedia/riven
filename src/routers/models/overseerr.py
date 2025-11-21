@@ -1,4 +1,4 @@
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -17,6 +17,7 @@ class Media(BaseModel):
     def stringify_imdb_id(cls, value: Any):
         if value and isinstance(value, int):
             return f"tt{int(value):07d}"
+
         return None
 
     @field_validator("tvdbId", "tmdbId", mode="before")
@@ -24,6 +25,7 @@ class Media(BaseModel):
     def validate_ids(cls, value: Any):
         if value and isinstance(value, str) and value != "":
             return int(value)
+
         return None
 
 
@@ -31,7 +33,7 @@ class RequestInfo(BaseModel):
     request_id: str
     requestedBy_email: str
     requestedBy_username: str
-    requestedBy_avatar: Optional[str]
+    requestedBy_avatar: str | None
 
 
 class IssueInfo(BaseModel):
@@ -40,30 +42,30 @@ class IssueInfo(BaseModel):
     issue_status: str
     reportedBy_email: str
     reportedBy_username: str
-    reportedBy_avatar: Optional[str]
+    reportedBy_avatar: str | None
 
 
 class CommentInfo(BaseModel):
     comment_message: str
     commentedBy_email: str
     commentedBy_username: str
-    commentedBy_avatar: Optional[str]
+    commentedBy_avatar: str | None
 
 
 class OverseerrWebhook(BaseModel):
     notification_type: str
     event: str
     subject: str
-    message: Optional[str] = None
-    image: Optional[str] = None
+    message: str | None = None
+    image: str | None = None
     media: Media
-    request: Optional[RequestInfo] = None
-    issue: Optional[IssueInfo] = None
-    comment: Optional[CommentInfo] = None
-    extra: List[dict[str, Any]] = []
+    request: RequestInfo | None = None
+    issue: IssueInfo | None = None
+    comment: CommentInfo | None = None
+    extra: list[dict[str, Any]] = []
 
     @property
-    def requested_seasons(self) -> Optional[List[int]]:
+    def requested_seasons(self) -> list[int] | None:
         for extra in self.extra:
             if extra["name"] == "Requested Seasons":
                 return [int(x) for x in extra["value"].split(",")]

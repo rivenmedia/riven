@@ -5,7 +5,6 @@ from datetime import datetime
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from pydantic import BaseModel
 
 from program.managers.sse_manager import sse_manager
 
@@ -14,10 +13,6 @@ router = APIRouter(
     prefix="/stream",
     tags=["stream"],
 )
-
-
-class EventResponse(BaseModel):
-    data: dict
 
 
 class SSELogHandler(logging.Handler):
@@ -39,7 +34,8 @@ async def get_event_types():
 
 
 @router.get("/{event_type}")
-async def stream_events(_: Request, event_type: str) -> EventResponse:
+async def stream_events(_: Request, event_type: str) -> StreamingResponse:
     return StreamingResponse(
-        sse_manager.subscribe(event_type), media_type="text/event-stream"
+        sse_manager.subscribe(event_type),
+        media_type="text/event-stream",
     )

@@ -1,10 +1,10 @@
 from datetime import datetime
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 import regex
 from pydantic import BaseModel, Field
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = [
@@ -22,36 +22,32 @@ ALLOWED_VIDEO_EXTENSIONS = [
     "ts",
 ]
 
-ANIME_SPECIALS_PATTERN: regex.Pattern = regex.compile(
+ANIME_SPECIALS_PATTERN = regex.compile(
     r"\b(OVA|NCED|NCOP|NC|OVA|ED(\d?v?\d?)|OPv?(\d+)?|SP\d+)\b", regex.IGNORECASE
 )
 
-VIDEO_EXTENSIONS: list[str] = (
-    settings_manager.settings.downloaders.video_extensions or DEFAULT_VIDEO_EXTENSIONS
-)
-VALID_VIDEO_EXTENSIONS = [
-    ext for ext in VIDEO_EXTENSIONS if ext in ALLOWED_VIDEO_EXTENSIONS
-]
-if not VALID_VIDEO_EXTENSIONS:
-    VALID_VIDEO_EXTENSIONS = DEFAULT_VIDEO_EXTENSIONS
+VALID_VIDEO_EXTENSIONS = (
+    [
+        ext
+        for ext in settings_manager.settings.downloaders.video_extensions
+        if ext in ALLOWED_VIDEO_EXTENSIONS
+    ]
+) or DEFAULT_VIDEO_EXTENSIONS
 
-movie_min_filesize: int = settings_manager.settings.downloaders.movie_filesize_mb_min
-movie_max_filesize: int = settings_manager.settings.downloaders.movie_filesize_mb_max
-episode_min_filesize: int = (
-    settings_manager.settings.downloaders.episode_filesize_mb_min
-)
-episode_max_filesize: int = (
-    settings_manager.settings.downloaders.episode_filesize_mb_max
-)
+movie_min_filesize = settings_manager.settings.downloaders.movie_filesize_mb_min
+movie_max_filesize = settings_manager.settings.downloaders.movie_filesize_mb_max
+episode_min_filesize = settings_manager.settings.downloaders.episode_filesize_mb_min
+episode_max_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
 
 # constraints for filesizes, follows the format tuple(min, max)
-FILESIZE_MOVIE_CONSTRAINT: tuple[int, int] = (
-    movie_min_filesize if movie_min_filesize >= 0 else 0,
-    movie_max_filesize if movie_max_filesize > 0 else float("inf"),
+FILESIZE_MOVIE_CONSTRAINT = (
+    movie_min_filesize,
+    movie_max_filesize if movie_max_filesize > 0 else None,
 )
-FILESIZE_EPISODE_CONSTRAINT: tuple[int, int] = (
-    episode_min_filesize if episode_min_filesize >= 0 else 0,
-    episode_max_filesize if episode_max_filesize > 0 else float("inf"),
+
+FILESIZE_EPISODE_CONSTRAINT = (
+    episode_min_filesize,
+    episode_max_filesize if episode_max_filesize > 0 else None,
 )
 
 
@@ -70,23 +66,24 @@ class InvalidDebridFileException(Exception):
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 
-    file_id: Optional[int] = Field(default=None)
-    filename: Optional[str] = Field(default=None)
-    filesize: Optional[int] = Field(default=None)
-    download_url: Optional[str] = Field(default=None)
+    file_id: int | None = Field(default=None)
+    filename: str | None = Field(default=None)
+    filesize: int | None = Field(default=None)
+    download_url: str | None = Field(default=None)
 
     @classmethod
     def create(
         cls,
-        path: str = None,
-        filename: str = None,
-        filesize_bytes: int = None,
-        filetype: Literal["movie", "show", "season", "episode"] = None,
-        file_id: Optional[int] = None,
+        filesize_bytes: int,
+        path: str | None = None,
+        filename: str | None = None,
+        filetype: Literal["movie", "show", "season", "episode"] | None = None,
+        file_id: int | None = None,
         limit_filesize: bool = True,
-    ) -> Optional["DebridFile"]:
+    ) -> "DebridFile | None":
         """Factory method to validate and create a DebridFile"""
-        filename_lower = filename.lower()
+
+        filename_lower = filename.lower() if filename else ""
 
         if "sample" in filename_lower:
             raise InvalidDebridFileException(f"Skipping sample file: '{filename}'")
@@ -99,11 +96,12 @@ class DebridFile(BaseModel):
 
         if limit_filesize:
             filesize_mb = filesize_bytes / 1_000_000
+
             if filetype == "movie":
                 if not (
                     FILESIZE_MOVIE_CONSTRAINT[0]
                     <= filesize_mb
-                    <= FILESIZE_MOVIE_CONSTRAINT[1]
+                    <= (FILESIZE_MOVIE_CONSTRAINT[1] or float("inf"))
                 ):
                     raise InvalidDebridFileException(
                         f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_MOVIE_CONSTRAINT[0]}MB to {FILESIZE_MOVIE_CONSTRAINT[1]}MB"
@@ -112,7 +110,7 @@ class DebridFile(BaseModel):
                 if not (
                     FILESIZE_EPISODE_CONSTRAINT[0]
                     <= filesize_mb
-                    <= FILESIZE_EPISODE_CONSTRAINT[1]
+                    <= (FILESIZE_EPISODE_CONSTRAINT[1] or float("inf"))
                 ):
                     raise InvalidDebridFileException(
                         f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_EPISODE_CONSTRAINT[0]}MB to {FILESIZE_EPISODE_CONSTRAINT[1]}MB"
@@ -120,8 +118,9 @@ class DebridFile(BaseModel):
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 
-    def to_dict(self) -> Dict[str, Union[int, str]]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the DebridFile to a dictionary"""
+
         return {
             "filename": self.filename,
             "filesize": self.filesize,
@@ -134,66 +133,84 @@ class TorrentContainer(BaseModel):
     """Represents a collection of files from an infohash from a debrid service"""
 
     infohash: str
-    files: List[DebridFile] = Field(default_factory=list)
-    torrent_id: Optional[Union[int, str]] = None  # Cached torrent_id to avoid re-adding
-    torrent_info: Optional["TorrentInfo"] = None  # Cached info to avoid re-fetching
+    files: list[DebridFile] = Field(default_factory=list[DebridFile])
+    torrent_id: int | str | None = None  # Cached torrent_id to avoid re-adding
+    torrent_info: "TorrentInfo | None" = None  # Cached info to avoid re-fetching
 
     @property
     def cached(self) -> bool:
         """Check if the torrent is cached"""
+
         return len(self.files) > 0
 
     @property
-    def file_ids(self) -> List[int]:
+    def file_ids(self) -> list[int]:
         """Get the file ids of the cached files"""
+
         return [file.file_id for file in self.files if file.file_id is not None]
 
-    def to_dict(self) -> Dict[str, Union[str, Dict]]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the TorrentContainer to a dictionary including the infohash"""
+
         return {
             "infohash": self.infohash,
             "files": {file.file_id: file.to_dict() for file in self.files if file},
         }
 
 
+class TorrentFile(BaseModel):
+    """Represents a file within a torrent"""
+
+    id: int
+    path: str
+    bytes: int
+    selected: Literal[0, 1]
+    download_url: str
+
+    @property
+    def filename(self) -> str:
+        """Extract the filename from the path"""
+
+        return self.path.split("/")[-1]
+
+
 class TorrentInfo(BaseModel):
     """Torrent information from a debrid service"""
 
-    id: Union[int, str]
+    id: int | str
     name: str
-    status: Optional[str] = None
-    infohash: Optional[str] = None
-    progress: Optional[float] = None
-    bytes: Optional[int] = None
-    created_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    alternative_filename: Optional[str] = None
-    files: Dict[int, Dict[str, Union[int, str]]] = Field(
-        default_factory=dict
-    )  # Real-Debrid only
-    links: List[str] = Field(default_factory=list)  # Real-Debrid download links
+    status: str | None = None
+    infohash: str | None = None
+    progress: float | None = None
+    bytes: int | None = None
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
+    completed_at: datetime | None = None
+    alternative_filename: str | None = None
+
+    # Real-Debrid only
+    files: dict[int, TorrentFile] = Field(default_factory=dict[int, TorrentFile])
+
+    # Real-Debrid download links
+    links: list[str] = Field(default_factory=list)
 
     @property
     def size_mb(self) -> float:
         """Convert bytes to megabytes"""
+
         return self.bytes / 1_000_000 if self.bytes else 0
 
     @property
     def cached(self) -> bool:
         """Check if the torrent is cached"""
-        return len(self.files) > 0
 
-    @property
-    def file_ids(self) -> List[int]:
-        """Get the file ids of the cached files"""
-        return [file.file_id for file in self.files if file.file_id]
+        return len(self.files) > 0
 
 
 class DownloadedTorrent(BaseModel):
     """Represents the result of a download operation"""
 
-    id: Union[int, str]
+    id: int | str
     infohash: str
     container: TorrentContainer
     info: TorrentInfo
@@ -203,14 +220,14 @@ class UserInfo(BaseModel):
     """Normalized user information across different debrid services"""
 
     service: Literal["realdebrid", "debridlink", "alldebrid"]
-    username: Optional[str] = None
-    email: Optional[str] = None
-    user_id: Union[int, str]
+    username: str | None = None
+    email: str | None = None
+    user_id: int | str
     premium_status: Literal["free", "premium"]
-    premium_expires_at: Optional[datetime] = None
-    premium_days_left: Optional[int] = None
+    premium_expires_at: datetime | None = None
+    premium_days_left: int | None = None
 
     # Service-specific fields (optional)
-    points: Optional[int] = None  # Real-Debrid
-    total_downloaded_bytes: Optional[int] = None
-    cooldown_until: Optional[datetime] = None
+    points: int | None = None  # Real-Debrid
+    total_downloaded_bytes: int | None = None
+    cooldown_until: datetime | None = None

@@ -1,10 +1,11 @@
-﻿from pydantic import BaseModel
+﻿from typing import Any
+from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 
 class MigratableBaseModel(BaseModel):
-    def __init__(self, **data):
-        for field_name, field in self.model_fields.items():
+    def __init__(self, **data: Any):
+        for field_name, field in MigratableBaseModel.model_fields.items():
             # Handle missing fields
             if field_name not in data:
                 # Check for default_factory first
@@ -26,7 +27,9 @@ class MigratableBaseModel(BaseModel):
                     and field.default_factory != PydanticUndefined
                 ):
                     default_value = field.default_factory()
+
                     # Only replace empty dict if default_factory returns non-empty dict
                     if isinstance(default_value, dict) and len(default_value) > 0:
                         data[field_name] = default_value
+
         super().__init__(**data)

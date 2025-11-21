@@ -46,6 +46,16 @@ class CacheEntry:
     mtime: float
 
 
+@dataclass(frozen=True)
+class ChunkInfo:
+    chunk_key: str
+    chunk_ts: float
+    chunk_file: Path
+    copy_start: int
+    bytes_to_read: int
+    chunk_end: int
+
+
 class Metrics:
     def __init__(self) -> None:
         self.hits = 0
@@ -143,6 +153,7 @@ class Cache:
                                     logger.warning(
                                         f"Removing orphaned cache file without metadata: {fp}"
                                     )
+
                                     try:
                                         fp.unlink()
                                         # Also remove any stale metadata file
@@ -151,6 +162,7 @@ class Cache:
                                         logger.warning(
                                             f"Failed to remove orphaned cache file {fp}: {e}"
                                         )
+
                             except Exception:
                                 continue
                     elif sub.is_file() and sub.suffix != ".meta":
@@ -434,7 +446,7 @@ class Cache:
 
         # Slow path: multi-chunk stitching for cross-chunk boundary requests
         # Plan the read operations while holding the lock, then release it for I/O
-        chunks_to_read = []
+        chunks_to_read = list[ChunkInfo]([])
 
         async with self.locks():
             s_list = self._by_path.get(cache_key)
@@ -469,14 +481,14 @@ class Cache:
                     # Plan this read operation
                     chunk_file = self._file_for(chunk_key)
                     chunks_to_read.append(
-                        {
-                            "chunk_key": chunk_key,
-                            "chunk_ts": cache_entry.mtime,
-                            "chunk_file": chunk_file,
-                            "copy_start": copy_start,
-                            "bytes_to_read": bytes_to_read,
-                            "chunk_end": chunk_end,
-                        }
+                        ChunkInfo(
+                            chunk_key=chunk_key,
+                            chunk_ts=cache_entry.mtime,
+                            chunk_file=chunk_file,
+                            copy_start=copy_start,
+                            bytes_to_read=bytes_to_read,
+                            chunk_end=chunk_end,
+                        )
                     )
 
                     current_pos = chunk_end + 1
@@ -484,22 +496,20 @@ class Cache:
         # Execute reads outside the lock to reduce contention
         if chunks_to_read:
             result_data = bytearray()
-            chunks_used = []
+            chunks_used = list[tuple[str, float]]([])
 
             for chunk_info in chunks_to_read:
                 try:
-                    with chunk_info["chunk_file"].open("rb") as f:
-                        f.seek(chunk_info["copy_start"])
-                        chunk_slice = f.read(chunk_info["bytes_to_read"])
+                    with chunk_info.chunk_file.open("rb") as f:
+                        f.seek(chunk_info.copy_start)
+                        chunk_slice = f.read(chunk_info.bytes_to_read)
                 except FileNotFoundError:
                     # Chunk file missing, abort slow path
                     break
 
-                if len(chunk_slice) == chunk_info["bytes_to_read"]:
+                if len(chunk_slice) == chunk_info.bytes_to_read:
                     result_data.extend(chunk_slice)
-                    chunks_used.append(
-                        (chunk_info["chunk_key"], chunk_info["chunk_ts"])
-                    )
+                    chunks_used.append((chunk_info.chunk_key, chunk_info.chunk_ts))
                 else:
                     # Incomplete read, abort slow path
                     break

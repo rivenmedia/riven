@@ -4,7 +4,6 @@ import sys
 import threading
 import time
 
-import httpx
 from kink import di
 import uvicorn
 from dotenv import load_dotenv
@@ -23,8 +22,7 @@ from starlette.requests import Request
 
 from program.program import Program, riven
 from program.settings.models import get_version
-from program.settings.manager import settings_manager
-from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
+from program.settings import settings_manager
 from program.utils.cli import handle_args
 from routers import app_router
 

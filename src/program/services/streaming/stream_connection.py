@@ -1,7 +1,6 @@
 import httpx
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 
 import trio_util
 

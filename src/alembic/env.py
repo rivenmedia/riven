@@ -6,7 +6,18 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from alembic import context
 from program.db.db import db
-from program.settings.manager import settings_manager
+from program.db.base_model import Base
+from program.settings import settings_manager
+
+from program.media import (
+    MediaItem,
+    FilesystemEntry,
+    StreamRelation,
+    ActiveStreamRelation,
+    StreamBlacklistRelation,
+    Stream,
+)
+from program.scheduling import ScheduledTask
 
 
 # Loguru handler for alembic logs
@@ -34,7 +45,7 @@ config = context.config
 config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.host))
 
 # Set MetaData object for autogenerate support
-target_metadata = db.Model.metadata
+target_metadata = Base.metadata
 
 
 def reset_database(connection) -> bool:
@@ -79,8 +90,14 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+
+    configuration = config.get_section(config.config_ini_section)
+
+    if not configuration:
+        raise RuntimeError("Alembic configuration section is missing.")
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

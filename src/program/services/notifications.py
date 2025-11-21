@@ -7,12 +7,14 @@ from apprise import Apprise
 from loguru import logger
 
 from program.managers.sse_manager import sse_manager
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Season
 from program.media.state import States
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.settings.models import NotificationsModel
 
 
-class NotificationService:
+class NotificationService(Runner[NotificationsModel]):
     """
     Unified notification service that handles all notification types:
     - SSE state change notifications (real-time UI updates)
@@ -21,12 +23,15 @@ class NotificationService:
     """
 
     def __init__(self):
-        self.key = "notifications"
         self.initialized = False
         self.settings = settings_manager.settings.notifications
         self.apprise = Apprise()
         self._initialize_apprise()
         self.initialized = True
+
+    @classmethod
+    def get_key(cls) -> str:
+        return "notifications"
 
     def _initialize_apprise(self):
         """Initialize Apprise with configured service URLs."""
@@ -57,9 +62,10 @@ class NotificationService:
     def run(
         self,
         item: MediaItem,
+        *,
         previous_state: States | None = None,
         new_state: States | None = None,
-    ):
+    ) -> MediaItemGenerator:
         """
         Main entry point for sending notifications.
 
@@ -74,20 +80,23 @@ class NotificationService:
             previous_state: Optional previous state (for state change notifications)
             new_state: Optional new state (for state change notifications)
         """
+
         # Handle state change notifications
         if previous_state is not None and new_state is not None:
             self._notify_state_change(item, previous_state, new_state)
 
         item_to_notify = item
 
-        if item.type == "episode":
+        if isinstance(item, Episode):
             item_to_notify = item.parent.parent
-        elif item.type == "season":
+        elif isinstance(item, Season):
             item_to_notify = item.parent
 
         # Handle completion notifications
         if item_to_notify.last_state == States.Completed:
             self._notify_completion(item_to_notify)
+
+        yield RunnerResult(media_items=[])
 
     def _notify_state_change(
         self, item: MediaItem, previous_state: States, new_state: States
@@ -127,7 +136,11 @@ class NotificationService:
             item: The completed MediaItem
         """
         # Calculate completion duration
+
+        assert item.requested_at
+
         duration = round((datetime.now() - item.requested_at).total_seconds())
+
         logger.success(f"{item.log_string} has been completed in {duration} seconds.")
 
         # Publish SSE notification event for frontend
