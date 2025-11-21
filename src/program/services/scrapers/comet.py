@@ -4,12 +4,25 @@ import base64
 import json
 
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.settings.models import CometConfig
+
+
+class CometScrapeResponse(BaseModel):
+    """Represents a response from the Comet scraper."""
+
+    class CometStream(BaseModel):
+        """Represents a single stream in the Comet response."""
+
+        info_hash: str = Field(alias="infoHash")
+        description: str
+
+    streams: list[CometStream]
 
 
 class Comet(ScraperService[CometConfig]):
@@ -20,6 +33,7 @@ class Comet(ScraperService[CometConfig]):
 
     def __init__(self):
         super().__init__("comet")
+
         self.settings = settings_manager.settings.scraping.comet
         self.timeout = self.settings.timeout or 15
         self.encoded_string = base64.b64encode(
@@ -114,14 +128,20 @@ class Comet(ScraperService[CometConfig]):
         url = f"/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
         response = self.session.get(url, timeout=self.timeout)
 
-        if not response.ok or not getattr(response.data, "streams", None):
+        if not response.ok:
+            logger.error(f"Comet scrape failed for {item.log_string}")
+            return {}
+
+        data = CometScrapeResponse.model_validate(response.json())
+
+        if not data.streams:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents = {
-            stream.infoHash: stream.description.split("\n")[0].replace("📄 ", "")
-            for stream in response.data.streams
-            if hasattr(stream, "infoHash") and stream.infoHash
+            stream.info_hash: stream.description.split("\n")[0].replace("📄 ", "")
+            for stream in data.streams
+            if stream.info_hash
         }
 
         if torrents:

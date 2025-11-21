@@ -171,7 +171,7 @@ class TraktContent(ContentService[TraktModel]):
         """Get IDs and types from Trakt watchlist"""
 
         if not watchlist_users:
-            return list[tuple[int, str]]()
+            return []
 
         ids = list[tuple[int, str]]()
 
@@ -185,7 +185,7 @@ class TraktContent(ContentService[TraktModel]):
         """Get IDs and types from Trakt collection"""
 
         if not collection_users:
-            return list[tuple[int, str]]()
+            return []
 
         ids = list[tuple[int, str]]()
 
@@ -200,7 +200,7 @@ class TraktContent(ContentService[TraktModel]):
         """Get IDs and types from Trakt user list"""
 
         if not list_items or not any(list_items):
-            return list[tuple[str, str]]()
+            return []
 
         ids = list[tuple[str, str]]([])
 

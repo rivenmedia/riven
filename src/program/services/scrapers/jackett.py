@@ -3,7 +3,7 @@
 import concurrent.futures
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from requests import ReadTimeout
 
 from program.media.item import MediaItem, Movie
@@ -12,6 +12,20 @@ from program.settings import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.utils.torrent import extract_infohash, normalize_infohash
 from program.settings.models import JackettConfig
+
+
+class JackettScrapeResponse(BaseModel):
+    """Model for Jackett scrape response"""
+
+    class JackettTorrentResult(BaseModel):
+        """Model for a single Jackett torrent result"""
+
+        title: str = Field(alias="Title")
+        link: str = Field(alias="Link")
+        info_hash: str | None = Field(alias="InfoHash")
+        magnet_uri: str | None = Field(alias="MagnetUri")
+
+    results: list[JackettTorrentResult] = Field(alias="Results")
 
 
 class JackettIndexer(BaseModel):
@@ -107,30 +121,36 @@ class Jackett(ScraperService[JackettConfig]):
         response = f"/indexers/test:passed/results?apikey={self.api_key}&Query={query}"
         response = self.session.get(response, timeout=self.settings.timeout)
 
-        if not response.ok or not hasattr(response, "data"):
+        if not response.ok:
             return torrents
 
-        if hasattr(response.data, "Results"):
-            urls_to_fetch = []  # list of (result, title) tuples that need URL fetching
+        data = JackettScrapeResponse.model_validate(response.json())
+
+        if data.results:
+            # list of (result, title) tuples that need URL fetching
+            urls_to_fetch = list[
+                tuple[JackettScrapeResponse.JackettTorrentResult, str]
+            ]()
 
             # First pass: extract infohashes from available fields and collect URLs that need fetching
-            for result in response.data.Results:
+            for result in data.results:
                 infohash = None
 
                 # Priority 1: Use InfoHash field directly if available (normalize to handle base32)
-                if hasattr(result, "InfoHash") and result.InfoHash:
-                    infohash = normalize_infohash(result.InfoHash)
+                if result.info_hash:
+                    infohash = normalize_infohash(result.info_hash)
 
                 # Priority 2: Check if MagnetUri is available and extract from it
-                if not infohash and hasattr(result, "MagnetUri") and result.MagnetUri:
-                    infohash = extract_infohash(result.MagnetUri)
+                if not infohash and result.magnet_uri:
+                    infohash = extract_infohash(result.magnet_uri)
 
                 # Priority 3: Collect URLs that need fetching
-                if not infohash and hasattr(result, "Link") and result.Link:
-                    urls_to_fetch.append((result, result.Title))
+                if not infohash and result.link:
+                    urls_to_fetch.append((result, result.title))
+
                 elif infohash:
                     # We already have an infohash, add it directly
-                    torrents[infohash] = result.Title
+                    torrents[infohash] = result.title
 
             # Fetch URLs in parallel
             if urls_to_fetch:
@@ -138,7 +158,7 @@ class Jackett(ScraperService[JackettConfig]):
                     thread_name_prefix="JackettHashExtract", max_workers=10
                 ) as executor:
                     future_to_result = {
-                        executor.submit(self.get_infohash_from_url, result.Link): (
+                        executor.submit(self.get_infohash_from_url, result.link): (
                             result,
                             title,
                         )

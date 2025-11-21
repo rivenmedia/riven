@@ -977,12 +977,14 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             List of registered VFS paths
         """
+
         from program.media.media_entry import MediaEntry
         from program.media.subtitle_entry import SubtitleEntry
         import os
 
         if isinstance(entry, MediaEntry):
             # Register MediaEntry (video file)
+
             all_paths = entry.get_all_vfs_paths()
             registered_paths = list[str]([])
 
@@ -1034,7 +1036,7 @@ class RivenVFS(pyfuse3.Operations):
         else:
             logger.warning(f"Unknown FilesystemEntry type: {type(entry)}")
 
-            return list[str]([])
+            return []
 
     def _unregister_filesystem_entry(
         self,
@@ -1069,7 +1071,7 @@ class RivenVFS(pyfuse3.Operations):
                 logger.warning(
                     f"Cannot unregister subtitle {entry.id} without video_paths"
                 )
-                return list[str]([])
+                return []
 
             unregistered_paths = list[str]([])
             language = entry.language
@@ -1090,7 +1092,7 @@ class RivenVFS(pyfuse3.Operations):
 
         else:
             logger.warning(f"Unknown FilesystemEntry type: {type(entry)}")
-            return list[str]([])
+            return []
 
     def _register_clean_path(
         self,

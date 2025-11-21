@@ -1,6 +1,7 @@
 """Orionoid scraper module"""
 
 from loguru import logger
+from pydantic import BaseModel
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
@@ -9,6 +10,92 @@ from program.utils.request import SmartSession
 from program.settings.models import OrionoidConfig
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
+
+
+class OrionoidAuthResponse(BaseModel):
+    class Result(BaseModel):
+        status: str
+
+    class Data(BaseModel):
+        class Subscription(BaseModel):
+            class Package(BaseModel):
+                type: str
+                premium: bool
+
+            package: Package
+
+        class Service(BaseModel):
+            realdebrid: bool
+
+        class Requests(BaseModel):
+            class Streams(BaseModel):
+                class Daily(BaseModel):
+                    remaining: int | None
+
+                daily: Daily
+
+            streams: Streams
+
+        requests: Requests
+        status: str
+        subscription: Subscription
+        service: Service
+
+    result: Result
+    data: Data | None
+    reason: str | None
+
+    @property
+    def is_premium(self) -> bool:
+        """Check if the user has a premium plan."""
+
+        if not self.data:
+            return False
+
+        active = self.data.status == "active"
+        premium = self.data.subscription.package.premium
+        debrid = self.data.service.realdebrid
+
+        return active and premium and debrid
+
+    @property
+    def is_unlimited(self) -> bool:
+        """Check if the user has an unlimited plan."""
+
+        if not self.data:
+            return False
+
+        return self.data.subscription.package.type == "unlimited"
+
+
+class OrionoidScrapeParams(BaseModel):
+    keyapp: str
+    keyuser: str
+    mode: str
+    action: str
+    type: str
+    streamtype: str
+    protocoltorrent: str
+    idtvdb: int | None = None
+    idtmdb: int | None = None
+    numberseason: int | None = None
+    numberepisode: int | None = None
+    access: str | None = None
+    debridlookup: str | None = None
+
+
+class OrionoidScrapeResponse(BaseModel):
+    class Data(BaseModel):
+        class Stream(BaseModel):
+            class File(BaseModel):
+                name: str | None
+                hash: str | None
+
+            file: File
+
+        streams: list[Stream]
+
+    data: Data | None
 
 
 class Orionoid(ScraperService[OrionoidConfig]):
@@ -65,44 +152,26 @@ class Orionoid(ScraperService[OrionoidConfig]):
             url = f"?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = self.session.get(url, timeout=self.timeout)
 
-            if response.ok and hasattr(response.data, "result"):
-                if response.data.result.status != "success":
-                    logger.error(
-                        f"Orionoid API Key is invalid. Status: {response.data.result.status}",
-                    )
-                    return False
+            auth_response = OrionoidAuthResponse.model_validate(response.json())
 
-                if not response.ok:
-                    logger.error(
-                        f"Orionoid Status Code: {response.status_code}, Reason: {response.data.reason}",
-                    )
-                    return False
+            if not response.ok:
+                logger.error(f"Orionoid failed to authenticate: {auth_response.reason}")
 
-                if response.data.data.subscription.package.type == "unlimited":
-                    self.is_unlimited = True
+                return False
 
-            self.is_premium = self.check_premium()
+            if auth_response.result.status != "success":
+                logger.error(
+                    f"Orionoid API Key is invalid. Status: {auth_response.result.status}",
+                )
+                return False
+
+            self.is_unlimited = auth_response.is_unlimited
+            self.is_premium = auth_response.is_premium
 
             return True
         except Exception as e:
             logger.exception(f"Orionoid failed to initialize: {e}")
             return False
-
-    def check_premium(self) -> bool:
-        """Check if the user is active, has a premium account, and has RealDebrid service enabled."""
-
-        url = f"?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
-        response = self.session.get(url)
-
-        if response.ok and hasattr(response.data, "data"):
-            active = response.data.data.status == "active"
-            premium = response.data.data.subscription.package.premium
-            debrid = response.data.data.service.realdebrid
-
-            if active and premium and debrid:
-                return True
-
-        return False
 
     def check_limit(self) -> bool:
         """Check if the user has exceeded the rate limit for the Orionoid API."""
@@ -112,16 +181,20 @@ class Orionoid(ScraperService[OrionoidConfig]):
         try:
             response = self.session.get(url)
 
-            if response.ok and hasattr(response.data, "data"):
-                remaining = response.data.data.requests.streams.daily.remaining
+            data = OrionoidAuthResponse.model_validate(response.json())
 
-                if remaining is None:
-                    return False
-                elif remaining and remaining <= 0:
-                    return True
+            if not response.ok:
+                logger.error(f"Orionoid failed to check limit: {data.reason}")
+                return False
+
+            if response.ok and data.data:
+                remaining = data.data.requests.streams.daily.remaining
+
+                return remaining is not None and remaining <= 0
         except Exception as e:
             logger.error(f"Orionoid failed to check limit: {e}")
-            return False
+
+        return False
 
     def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
@@ -145,12 +218,12 @@ class Orionoid(ScraperService[OrionoidConfig]):
 
         return {}
 
-    def _build_query_params(self, item: MediaItem) -> dict:
+    def _build_query_params(self, item: MediaItem) -> OrionoidScrapeParams:
         """Construct the query parameters for the Orionoid API based on the media item."""
 
-        media_type = "movie" if item.type == "movie" else "show"
+        media_type = "movie" if isinstance(item, Movie) else "show"
 
-        params = {
+        raw_params: dict[str, str | int | None] = {
             "keyapp": KEY_APP,
             "keyuser": self.settings.api_key,
             "mode": "stream",
@@ -161,41 +234,52 @@ class Orionoid(ScraperService[OrionoidConfig]):
         }
 
         if isinstance(item, Season):
-            params["numberseason"] = item.number
+            raw_params["numberseason"] = item.number
         elif isinstance(item, Episode):
-            params["numberseason"] = item.parent.number
-            params["numberepisode"] = item.number
+            raw_params["numberseason"] = item.parent.number
+            raw_params["numberepisode"] = item.number
 
         if self.settings.cached_results_only:
-            params["access"] = "realdebridtorrent"
-            params["debridlookup"] = "realdebrid"
+            raw_params["access"] = "realdebridtorrent"
+            raw_params["debridlookup"] = "realdebrid"
 
         if isinstance(item, (Show, Season, Episode)):
-            params["idtvdb"] = item.tvdb_id
+            raw_params["idtvdb"] = item.tvdb_id
         elif isinstance(item, Movie):
-            params["idtmdb"] = item.tmdb_id
+            raw_params["idtmdb"] = item.tmdb_id
 
         for key, value in self.settings.parameters:
-            if key not in params:
-                params[key] = value
+            if key not in raw_params:
+                raw_params[key] = value
 
-        return params
+        return OrionoidScrapeParams.model_validate(raw_params)
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Orionoid` scrape method"""
 
         params = self._build_query_params(item)
-        response = self.session.get("", params=params, timeout=self.timeout)
+        response = self.session.get(
+            "",
+            params=params.model_dump(),
+            timeout=self.timeout,
+        )
 
-        if not response.ok or not hasattr(response.data, "data"):
+        data = OrionoidScrapeResponse.model_validate(response.json())
+
+        if not response.ok:
+            logger.error(f"Orionoid scrape failed for {item.log_string}: {data}")
+            return {}
+
+        if not data.data:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents = {}
+        torrents = dict[str, str]()
 
-        for stream in response.data.data.streams:
+        for stream in data.data.streams:
             if not stream.file.hash or not stream.file.name:
                 continue
+
             torrents[stream.file.hash] = stream.file.name
 
         if torrents:
