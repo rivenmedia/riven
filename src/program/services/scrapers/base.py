@@ -10,7 +10,7 @@ from program.utils.torrent import extract_infohash
 from program.core.runner import Runner
 from program.settings.models import Observable
 
-T = TypeVar("T", bound=Observable)
+T = TypeVar("T", bound=Observable, covariant=True)
 
 
 class ScraperService(Runner[T]):

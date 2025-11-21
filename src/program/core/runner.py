@@ -7,7 +7,12 @@ from typing import Any, Generic, TypeVar
 from program.settings.models import Observable
 from program.media.item import MediaItem
 
-TSettings = TypeVar("TSettings", bound=Observable | None, default=Observable)
+TSettings = TypeVar(
+    "TSettings",
+    bound=Observable | None,
+    default=Observable,
+    covariant=True,
+)
 TService = TypeVar("TService", bound=Any | None, default="Runner")
 
 

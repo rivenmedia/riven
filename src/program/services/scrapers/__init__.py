@@ -19,10 +19,11 @@ from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
-from program.settings.models import ScraperModel
+from program.settings.models import Observable, ScraperModel
+from program.services.scrapers.base import ScraperService
 
 
-class Scraping(Runner[ScraperModel]):
+class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     def __init__(self):
         super().__init__()
 
@@ -31,6 +32,7 @@ class Scraping(Runner[ScraperModel]):
         self.max_failed_attempts = (
             settings_manager.settings.scraping.max_failed_attempts
         )
+
         self.services = [
             Comet(),
             Jackett(),
@@ -41,10 +43,12 @@ class Scraping(Runner[ScraperModel]):
             Torrentio(),
             Zilean(),
         ]
+
         self.initialized_services = [
             service for service in self.services if service.initialized
         ]
         self.initialized = self.validate()
+
         if not self.initialized:
             return
 
@@ -95,20 +99,20 @@ class Scraping(Runner[ScraperModel]):
 
         yield RunnerResult(media_items=[item])
 
-    def scrape(self, item: MediaItem, verbose_logging=True) -> dict[str, Stream]:
+    def scrape(
+        self,
+        item: MediaItem,
+        verbose_logging: bool = True,
+    ) -> dict[str, Stream]:
         """Scrape an item."""
 
         results: dict[str, str] = {}
         results_lock = threading.RLock()
 
-        def run_service(svc, it) -> None:
+        def run_service(svc: "ScraperService[Observable]", item: MediaItem) -> None:
             """Run a single service and update the results."""
-            service_results = svc.run(it)
-            if not isinstance(service_results, dict):
-                logger.error(
-                    f"Service {svc.__class__.__name__} returned invalid results: {service_results}"
-                )
-                return
+
+            service_results = svc.run(item)
 
             with results_lock:
                 try:
@@ -126,6 +130,7 @@ class Scraping(Runner[ScraperModel]):
                 executor.submit(run_service, service, item): service.key
                 for service in self.initialized_services
             }
+
             for future in as_completed(futures):
                 try:
                     future.result()
