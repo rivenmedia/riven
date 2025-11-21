@@ -387,21 +387,19 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
             return []
 
-    def download_subtitle(self, subtitle_info: dict[str, Any]) -> str | None:
+    def download_subtitle(self, subtitle_info: SubtitleItem) -> str | None:
         """Download subtitle content from OpenSubtitles."""
 
         try:
             if not self._ensure_authenticated():
                 return None
 
-            subtitle_id = subtitle_info.get("id")
+            subtitle_id = subtitle_info.id
 
             if not subtitle_id:
                 return None
 
-            logger.debug(
-                f"Downloading subtitle: {subtitle_info.get('filename', 'unknown')}"
-            )
+            logger.debug(f"Downloading subtitle: {subtitle_info.filename}")
 
             response = self.server.DownloadSubtitles(self.token, [str(subtitle_id)])
             response = self._check_response(
