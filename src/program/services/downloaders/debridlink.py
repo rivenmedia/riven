@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Generic, Literal, TypeVar
 
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
     TorrentContainer,
+    TorrentFile,
     TorrentInfo,
     UserInfo,
 )
@@ -15,6 +18,70 @@ from program.settings.manager import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
+
+
+class DebridLinkErrorResponse(BaseModel):
+    """Represents an DebridLink API error response."""
+
+    status: Literal[False]
+    error: str
+
+
+T = TypeVar("T", bound=BaseModel | None)
+
+
+class DebridLinkSuccessResponse(BaseModel, Generic[T]):
+    """Represents a generic DebridLink API success response."""
+
+    status: Literal[True]
+    data: T
+
+
+class DebridLinkResponse(BaseModel, Generic[T]):
+    """Union of DebridLink success and error responses."""
+
+    data: DebridLinkErrorResponse | DebridLinkSuccessResponse[T] = Field(
+        discriminator="status"
+    )
+
+
+class DebridLinkFile(BaseModel):
+    id: str
+    name: str
+    size: int
+    download_url: str = Field(alias="downloadUrl")
+    download_percent: int = Field(alias="downloadPercent")
+
+
+class DebridLinkSeedBoxAddResponse(BaseModel):
+    id: str
+    name: str
+    hash_string: str = Field(alias="hashString")
+    status: str
+
+
+class DebridLinkSeedBoxListResponse(BaseModel):
+    class ListItem(BaseModel):
+        id: str
+        name: str
+        hash_string: str = Field(alias="hashString")
+        status: str
+        created: int
+        total_size: int = Field(alias="totalSize")
+        download_percent: float = Field(alias="downloadPercent")
+        is_zip: bool = Field(alias="isZip")
+        files: list[DebridLinkFile] | None
+
+    items: list[ListItem]
+
+
+class DebridLinkAccountInfo(BaseModel):
+    id: int
+    username: str
+    email: str
+    account_type: int = Field(alias="accountType")
+    premium_left: int = Field(alias="premiumLeft")
+    pts: int
 
 
 class DebridLinkError(Exception):
@@ -43,7 +110,7 @@ class DebridLinkAPI:
         rate_limits = {
             "debrid-link.com": {
                 "rate": 1,
-                "capacity": 60,
+                "capacity": 60.0,
             },
         }
         proxies = None
@@ -153,8 +220,7 @@ class DebridLinkDownloader(DownloaderBase):
         elif status >= 500:
             return "Debrid-Link server error"
         else:
-            error_msg = getattr(response.data, "error", None)
-            return error_msg or f"HTTP {status}"
+            return DebridLinkErrorResponse.model_validate(response.json()).error
 
     def _maybe_backoff(self, response: SmartResponse) -> None:
         """
@@ -167,7 +233,7 @@ class DebridLinkDownloader(DownloaderBase):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: str,
+        item_type: Literal["movie", "show", "season", "episode"],
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
@@ -254,7 +320,7 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         torrent_id: str,
         infohash: str,
-        item_type: str,
+        item_type: Literal["movie", "show", "season", "episode"],
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -273,28 +339,31 @@ class DebridLinkDownloader(DownloaderBase):
 
         # Status "downloaded" means completed/cached
         # Also check if downloadPercent == 100
-        if info.status == "downloaded" or info.progress >= 100:
+        if info.status == "downloaded" or (info.progress and info.progress >= 100):
             files: list[DebridFile] = []
 
-            for file_id, meta in info.files.items():
+            for file_id, file in info.files.items():
                 # Debrid-Link doesn't have a "selected" field, all files are available
                 try:
                     df = DebridFile.create(
-                        path=meta["path"],
-                        filename=meta["filename"],
-                        filesize_bytes=meta["bytes"],
+                        path=file.path,
+                        filename=file.filename,
+                        filesize_bytes=file.bytes,
                         filetype=item_type,
                         file_id=file_id,
                     )
 
                     if isinstance(df, DebridFile):
                         # Store download URL if available
-                        download_url = meta.get("download_url", "")
+                        download_url = file.download_url
+
                         if download_url:
                             df.download_url = download_url
+
                             logger.debug(
-                                f"Using correlated download URL for {meta['filename']}"
+                                f"Using correlated download URL for {file.filename}"
                             )
+
                         files.append(df)
                 except InvalidDebridFileException as e:
                     logger.debug(f"{infohash}: {e}")
@@ -321,6 +390,8 @@ class DebridLinkDownloader(DownloaderBase):
 
         url = f"magnet:?xt=urn:btih:{infohash}"
 
+        assert self.api
+
         # Don't set wait=True - we want the torrent to start immediately
         # The hash is only added if it's already cached on Debrid-Link servers
         response = self.api.session.post("seedbox/add", data={"url": url})
@@ -329,29 +400,33 @@ class DebridLinkDownloader(DownloaderBase):
         if not response.ok:
             raise DebridLinkError(self._handle_error(response))
 
-        # Debrid-Link API v2 returns {success: true, value: {...}}
-        data = response.data
+        data = (
+            DebridLinkResponse[DebridLinkSeedBoxAddResponse]
+            .model_validate({"data": response.json()})
+            .data
+        )
 
-        if hasattr(data, "value"):
-            data = data.value
+        if isinstance(data, DebridLinkErrorResponse):
+            raise DebridLinkError(data.error)
 
-        tid = getattr(data, "id", None)
+        torrent_id = data.data.id
 
-        if not tid:
+        if not torrent_id:
             raise DebridLinkError("No torrent ID returned by Debrid-Link.")
 
-        return str(tid)
+        return str(torrent_id)
 
-    def select_files(self, torrent_id: str, file_ids: list[int]) -> None:
+    def select_files(self, torrent_id: int | str, file_ids: list[int]) -> None:
         """
         Select which files to download from the torrent.
 
         Note: Debrid-Link doesn't require explicit file selection like Real-Debrid.
         Files are automatically available once the torrent is added.
         """
+
         pass
 
-    def get_torrent_info(self, torrent_id: str) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID.
 
@@ -366,24 +441,28 @@ class DebridLinkDownloader(DownloaderBase):
             DebridLinkError: If the API returns a failing status.
         """
 
+        assert self.api
+
         response = self.api.session.get(f"seedbox/list")
         self._maybe_backoff(response)
 
         if not response.ok:
             raise DebridLinkError(self._handle_error(response))
 
-        # Debrid-Link API v2 returns {success: true, value: [...]}
-        data = response.data
+        data = (
+            DebridLinkResponse[DebridLinkSeedBoxListResponse]
+            .model_validate({"data": response.json()})
+            .data
+        )
 
-        if hasattr(data, "value"):
-            torrents = data.value
-        else:
-            torrents = data
+        if isinstance(data, DebridLinkErrorResponse):
+            raise DebridLinkError(data.error)
 
+        torrents = data.data.items
         torrent_data = None
 
         for torrent in torrents:
-            if str(getattr(torrent, "id", None)) == str(torrent_id):
+            if torrent.id == str(torrent_id):
                 torrent_data = torrent
 
                 break
@@ -393,26 +472,22 @@ class DebridLinkDownloader(DownloaderBase):
 
         # Parse file information
         # API returns files as a list, but we need to convert to dict with integer keys
-        files = {}
-        links = []
-        torrent_files = getattr(torrent_data, "files", [])
+        files = dict[int, TorrentFile]()
+        links = list[str]()
+        torrent_files = torrent_data.files or []
 
         for idx, file_info in enumerate(torrent_files):
-            file_name = getattr(file_info, "name", "")
+            file_name = file_info.name
             file_size = getattr(file_info, "size", 0)
             download_url = getattr(file_info, "downloadUrl", "")
 
-            # Extract just the filename from the path
-            filename = file_name.split("/")[-1] if "/" in file_name else file_name
-
-            files[idx] = {
-                "id": idx,
-                "path": file_name,
-                "filename": filename,
-                "bytes": file_size,
-                "selected": 1,  # All files are selected by default in Debrid-Link
-                "download_url": download_url,
-            }
+            files[idx] = TorrentFile(
+                id=idx,
+                path=file_name,
+                bytes=file_size,
+                selected=1,  # All files are selected by default in Debrid-Link
+                download_url=download_url,
+            )
 
             if download_url:
                 links.append(download_url)
@@ -428,12 +503,12 @@ class DebridLinkDownloader(DownloaderBase):
             infohash=getattr(torrent_data, "hashString", ""),
             bytes=getattr(torrent_data, "totalSize", 0),
             created_at=datetime.fromtimestamp(getattr(torrent_data, "created", 0)),
-            progress=getattr(torrent_data, "downloadPercent", 0),
+            progress=torrent_data.download_percent,
             files=files,
             links=links,
         )
 
-    def delete_torrent(self, torrent_id: str) -> None:
+    def delete_torrent(self, torrent_id: int | str) -> None:
         """
         Delete a torrent on Debrid-Link.
 
@@ -441,6 +516,8 @@ class DebridLinkDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             DebridLinkError: If the API returns a failing status.
         """
+
+        assert self.api
 
         response = self.api.session.delete(f"seedbox/{torrent_id}/remove")
         self._maybe_backoff(response)
@@ -462,11 +539,10 @@ class DebridLinkDownloader(DownloaderBase):
         """
 
         # Debrid-Link provides direct download URLs, no unrestricting needed
-        class UnrestrictedLink:
-            def __init__(self, download, filename, filesize):
-                self.download = download
-                self.filename = filename
-                self.filesize = filesize
+        class UnrestrictedLink(BaseModel):
+            download: str
+            filename: str
+            filesize: int
 
         return UnrestrictedLink(
             download=link,
@@ -483,6 +559,8 @@ class DebridLinkDownloader(DownloaderBase):
         """
 
         try:
+            assert self.api
+
             response = self.api.session.get("account/infos")
             self._maybe_backoff(response)
 
@@ -491,18 +569,23 @@ class DebridLinkDownloader(DownloaderBase):
                 return None
 
             # Debrid-Link API v2 returns data in 'value' field
-            data = response.data
+            data = (
+                DebridLinkResponse[DebridLinkAccountInfo]
+                .model_validate({"data": response.json()})
+                .data
+            )
 
-            if hasattr(data, "value"):
-                data = data.value
+            if isinstance(data, DebridLinkErrorResponse):
+                logger.error(f"Failed to get user info: {data.error}")
+                return None
 
             # Parse premium expiration
             premium_expires_at = None
             premium_days_left_val = None
-            account_type = getattr(data, "accountType", 0)
+            account_type = data.data.account_type
 
             if account_type > 0:  # Premium account
-                premium_until = getattr(data, "premiumLeft", 0)
+                premium_until = data.data.premium_left
 
                 if premium_until > 0:
                     # premiumLeft is duration in seconds, not a timestamp
@@ -515,13 +598,13 @@ class DebridLinkDownloader(DownloaderBase):
 
             return UserInfo(
                 service="debridlink",
-                username=getattr(data, "username", None),
-                email=getattr(data, "email", None),
-                user_id=getattr(data, "id", 0),
+                username=data.data.username,
+                email=data.data.email,
+                user_id=data.data.id,
                 premium_status="premium" if account_type > 0 else "free",
                 premium_expires_at=premium_expires_at,
                 premium_days_left=premium_days_left_val,
-                points=getattr(data, "pts", 0),
+                points=data.data.pts,
             )
 
         except Exception as e:
