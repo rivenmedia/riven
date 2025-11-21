@@ -64,6 +64,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
     def _create_session(self) -> SmartSession:
         """Create a session for Prowlarr"""
+
         return SmartSession(
             base_url=f"{self.settings.url.rstrip('/')}/api/v1",
             retries=self.settings.retries,
@@ -104,6 +105,8 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         return False
 
     def get_indexers(self) -> list[Indexer]:
+        assert self.session
+
         statuses = self.session.get("/indexerstatus", timeout=15, headers=self.headers)
         response = self.session.get("/indexer", timeout=15, headers=self.headers)
 
@@ -116,7 +119,10 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             id = indexer_data.id
 
             if statuses:
-                status = next((x for x in statuses if x.indexerId == id), None)
+                status = next(
+                    (x for x in statuses if x.indexerId == id),
+                    None,
+                )
 
                 if status and status.disabledTill > datetime.now().isoformat():
                     disabled_until = datetime.fromisoformat(

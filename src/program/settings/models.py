@@ -389,42 +389,8 @@ class FilesystemModel(Observable):
     )
     def validate_naming_template(cls, v: str) -> str:
         """Validate that naming template string is syntactically valid."""
-        from string import Formatter
 
-        class SafeFormatter(Formatter):
-            """Formatter that handles missing keys gracefully for validation."""
-
-            def get_value(self, key, args, kwargs):
-                if isinstance(key, str):
-                    # Handle nested access: show[title]
-                    if "[" in key and "]" in key:
-                        parts = key.replace("]", "").split("[")
-                        value = kwargs.get(parts[0], {})
-
-                        for part in parts[1:]:
-                            if isinstance(value, dict):
-                                value = value.get(part, "")
-                            elif isinstance(value, list):
-                                try:
-                                    # Handle negative indices like [-1]
-                                    value = value[int(part)]
-                                except (ValueError, IndexError):
-                                    value = ""
-                            else:
-                                value = ""
-
-                        return value or ""
-
-                    # Simple key access
-                    return kwargs.get(key, "")
-
-                return super().get_value(key, args, kwargs)
-
-            def format_field(self, value: str | None, format_spec: str):
-                if value is None or value == "":
-                    return ""
-
-                return super().format_field(value, format_spec)
+        from program.services.filesystem.vfs.naming import SafeFormatter
 
         try:
             # Test template with comprehensive dummy data

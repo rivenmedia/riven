@@ -57,7 +57,7 @@ class Orionoid(ScraperService[OrionoidConfig]):
             )
             return False
 
-        if not isinstance(self.timeout, int) or self.timeout <= 0:
+        if self.timeout <= 0:
             logger.error("Orionoid timeout is not set or invalid.")
             return False
 

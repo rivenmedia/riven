@@ -10,9 +10,10 @@ from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
 from program.settings.manager import settings_manager
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.services.updaters.base import BaseUpdater
 
 
-class Updater(Runner):
+class Updater(Runner[None, BaseUpdater]):
     """
     Main updater service that coordinates multiple media server updaters.
 
@@ -22,19 +23,20 @@ class Updater(Runner):
 
     def __init__(self):
         self.library_path = settings_manager.settings.updaters.library_path
-        self.services = {
-            PlexUpdater: PlexUpdater(),
-            JellyfinUpdater: JellyfinUpdater(),
-            EmbyUpdater: EmbyUpdater(),
-        }
+        self.services = [
+            PlexUpdater(),
+            JellyfinUpdater(),
+            EmbyUpdater(),
+        ]
         self.initialized = self.validate()
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
 
         initialized_services = [
-            service for service in self.services.values() if service.initialized
+            service for service in self.services if service.initialized
         ]
+
         return len(initialized_services) > 0
 
     def run(self, item: MediaItem) -> MediaItemGenerator:
@@ -116,7 +118,7 @@ class Updater(Runner):
 
         success = False
 
-        for service in self.services.values():
+        for service in self.services:
             if service.initialized:
                 try:
                     if service.refresh_path(path):

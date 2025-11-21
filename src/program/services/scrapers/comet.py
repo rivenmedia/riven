@@ -74,10 +74,6 @@ class Comet(ScraperService[CometConfig]):
             )
             return False
 
-        if not isinstance(self.settings.ratelimit, bool):
-            logger.error("Comet ratelimit must be a valid boolean.")
-            return False
-
         try:
             response = self.session.get("/manifest.json", timeout=self.timeout)
             if response.ok:

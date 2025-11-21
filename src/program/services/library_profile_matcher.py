@@ -323,13 +323,10 @@ class LibraryProfileMatcher:
             show = item
 
         if show.aired_at:
-            try:
-                return int(show.aired_at.split("-")[0])
-            except (ValueError, IndexError, AttributeError):
-                return None
+            return show.aired_at.year
 
         # For movies or if show year not available, use year field
-        if hasattr(item, "year") and item.year:
+        if item.year:
             return item.year
 
         return None

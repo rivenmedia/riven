@@ -6,7 +6,7 @@ from loguru import logger
 from pydantic import BaseModel
 from requests import ReadTimeout
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
@@ -100,7 +100,7 @@ class Jackett(ScraperService[JackettConfig]):
         torrents: dict[str, str] = {}
         query = item.log_string
 
-        if item.type == "movie":
+        if isinstance(item, Movie) and item.aired_at:
             query = f"{query} ({item.aired_at.year})"
 
         logger.debug(f"Searching for '{query}' in Jackett")

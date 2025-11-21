@@ -12,6 +12,7 @@ class JellyfinUpdater(BaseUpdater):
 
     def __init__(self):
         super().__init__("jellyfin")
+
         self.settings = settings_manager.settings.updaters.jellyfin
         self.session = SmartSession(retries=3, backoff_factor=0.3)
         self._initialize()

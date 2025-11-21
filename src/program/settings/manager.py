@@ -1,5 +1,7 @@
+from collections.abc import Callable
 import json
 import os
+from typing import Any
 
 from loguru import logger
 from pydantic import ValidationError
@@ -12,7 +14,7 @@ class SettingsManager:
     """Class that handles settings, ensuring they are validated against a Pydantic schema."""
 
     def __init__(self):
-        self.observers = []
+        self.observers = list[Callable[[], Any]]()
         self.filename = os.environ.get("SETTINGS_FILENAME", "settings.json")
         self.settings_file = data_dir_path / self.filename
 
@@ -30,15 +32,18 @@ class SettingsManager:
         else:
             self.load()
 
-    def register_observer(self, observer):
+    def register_observer(self, observer: Callable[[], None]):
         self.observers.append(observer)
 
     def notify_observers(self):
         for observer in self.observers:
             observer()
 
-    def check_environment(self, settings, prefix="", separator="_"):
-        checked_settings = {}
+    def check_environment(
+        self, settings: dict[str, Any], prefix: str = "", separator: str = "_"
+    ):
+        checked_settings = dict[str, Any]()
+
         for key, value in settings.items():
             if isinstance(value, dict):
                 sub_checked_settings = self.check_environment(
@@ -47,8 +52,10 @@ class SettingsManager:
                 checked_settings[key] = sub_checked_settings
             else:
                 environment_variable = f"{prefix}_{key}".upper()
+
                 if os.getenv(environment_variable, None):
                     new_value = os.getenv(environment_variable)
+
                     if isinstance(value, bool):
                         checked_settings[key] = (
                             new_value.lower() == "true" or new_value == "1"
@@ -67,16 +74,20 @@ class SettingsManager:
                         checked_settings[key] = new_value
                 else:
                     checked_settings[key] = value
+
         return checked_settings
 
-    def load(self, settings_dict: dict | None = None):
+    def load(self, settings_dict: dict[str, Any] | None = None):
         """Load settings from file, validating against the AppModel schema."""
+
         try:
             if not settings_dict:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
+
                     if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
                         settings_dict = self.check_environment(settings_dict, "RIVEN")
+
             self.settings = AppModel.model_validate(settings_dict)
             self.save()
         except ValidationError as e:
@@ -101,11 +112,14 @@ class SettingsManager:
 
 def format_validation_error(e: ValidationError) -> str:
     """Format validation errors in a user-friendly way"""
-    messages = []
+
+    messages = list[str]()
+
     for error in e.errors():
         field = ".".join(str(x) for x in error["loc"])
         message = error.get("msg")
         messages.append(f"• {field}: {message}")
+
     return "\n".join(messages)
 
 

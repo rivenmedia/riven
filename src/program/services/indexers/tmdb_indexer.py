@@ -29,10 +29,6 @@ class TMDBIndexer(BaseIndexer):
     ) -> MediaItemGenerator[Movie]:
         """Run the TMDB indexer for the given item."""
 
-        if not in_item:
-            logger.error("Item is None")
-            return
-
         if not (in_item.imdb_id or in_item.tmdb_id):
             logger.error(
                 f"Item {in_item.log_string} does not have an imdb_id or tmdb_id, cannot index it"
@@ -169,6 +165,8 @@ class TMDBIndexer(BaseIndexer):
                 if movie_details.poster_path
                 else None
             )
+
+            assert movie_details.title
 
             # Update the Movie object's attributes
             movie.title = movie_details.title

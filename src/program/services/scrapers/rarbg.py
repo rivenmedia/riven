@@ -2,7 +2,7 @@
 
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
 from program.settings.manager import settings_manager
 from program.settings.models import RarbgConfig
@@ -14,18 +14,20 @@ class Rarbg(ScraperService[RarbgConfig]):
 
     def __init__(self):
         super().__init__("therarbg")
+
         self.settings = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout
 
-        if self.settings.ratelimit:
-            rate_limits = {
+        rate_limits = (
+            {
                 get_hostname_from_url(self.settings.url): {
                     "rate": 350 / 60,
                     "capacity": 350,
                 }  # 350 calls per minute
             }
-        else:
-            rate_limits = {}
+            if self.settings.ratelimit
+            else {}
+        )
 
         self.session = SmartSession(
             base_url=self.settings.url,
@@ -33,6 +35,7 @@ class Rarbg(ScraperService[RarbgConfig]):
             retries=self.settings.retries,
             backoff_factor=0.3,
         )
+
         self._initialize()
 
     def validate(self) -> bool:
@@ -78,7 +81,7 @@ class Rarbg(ScraperService[RarbgConfig]):
 
         search_string = (
             item.log_string
-            if item.type != "movie"
+            if not (isinstance(item, Movie) and item.aired_at)
             else f"{item.log_string} ({item.aired_at.year})"
         )
 

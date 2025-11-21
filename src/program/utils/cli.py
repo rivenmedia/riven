@@ -17,6 +17,7 @@ def _parse_db_connection(db_url: str) -> tuple[str, str, str, str, str] | None:
     Returns:
         Tuple of (user, password, host, port, dbname) or None if invalid
     """
+
     # Format: postgresql+psycopg2://user:password@host:port/dbname
     try:
         if "://" not in db_url:
@@ -58,13 +59,16 @@ def _parse_db_connection(db_url: str) -> tuple[str, str, str, str, str] | None:
         return None
 
 
-def _setup_pg_env(password: str) -> dict:
+def _setup_pg_env(password: str) -> dict[str, str]:
     """Setup environment variables for PostgreSQL commands."""
+
     env = os.environ.copy()
+
     if password:
         env["PGPASSWORD"] = password
     else:
         env.pop("PGPASSWORD", None)
+
     return env
 
 
