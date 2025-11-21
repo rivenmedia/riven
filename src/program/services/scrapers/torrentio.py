@@ -1,12 +1,23 @@
 """Torrentio scraper module"""
 
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
 from program.settings.models import TorrentioConfig
 from program.utils.request import SmartSession
+
+
+class TorrentioScrapeResponse(BaseModel):
+    """Model for Torrentio scrape response"""
+
+    class Stream(BaseModel):
+        title: str
+        info_hash: str = Field(alias="infoHash")
+
+    streams: list[Stream]
 
 
 class Torrentio(ScraperService[TorrentioConfig]):
@@ -108,23 +119,25 @@ class Torrentio(ScraperService[TorrentioConfig]):
             proxies=self.proxies,
         )
 
-        if (
-            not response.ok
-            or not hasattr(response.data, "streams")
-            or not response.data.streams
-        ):
+        if not response.ok:
+            logger.error(f"Torrentio request failed for {item.log_string}")
+            return {}
+
+        data = TorrentioScrapeResponse.model_validate(response.json())
+
+        if not data.streams:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents: dict[str, str] = {}
 
-        for stream in response.data.streams:
-            if not stream.infoHash:
+        for stream in data.streams:
+            if not stream.info_hash:
                 continue
 
             stream_title = stream.title.split("\n👤")[0]
             raw_title = stream_title.split("\n")[0]
-            torrents[stream.infoHash] = raw_title
+            torrents[stream.info_hash] = raw_title
 
         if torrents:
             logger.log(
