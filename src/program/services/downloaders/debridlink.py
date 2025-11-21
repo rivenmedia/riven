@@ -34,15 +34,23 @@ class DebridLinkAPI:
             api_key: Debrid-Link API key.
             proxy_url: Optional proxy URL used for both HTTP and HTTPS.
         """
+
         self.api_key = api_key
         self.proxy_url = proxy_url
 
         # Conservative rate limiting - Debrid-Link doesn't specify exact limits
         # Using 60 req/min as a safe default
-        rate_limits = {"debrid-link.com": {"rate": 1, "capacity": 60}}
+        rate_limits = {
+            "debrid-link.com": {
+                "rate": 1,
+                "capacity": 60,
+            },
+        }
         proxies = None
+
         if proxy_url:
             proxies = {"http": proxy_url, "https": proxy_url}
+
         self.session = SmartSession(
             base_url=self.BASE_URL,
             rate_limits=rate_limits,
@@ -76,11 +84,13 @@ class DebridLinkDownloader(DownloaderBase):
         Returns:
             True if ready, else False.
         """
+
         if not self._validate_settings():
             return False
 
         proxy_url = self.PROXY_URL or None
         self.api = DebridLinkAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
+
         return self._validate_premium()
 
     def _validate_settings(self) -> bool:
@@ -88,11 +98,14 @@ class DebridLinkDownloader(DownloaderBase):
         Returns:
             True when enabled and API key present; otherwise False.
         """
+
         if not self.settings.enabled:
             return False
+
         if not self.settings.api_key:
             logger.warning("Debrid-Link API key is not set")
             return False
+
         return True
 
     def _validate_premium(self) -> bool:
@@ -100,26 +113,33 @@ class DebridLinkDownloader(DownloaderBase):
         Returns:
             True if premium is active; otherwise False.
         """
+
         try:
             user_info = self.get_user_info()
+
             if not user_info:
                 logger.error("Failed to get Debrid-Link user info")
                 return False
+
             if user_info.premium_status != "premium":
                 logger.error("Debrid-Link premium membership required")
                 return False
+
             if user_info.premium_expires_at:
                 logger.info(premium_days_left(user_info.premium_expires_at))
+
             return True
         except Exception as e:
             logger.error(f"Failed to validate Debrid-Link premium status: {e}")
             return False
 
-    def _handle_error(self, resp: SmartResponse) -> str:
+    def _handle_error(self, response: SmartResponse) -> str:
         """
         Map HTTP status codes to error messages.
         """
-        status = resp.status_code
+
+        status = response.status_code
+
         if status == 400:
             return "Bad request"
         elif status == 401:
@@ -133,18 +153,21 @@ class DebridLinkDownloader(DownloaderBase):
         elif status >= 500:
             return "Debrid-Link server error"
         else:
-            error_msg = getattr(resp.data, "error", None)
+            error_msg = getattr(response.data, "error", None)
             return error_msg or f"HTTP {status}"
 
-    def _maybe_backoff(self, resp: SmartResponse) -> None:
+    def _maybe_backoff(self, response: SmartResponse) -> None:
         """
         Check if we should back off based on response.
         """
-        if resp.status_code == 429:
+
+        if response.status_code == 429:
             logger.warning("Debrid-Link rate limit hit, backing off")
 
     def get_instant_availability(
-        self, infohash: str, item_type: str
+        self,
+        infohash: str,
+        item_type: str,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
@@ -153,6 +176,7 @@ class DebridLinkDownloader(DownloaderBase):
         Like Real-Debrid, Debrid-Link doesn't have a separate cache check endpoint,
         so we add the torrent and check its status.
         """
+
         container: TorrentContainer | None = None
         torrent_id: str | None = None
 
@@ -161,8 +185,10 @@ class DebridLinkDownloader(DownloaderBase):
             container, reason, info = self._process_torrent(
                 torrent_id, infohash, item_type
             )
+
             if container is None and reason:
                 logger.debug(f"Availability check failed [{infohash}]: {reason}")
+
                 # Failed validation - delete the torrent
                 if torrent_id:
                     try:
@@ -171,6 +197,7 @@ class DebridLinkDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
+
                 return None
 
             # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
@@ -182,37 +209,45 @@ class DebridLinkDownloader(DownloaderBase):
 
         except CircuitBreakerOpen:
             logger.debug(f"Circuit breaker OPEN for Debrid-Link; skipping {infohash}")
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             raise
         except DebridLinkError as e:
             logger.warning(f"Availability check failed [{infohash}]: {e}")
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             return None
         except InvalidDebridFileException as e:
             logger.debug(
                 f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
             )
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             return None
         except Exception as e:
             logger.debug(f"Availability check failed [{infohash}]: {e}")
+
             if torrent_id:
                 try:
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
             return None
 
     def _process_torrent(
@@ -229,6 +264,7 @@ class DebridLinkDownloader(DownloaderBase):
         """
 
         info = self.get_torrent_info(torrent_id)
+
         if not info:
             return None, "no torrent info returned by Debrid-Link", None
 
@@ -239,6 +275,7 @@ class DebridLinkDownloader(DownloaderBase):
         # Also check if downloadPercent == 100
         if info.status == "downloaded" or info.progress >= 100:
             files: list[DebridFile] = []
+
             for file_id, meta in info.files.items():
                 # Debrid-Link doesn't have a "selected" field, all files are available
                 try:
@@ -281,22 +318,28 @@ class DebridLinkDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             DebridLinkError: If the API returns a failing status.
         """
+
         url = f"magnet:?xt=urn:btih:{infohash}"
+
         # Don't set wait=True - we want the torrent to start immediately
         # The hash is only added if it's already cached on Debrid-Link servers
-        resp: SmartResponse = self.api.session.post("seedbox/add", data={"url": url})
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise DebridLinkError(self._handle_error(resp))
+        response = self.api.session.post("seedbox/add", data={"url": url})
+        self._maybe_backoff(response)
+
+        if not response.ok:
+            raise DebridLinkError(self._handle_error(response))
 
         # Debrid-Link API v2 returns {success: true, value: {...}}
-        data = resp.data
+        data = response.data
+
         if hasattr(data, "value"):
             data = data.value
 
         tid = getattr(data, "id", None)
+
         if not tid:
             raise DebridLinkError("No torrent ID returned by Debrid-Link.")
+
         return str(tid)
 
     def select_files(self, torrent_id: str, file_ids: list[int]) -> None:
@@ -322,22 +365,27 @@ class DebridLinkDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             DebridLinkError: If the API returns a failing status.
         """
-        resp: SmartResponse = self.api.session.get(f"seedbox/list")
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise DebridLinkError(self._handle_error(resp))
+
+        response = self.api.session.get(f"seedbox/list")
+        self._maybe_backoff(response)
+
+        if not response.ok:
+            raise DebridLinkError(self._handle_error(response))
 
         # Debrid-Link API v2 returns {success: true, value: [...]}
-        data = resp.data
+        data = response.data
+
         if hasattr(data, "value"):
             torrents = data.value
         else:
             torrents = data
 
         torrent_data = None
-        for t in torrents:
-            if str(getattr(t, "id", None)) == str(torrent_id):
-                torrent_data = t
+
+        for torrent in torrents:
+            if str(getattr(torrent, "id", None)) == str(torrent_id):
+                torrent_data = torrent
+
                 break
 
         if not torrent_data:
@@ -348,6 +396,7 @@ class DebridLinkDownloader(DownloaderBase):
         files = {}
         links = []
         torrent_files = getattr(torrent_data, "files", [])
+
         for idx, file_info in enumerate(torrent_files):
             file_name = getattr(file_info, "name", "")
             file_size = getattr(file_info, "size", 0)
@@ -364,6 +413,7 @@ class DebridLinkDownloader(DownloaderBase):
                 "selected": 1,  # All files are selected by default in Debrid-Link
                 "download_url": download_url,
             }
+
             if download_url:
                 links.append(download_url)
 
@@ -391,10 +441,12 @@ class DebridLinkDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             DebridLinkError: If the API returns a failing status.
         """
-        resp: SmartResponse = self.api.session.delete(f"seedbox/{torrent_id}/remove")
-        self._maybe_backoff(resp)
-        if not resp.ok:
-            raise DebridLinkError(self._handle_error(resp))
+
+        response = self.api.session.delete(f"seedbox/{torrent_id}/remove")
+        self._maybe_backoff(response)
+
+        if not response.ok:
+            raise DebridLinkError(self._handle_error(response))
 
     def unrestrict_link(self, link: str) -> object | None:
         """
@@ -429,15 +481,18 @@ class DebridLinkDownloader(DownloaderBase):
         Returns:
             UserInfo with normalized fields, or None on error.
         """
+
         try:
-            resp: SmartResponse = self.api.session.get("account/infos")
-            self._maybe_backoff(resp)
-            if not resp.ok:
-                logger.error(f"Failed to get user info: {self._handle_error(resp)}")
+            response = self.api.session.get("account/infos")
+            self._maybe_backoff(response)
+
+            if not response.ok:
+                logger.error(f"Failed to get user info: {self._handle_error(response)}")
                 return None
 
             # Debrid-Link API v2 returns data in 'value' field
-            data = resp.data
+            data = response.data
+
             if hasattr(data, "value"):
                 data = data.value
 
@@ -448,6 +503,7 @@ class DebridLinkDownloader(DownloaderBase):
 
             if account_type > 0:  # Premium account
                 premium_until = getattr(data, "premiumLeft", 0)
+
                 if premium_until > 0:
                     # premiumLeft is duration in seconds, not a timestamp
                     premium_expires_at = datetime.now(tz=timezone.utc) + timedelta(

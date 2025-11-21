@@ -5,6 +5,7 @@ import regex
 from pydantic import BaseModel, Field
 
 from program.settings.manager import settings_manager
+from src.program.services.downloaders.realdebrid import RealDebridFile
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = [
@@ -158,6 +159,22 @@ class TorrentContainer(BaseModel):
         }
 
 
+class TorrentFile(BaseModel):
+    """Represents a file within a torrent"""
+
+    id: int
+    path: str
+    bytes: int
+    selected: Literal[0, 1]
+    download_url: str
+
+    @property
+    def filename(self) -> str:
+        """Extract the filename from the path"""
+
+        return self.path.split("/")[-1]
+
+
 class TorrentInfo(BaseModel):
     """Torrent information from a debrid service"""
 
@@ -173,9 +190,7 @@ class TorrentInfo(BaseModel):
     alternative_filename: str | None = None
 
     # Real-Debrid only
-    files: dict[int, dict[str, int | str | None]] = Field(
-        default_factory=dict[int, dict[str, int | str | None]]
-    )
+    files: dict[int, TorrentFile] = Field(default_factory=dict[int, TorrentFile])
 
     # Real-Debrid download links
     links: list[str] = Field(default_factory=list)
@@ -191,12 +206,6 @@ class TorrentInfo(BaseModel):
         """Check if the torrent is cached"""
 
         return len(self.files) > 0
-
-    @property
-    def file_ids(self) -> list[int]:
-        """Get the file ids of the cached files"""
-
-        return [file.file_id for file in self.files if file.file_id]
 
 
 class DownloadedTorrent(BaseModel):

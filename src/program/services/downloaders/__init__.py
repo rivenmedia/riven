@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Literal
 from loguru import logger
 from RTN import ParsedData
 
@@ -33,15 +34,15 @@ from .alldebrid import AllDebridDownloader
 class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
         self.initialized = False
-        self.services = {
-            RealDebridDownloader: RealDebridDownloader(),
-            DebridLinkDownloader: DebridLinkDownloader(),
-            AllDebridDownloader: AllDebridDownloader(),
-        }
+        self.services = [
+            RealDebridDownloader(),
+            DebridLinkDownloader(),
+            AllDebridDownloader(),
+        ]
 
         # Get all initialized services instead of just the first one
         self.initialized_services = [
-            service for service in self.services.values() if service.initialized
+            service for service in self.services if service.initialized
         ]
 
         # Keep backward compatibility - primary service is the first initialized one
@@ -574,7 +575,8 @@ class Downloader(Runner[None, DownloaderBase]):
 
             if file_data:
                 media_metadata = MediaMetadata.from_parsed_data(
-                    file_data.model_dump(), filename=debrid_file.filename
+                    parsed_data=file_data,
+                    filename=debrid_file.filename,
                 )
 
             assert debrid_file.filename
@@ -607,7 +609,7 @@ class Downloader(Runner[None, DownloaderBase]):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: str,
+        item_type: Literal["movie", "show", "season", "episode"],
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
@@ -629,7 +631,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.add_torrent(infohash)
 
-    def get_torrent_info(self, torrent_id: int) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: int) -> TorrentInfo | None:
         """Get information about a torrent"""
 
         assert self.service

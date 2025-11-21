@@ -29,7 +29,7 @@ class TokenBucket:
         last_refill (float): Timestamp of last refill (monotonic seconds).
     """
 
-    def __init__(self, rate: float, capacity: int, name: str | None = None):
+    def __init__(self, rate: float, capacity: float | int, name: str | None = None):
         """Initialize the token bucket."""
 
         self.name = name
@@ -275,7 +275,7 @@ class SmartSession:
     def __init__(
         self,
         base_url: str | None = None,
-        rate_limits: dict[str, dict[str, int]] | None = None,
+        rate_limits: dict[str, dict[str, float | int]] | None = None,
         proxies: dict[str, str] | None = None,
         retries: int = 3,
         backoff_factor: float = 0.3,

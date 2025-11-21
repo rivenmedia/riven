@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Literal
 
 from RTN import ParsedData, parse
 
@@ -34,7 +35,7 @@ class DownloaderBase(ABC):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: str,
+        item_type: Literal["movie", "show", "season", "episode"],
     ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash
@@ -73,7 +74,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo | None:
         """
         Get information about a specific torrent using its ID
 
