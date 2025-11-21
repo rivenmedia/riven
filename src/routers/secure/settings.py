@@ -1,5 +1,5 @@
 from copy import copy
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
@@ -52,7 +52,7 @@ async def get_all_settings() -> AppModel:
 @router.get("/get/{paths}", operation_id="get_settings")
 async def get_settings(paths: str) -> dict[str, Any]:
     current_settings = settings_manager.settings.model_dump()
-    data = {}
+    data = dict[str, Any]()
 
     for path in paths.split(","):
         keys = path.split(".")
@@ -73,10 +73,10 @@ async def get_settings(paths: str) -> dict[str, Any]:
 async def set_all_settings(new_settings: dict[str, Any]) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
 
-    def update_settings(current_obj, new_obj):
+    def update_settings(current_obj: dict[str, Any], new_obj: dict[str, Any]):
         for key, value in new_obj.items():
             if isinstance(value, dict) and key in current_obj:
-                update_settings(current_obj[key], value)
+                update_settings(current_obj[key], cast(dict[str, Any], value))
             else:
                 current_obj[key] = value
 

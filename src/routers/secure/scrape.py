@@ -177,9 +177,11 @@ class ScrapingSessionManager:
 
         return session
 
-    def update_session(self, session_id: str, **kwargs) -> ScrapingSession | None:
+    def update_session(self, session_id: str, **kwargs: Any) -> ScrapingSession | None:
         """Update a scraping session"""
+
         session = self.get_session(session_id)
+
         if not session:
             return None
 
@@ -191,18 +193,22 @@ class ScrapingSessionManager:
 
     def abort_session(self, session_id: str):
         """Abort a scraping session"""
+
         session = self.sessions.pop(session_id, None)
+
         if session and session.torrent_id and self.downloader:
             try:
                 self.downloader.delete_torrent(session.torrent_id)
                 logger.debug(f"Deleted torrent for aborted session {session_id}")
             except Exception as e:
                 logger.error(f"Failed to delete torrent for session {session_id}: {e}")
+
         if session:
             logger.debug(f"Aborted session {session_id} for item {session.item_id}")
 
     def complete_session(self, session_id: str):
         """Complete a scraping session"""
+
         session = self.get_session(session_id)
         if not session:
             return
@@ -212,6 +218,7 @@ class ScrapingSessionManager:
 
     def cleanup_expired(self, background_tasks: BackgroundTasks):
         """Cleanup expired scraping sessions"""
+
         current_time = datetime.now()
         expired = [
             session_id
@@ -255,7 +262,7 @@ def scrape_item(
 
     with db_session():
         if item_id:
-            item = db_functions.get_item_by_id(item_id)
+            item = db_functions.get_item_by_id(int(item_id))
         elif tmdb_id and media_type == "movie":
             prepared_item = MediaItem(
                 {
@@ -290,13 +297,13 @@ def scrape_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        streams: dict[str, Stream] = scraper.scrape(item)
+        streams = scraper.scrape(item)
         log_string = item.log_string
 
-    return {
-        "message": f"Manually scraped streams for item {log_string}",
-        "streams": streams,
-    }
+    return ScrapeItemResponse(
+        message=f"Manually scraped streams for item {log_string}",
+        streams=streams,
+    )
 
 
 @router.post(
@@ -432,10 +439,10 @@ def manual_select_files(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {
-        "message": f"Selected files for {session.item_id}",
-        "download_type": download_type,
-    }
+    return SelectFilesResponse(
+        message=f"Selected files for {session.item_id}",
+        download_type=download_type,
+    )
 
 
 @router.post(
@@ -464,15 +471,19 @@ async def manual_update_attributes(
     Raises:
         HTTPException: 404 if the session or target item cannot be found; 500 if the session lacks an associated item ID.
     """
+
     session = session_manager.get_session(session_id)
     log_string = None
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
+
     if not session.item_id:
         session_manager.abort_session(session_id)
         raise HTTPException(status_code=500, detail="No item ID found")
 
     item = None
+
     if session.media_type == "tv" and session.tvdb_id:
         item = db_functions.get_item_by_external_id(tvdb_id=str(session.tvdb_id))
     elif session.media_type == "movie" and session.tmdb_id:
@@ -482,10 +493,13 @@ async def manual_update_attributes(
 
     if not item:
         item_data = {}
+
         if session.imdb_id:
             item_data["imdb_id"] = session.imdb_id
+
         if session.tmdb_id:
             item_data["tmdb_id"] = session.tmdb_id
+
         if session.tvdb_id:
             item_data["tvdb_id"] = session.tvdb_id
 
@@ -494,6 +508,7 @@ async def manual_update_attributes(
             item_data["requested_at"] = datetime.now()
             prepared_item = MediaItem(item_data)
             item = next(IndexerService().run(prepared_item), None)
+
             if item:
                 session.merge(item)
                 session.commit()
@@ -502,7 +517,7 @@ async def manual_update_attributes(
             raise HTTPException(status_code=404, detail="Item not found")
 
         item = session.merge(item)
-        item_ids_to_submit = set()
+        item_ids_to_submit = set[int]()
 
         def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
             """
@@ -627,11 +642,13 @@ async def abort_manual_session(
     _: Request, background_tasks: BackgroundTasks, session_id: str
 ) -> SessionResponse:
     session = session_manager.get_session(session_id)
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     background_tasks.add_task(session_manager.abort_session, session_id)
-    return {"message": f"Aborted session {session_id}"}
+
+    return SessionResponse(message=f"Aborted session {session_id}")
 
 
 @router.post(
@@ -649,7 +666,8 @@ async def complete_manual_session(_: Request, session_id: str) -> SessionRespons
         raise HTTPException(status_code=400, detail="Session is incomplete")
 
     session_manager.complete_session(session_id)
-    return {"message": f"Completed session {session_id}"}
+
+    return SessionResponse(message=f"Completed session {session_id}")
 
 
 class ParseTorrentTitleResponse(BaseModel):

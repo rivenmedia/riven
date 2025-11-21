@@ -1,7 +1,7 @@
 from collections.abc import Callable
 import json
 import os
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from pydantic import ValidationError
@@ -25,7 +25,8 @@ class SettingsManager:
             self.settings = AppModel()
             self.settings = AppModel.model_validate(
                 self.check_environment(
-                    json.loads(self.settings.model_dump_json()), "RIVEN"
+                    self.settings.model_dump(),
+                    "RIVEN",
                 )
             )
             self.notify_observers()
@@ -40,14 +41,18 @@ class SettingsManager:
             observer()
 
     def check_environment(
-        self, settings: dict[str, Any], prefix: str = "", separator: str = "_"
+        self,
+        settings: dict[str, Any],
+        prefix: str = "",
+        separator: str = "_",
     ):
         checked_settings = dict[str, Any]()
 
         for key, value in settings.items():
             if isinstance(value, dict):
                 sub_checked_settings = self.check_environment(
-                    value, f"{prefix}{separator}{key}"
+                    settings=cast(dict[str, Any], value),
+                    prefix=f"{prefix}{separator}{key}",
                 )
                 checked_settings[key] = sub_checked_settings
             else:
@@ -56,7 +61,9 @@ class SettingsManager:
                 if os.getenv(environment_variable, None):
                     new_value = os.getenv(environment_variable)
 
-                    if isinstance(value, bool):
+                    if new_value is None:
+                        checked_settings[key] = value
+                    elif isinstance(value, bool):
                         checked_settings[key] = (
                             new_value.lower() == "true" or new_value == "1"
                         )
@@ -85,8 +92,14 @@ class SettingsManager:
                 with open(self.settings_file, "r", encoding="utf-8") as file:
                     settings_dict = json.loads(file.read())
 
-                    if os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true":
-                        settings_dict = self.check_environment(settings_dict, "RIVEN")
+                    if (
+                        settings_dict
+                        and os.environ.get("RIVEN_FORCE_ENV", "false").lower() == "true"
+                    ):
+                        settings_dict = self.check_environment(
+                            settings_dict,
+                            "RIVEN",
+                        )
 
             self.settings = AppModel.model_validate(settings_dict)
             self.save()

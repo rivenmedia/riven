@@ -146,7 +146,12 @@ async def get_services(request: Request) -> dict[str, bool]:
             if not hasattr(service, "services"):
                 continue
 
-            for sub_service in service.services:
+            if isinstance(service.services, dict):
+                sub_services = service.services.values()
+            else:
+                sub_services = service.services
+
+            for sub_service in sub_services:
                 if hasattr(sub_service, "initialized"):
                     data[sub_service.key] = sub_service.initialized
                 elif hasattr(service, "initialized"):
@@ -323,16 +328,25 @@ class LogsResponse(BaseModel):
 async def get_logs() -> LogsResponse:
     log_file_path: str | None = None
 
-    for handler in logger._core.handlers.values():
+    for (
+        handler  # pyright: ignore[reportUnknownVariableType]
+    ) in (
+        logger._core.handlers.values()  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+    ):
         if ".log" in handler._name:
-            log_file_path = handler._sink._path
+            log_file_path = (  # pyright: ignore[reportUnknownVariableType]
+                handler._sink._path
+            )
             break
 
     if not log_file_path:
         raise HTTPException(status_code=404, detail="Log file handler not found")
 
     try:
-        with open(log_file_path, "r") as log_file:
+        with open(
+            log_file_path,  # pyright: ignore[reportUnknownArgumentType]
+            "r",
+        ) as log_file:
             # Read the file and split into lines without newline characters
             log_contents = log_file.read().splitlines()
 
@@ -391,16 +405,25 @@ async def upload_logs() -> UploadLogsResponse:
 
     log_file_path: str | None = None
 
-    for handler in logger._core.handlers.values():
+    for (
+        handler
+    ) in (  # pyright: ignore[reportUnknownVariableType]
+        logger._core.handlers.values()  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
+    ):
         if ".log" in handler._name:
-            log_file_path = handler._sink._path
+            log_file_path = (  # pyright: ignore[reportUnknownVariableType]
+                handler._sink._path
+            )
             break
 
     if not log_file_path:
         raise HTTPException(status_code=500, detail="Log file handler not found")
 
     try:
-        with open(log_file_path, "r") as log_file:
+        with open(
+            log_file_path,  # pyright: ignore[reportUnknownArgumentType]
+            "r",
+        ) as log_file:
             log_contents = log_file.read()
 
         response = requests.post(

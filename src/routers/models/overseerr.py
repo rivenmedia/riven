@@ -17,6 +17,7 @@ class Media(BaseModel):
     def stringify_imdb_id(cls, value: Any):
         if value and isinstance(value, int):
             return f"tt{int(value):07d}"
+
         return None
 
     @field_validator("tvdbId", "tmdbId", mode="before")
@@ -24,6 +25,7 @@ class Media(BaseModel):
     def validate_ids(cls, value: Any):
         if value and isinstance(value, str) and value != "":
             return int(value)
+
         return None
 
 

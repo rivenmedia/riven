@@ -631,21 +631,21 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.add_torrent(infohash)
 
-    def get_torrent_info(self, torrent_id: int) -> TorrentInfo | None:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo | None:
         """Get information about a torrent"""
 
         assert self.service
 
         return self.service.get_torrent_info(torrent_id)
 
-    def select_files(self, torrent_id: int, container: list[int]) -> None:
+    def select_files(self, torrent_id: int | str, container: list[int]) -> None:
         """Select files from a torrent"""
 
         assert self.service
 
         self.service.select_files(torrent_id, container)
 
-    def delete_torrent(self, torrent_id: int) -> None:
+    def delete_torrent(self, torrent_id: int | str) -> None:
         """Delete a torrent"""
 
         assert self.service

@@ -83,7 +83,10 @@ class Services:
         ]
 
     def to_dict(self) -> dict[str, Runner]:
-        return self.__dict__
+        return {
+            field.name: getattr(self, field.name)
+            for field in self.__dataclass_fields__.values()
+        }
 
     def __getitem__(self, key: str) -> Runner:
         return getattr(self, key)

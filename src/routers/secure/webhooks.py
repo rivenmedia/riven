@@ -20,32 +20,43 @@ router = APIRouter(
 @router.post("/overseerr")
 async def overseerr(request: Request) -> dict[str, Any]:
     """Webhook for Overseerr"""
+
     try:
         response = await request.json()
+
         if response.get("subject") == "Test Notification":
             logger.log(
                 "API", "Received test notification, Overseerr configured properly"
             )
-            return {"success": True}
+
+            return {
+                "success": True,
+            }
+
         req = OverseerrWebhook.model_validate(response)
     except (Exception, pydantic.ValidationError) as e:
         logger.error(f"Failed to process request: {e}")
-        return {"success": False, "message": str(e)}
+
+        return {
+            "success": False,
+            "message": str(e),
+        }
 
     services = di[Program].services
 
     assert services, "Services not initialized"
 
-    overseerr: Overseerr = services.overseerr
+    overseerr_service = services.overseerr
 
-    if not overseerr.initialized:
+    if not overseerr_service.initialized:
         logger.error("Overseerr not initialized")
-        return {"success": False, "message": "Overseerr not initialized"}
+
+        return {
+            "success": False,
+            "message": "Overseerr not initialized",
+        }
 
     item_type = req.media.media_type
-
-    if item_type == "tv":
-        item_type = "show"
 
     new_item = None
 
@@ -54,15 +65,15 @@ async def overseerr(request: Request) -> dict[str, Any]:
             {
                 "tmdb_id": req.media.tmdbId,
                 "requested_by": "overseerr",
-                "overseerr_id": req.request.request_id,
+                "overseerr_id": req.request.request_id if req.request else None,
             }
         )
-    elif item_type == "show":
+    elif item_type == "tv":
         new_item = MediaItem(
             {
                 "tvdb_id": req.media.tvdbId,
                 "requested_by": "overseerr",
-                "overseerr_id": req.request.request_id,
+                "overseerr_id": req.request.request_id if req.request else None,
             }
         )
 
@@ -70,7 +81,11 @@ async def overseerr(request: Request) -> dict[str, Any]:
         logger.error(
             f"Failed to create new item: TMDB ID {req.media.tmdbId}, TVDB ID {req.media.tvdbId}"
         )
-        return {"success": False, "message": "Failed to create new item"}
+
+        return {
+            "success": False,
+            "message": "Failed to create new item",
+        }
 
     di[Program].em.add_item(
         new_item,
