@@ -165,6 +165,13 @@ generate-tvdb-schema:
 	@uv run black src/schemas/tvdb
 	@echo "TVDB schema generated"
 
+generate-prowlarr-schema:
+	@echo "Generating Prowlarr schema from OpenAPI specification..."
+	@rm -rf src/schemas/prowlarr
+	@uv run openapi-generator-cli generate -g python -i https://raw.githubusercontent.com/Prowlarr/Prowlarr/develop/src/Prowlarr.Api.V1/openapi.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.prowlarr,lazyImports=true
+	@uv run black src/schemas/prowlarr
+	@echo "Prowlarr schema generated"
+
 generate-schemas:
 	@echo "Generating all schemas..."
 
@@ -174,5 +181,6 @@ generate-schemas:
 	@make generate-tmdb-schema
 	@make generate-trakt-schema
 	@make generate-tvdb-schema
+	@make generate-prowlarr-schema
 
 	@echo "All schemas generated"

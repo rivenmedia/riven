@@ -15,11 +15,22 @@ from program.utils.request import SmartSession
 from program.utils.torrent import extract_infohash, normalize_infohash
 from program.settings.models import ProwlarrConfig
 
+from schemas.prowlarr import (
+    IndexerResource,
+    IndexerStatusResource,
+    SearchParam,
+    TvSearchParam,
+    MovieSearchParam,
+    ReleaseResource,
+)
 
-class SearchParams(BaseModel):
-    search: list[str]
-    movie: list[str]
-    tv: list[str]
+
+class GetIndexersResponse(BaseModel):
+    indexers: list[IndexerResource]
+
+
+class GetIndexerStatusResponse(BaseModel):
+    statuses: list[IndexerStatusResource]
 
 
 class Category(BaseModel):
@@ -28,18 +39,42 @@ class Category(BaseModel):
     ids: list[int]
 
 
+class SearchParams(BaseModel):
+    search: list[SearchParam]
+    movie: list[MovieSearchParam]
+    tv: list[TvSearchParam]
+
+
 class Capabilities(BaseModel):
-    supports_raw_search: bool
+    supports_raw_search: bool | None
     categories: list[Category]
     search_params: SearchParams
 
 
 class Indexer(BaseModel):
-    id: int
-    name: str
+    id: int | None
+    name: str | None
     enable: bool
     protocol: str
     capabilities: Capabilities
+
+
+class Params(BaseModel):
+    query: str | None
+    type: str | None
+    indexerIds: int | None
+    categories: list[int] | None
+    limit: int | None
+    season: int | None
+    ep: int | None
+
+
+class ScrapeResponse(BaseModel):
+    items: list[ReleaseResource]
+
+
+class ScrapeErrorResponse(BaseModel):
+    message: str | None
 
 
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
@@ -110,24 +145,34 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         statuses = self.session.get("/indexerstatus", timeout=15, headers=self.headers)
         response = self.session.get("/indexer", timeout=15, headers=self.headers)
 
-        data = response.data
-        statuses = statuses.data
+        data = GetIndexersResponse.model_validate(
+            {
+                "indexers": response.json(),
+            }
+        ).indexers
+        statuses = GetIndexerStatusResponse.model_validate(
+            {
+                "statuses": statuses.json(),
+            }
+        ).statuses
 
-        indexers = []
+        indexers = list[Indexer]()
 
         for indexer_data in data:
             id = indexer_data.id
 
             if statuses:
                 status = next(
-                    (x for x in statuses if x.indexerId == id),
+                    (x for x in statuses if x.indexer_id == id),
                     None,
                 )
 
-                if status and status.disabledTill > datetime.now().isoformat():
-                    disabled_until = datetime.fromisoformat(
-                        status.disabledTill
-                    ).strftime("%Y-%m-%d %H:%M")
+                if (
+                    status
+                    and status.disabled_till
+                    and status.disabled_till > datetime.now()
+                ):
+                    disabled_until = status.disabled_till.strftime("%Y-%m-%d %H:%M")
 
                     logger.debug(
                         f"Indexer {indexer_data.name} is disabled until {disabled_until}, skipping"
@@ -148,46 +193,73 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 logger.debug(f"Indexer {name} is not a torrent indexer, skipping")
                 continue
 
-            caps = []
+            categories = list[Category]()
 
-            for cap in indexer_data.capabilities.categories:
-                if "TV" in cap.name:
-                    category = next((x for x in caps if "TV" in x.name), None)
+            if not indexer_data.capabilities:
+                logger.warning(
+                    f"No capabilities found for indexer {name}. Consider removing this indexer."
+                )
+                continue
 
-                    if category:
-                        category.ids.append(cap.id)
-                    else:
-                        caps.append(Category(name="TV", type="tv", ids=[cap.id]))
-                elif "Movies" in cap.name:
-                    category = next((x for x in caps if "Movies" in x.name), None)
+            if indexer_data.capabilities and indexer_data.capabilities.categories:
+                for cap in indexer_data.capabilities.categories:
+                    if cap.name:
+                        if "TV" in cap.name:
+                            category = next(
+                                (x for x in categories if "TV" in x.name), None
+                            )
 
-                    if category:
-                        category.ids.append(cap.id)
-                    else:
-                        caps.append(Category(name="Movies", type="movie", ids=[cap.id]))
-                elif "Anime" in cap.name:
-                    category = next((x for x in caps if "Anime" in x.name), None)
+                            if cap.id:
+                                if category:
+                                    category.ids.append(cap.id)
+                                else:
+                                    categories.append(
+                                        Category(name="TV", type="tv", ids=[cap.id])
+                                    )
+                        elif "Movies" in cap.name:
+                            category = next(
+                                (x for x in categories if "Movies" in x.name), None
+                            )
 
-                    if category:
-                        category.ids.append(cap.id)
-                    else:
-                        caps.append(Category(name="Anime", type="anime", ids=[cap.id]))
+                            if cap.id:
+                                if category:
+                                    category.ids.append(cap.id)
+                                else:
+                                    categories.append(
+                                        Category(
+                                            name="Movies", type="movie", ids=[cap.id]
+                                        )
+                                    )
+                        elif "Anime" in cap.name:
+                            category = next(
+                                (x for x in categories if "Anime" in x.name), None
+                            )
 
-            if not caps:
+                            if cap.id:
+                                if category:
+                                    category.ids.append(cap.id)
+                                else:
+                                    categories.append(
+                                        Category(
+                                            name="Anime", type="anime", ids=[cap.id]
+                                        )
+                                    )
+
+            if not categories:
                 logger.warning(
                     f"No valid capabilities found for indexer {name}. Consider removing this indexer."
                 )
                 continue
 
             search_params = SearchParams(
-                search=list(set(indexer_data.capabilities.searchParams)),
-                movie=list(set(indexer_data.capabilities.movieSearchParams)),
-                tv=list(set(indexer_data.capabilities.tvSearchParams)),
+                search=list(set(indexer_data.capabilities.search_params or [])),
+                movie=list(set(indexer_data.capabilities.movie_search_params or [])),
+                tv=list(set(indexer_data.capabilities.tv_search_params or [])),
             )
 
             capabilities = Capabilities(
-                supports_raw_search=indexer_data.capabilities.supportsRawSearch,
-                categories=caps,
+                supports_raw_search=indexer_data.capabilities.supports_raw_search,
+                categories=categories,
                 search_params=search_params,
             )
 
@@ -247,9 +319,10 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Scrape a single item from all indexers at the same time, return a list of streams"""
+
         self._periodic_indexer_scan()
 
-        torrents = {}
+        torrents = dict[str, str]()
         start_time = time.time()
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -262,8 +335,10 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
             for future in future_to_indexer:
                 indexer = future_to_indexer[future]
+
                 try:
                     result = future.result(timeout=self.timeout)
+
                     torrents.update(result)
                 except concurrent.futures.TimeoutError:
                     logger.debug(f"Timeout for indexer {indexer.name}, skipping.")
@@ -271,6 +346,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                     logger.error(f"Error processing indexer {indexer.name}: {e}")
 
         elapsed = time.time() - start_time
+
         if torrents:
             logger.log(
                 "SCRAPER", f"Found {len(torrents)} streams for {item.log_string}"
@@ -281,23 +357,25 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
         return torrents
 
-    def build_search_params(self, indexer: Indexer, item: MediaItem) -> dict:
+    def build_search_params(self, indexer: Indexer, item: MediaItem) -> Params:
         """Build a search query for a single indexer."""
 
         params = {}
+
         item_title = (
             item.get_top_title()
             if isinstance(item, (Show, Season, Episode))
             else item.title
         )
+
         search_params = indexer.capabilities.search_params
 
-        def set_query_and_type(query, search_type):
+        def set_query_and_type(query: str, search_type: str):
             params["query"] = query
             params["type"] = search_type
 
         if isinstance(item, Movie):
-            if "imdbId" in search_params.movie:
+            if "imdbId" in search_params.movie and item.imdb_id:
                 set_query_and_type(item.imdb_id, "movie-search")
             if "q" in search_params.movie:
                 set_query_and_type(item_title, "movie-search")
@@ -309,7 +387,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 )
 
         elif isinstance(item, Show):
-            if "imdbId" in search_params.tv:
+            if "imdbId" in search_params.tv and item.imdb_id:
                 set_query_and_type(item.imdb_id, "tv-search")
             elif "q" in search_params.tv:
                 set_query_and_type(item_title, "tv-search")
@@ -361,12 +439,15 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         params["categories"] = list(categories)
         params["limit"] = 1000
 
-        return params
+        return Params.model_validate(params)
 
     def scrape_indexer(self, indexer: Indexer, item: MediaItem) -> dict[str, str]:
         """Scrape from a single indexer"""
 
-        if indexer.name in ANIME_ONLY_INDEXERS or "anime" in indexer.name.lower():
+        if (
+            indexer.name in ANIME_ONLY_INDEXERS
+            or "anime" in (indexer.name or "").lower()
+        ):
             if not item.is_anime:
                 logger.debug(f"Indexer {indexer.name} is anime only, skipping")
                 return {}
@@ -378,12 +459,17 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             return {}
 
         start_time = time.time()
+
+        assert self.session
+
         response = self.session.get(
             "/search", params=params, timeout=self.timeout, headers=self.headers
         )
 
         if not response.ok:
-            message = response.data.message or "Unknown error"
+            data = ScrapeErrorResponse.model_validate(response.json())
+
+            message = data.message or "Unknown error"
 
             logger.debug(
                 f"Failed to scrape {indexer.name}: [{response.status_code}] {message}"
@@ -397,9 +483,11 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
             return {}
 
-        data = response.data
-        streams = {}
-        urls_to_fetch = []  # List of (torrent, title) tuples that need URL fetching
+        data = ScrapeResponse.model_validate({"items": response.json()}).items
+        streams = dict[str, str]()
+
+        # List of (torrent, title) tuples that need URL fetching
+        urls_to_fetch = list[tuple[ReleaseResource, str]]()
 
         # First pass: extract infohashes from available fields and collect URLs that need fetching
         for torrent in data:
@@ -407,17 +495,17 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             infohash = None
 
             # Priority 1: Use infoHash field directly if available (normalize to handle base32)
-            if hasattr(torrent, "infoHash") and torrent.infoHash:
-                infohash = normalize_infohash(torrent.infoHash)
+            if torrent.info_hash:
+                infohash = normalize_infohash(torrent.info_hash)
 
             # Priority 2: Try to extract from guid (handles magnets and bare hashes)
-            if not infohash and hasattr(torrent, "guid") and torrent.guid:
+            if not infohash and torrent.guid:
                 infohash = extract_infohash(torrent.guid)
 
             # Priority 3: Collect URLs that need fetching
-            if not infohash and hasattr(torrent, "downloadUrl") and torrent.downloadUrl:
+            if not infohash and torrent.download_url and title:
                 urls_to_fetch.append((torrent, title))
-            elif infohash:
+            elif infohash and title:
                 # We already have an infohash, add it directly
                 streams[infohash] = title
 
@@ -427,11 +515,12 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 thread_name_prefix="ProwlarrHashExtract", max_workers=10
             ) as executor:
                 future_to_torrent = {
-                    executor.submit(self.get_infohash_from_url, torrent.downloadUrl): (
+                    executor.submit(self.get_infohash_from_url, torrent.download_url): (
                         torrent,
                         title,
                     )
                     for torrent, title in urls_to_fetch
+                    if torrent.download_url
                 }
 
                 done, pending = concurrent.futures.wait(
