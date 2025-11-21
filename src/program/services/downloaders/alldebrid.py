@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Generic, Literal, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 
 from program.services.downloaders.models import (
     DebridFile,
@@ -33,6 +34,91 @@ class AllDebridDirectory(BaseModel):
     e: list[AllDebridFile | AllDebridDirectory]  # Entries (files and subdirectories)
 
 
+class AllDebridErrorDetail(BaseModel):
+    code: str
+    message: str
+
+
+class AllDebridErrorResponse(BaseModel):
+    """Represents an AllDebrid API error response."""
+
+    status: Literal["error"]
+    error: AllDebridErrorDetail
+
+
+T = TypeVar("T", bound=BaseModel | None)
+
+
+class AllDebridSuccessResponse(BaseModel, Generic[T]):
+    """Represents a generic AllDebrid API success response."""
+
+    status: Literal["success"]
+    data: T
+
+
+class AllDebridResponse(BaseModel, Generic[T]):
+    """Union of AllDebrid success and error responses."""
+
+    data: AllDebridErrorResponse | AllDebridSuccessResponse[T] = Field(
+        discriminator="status"
+    )
+
+
+class AllDebridMagnet(BaseModel):
+    """Represents magnet information returned by AllDebrid."""
+
+    class MagnetInfo(BaseModel):
+        id: int
+        magnet: str
+        hash: str
+        name: str
+        size: int
+        ready: bool
+
+    magnets: list[MagnetInfo]
+
+
+class AllDebridUserResponse(BaseModel):
+    """Represents user information returned by AllDebrid."""
+
+    class UserData(BaseModel):
+        username: str
+        email: str
+        is_premium: bool = Field(alias="isPremium")
+        premium_until: int = Field(alias="premiumUntil")
+        fidelity_points: int = Field(alias="fidelityPoints")
+
+    user: UserData
+
+
+class AllDebridLinkUnlockResponse(BaseModel):
+    """Represents link unlock response from AllDebrid."""
+
+    link: str
+    filename: str
+    filesize: int
+
+
+class AllDebridMagnetStatusResponse(BaseModel):
+    """Represents magnet status information returned by AllDebrid."""
+
+    class MagnetInfo(BaseModel):
+        id: int
+        filename: str
+        size: int
+        status: str
+        status_code: int = Field(alias="statusCode")
+        upload_date: int = Field(alias="uploadDate")
+        completion_date: int = Field(alias="completionDate")
+        files: list[AllDebridFile | AllDebridDirectory] | None
+
+    class MagnetErrorInfo(BaseModel):
+        id: str
+        error: AllDebridErrorDetail
+
+    magnets: list[MagnetInfo | MagnetErrorInfo]
+
+
 class AllDebridError(Exception):
     """Base exception for AllDebrid related errors."""
 
@@ -56,7 +142,12 @@ class AllDebridAPI:
 
         # AllDebrid rate limits: 12 req/sec and 600 req/min
         # Using conservative 10 req/sec (600 capacity)
-        rate_limits = {"api.alldebrid.com": {"rate": 10, "capacity": 600}}
+        rate_limits = {
+            "api.alldebrid.com": {
+                "rate": 10,
+                "capacity": 600.0,
+            },
+        }
         proxies = None
 
         if proxy_url:
@@ -163,14 +254,15 @@ class AllDebridDownloader(DownloaderBase):
             case _ if status >= 500:
                 return "AllDebrid server error"
             case _:
-                # AllDebrid returns errors in data.error.message format
-                if hasattr(response.data, "error"):
-                    error = response.data.error
+                data = (
+                    AllDebridResponse[None]
+                    .model_validate({"data": response.json()})
+                    .data
+                )
 
-                    if hasattr(error, "message"):
-                        return error.message
-                    elif hasattr(error, "code"):
-                        return error.code
+                # AllDebrid returns errors in data.error.message format
+                if isinstance(data, AllDebridErrorResponse):
+                    return data.error.message
 
                 return f"HTTP {status}"
 
@@ -185,7 +277,7 @@ class AllDebridDownloader(DownloaderBase):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: str,
+        item_type: Literal["movie", "show", "season", "episode"],
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -271,7 +363,7 @@ class AllDebridDownloader(DownloaderBase):
         self,
         torrent_id: int,
         infohash: str,
-        item_type: str,
+        item_type: Literal["movie", "show", "season", "episode"],
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -345,8 +437,8 @@ class AllDebridDownloader(DownloaderBase):
 
     def _extract_files_recursive(
         self,
-        file_list: list[AllDebridFile | AllDebridDirectory],
-        item_type: str,
+        file_list: list[AllDebridFile],
+        item_type: Literal["movie", "show", "season", "episode"],
         files: list[DebridFile],
         infohash: str,
         path_prefix: str = "",
@@ -365,37 +457,26 @@ class AllDebridDownloader(DownloaderBase):
             name = file_entry.n
             current_path = f"{path_prefix}/{name}" if path_prefix else name
 
-            if isinstance(file_entry, AllDebridDirectory):
-                # This is a folder, recurse into it
-                self._extract_files_recursive(
-                    file_list=file_entry.e,
-                    item_type=item_type,
-                    files=files,
-                    infohash=infohash,
-                    path_prefix=current_path,
+            link = file_entry.l
+            size = file_entry.s
+
+            if not link:
+                continue
+
+            try:
+                df = DebridFile.create(
+                    path=current_path,
+                    filename=name,
+                    filesize_bytes=size,
+                    filetype=item_type,
+                    file_id=None,
                 )
-            else:
-                # This is a file - it should have 'l' (link) and 's' (size)
-                link = file_entry.l
-                size = file_entry.s
 
-                if not link:
-                    continue
-
-                try:
-                    df = DebridFile.create(
-                        path=current_path,
-                        filename=name,
-                        filesize_bytes=size,
-                        filetype=item_type,
-                        file_id=None,
-                    )
-
-                    if isinstance(df, DebridFile):
-                        df.download_url = link
-                        files.append(df)
-                except InvalidDebridFileException:
-                    pass
+                if isinstance(df, DebridFile):
+                    df.download_url = link
+                    files.append(df)
+            except InvalidDebridFileException:
+                pass
 
     def add_torrent(self, infohash: str) -> int:
         """
@@ -409,6 +490,8 @@ class AllDebridDownloader(DownloaderBase):
             AllDebridError: If the API returns a failing status.
         """
 
+        assert self.api
+
         magnet_url = f"magnet:?xt=urn:btih:{infohash}"
         response = self.api.session.post(
             "magnet/upload",
@@ -420,34 +503,33 @@ class AllDebridDownloader(DownloaderBase):
             raise AllDebridError(self._handle_error(response))
 
         # AllDebrid API returns {status: "success", data: {magnets: [{id: ...}]}}
-        data = response.data
+        try:
+            data = (
+                AllDebridResponse[AllDebridMagnet]
+                .model_validate({"data": response.json()})
+                .data
+            )
+        except ValidationError as e:
+            raise AllDebridError(f"Invalid response format from AllDebrid: {e}")
 
-        if not hasattr(data, "data"):
-            raise AllDebridError("Invalid response format from AllDebrid")
+        if isinstance(data, AllDebridErrorResponse):
+            raise AllDebridError(data.error.message)
 
-        magnets = getattr(data.data, "magnets", None)
+        magnets = data.data.magnets
 
         if not magnets:
             raise AllDebridError("No magnet ID returned by AllDebrid")
 
-        # Handle both list and single SimpleNamespace object
-        if isinstance(magnets, list):
-            if len(magnets) == 0:
-                raise AllDebridError("No magnet ID returned by AllDebrid")
+        [magnet_info] = magnets
 
-            magnet_info = magnets[0]
-        else:
-            # Single SimpleNamespace object
-            magnet_info = magnets
-
-        magnet_id = getattr(magnet_info, "id", None)
+        magnet_id = magnet_info.id
 
         if not magnet_id:
             raise AllDebridError("No magnet ID in response")
 
         return int(magnet_id)
 
-    def select_files(self, torrent_id: int, file_ids: list[int]) -> None:
+    def select_files(self, torrent_id: int | str, file_ids: list[int]) -> None:
         """
         Select which files to download from the magnet.
 
@@ -460,7 +542,7 @@ class AllDebridDownloader(DownloaderBase):
     def _get_magnet_files(
         self,
         magnet_id: int,
-    ) -> list[AllDebridFile | AllDebridDirectory] | None:
+    ) -> list[AllDebridFile] | None:
         """
         Get the files and download links for a magnet.
 
@@ -469,6 +551,8 @@ class AllDebridDownloader(DownloaderBase):
         """
 
         try:
+            assert self.api
+
             # Get the magnet status which includes links
             response = self.api.session.post(
                 "magnet/status", data={"id": str(magnet_id)}
@@ -478,58 +562,55 @@ class AllDebridDownloader(DownloaderBase):
             if not response.ok:
                 return None
 
-            data = response.data
+            data = (
+                AllDebridResponse[AllDebridMagnetStatusResponse]
+                .model_validate({"data": response.json()})
+                .data
+            )
 
-            # Check for error
-            if hasattr(data, "error"):
-                return None
-
-            if not hasattr(data, "data"):
+            if isinstance(data, AllDebridErrorResponse):
                 return None
 
             # Get magnets from status response
-            magnets = getattr(data.data, "magnets", None)
+            magnets = data.data.magnets
 
             if not magnets:
                 return None
 
-            # Handle both list and single SimpleNamespace object
-            if isinstance(magnets, list):
-                if len(magnets) == 0:
-                    return None
+            for magnet in magnets:
+                # Extract files from links in the status response
+                # Structure: links[].link = download URL, links[].files = file/folder objects
+                # For season packs: links[].files[0].e = array of episode files
 
-                magnet_obj = magnets[0]
-            else:
-                magnet_obj = magnets
+                if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
+                    continue  # Skip errored magnets
 
-            # Extract files from links in the status response
-            # Structure: links[].link = download URL, links[].files = file/folder objects
-            # For season packs: links[].files[0].e = array of episode files
-            links = getattr(magnet_obj, "links", None)
+                files = magnet.files
 
-            if links and isinstance(links, list) and len(links) > 0:
-                all_files = []
+                if files:
+                    all_files = list[AllDebridFile]()
 
-                for link_obj in links:
-                    download_link = getattr(link_obj, "link", None)
-                    link_files = getattr(link_obj, "files", None)
+                    for file_or_directory in files:
+                        download_link = ""
 
-                    if link_files and isinstance(link_files, list) and download_link:
-                        # Recursively process files/folders and add download link
-                        self._add_link_to_files_recursive(
-                            link_files, download_link, all_files
-                        )
+                        if isinstance(file_or_directory, AllDebridFile):
+                            download_link = file_or_directory.l
+                        else:
+                            # Recursively process files/folders and add download link
+                            self._add_link_to_files_recursive(
+                                file_or_directory.e, download_link, all_files
+                            )
 
-                if all_files:
-                    return all_files
+                    if all_files:
+                        return all_files
 
-            return None
+                return None
 
         except Exception as e:
             logger.debug(f"Error getting magnet files: {e}")
             return None
 
-    def get_torrent_info(self, torrent_id: int) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """
         Get information about a specific magnet using its ID.
 
@@ -544,6 +625,8 @@ class AllDebridDownloader(DownloaderBase):
             AllDebridError: If the API returns a failing status.
         """
 
+        assert self.api
+
         # AllDebrid API expects ID as string
         response = self.api.session.post("magnet/status", data={"id": str(torrent_id)})
         self._maybe_backoff(response)
@@ -551,48 +634,36 @@ class AllDebridDownloader(DownloaderBase):
         if not response.ok:
             raise AllDebridError(self._handle_error(response))
 
-        data = response.data
+        data = (
+            AllDebridResponse[AllDebridMagnetStatusResponse]
+            .model_validate({"data": response.json()})
+            .data
+        )
 
-        if not hasattr(data, "data"):
-            raise AllDebridError("Invalid response format from AllDebrid")
+        if isinstance(data, AllDebridErrorResponse):
+            raise AllDebridError(
+                f"Invalid response format from AllDebrid: {data.error.message}"
+            )
 
-        magnets = getattr(data.data, "magnets", None)
+        magnets = data.data.magnets
 
         if not magnets:
             raise AllDebridError(f"Magnet {torrent_id} not found")
 
         # Handle both list and single SimpleNamespace object
-        if isinstance(magnets, list):
-            if len(magnets) == 0:
-                raise AllDebridError(f"Magnet {torrent_id} not found")
+        [magnet_data] = magnets
 
-            magnet_data = magnets[0]
-        else:
-            # Single SimpleNamespace object
-            magnet_data = magnets
+        if isinstance(magnet_data, AllDebridMagnetStatusResponse.MagnetErrorInfo):
+            raise AllDebridError(
+                f"Error getting magnet info: {magnet_data.error.message}"
+            )
 
         # Map AllDebrid status codes to status strings
-        # 0=In Queue, 1=Downloading, 2=Compressing/Moving, 3=Uploading, 4=Ready, 5+=Errors
-        status_code = getattr(magnet_data, "statusCode", 0)
-        status_map = {
-            0: "In Queue",
-            1: "Downloading",
-            2: "Compressing",
-            3: "Uploading",
-            4: "Ready",
-            5: "Upload fail",
-            6: "Internal error on unpacking",
-            7: "Not downloaded in 20 min",
-            8: "File too big",
-            9: "Internal error",
-            10: "Download took more than 72h",
-            11: "Deleted on the hoster website",
-        }
-        status = status_map.get(status_code, "Unknown")
+        status = magnet_data.status
 
         # Parse timestamps
-        upload_date = getattr(magnet_data, "uploadDate", 0)
-        completion_date = getattr(magnet_data, "completionDate", 0)
+        upload_date = magnet_data.upload_date
+        completion_date = magnet_data.completion_date
 
         created_at = datetime.fromtimestamp(upload_date) if upload_date else None
         completed_at = (
@@ -607,12 +678,12 @@ class AllDebridDownloader(DownloaderBase):
             bytes=getattr(magnet_data, "size", 0),
             created_at=created_at,
             completed_at=completed_at,
-            progress=100.0 if status_code == 4 else 0.0,
+            progress=100.0 if magnet_data.status_code == 4 else 0.0,
             files={},  # Files are retrieved separately via magnet/files
             links=[],
         )
 
-    def delete_torrent(self, torrent_id: int) -> None:
+    def delete_torrent(self, torrent_id: str | int) -> None:
         """
         Delete a magnet on AllDebrid.
 
@@ -620,6 +691,8 @@ class AllDebridDownloader(DownloaderBase):
             CircuitBreakerOpen: If the per-domain breaker is OPEN.
             AllDebridError: If the API returns a failing status.
         """
+
+        assert self.api
 
         # AllDebrid API expects ID as string
         response = self.api.session.post("magnet/delete", data={"id": str(torrent_id)})
@@ -640,15 +713,21 @@ class AllDebridDownloader(DownloaderBase):
         """
 
         try:
+            assert self.api
+
             response = self.api.session.get("link/unlock", params={"link": link})
             self._maybe_backoff(response)
 
             if not response.ok:
                 return None
 
-            data = response.data
+            data = (
+                AllDebridResponse[AllDebridLinkUnlockResponse]
+                .model_validate({"data": response.json()})
+                .data
+            )
 
-            if not hasattr(data, "data"):
+            if isinstance(data, AllDebridErrorResponse):
                 return None
 
             link_data = data.data
@@ -665,8 +744,8 @@ class AllDebridDownloader(DownloaderBase):
 
             return UnrestrictedLink(
                 download=unrestricted_url,
-                filename=getattr(link_data, "filename", "file"),
-                filesize=getattr(link_data, "filesize", 0),
+                filename=link_data.filename,
+                filesize=link_data.filesize,
             )
 
         except Exception:
@@ -679,7 +758,10 @@ class AllDebridDownloader(DownloaderBase):
         Returns:
             UserInfo with normalized fields, or None on error.
         """
+
         try:
+            assert self.api
+
             response = self.api.session.get("user")
             self._maybe_backoff(response)
 
@@ -687,12 +769,17 @@ class AllDebridDownloader(DownloaderBase):
                 logger.error(f"Failed to get user info: {self._handle_error(response)}")
                 return None
 
-            data = response.data
+            data = (
+                AllDebridResponse[AllDebridUserResponse]
+                .model_validate({"data": response.json()})
+                .data
+            )
 
-            if not hasattr(data, "data"):
+            if isinstance(data, AllDebridErrorResponse):
+                logger.error(f"Failed to get user info: {data.error.message}")
                 return None
 
-            user_data = getattr(data.data, "user", None)
+            user_data = data.data.user
 
             if not user_data:
                 return None
@@ -703,7 +790,7 @@ class AllDebridDownloader(DownloaderBase):
             is_premium = getattr(user_data, "isPremium", False)
 
             if is_premium:
-                premium_until = getattr(user_data, "premiumUntil", 0)
+                premium_until = user_data.premium_until
 
                 if premium_until > 0:
                     premium_expires_at = datetime.fromtimestamp(
