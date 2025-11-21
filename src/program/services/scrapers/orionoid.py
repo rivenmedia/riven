@@ -12,6 +12,14 @@ from program.settings.models import OrionoidConfig
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
 
+class OrionoidAuthErrorResponse(BaseModel):
+    class Result(BaseModel):
+        status: str
+
+    result: Result
+    reason: str
+
+
 class OrionoidAuthResponse(BaseModel):
     class Result(BaseModel):
         status: str
@@ -42,8 +50,7 @@ class OrionoidAuthResponse(BaseModel):
         service: Service
 
     result: Result
-    data: Data | None
-    reason: str | None
+    data: Data
 
     @property
     def is_premium(self) -> bool:
@@ -152,12 +159,18 @@ class Orionoid(ScraperService[OrionoidConfig]):
             url = f"?keyapp={KEY_APP}&keyuser={self.settings.api_key}&mode=user&action=retrieve"
             response = self.session.get(url, timeout=self.timeout)
 
-            auth_response = OrionoidAuthResponse.model_validate(response.json())
-
             if not response.ok:
-                logger.error(f"Orionoid failed to authenticate: {auth_response.reason}")
+                error_response = OrionoidAuthErrorResponse.model_validate(
+                    response.json()
+                )
+
+                logger.error(
+                    f"Orionoid failed to authenticate: {error_response.reason}"
+                )
 
                 return False
+
+            auth_response = OrionoidAuthResponse.model_validate(response.json())
 
             if auth_response.result.status != "success":
                 logger.error(
@@ -181,13 +194,18 @@ class Orionoid(ScraperService[OrionoidConfig]):
         try:
             response = self.session.get(url)
 
-            data = OrionoidAuthResponse.model_validate(response.json())
-
             if not response.ok:
-                logger.error(f"Orionoid failed to check limit: {data.reason}")
+                error_response = OrionoidAuthErrorResponse.model_validate(
+                    response.json()
+                )
+
+                logger.error(f"Orionoid failed to check limit: {error_response.reason}")
+
                 return False
 
-            if response.ok and data.data:
+            data = OrionoidAuthResponse.model_validate(response.json())
+
+            if data.data:
                 remaining = data.data.requests.streams.daily.remaining
 
                 return remaining is not None and remaining <= 0

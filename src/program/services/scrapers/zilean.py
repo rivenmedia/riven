@@ -120,7 +120,7 @@ class Zilean(ScraperService[ZileanConfig]):
             )
             return {}
 
-        data = ZileanScrapeResponse.model_validate(response.json()).data
+        data = ZileanScrapeResponse.model_validate({"data": response.json()}).data
 
         if not data:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")

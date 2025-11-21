@@ -15,11 +15,11 @@ class RarbgScrapeResponse(BaseModel):
         h: str  # infoHash
         n: str  # title
 
-    class Link(BaseModel):
+    class Links(BaseModel):
         next: str | None
 
     results: list[Result]
-    links: list[Link]
+    links: Links
 
 
 class Rarbg(ScraperService[RarbgConfig]):
