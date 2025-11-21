@@ -3,7 +3,7 @@
 from loguru import logger
 
 from program.media.item import MediaItem, Movie, Show
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.core.runner import Runner
 from program.settings.models import IndexerModel
 

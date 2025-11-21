@@ -167,7 +167,7 @@ def snapshot_database(
     Returns:
         bool: `True` if the snapshot was created and the `latest.sql` symlink updated, `False` otherwise.
     """
-    from program.settings.manager import settings_manager
+    from program.settings import settings_manager
 
     if snapshot_dir is None:
         snapshot_dir = Path("./data/db_snapshot")
@@ -226,7 +226,7 @@ def restore_database(snapshot_file: Path | None = None):
     Returns:
         bool: `True` if the restore completed successfully, `False` otherwise.
     """
-    from program.settings.manager import settings_manager
+    from program.settings import settings_manager
 
     if snapshot_file is None:
         snapshot_dir = Path("./data/db_snapshot")

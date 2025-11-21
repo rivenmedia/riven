@@ -7,7 +7,7 @@ which library profiles a media item should be placed in.
 from typing import Any
 from program.media.item import Episode, MediaItem, Season
 from program.settings.models import LibraryProfileFilterRules
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
 class LibraryProfileMatcher:

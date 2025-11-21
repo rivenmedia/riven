@@ -3,7 +3,7 @@
 from loguru import logger
 
 from program.services.updaters.base import BaseUpdater
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import SmartSession
 
 

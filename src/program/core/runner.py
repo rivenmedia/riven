@@ -65,7 +65,11 @@ class Runner(ABC, Generic[TSettings, TService]):
         return True
 
     @abstractmethod
-    def run(self, *args: tuple[Any], **kwargs: dict[str, Any]) -> RunnerReturnType:
+    def run(
+        self,
+        *args: tuple[Any] | None,
+        **kwargs: dict[str, Any] | None,
+    ) -> RunnerReturnType:
         """Run the base runner"""
 
         raise NotImplementedError

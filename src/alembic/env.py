@@ -5,8 +5,9 @@ from sqlalchemy import engine_from_config, pool, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from alembic import context
-from program.db.db import db, Base
-from program.settings.manager import settings_manager
+from program.db.db import db
+from program.db.base_model import Base
+from program.settings import settings_manager
 
 from program.media import (
     MediaItem,

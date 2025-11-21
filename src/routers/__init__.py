@@ -2,7 +2,7 @@ from fastapi import Depends, Request
 from fastapi.routing import APIRouter
 
 from auth import resolve_api_key, resolve_ws_api_key
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from routers.models.shared import RootResponse
 from routers.secure.default import router as default_router
 from routers.secure.items import router as items_router

@@ -9,7 +9,7 @@ from loguru import logger
 from pydantic import BaseModel
 from requests import RequestException
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.settings.models import TraktModel
 from program.utils.request import SmartSession
 from schemas.trakt import GetMovies200ResponseInnerMovie, GetShows200ResponseInnerShow

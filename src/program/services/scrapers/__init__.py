@@ -8,7 +8,7 @@ from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.services.scrapers.shared import parse_results
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett

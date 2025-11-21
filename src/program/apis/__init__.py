@@ -1,6 +1,6 @@
 from kink import di
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 from .listrr_api import ListrrAPI
 from .mdblist_api import MdblistAPI

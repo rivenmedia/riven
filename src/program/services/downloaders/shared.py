@@ -11,7 +11,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
     UserInfo,
 )
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
 class DownloaderBase(ABC):

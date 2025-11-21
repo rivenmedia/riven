@@ -12,7 +12,7 @@ from kink import di
 from collections.abc import AsyncGenerator, AsyncIterator
 from ordered_set import OrderedSet
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils import benchmark
 from program.utils.async_client import AsyncClient
 from program.utils.proxy_client import ProxyClient

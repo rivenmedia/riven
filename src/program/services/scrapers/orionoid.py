@@ -4,7 +4,7 @@ from loguru import logger
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import SmartSession
 from program.settings.models import OrionoidConfig
 

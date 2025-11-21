@@ -15,7 +15,8 @@ from sqlalchemy.orm import (
 
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
-from program.db.db import Base, db_session
+from program.db.db import db_session
+from program.db.base_model import Base
 from program.media.media_entry import MediaEntry
 from program.apis.tvdb_api import SeriesRelease
 

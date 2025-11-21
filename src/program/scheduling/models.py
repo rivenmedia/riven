@@ -7,7 +7,7 @@ import sqlalchemy
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column
 
-from program.db.db import Base
+from program.db.base_model import Base
 
 
 class ScheduledStatus(str, Enum):

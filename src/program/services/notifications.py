@@ -9,7 +9,7 @@ from loguru import logger
 from program.managers.sse_manager import sse_manager
 from program.media.item import Episode, MediaItem, Season
 from program.media.state import States
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import NotificationsModel
 

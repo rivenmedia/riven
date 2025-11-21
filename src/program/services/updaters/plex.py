@@ -9,7 +9,7 @@ from urllib3.exceptions import MaxRetryError, NewConnectionError, RequestError
 
 from program.apis.plex_api import PlexAPI
 from program.services.updaters.base import BaseUpdater
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
 class PlexUpdater(BaseUpdater):

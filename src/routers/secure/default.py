@@ -13,7 +13,7 @@ from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils import generate_api_key
 from program.program import Program
 

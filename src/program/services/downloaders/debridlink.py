@@ -14,7 +14,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
     UserInfo,
 )
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
@@ -23,7 +23,7 @@ from .shared import DownloaderBase, premium_days_left
 class DebridLinkErrorResponse(BaseModel):
     """Represents an DebridLink API error response."""
 
-    status: Literal[False]
+    success: Literal[False]
     error: str
 
 
@@ -33,15 +33,15 @@ T = TypeVar("T", bound=BaseModel | None)
 class DebridLinkSuccessResponse(BaseModel, Generic[T]):
     """Represents a generic DebridLink API success response."""
 
-    status: Literal[True]
-    data: T
+    success: Literal[True]
+    value: T
 
 
 class DebridLinkResponse(BaseModel, Generic[T]):
     """Union of DebridLink success and error responses."""
 
     data: DebridLinkErrorResponse | DebridLinkSuccessResponse[T] = Field(
-        discriminator="status"
+        discriminator="success"
     )
 
 
@@ -76,7 +76,6 @@ class DebridLinkSeedBoxListResponse(BaseModel):
 
 
 class DebridLinkAccountInfo(BaseModel):
-    id: int
     username: str
     email: str
     account_type: int = Field(alias="accountType")
@@ -125,6 +124,7 @@ class DebridLinkAPI:
             retries=2,
             backoff_factor=0.5,
         )
+
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
 
 
@@ -156,7 +156,10 @@ class DebridLinkDownloader(DownloaderBase):
             return False
 
         proxy_url = self.PROXY_URL or None
-        self.api = DebridLinkAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
+        self.api = DebridLinkAPI(
+            api_key=self.settings.api_key,
+            proxy_url=proxy_url,
+        )
 
         return self._validate_premium()
 
@@ -409,7 +412,7 @@ class DebridLinkDownloader(DownloaderBase):
         if isinstance(data, DebridLinkErrorResponse):
             raise DebridLinkError(data.error)
 
-        torrent_id = data.data.id
+        torrent_id = data.value.id
 
         if not torrent_id:
             raise DebridLinkError("No torrent ID returned by Debrid-Link.")
@@ -458,7 +461,7 @@ class DebridLinkDownloader(DownloaderBase):
         if isinstance(data, DebridLinkErrorResponse):
             raise DebridLinkError(data.error)
 
-        torrents = data.data.items
+        torrents = data.value.items
         torrent_data = None
 
         for torrent in torrents:
@@ -582,10 +585,10 @@ class DebridLinkDownloader(DownloaderBase):
             # Parse premium expiration
             premium_expires_at = None
             premium_days_left_val = None
-            account_type = data.data.account_type
+            account_type = data.value.account_type
 
             if account_type > 0:  # Premium account
-                premium_until = data.data.premium_left
+                premium_until = data.value.premium_left
 
                 if premium_until > 0:
                     # premiumLeft is duration in seconds, not a timestamp
@@ -598,13 +601,13 @@ class DebridLinkDownloader(DownloaderBase):
 
             return UserInfo(
                 service="debridlink",
-                username=data.data.username,
-                email=data.data.email,
-                user_id=data.data.id,
+                username=data.value.username,
+                email=data.value.email,
+                user_id=0,  # Debrid-Link API does not expose user ID
                 premium_status="premium" if account_type > 0 else "free",
                 premium_expires_at=premium_expires_at,
                 premium_days_left=premium_days_left_val,
-                points=data.data.pts,
+                points=data.value.pts,
             )
 
         except Exception as e:

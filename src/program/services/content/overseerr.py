@@ -5,7 +5,7 @@ from loguru import logger
 
 from program.apis.overseerr_api import OverseerrAPI
 from program.db.db_functions import item_exists_by_any_id
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.core.content_service import ContentService
 from program.settings.models import OverseerrModel
 from program.core.runner import MediaItemGenerator, RunnerResult

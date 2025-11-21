@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from program.db.db import Base
+from program.db.base_model import Base
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem

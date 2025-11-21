@@ -11,7 +11,7 @@ from loguru import logger
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie
 from program.media.subtitle_entry import SubtitleEntry
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.core.runner import Runner
 from program.settings.models import SubtitleConfig
 from program.services.post_processing.subtitles.providers.base import (
@@ -357,7 +357,7 @@ class SubtitleService(Runner[SubtitleConfig]):
                 return None
 
             # Get the mounted VFS path
-            from program.settings.manager import settings_manager
+            from program.settings import settings_manager
 
             mount_path = settings_manager.settings.filesystem.mount_path
 

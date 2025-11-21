@@ -13,7 +13,7 @@ from RTN import (
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.settings.models import RTNSettingsModel, ScraperModel
 
 scraping_settings: ScraperModel = settings_manager.settings.scraping

@@ -4,7 +4,7 @@ from loguru import logger
 
 from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.settings.models import RarbgConfig
 from program.utils.request import SmartSession, get_hostname_from_url
 

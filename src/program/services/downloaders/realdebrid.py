@@ -16,7 +16,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
     UserInfo,
 )
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 from program.services.streaming.exceptions.debrid_service_exception import (
     DebridServiceLinkUnavailable,

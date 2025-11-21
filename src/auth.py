@@ -1,12 +1,19 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
-def header_auth(header=Security(APIKeyHeader(name="x-api-key", auto_error=False))):
+def header_auth(
+    header: Any = Security(
+        APIKeyHeader(
+            name="x-api-key",
+            auto_error=False,
+        ),
+    ),
+):
     return header == settings_manager.settings.api_key
 
 

@@ -21,7 +21,7 @@ from program.db.db import db_session, vacuum_and_analyze_index_maintenance
 from program.media.item import Episode, MediaItem, Movie, Show
 from program.media.state import States
 from program.scheduling.models import ScheduledStatus, ScheduledTask
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.types import Event
 from program.utils.logging import log_cleaner, logger
 from program.apis.tvdb_api import SeriesRelease

@@ -23,7 +23,7 @@ from program.services.notifications import NotificationService
 from program.services.post_processing import PostProcessing
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.settings.models import get_version
 from program.utils import data_dir_path
 from program.utils.logging import logger

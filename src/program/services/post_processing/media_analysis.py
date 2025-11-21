@@ -19,7 +19,7 @@ from program.utils.ffprobe import parse_media_file
 from program.media.models import DataSource, MediaMetadata
 
 from program.media.item import Episode, MediaItem, Movie
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.core.runner import Runner
 
 

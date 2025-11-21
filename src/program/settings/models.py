@@ -390,7 +390,7 @@ class FilesystemModel(Observable):
     def validate_naming_template(cls, v: str) -> str:
         """Validate that naming template string is syntactically valid."""
 
-        from program.services.filesystem.vfs.naming import SafeFormatter
+        from program.utils.safe_formatter import SafeFormatter
 
         try:
             # Test template with comprehensive dummy data

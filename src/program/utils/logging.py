@@ -3,12 +3,15 @@
 import os
 import sys
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from loguru import HandlerConfig, logger
+from loguru import logger
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils import data_dir_path
+
+if TYPE_CHECKING:
+    from loguru import HandlerConfig
 
 last_logs_cleaned_time: datetime | None = None
 

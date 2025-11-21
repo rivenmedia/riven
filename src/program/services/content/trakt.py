@@ -10,7 +10,7 @@ from requests import RequestException
 from program.apis.trakt_api import TraktAPI, Watchlist
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.core.content_service import ContentService
 from program.settings.models import TraktModel
 

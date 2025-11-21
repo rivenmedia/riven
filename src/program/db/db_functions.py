@@ -425,11 +425,11 @@ def run_thread_with_db_item(
 
                 # Idempotent insert: skip if any known ID already exists
                 if item_exists_by_any_id(
-                    indexed_item.id,
-                    indexed_item.tvdb_id,
-                    indexed_item.tmdb_id,
-                    indexed_item.imdb_id,
-                    session,
+                    item_id=indexed_item.id,
+                    tvdb_id=indexed_item.tvdb_id,
+                    tmdb_id=indexed_item.tmdb_id,
+                    imdb_id=indexed_item.imdb_id,
+                    session=session,
                 ):
                     logger.debug(
                         f"Item with ID {indexed_item.id} already exists, skipping save"

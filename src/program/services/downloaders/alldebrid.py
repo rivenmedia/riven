@@ -13,7 +13,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
     UserInfo,
 )
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 
 from .shared import DownloaderBase, premium_days_left

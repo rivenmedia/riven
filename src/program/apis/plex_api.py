@@ -8,7 +8,7 @@ from plexapi.server import PlexServer
 from plexapi.video import Movie, Show
 from plexapi.media import Guid
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import SmartSession
 
 TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")

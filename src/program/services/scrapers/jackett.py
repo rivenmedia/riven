@@ -8,7 +8,7 @@ from requests import ReadTimeout
 
 from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.utils.torrent import extract_infohash, normalize_infohash
 from program.settings.models import JackettConfig

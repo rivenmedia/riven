@@ -1,6 +1,5 @@
 """TMDB indexer module"""
 
-from collections.abc import Generator
 from datetime import datetime
 
 from kink import di

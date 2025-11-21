@@ -4,14 +4,16 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
+from typing import TYPE_CHECKING
 from loguru import logger
 
-from program.media.item import MediaItem
-from program.settings.manager import settings_manager
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import FilesystemModel
+
+if TYPE_CHECKING:
+    from program.media.item import MediaItem
 
 
 class FilesystemService(Runner[FilesystemModel]):
@@ -19,6 +21,8 @@ class FilesystemService(Runner[FilesystemModel]):
 
     def __init__(self, downloader: Downloader):
         super().__init__()
+
+        from program.settings import settings_manager
 
         # Use filesystem settings
         self.settings = settings_manager.settings.filesystem
@@ -55,7 +59,7 @@ class FilesystemService(Runner[FilesystemModel]):
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    def run(self, item: "MediaItem") -> MediaItemGenerator:
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
             yield RunnerResult(media_items=[item])

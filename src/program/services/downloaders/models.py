@@ -4,7 +4,7 @@ from typing import Any, Literal
 import regex
 from pydantic import BaseModel, Field
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = [
