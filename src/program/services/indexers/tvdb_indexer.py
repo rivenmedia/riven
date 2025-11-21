@@ -168,7 +168,7 @@ class TVDBIndexer(BaseIndexer):
             aliases.setdefault("us", []).append(slug.title())
 
             # Get title (with translation if needed)
-            title = show_data.name
+            title = show_data.name or ""
             poster_path = show_data.image
 
             if show_data.original_language != "eng" and show_data.id:
@@ -230,7 +230,7 @@ class TVDBIndexer(BaseIndexer):
             show.language = show_data.original_language
             show.is_anime = is_anime
             show.aliases = aliases
-            show.release_data = show_data.to_dict()
+            show.release_data = show_data
             show.rating = None  # TVDB doesn't provide ratings
             show.content_rating = content_rating
             show.tvdb_status = tvdb_status

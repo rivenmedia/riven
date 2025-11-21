@@ -5,6 +5,21 @@ Base provider interface for subtitle providers.
 from abc import ABC, abstractmethod
 from typing import Any
 
+from pydantic import BaseModel
+
+
+class SubtitleItem(BaseModel):
+    id: str
+    language: str
+    filename: str
+    download_count: int
+    rating: float
+    matched_by: str
+    movie_hash: str | None
+    movie_name: str | None
+    provider: str
+    score: float
+
 
 class SubtitleProvider(ABC):
     """Abstract base class for subtitle providers."""
@@ -20,7 +35,7 @@ class SubtitleProvider(ABC):
         season: int | None = None,
         episode: int | None = None,
         language: str = "en",
-    ) -> list[dict[str, Any]]:
+    ) -> list[SubtitleItem]:
         """
         Search for subtitles.
 

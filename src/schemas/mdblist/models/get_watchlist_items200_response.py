@@ -25,6 +25,9 @@ from schemas.mdblist.models.get_watchlist_items200_response_movies_inner import 
 from schemas.mdblist.models.get_watchlist_items200_response_shows_inner import (
     GetWatchlistItems200ResponseShowsInner,
 )
+from schemas.mdblist.models.retrieve_collection200_response_pagination import (
+    RetrieveCollection200ResponsePagination,
+)
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -36,7 +39,8 @@ class GetWatchlistItems200Response(BaseModel):
 
     movies: Optional[List[GetWatchlistItems200ResponseMoviesInner]] = None
     shows: Optional[List[GetWatchlistItems200ResponseShowsInner]] = None
-    __properties: ClassVar[List[str]] = ["movies", "shows"]
+    pagination: Optional[RetrieveCollection200ResponsePagination] = None
+    __properties: ClassVar[List[str]] = ["movies", "shows", "pagination"]
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -89,6 +93,9 @@ class GetWatchlistItems200Response(BaseModel):
                 if _item_shows:
                     _items.append(_item_shows.to_dict())
             _dict["shows"] = _items
+        # override the default output from pydantic by calling `to_dict()` of pagination
+        if self.pagination:
+            _dict["pagination"] = self.pagination.to_dict()
         return _dict
 
     @classmethod
@@ -116,6 +123,11 @@ class GetWatchlistItems200Response(BaseModel):
                         for _item in obj["shows"]
                     ]
                     if obj.get("shows") is not None
+                    else None
+                ),
+                "pagination": (
+                    RetrieveCollection200ResponsePagination.from_dict(obj["pagination"])
+                    if obj.get("pagination") is not None
                     else None
                 ),
             }
