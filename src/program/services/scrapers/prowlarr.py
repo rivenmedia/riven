@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from requests import ReadTimeout, RequestException
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -62,7 +62,7 @@ class Indexer(BaseModel):
 class Params(BaseModel):
     query: str | None
     type: str | None
-    indexerIds: int | None
+    indexer_ids: int | None = Field(alias="indexerIds")
     categories: list[int] | None
     limit: int | None
     season: int | None
@@ -463,7 +463,10 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         assert self.session
 
         response = self.session.get(
-            "/search", params=params, timeout=self.timeout, headers=self.headers
+            "/search",
+            params=params.model_dump(),
+            timeout=self.timeout,
+            headers=self.headers,
         )
 
         if not response.ok:

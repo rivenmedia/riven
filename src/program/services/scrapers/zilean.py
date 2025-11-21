@@ -1,12 +1,27 @@
 """Zilean scraper module"""
 
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.settings.models import ZileanConfig
+
+
+class Params(BaseModel):
+    query: str = Field(alias="Query")
+    season: int | None = Field(default=None, alias="Season")
+    episode: int | None = Field(default=None, alias="Episode")
+
+
+class ZileanScrapeResponse(BaseModel):
+    class ResultItem(BaseModel):
+        raw_title: str | None
+        info_hash: str | None
+
+    data: list[ResultItem]
 
 
 class Zilean(ScraperService[ZileanConfig]):
@@ -72,10 +87,10 @@ class Zilean(ScraperService[ZileanConfig]):
 
         return {}
 
-    def _build_query_params(self, item: MediaItem) -> dict[str, str]:
+    def _build_query_params(self, item: MediaItem) -> Params:
         """Build the query params for the Zilean API"""
 
-        params = {"Query": item.get_top_title()}
+        params: dict[str, int | str | None] = {"Query": item.get_top_title()}
 
         if isinstance(item, Show):
             params["Season"] = 1
@@ -85,7 +100,7 @@ class Zilean(ScraperService[ZileanConfig]):
             params["Season"] = item.parent.number
             params["Episode"] = item.number
 
-        return params
+        return Params.model_validate(params)
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Zilean` scrape method"""
@@ -93,15 +108,27 @@ class Zilean(ScraperService[ZileanConfig]):
         url = f"{self.settings.url}/dmm/filtered"
         params = self._build_query_params(item)
 
-        response = self.session.get(url, params=params, timeout=self.timeout)
+        response = self.session.get(
+            url,
+            params=params.model_dump(by_alias=True),
+            timeout=self.timeout,
+        )
 
-        if not response.ok or not response.data:
+        if not response.ok:
+            logger.debug(
+                f"Zilean responded with status code {response.status_code} for {item.log_string}"
+            )
+            return {}
+
+        data = ZileanScrapeResponse.model_validate(response.json()).data
+
+        if not data:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
         torrents: dict[str, str] = {}
 
-        for result in response.data:
+        for result in data:
             if not result.raw_title or not result.info_hash:
                 continue
 
