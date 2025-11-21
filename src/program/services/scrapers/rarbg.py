@@ -1,12 +1,25 @@
 """Rarbg scraper module"""
 
 from loguru import logger
+from pydantic import BaseModel
 
 from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
 from program.settings.models import RarbgConfig
 from program.utils.request import SmartSession, get_hostname_from_url
+
+
+class RarbgScrapeResponse(BaseModel):
+    class Result(BaseModel):
+        h: str  # infoHash
+        n: str  # title
+
+    class Link(BaseModel):
+        next: str | None
+
+    results: list[Result]
+    links: list[Link]
 
 
 class Rarbg(ScraperService[RarbgConfig]):
@@ -94,11 +107,13 @@ class Rarbg(ScraperService[RarbgConfig]):
         while current_url:
             response = self.session.get(current_url, timeout=self.timeout)
 
-            if not response.ok or not hasattr(response, "data"):
+            if not response.ok:
                 break
 
-            if hasattr(response.data, "results") and response.data.results:
-                for result in response.data.results:
+            data = RarbgScrapeResponse.model_validate(response.json())
+
+            if hasattr(data, "results") and data.results:
+                for result in data.results:
                     if not result.h:  # h is the infoHash
                         continue
 
@@ -111,12 +126,8 @@ class Rarbg(ScraperService[RarbgConfig]):
 
             current_url = None
 
-            if (
-                hasattr(response.data, "links")
-                and response.data.links
-                and response.data.links.next
-            ):
-                if next_url := response.data.links.next:
+            if data.links and data.links.next:
+                if next_url := data.links.next:
                     current_url = next_url
                     page += 1
 
