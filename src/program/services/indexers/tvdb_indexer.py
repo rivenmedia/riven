@@ -645,20 +645,21 @@ class TVDBIndexer(BaseIndexer):
             if hasattr(episode_data, "year") and episode_data.year:
                 year = int(episode_data.year)
 
-            episode_item = {
-                "number": episode_number,
-                "tvdb_id": str(episode_data.id),
-                "title": episode_data.name or f"Episode {episode_number}",
-                "poster_path": episode_data.poster_path,
-                "aired_at": aired_at,
-                "year": year,
-                "type": "episode",
-                "is_anime": season.is_anime,
-                "requested_at": datetime.now(),
-                "absolute_number": episode_data.absolute_number,
-            }
+            episode = Episode(
+                {
+                    "number": episode_number,
+                    "tvdb_id": str(episode_data.id),
+                    "title": episode_data.name or f"Episode {episode_number}",
+                    "poster_path": episode_data.poster_path,
+                    "aired_at": aired_at,
+                    "year": year,
+                    "type": "episode",
+                    "is_anime": season.is_anime,
+                    "requested_at": datetime.now(),
+                    "absolute_number": episode_data.absolute_number,
+                }
+            )
 
-            episode = Episode(episode_item)
             episode.parent = season
 
             return episode

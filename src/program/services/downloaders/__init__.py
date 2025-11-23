@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 from loguru import logger
 from RTN import ParsedData
+from pydantic import BaseModel
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
@@ -29,6 +30,12 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
+
+
+class UnrestrictedLink(BaseModel):
+    download: str
+    filename: str
+    filesize: int
 
 
 class Downloader(Runner[None, DownloaderBase]):
@@ -244,6 +251,8 @@ class Downloader(Runner[None, DownloaderBase]):
         Validate a single stream by ensuring its files match the item's requirements.
         Uses the primary service for backward compatibility.
         """
+
+        assert self.service, "No primary downloader service initialized."
 
         return self.validate_stream_on_service(stream, item, self.service)
 
@@ -518,7 +527,7 @@ class Downloader(Runner[None, DownloaderBase]):
             logger.debug(f"Reusing cached torrent_info for {stream.infohash}")
         else:
             # Fallback: fetch info if not cached
-            info: TorrentInfo = service.get_torrent_info(torrent_id)
+            info = service.get_torrent_info(torrent_id)
 
         if container.file_ids:
             service.select_files(torrent_id, container.file_ids)

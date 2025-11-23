@@ -13,6 +13,8 @@ from program.services.downloaders.models import (
 )
 from program.settings import settings_manager
 
+from program.services.downloaders import UnrestrictedLink
+
 
 class DownloaderBase(ABC):
     """The abstract base class for all Downloader implementations."""
@@ -102,6 +104,20 @@ class DownloaderBase(ABC):
         Returns:
             UserInfo: Normalized user information including premium status and expiration
         """
+
+    @abstractmethod
+    def unrestrict_link(self, link: str) -> UnrestrictedLink | None:
+        """
+        Unrestrict a download link using the debrid service
+
+        Args:
+            link: The original download URL to unrestrict
+
+        Returns:
+            UnrestrictedLink | None: The unrestricted download URL, or None if unrestricting failed
+        """
+
+        raise NotImplementedError()
 
 
 def parse_filename(filename: str) -> ParsedData:

@@ -445,7 +445,7 @@ class RealDebridDownloader(DownloaderBase):
             )
             return None
 
-        data = RealDebridTorrentInfo.model_validate({"data": response.json()})
+        torrent_info = RealDebridTorrentInfo.model_validate(response.json())
 
         # Build initial files dict
         files = {
@@ -456,17 +456,17 @@ class RealDebridDownloader(DownloaderBase):
                 selected=file.selected,
                 download_url="",  # Will be populated by correlation, empty string instead of None
             )
-            for file in data.files
+            for file in torrent_info.files
         }
 
         # Correlate files to torrent links if torrent is downloaded
-        links = data.links
+        links = torrent_info.links
 
-        if data.status == "downloaded" and links:
+        if torrent_info.status == "downloaded" and links:
             try:
                 # Get selected files in order (these correspond to links by index)
                 selected_files = [
-                    (file.id, file) for file in data.files if file.selected == 1
+                    (file.id, file) for file in torrent_info.files if file.selected == 1
                 ]
 
                 logger.debug(
@@ -492,14 +492,14 @@ class RealDebridDownloader(DownloaderBase):
                 # Continue without download URLs - files will have download_url=""
 
         return TorrentInfo(
-            id=data.id,
-            name=data.filename,
-            status=data.status,
-            infohash=data.hash,
-            bytes=data.bytes,
-            created_at=datetime.fromisoformat(data.added),
-            alternative_filename=data.original_filename,
-            progress=data.progress,
+            id=torrent_info.id,
+            name=torrent_info.filename,
+            status=torrent_info.status,
+            infohash=torrent_info.hash,
+            bytes=torrent_info.bytes,
+            created_at=datetime.fromisoformat(torrent_info.added),
+            alternative_filename=torrent_info.original_filename,
+            progress=torrent_info.progress,
             files=files,
             links=links,
         )

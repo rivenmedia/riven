@@ -32,25 +32,33 @@ class IndexerService(BaseIndexer):
     ) -> MediaItemGenerator:
         """Run the appropriate indexer based on item type."""
 
-        if not in_item:
-            logger.error("Item is None")
-            return
-
         if isinstance(in_item, Movie) or (in_item.tmdb_id and not in_item.tvdb_id):
-            yield from self.tmdb_indexer.run(in_item, log_msg)
+            yield from self.tmdb_indexer.run(
+                in_item=in_item,
+                log_msg=log_msg,
+            )
         elif isinstance(in_item, (Show, Season, Episode)) or (
             in_item.tvdb_id and not in_item.tmdb_id
         ):
-            yield from self.tvdb_indexer.run(in_item, log_msg)
-        elif isinstance(in_item, MediaItem):
+            yield from self.tvdb_indexer.run(
+                in_item=in_item,
+                log_msg=log_msg,
+            )
+        else:
             item = None
 
             if not item:
-                movie_result = self.tmdb_indexer.run(in_item, log_msg=False)
+                movie_result = self.tmdb_indexer.run(
+                    in_item=in_item,
+                    log_msg=False,
+                )
                 item = next(movie_result, None)
 
             if not item:
-                show_result = self.tvdb_indexer.run(in_item, log_msg=False)
+                show_result = self.tvdb_indexer.run(
+                    in_item=in_item,
+                    log_msg=False,
+                )
                 item = next(show_result, None)
 
             if item:
@@ -60,6 +68,7 @@ class IndexerService(BaseIndexer):
         logger.warning(
             f"Unknown item type, cannot index {in_item.log_string}.. skipping"
         )
+
         return
 
     def reindex_ongoing(self) -> int:

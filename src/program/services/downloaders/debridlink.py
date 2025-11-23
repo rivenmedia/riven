@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Generic, Literal, TypeVar
 
@@ -16,6 +17,7 @@ from program.services.downloaders.models import (
 )
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.downloaders import UnrestrictedLink
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -27,7 +29,7 @@ class DebridLinkErrorResponse(BaseModel):
     error: str
 
 
-T = TypeVar("T", bound=BaseModel | None)
+T = TypeVar("T", bound=BaseModel | Sequence[BaseModel] | None)
 
 
 class DebridLinkSuccessResponse(BaseModel, Generic[T]):
@@ -57,22 +59,19 @@ class DebridLinkSeedBoxAddResponse(BaseModel):
     id: str
     name: str
     hash_string: str = Field(alias="hashString")
+    status: int
+
+
+class DebridLinkSeedBoxListItem(BaseModel):
+    id: str
+    name: str
+    hash_string: str = Field(alias="hashString")
     status: str
-
-
-class DebridLinkSeedBoxListResponse(BaseModel):
-    class ListItem(BaseModel):
-        id: str
-        name: str
-        hash_string: str = Field(alias="hashString")
-        status: str
-        created: int
-        total_size: int = Field(alias="totalSize")
-        download_percent: float = Field(alias="downloadPercent")
-        is_zip: bool = Field(alias="isZip")
-        files: list[DebridLinkFile] | None
-
-    items: list[ListItem]
+    created: int
+    total_size: int = Field(alias="totalSize")
+    download_percent: float = Field(alias="downloadPercent")
+    is_zip: bool = Field(alias="isZip")
+    files: list[DebridLinkFile] | None
 
 
 class DebridLinkAccountInfo(BaseModel):
@@ -453,7 +452,7 @@ class DebridLinkDownloader(DownloaderBase):
             raise DebridLinkError(self._handle_error(response))
 
         data = (
-            DebridLinkResponse[DebridLinkSeedBoxListResponse]
+            DebridLinkResponse[Sequence[DebridLinkSeedBoxListItem]]
             .model_validate({"data": response.json()})
             .data
         )
@@ -461,7 +460,7 @@ class DebridLinkDownloader(DownloaderBase):
         if isinstance(data, DebridLinkErrorResponse):
             raise DebridLinkError(data.error)
 
-        torrents = data.value.items
+        torrents = data.value
         torrent_data = None
 
         for torrent in torrents:
@@ -528,25 +527,20 @@ class DebridLinkDownloader(DownloaderBase):
         if not response.ok:
             raise DebridLinkError(self._handle_error(response))
 
-    def unrestrict_link(self, link: str) -> object | None:
+    def unrestrict_link(self, link: str) -> UnrestrictedLink:
         """
         Unrestrict a link using Debrid-Link.
 
         For Debrid-Link, links are already direct download URLs, so we just return them.
 
         Args:
-            link: The link to unrestrict.
+            url: The link to unrestrict.
 
         Returns:
-            Object with 'download', 'filename', 'filesize' attributes, or None on error.
+            UnrestrictedLink with download URL.
         """
 
         # Debrid-Link provides direct download URLs, no unrestricting needed
-        class UnrestrictedLink(BaseModel):
-            download: str
-            filename: str
-            filesize: int
-
         return UnrestrictedLink(
             download=link,
             filename="file",

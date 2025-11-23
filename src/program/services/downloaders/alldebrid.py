@@ -15,6 +15,7 @@ from program.services.downloaders.models import (
 )
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.downloaders import UnrestrictedLink
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -672,10 +673,10 @@ class AllDebridDownloader(DownloaderBase):
 
         return TorrentInfo(
             id=torrent_id,
-            name=getattr(magnet_data, "filename", ""),
+            name=magnet_data.filename,
             status=status,
             infohash=None,  # AllDebrid doesn't return infohash in status
-            bytes=getattr(magnet_data, "size", 0),
+            bytes=magnet_data.size,
             created_at=created_at,
             completed_at=completed_at,
             progress=100.0 if magnet_data.status_code == 4 else 0.0,
@@ -701,7 +702,7 @@ class AllDebridDownloader(DownloaderBase):
         if not response.ok:
             raise AllDebridError(self._handle_error(response))
 
-    def unrestrict_link(self, link: str) -> object | None:
+    def unrestrict_link(self, link: str) -> UnrestrictedLink | None:
         """
         Unrestrict a link using AllDebrid.
 
@@ -709,7 +710,7 @@ class AllDebridDownloader(DownloaderBase):
             link: The link to unrestrict.
 
         Returns:
-            Object with 'download', 'filename', 'filesize' attributes, or None on error.
+            UnrestrictedLink, or None on error.
         """
 
         try:
@@ -731,16 +732,10 @@ class AllDebridDownloader(DownloaderBase):
                 return None
 
             link_data = data.data
-            unrestricted_url = getattr(link_data, "link", "")
+            unrestricted_url = link_data.link
 
             if not unrestricted_url:
                 return None
-
-            # Return an object with attributes (matching RealDebrid's format)
-            class UnrestrictedLink(BaseModel):
-                download: str
-                filename: str
-                filesize: int
 
             return UnrestrictedLink(
                 download=unrestricted_url,
@@ -787,7 +782,7 @@ class AllDebridDownloader(DownloaderBase):
             # Parse premium expiration
             premium_expires_at = None
             premium_days_left_val = None
-            is_premium = getattr(user_data, "isPremium", False)
+            is_premium = user_data.is_premium
 
             if is_premium:
                 premium_until = user_data.premium_until
@@ -802,13 +797,13 @@ class AllDebridDownloader(DownloaderBase):
 
             return UserInfo(
                 service="alldebrid",
-                username=getattr(user_data, "username", None),
-                email=getattr(user_data, "email", None),
-                user_id=getattr(user_data, "username", "unknown"),
+                username=user_data.username,
+                email=user_data.email,
+                user_id=user_data.username,
                 premium_status="premium" if is_premium else "free",
                 premium_expires_at=premium_expires_at,
                 premium_days_left=premium_days_left_val,
-                points=getattr(user_data, "fidelityPoints", 0),
+                points=user_data.fidelity_points,
             )
 
         except Exception as e:
