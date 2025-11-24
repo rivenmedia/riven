@@ -376,6 +376,9 @@ async def start_manual_session(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
+    if item.type == "mediaitem":
+        raise HTTPException(status_code=500, detail="Incorrect item type found")
+
     container = downloader.get_instant_availability(info_hash, item.type)
 
     if not container or not container.cached:
@@ -396,7 +399,7 @@ async def start_manual_session(
         torrent_id = downloader.add_torrent(info_hash)
         torrent_info = downloader.get_torrent_info(torrent_id)
         scraping_session_manager.update_session(
-            session.id,
+            session_id=session.id,
             torrent_id=torrent_id,
             torrent_info=torrent_info,
             containers=container,
@@ -584,6 +587,10 @@ async def manual_update_attributes(
                 item.filesystem_entries.clear()
                 item.filesystem_entries.append(fs_entry)
                 item = session.merge(item)
+
+            assert scraping_session
+            assert scraping_session.magnet
+            assert scraping_session.torrent_info
 
             item.active_stream = {
                 "infohash": scraping_session.magnet,

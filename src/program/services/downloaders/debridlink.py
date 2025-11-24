@@ -18,6 +18,7 @@ from program.services.downloaders.models import (
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 from program.services.downloaders import UnrestrictedLink
+from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -235,7 +236,7 @@ class DebridLinkDownloader(DownloaderBase):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: Literal["movie", "show", "season", "episode"],
+        item_type: ProcessedItemType,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
@@ -322,7 +323,7 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         torrent_id: str,
         infohash: str,
-        item_type: Literal["movie", "show", "season", "episode"],
+        item_type: ProcessedItemType,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).

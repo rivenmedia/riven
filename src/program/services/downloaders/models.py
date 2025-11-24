@@ -5,6 +5,7 @@ import regex
 from pydantic import BaseModel, Field
 
 from program.settings import settings_manager
+from program.media.item import ProcessedItemType
 
 DEFAULT_VIDEO_EXTENSIONS = ["mp4", "mkv", "avi"]
 ALLOWED_VIDEO_EXTENSIONS = [
@@ -76,7 +77,7 @@ class DebridFile(BaseModel):
         cls,
         filesize_bytes: int,
         filename: str,
-        filetype: Literal["movie", "show", "season", "episode"],
+        filetype: ProcessedItemType,
         path: str | None = None,
         file_id: int | None = None,
         limit_filesize: bool = True,

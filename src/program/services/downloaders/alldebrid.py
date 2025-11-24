@@ -16,6 +16,7 @@ from program.services.downloaders.models import (
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 from program.services.downloaders import UnrestrictedLink
+from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -278,7 +279,7 @@ class AllDebridDownloader(DownloaderBase):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: Literal["movie", "show", "season", "episode"],
+        item_type: ProcessedItemType,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -364,7 +365,7 @@ class AllDebridDownloader(DownloaderBase):
         self,
         torrent_id: int,
         infohash: str,
-        item_type: Literal["movie", "show", "season", "episode"],
+        item_type: ProcessedItemType,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -439,7 +440,7 @@ class AllDebridDownloader(DownloaderBase):
     def _extract_files_recursive(
         self,
         file_list: list[AllDebridFile],
-        item_type: Literal["movie", "show", "season", "episode"],
+        item_type: ProcessedItemType,
         files: list[DebridFile],
         infohash: str,
         path_prefix: str = "",

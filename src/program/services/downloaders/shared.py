@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Literal
 
 from RTN import ParsedData, parse
 
@@ -14,6 +13,7 @@ from program.services.downloaders.models import (
 from program.settings import settings_manager
 
 from program.services.downloaders import UnrestrictedLink
+from program.media.item import ProcessedItemType
 
 
 class DownloaderBase(ABC):
@@ -37,7 +37,7 @@ class DownloaderBase(ABC):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: Literal["movie", "show", "season", "episode"],
+        item_type: ProcessedItemType,
     ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash

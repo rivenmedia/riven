@@ -1215,3 +1215,6 @@ def _set_nested_attr(obj: object, key: str, value: Any):
         obj[key] = value
     else:
         setattr(obj, key, value)
+
+
+ProcessedItemType = Literal["movie", "show", "season", "episode"]

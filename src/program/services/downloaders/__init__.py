@@ -1,10 +1,16 @@
 from datetime import datetime, timedelta
-from typing import Literal
 from loguru import logger
 from RTN import ParsedData
 from pydantic import BaseModel
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import (
+    Episode,
+    MediaItem,
+    Movie,
+    ProcessedItemType,
+    Season,
+    Show,
+)
 from program.media.state import States
 from program.media.stream import Stream
 from program.media.media_entry import MediaEntry
@@ -617,7 +623,7 @@ class Downloader(Runner[None, DownloaderBase]):
     def get_instant_availability(
         self,
         infohash: str,
-        item_type: Literal["movie", "show", "season", "episode"],
+        item_type: ProcessedItemType,
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
