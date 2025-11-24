@@ -18,7 +18,9 @@ load_dotenv()  # import required here to support SETTINGS_FILENAME
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
-from scalar_fastapi import get_scalar_api_reference
+from scalar_fastapi import (
+    get_scalar_api_reference,  # pyright: ignore[reportUnknownVariableType]
+)
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
