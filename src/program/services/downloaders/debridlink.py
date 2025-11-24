@@ -356,18 +356,17 @@ class DebridLinkDownloader(DownloaderBase):
                         file_id=file_id,
                     )
 
-                    if isinstance(df, DebridFile):
-                        # Store download URL if available
-                        download_url = file.download_url
+                    # Store download URL if available
+                    download_url = file.download_url
 
-                        if download_url:
-                            df.download_url = download_url
+                    if download_url:
+                        df.download_url = download_url
 
-                            logger.debug(
-                                f"Using correlated download URL for {file.filename}"
-                            )
+                        logger.debug(
+                            f"Using correlated download URL for {file.filename}"
+                        )
 
-                        files.append(df)
+                    files.append(df)
                 except InvalidDebridFileException as e:
                     logger.debug(f"{infohash}: {e}")
 

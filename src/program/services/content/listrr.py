@@ -73,33 +73,32 @@ class Listrr(ContentService[ListrrModel]):
             logger.error(f"Listrr ping exception: {e}")
             return False
 
-    def run(self) -> MediaItemGenerator:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch new media from `Listrr`"""
 
         try:
-            movie_items = self.api.get_movies(self.settings.movie_lists)
-            show_items = self.api.get_shows(self.settings.show_lists)
+            get_movies_response = self.api.get_movies(self.settings.movie_lists)
+            get_shows_response = self.api.get_shows(self.settings.show_lists)
         except Exception as e:
             logger.error(f"Failed to fetch items from Listrr: {e}")
             return
 
-        movie_items = [
-            item
-            for item in movie_items
+        tmdb_ids = [
+            item[1]
+            for item in get_movies_response
             if not item_exists_by_any_id(imdb_id=item[0], tmdb_id=str(item[1]))
         ]
 
-        show_items = [
-            item
-            for item in show_items
+        tvdb_ids = [
+            item[1]
+            for item in get_shows_response
             if not item_exists_by_any_id(imdb_id=item[0], tvdb_id=str(item[1]))
+            if item[1] is not None
         ]
 
-        listrr_items: list[MediaItem] = []
+        listrr_items = list[MediaItem]()
 
-        for item in movie_items:
-            _, tmdb_id = item
-
+        for tmdb_id in tmdb_ids:
             listrr_items.append(
                 MediaItem(
                     {
@@ -109,9 +108,7 @@ class Listrr(ContentService[ListrrModel]):
                 )
             )
 
-        for item in show_items:
-            _, tvdb_id = item
-
+        for tvdb_id in tvdb_ids:
             listrr_items.append(
                 MediaItem(
                     {

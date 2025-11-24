@@ -474,9 +474,8 @@ class AllDebridDownloader(DownloaderBase):
                     file_id=None,
                 )
 
-                if isinstance(df, DebridFile):
-                    df.download_url = link
-                    files.append(df)
+                df.download_url = link
+                files.append(df)
             except InvalidDebridFileException:
                 pass
 
