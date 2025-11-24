@@ -47,7 +47,7 @@ class Mdblist(ContentService[MdblistModel]):
 
         return self.api.validate()
 
-    def run(self) -> MediaItemGenerator:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch media from mdblist and add them to media_items attribute"""
 
         items_to_yield: list[MediaItem] = []
@@ -58,38 +58,38 @@ class Mdblist(ContentService[MdblistModel]):
                     continue
 
                 if isinstance(list_id, int):
-                    items = self.api.list_items_by_id(list_id)
+                    list_items = self.api.list_items_by_id(list_id)
                 else:
-                    items = self.api.list_items_by_url(list_id)
+                    list_items = self.api.list_items_by_url(list_id)
 
-                assert items
+                assert list_items
 
-                for item in items:
-                    if item.mediatype == "movie" and not item.id:
+                for list_item in list_items:
+                    if list_item.mediatype == "movie" and not list_item.id:
                         continue
 
-                    if item.mediatype == "show" and not item.tvdb_id:
+                    if list_item.mediatype == "show" and not list_item.tvdb_id:
                         continue
 
-                    if item.mediatype == "movie" and not item_exists_by_any_id(
-                        imdb_id=item.imdb_id, tmdb_id=str(item.id)
+                    if list_item.mediatype == "movie" and not item_exists_by_any_id(
+                        imdb_id=list_item.imdb_id, tmdb_id=str(list_item.id)
                     ):
                         items_to_yield.append(
                             MediaItem(
                                 {
-                                    "tmdb_id": item.id,
+                                    "tmdb_id": list_item.id,
                                     "requested_by": self.key,
                                 }
                             )
                         )
 
-                    elif item.mediatype == "show" and not item_exists_by_any_id(
-                        imdb_id=item.imdb_id, tvdb_id=str(item.tvdb_id)
+                    elif list_item.mediatype == "show" and not item_exists_by_any_id(
+                        imdb_id=list_item.imdb_id, tvdb_id=str(list_item.tvdb_id)
                     ):
                         items_to_yield.append(
                             MediaItem(
                                 {
-                                    "tvdb_id": item.tvdb_id,
+                                    "tvdb_id": list_item.tvdb_id,
                                     "requested_by": self.key,
                                 }
                             )
