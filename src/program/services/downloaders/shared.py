@@ -133,7 +133,7 @@ def premium_days_left(expiration: datetime) -> str:
         now = datetime.now(tz=timezone.utc)
     else:
         # Naive: compare with naive now (UTC)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
     time_left = expiration - now
     days_left = time_left.days

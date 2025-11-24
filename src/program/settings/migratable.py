@@ -13,12 +13,15 @@ class MigratableBaseModel(BaseModel):
                     field.default_factory is not None
                     and field.default_factory != PydanticUndefined
                 ):
-                    data[field_name] = field.default_factory()
+                    data[field_name] = (
+                        field.default_factory()
+                    )  # pyright: ignore[reportCallIssue]
                 # Then check for default value
                 elif field.default is not None and field.default != PydanticUndefined:
                     data[field_name] = field.default
                 else:
                     data[field_name] = None
+
             # Handle empty dicts that should have default_factory content
             elif isinstance(data[field_name], dict) and len(data[field_name]) == 0:
                 # If field has a default_factory and the dict is empty, populate with defaults
@@ -26,10 +29,18 @@ class MigratableBaseModel(BaseModel):
                     field.default_factory is not None
                     and field.default_factory != PydanticUndefined
                 ):
-                    default_value = field.default_factory()
+                    default_value = (
+                        field.default_factory()  # pyright: ignore[reportCallIssue]
+                    )
 
                     # Only replace empty dict if default_factory returns non-empty dict
-                    if isinstance(default_value, dict) and len(default_value) > 0:
+                    if (
+                        isinstance(default_value, dict)
+                        and len(
+                            default_value  # pyright: ignore[reportUnknownArgumentType]
+                        )
+                        > 0
+                    ):
                         data[field_name] = default_value
 
         super().__init__(**data)

@@ -481,15 +481,15 @@ class UpdatersModel(Observable):
         description="Path to which your media library mount point",
     )
     plex: PlexLibraryModel = Field(
-        default_factory=lambda: PlexLibraryModel(),
+        default_factory=PlexLibraryModel,
         description="Plex library configuration",
     )
     jellyfin: JellyfinLibraryModel = Field(
-        default_factory=lambda: JellyfinLibraryModel(),
+        default_factory=JellyfinLibraryModel,
         description="Jellyfin library configuration",
     )
     emby: EmbyLibraryModel = Field(
-        default_factory=lambda: EmbyLibraryModel(),
+        default_factory=EmbyLibraryModel,
         description="Emby library configuration",
     )
 

@@ -6,7 +6,7 @@ both parsed data (from filename parsing via RTN) and probed data (from file
 inspection via ffprobe) into a single, coherent structure.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal
 from RTN import ParsedData
@@ -282,7 +282,7 @@ class MediaMetadata(BaseModel):
             seasons=parsed_data.seasons,
             episodes=parsed_data.episodes,
             data_source=DataSource.PARSED,
-            parsed_at=datetime.utcnow().isoformat(),
+            parsed_at=datetime.now(timezone.utc).isoformat(),
         )
 
     def update_from_probed_data(self, probed_data: FFProbeMediaMetadata) -> None:
@@ -347,4 +347,4 @@ class MediaMetadata(BaseModel):
         elif self.data_source == DataSource.PROBED:
             pass  # Already probed
 
-        self.probed_at = datetime.utcnow().isoformat()
+        self.probed_at = datetime.now(timezone.utc).isoformat()

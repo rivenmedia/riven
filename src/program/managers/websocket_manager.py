@@ -1,5 +1,7 @@
 import asyncio
-from datetime import datetime
+
+from datetime import datetime, timezone
+
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -58,7 +60,7 @@ class ConnectionManager:
 
         # Format the message with timestamp
         formatted_message = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "data": message,
         }
 
