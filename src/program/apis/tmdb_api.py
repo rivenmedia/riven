@@ -19,8 +19,8 @@ class TMDBApi:
             # 40 requests per second
             # https://developer.themoviedb.org/docs/rate-limiting
             "api.themoviedb.org": {
-                "rate": 40,
-                "capacity": 1000,
+                "rate": 40.0,
+                "capacity": 1000.0,
             }
         }
 
