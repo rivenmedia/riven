@@ -528,14 +528,10 @@ class ProgramScheduler:
 
         dt = ProgramScheduler._parse_next_aired_datetime(release_data)
 
-        if dt is not None:
-            dt_local = ProgramScheduler._to_local_naive(release_data, dt)
+        if dt is not None and dt >= ref:
+            return dt
 
-            if dt_local and dt_local >= ref:
-                return dt_local
-
-            # fall through to weekday computation if next_aired is in the past
-
+        # Fall through to weekday computation if next_aired is in the past
         hm = ProgramScheduler._parse_airs_time(release_data.airs_time)
 
         if hm is None:
@@ -554,45 +550,16 @@ class ProgramScheduler:
 
             if candidate.weekday() in valid_days:
                 candidate_dt = candidate.replace(
-                    hour=hour, minute=minute, second=0, microsecond=0
-                )
-                candidate_dt = ProgramScheduler._to_local_naive(
-                    release_data, candidate_dt
+                    hour=hour,
+                    minute=minute,
+                    second=0,
+                    microsecond=0,
                 )
 
                 if candidate_dt and candidate_dt >= ref:
                     return candidate_dt
 
         return None
-
-    @staticmethod
-    def _to_local_naive(timezone: str | None, dt: datetime) -> datetime:
-        """
-        Convert a naive datetime in a source timezone (if provided) to local naive.
-
-        If release_data['timezone'] is provided and recognized by zoneinfo, interpret
-        the naive datetime in that zone and convert to local time. Otherwise, treat
-        as already-local naive.
-        """
-
-        try:
-            from zoneinfo import ZoneInfo
-        except Exception:
-            ZoneInfo = None
-
-        if timezone and ZoneInfo is not None:
-            try:
-                tz = ZoneInfo(timezone)
-                aware = dt.replace(tzinfo=tz)
-                local_tz = datetime.now().astimezone().tzinfo
-
-                if local_tz:
-                    aware_local = aware.astimezone(local_tz)
-                    return aware_local.replace(tzinfo=None)
-            except Exception:
-                return dt
-
-        return dt
 
     @staticmethod
     def _parse_next_aired_datetime(release_data: SeriesRelease) -> datetime | None:
@@ -603,12 +570,10 @@ class ProgramScheduler:
         if not next_aired:
             return None
 
-        na_str = str(next_aired)
-
         # If datetime-like
-        if "T" in na_str or " " in na_str:
+        if "T" in next_aired or " " in next_aired:
             try:
-                return datetime.fromisoformat(na_str)
+                return datetime.fromisoformat(next_aired)
             except Exception:
                 return None
 
@@ -616,13 +581,14 @@ class ProgramScheduler:
 
         # Date-only
         try:
-            base = datetime.fromisoformat(na_str + "T00:00:00")
+            base = datetime.fromisoformat(next_aired + "T00:00:00")
 
             if airs_time:
                 try:
                     hour, minute = [int(x) for x in str(airs_time).split(":", 1)]
                 except Exception:
                     hour, minute = 0, 0
+
                 return base.replace(hour=hour, minute=minute)
 
             return base

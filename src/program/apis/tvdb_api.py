@@ -100,8 +100,8 @@ class TVDBApi:
         rate_limits = {
             # 25 requests per second
             "api4.thetvdb.com": {
-                "rate": 25,
-                "capacity": 1000,
+                "rate": 25.0,
+                "capacity": 1000.0,
             }
         }
 

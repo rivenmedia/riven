@@ -415,11 +415,8 @@ class SmartSession:
 
         if isinstance(timeout_kw, (int, float)):
             req_timeout = httpx.Timeout(timeout_kw)
-        elif isinstance(timeout_kw, tuple) and timeout_kw:
-            # map (connect, read) to httpx
-            connect = float(timeout_kw[0]) if len(timeout_kw) >= 1 else 5.0
-            read = float(timeout_kw[1]) if len(timeout_kw) >= 2 else 30.0
-            req_timeout = httpx.Timeout(connect=connect, read=read)
+        elif isinstance(timeout_kw, httpx.Timeout):
+            req_timeout = timeout_kw
         else:
             req_timeout = self._client.timeout
 
