@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -35,7 +36,7 @@ Service = (
 @dataclass
 class ProcessedEvent:
     service: Service | None
-    related_media_items: list[MediaItem] | None
+    related_media_items: Sequence[MediaItem] | None
 
 
 @dataclass
