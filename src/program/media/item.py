@@ -1,8 +1,7 @@
 """MediaItem class"""
 
-from abc import abstractmethod
 from datetime import datetime
-from typing import Any, Literal, TYPE_CHECKING, Self, TypeVar, overload
+from typing import Any, Literal, TYPE_CHECKING, Self, TypeVar
 
 import sqlalchemy
 from loguru import logger
