@@ -189,7 +189,7 @@ class SmartResponse(requests.Response):
         _cached_data: Cached parsed data.
     """
 
-    _cached_data = None
+    _cached_data: SimpleNamespace | dict[str, Any] | None = None
 
     @property
     def data(self):
@@ -207,6 +207,7 @@ class SmartResponse(requests.Response):
 
         if not content_type or self.content == b"":
             self._cached_data = {}
+
             return self._cached_data
 
         try:
@@ -220,7 +221,9 @@ class SmartResponse(requests.Response):
                 or "application/rss+xml" in content_type
                 or "application/atom+xml" in content_type
             ):
-                self._cached_data = self._xml_to_simplenamespace(self.content)
+                self._cached_data = self._xml_to_simplenamespace(
+                    self.content.decode("utf-8")
+                )
             else:
                 self._cached_data = {}
         except Exception as e:

@@ -21,6 +21,7 @@ from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSessio
 from program.services.streaming.exceptions.debrid_service_exception import (
     DebridServiceLinkUnavailable,
 )
+from program.services.downloaders import UnrestrictedLink
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -331,21 +332,18 @@ class RealDebridDownloader(DownloaderBase):
                         file_id=file_id,
                     )
 
-                    if isinstance(df, DebridFile):
-                        # Download URL is already available from get_torrent_info()
-                        download_url = meta.download_url
+                    # Download URL is already available from get_torrent_info()
+                    download_url = meta.download_url
 
-                        if download_url:  # Empty string is falsy, so this works
-                            df.download_url = download_url
-                            logger.debug(
-                                f"Using correlated download URL for {meta.filename}"
-                            )
-                        else:
-                            logger.warning(
-                                f"No download URL available for {meta.filename}"
-                            )
+                    if download_url:  # Empty string is falsy, so this works
+                        df.download_url = download_url
+                        logger.debug(
+                            f"Using correlated download URL for {meta.filename}"
+                        )
+                    else:
+                        logger.warning(f"No download URL available for {meta.filename}")
 
-                        files.append(df)
+                    files.append(df)
                 except InvalidDebridFileException as e:
                     # noisy per-file details kept at debug
                     logger.debug(f"{infohash}: {e}")
@@ -575,7 +573,7 @@ class RealDebridDownloader(DownloaderBase):
 
         return DownloadList.model_validate({"data": response.json()}).data
 
-    def unrestrict_link(self, link: str) -> RealDebridDownload | None:
+    def unrestrict_link(self, link: str) -> UnrestrictedLink | None:
         """
         Unrestrict a link using direct requests library, bypassing SmartSession rate limiting.
 
@@ -605,7 +603,7 @@ class RealDebridDownloader(DownloaderBase):
 
                 raise DebridServiceLinkUnavailable(provider=self.key, link=link)
 
-            return RealDebridDownload.model_validate(response.json())
+            return UnrestrictedLink.model_validate(response.json())
         except DebridServiceLinkUnavailable:
             raise
         except Exception as e:

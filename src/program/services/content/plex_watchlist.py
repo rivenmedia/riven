@@ -1,6 +1,5 @@
 """Plex Watchlist Module"""
 
-from collections.abc import Generator
 from kink import di
 from loguru import logger
 from requests import HTTPError

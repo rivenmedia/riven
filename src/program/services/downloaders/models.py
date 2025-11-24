@@ -66,21 +66,21 @@ class InvalidDebridFileException(Exception):
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 
-    file_id: int
+    file_id: int | None
     filename: str
     filesize: int
-    download_url: str
+    download_url: str | None = None
 
     @classmethod
     def create(
         cls,
         filesize_bytes: int,
-        path: str,
         filename: str,
         filetype: Literal["movie", "show", "season", "episode"],
+        path: str | None = None,
         file_id: int | None = None,
         limit_filesize: bool = True,
-    ) -> "DebridFile | None":
+    ) -> "DebridFile":
         """Factory method to validate and create a DebridFile"""
 
         filename_lower = filename.lower() if filename else ""
@@ -147,7 +147,7 @@ class TorrentContainer(BaseModel):
     def file_ids(self) -> list[int]:
         """Get the file ids of the cached files"""
 
-        return [file.file_id for file in self.files if file.file_id is not None]
+        return [file.file_id for file in self.files]
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the TorrentContainer to a dictionary including the infohash"""

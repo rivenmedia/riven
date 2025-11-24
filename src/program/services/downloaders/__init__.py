@@ -289,8 +289,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     file_id=file.file_id,
                 )
 
-                if isinstance(debrid_file, DebridFile):
-                    valid_files.append(debrid_file)
+                valid_files.append(debrid_file)
             except InvalidDebridFileException as e:
                 logger.debug(f"{stream.infohash}: {e}")
                 continue
