@@ -146,11 +146,7 @@ class VFSDatabase:
                     service = next(
                         (
                             svc
-                            for svc in (
-                                self.downloader.services
-                                if isinstance(self.downloader.services, list)
-                                else self.downloader.services.values()
-                            )
+                            for svc in self.downloader.services.values()
                             if svc.key == entry.provider
                         ),
                         None,
