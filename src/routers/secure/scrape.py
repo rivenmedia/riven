@@ -7,13 +7,12 @@ from kink import di
 from loguru import logger
 from PTT import parse_title
 from pydantic import BaseModel, RootModel
-from RTN import ParsedData
 from sqla_wrapper import Session
 from sqlalchemy.orm import object_session
 
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import Episode, MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
@@ -29,19 +28,9 @@ from program.program import Program
 from ..models.shared import MessageResponse
 
 
-class Stream(BaseModel):
-    infohash: str
-    raw_title: str
-    parsed_title: str
-    parsed_data: ParsedData
-    rank: int
-    lev_ratio: float
-    is_cached: bool = False
-
-
 class ScrapeItemResponse(BaseModel):
     message: str
-    streams: dict[str, Stream]
+    streams: dict[str, ItemStream]
 
 
 class StartSessionResponse(BaseModel):
@@ -229,15 +218,15 @@ class ScrapingSessionManager:
             background_tasks.add_task(self.abort_session, session_id)
 
 
-session_manager = ScrapingSessionManager()
+scraping_session_manager = ScrapingSessionManager()
 
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
 
 def initialize_downloader(downloader: Downloader):
     """Initialize downloader if not already set"""
-    if not session_manager.downloader:
-        session_manager.set_downloader(downloader)
+    if not scraping_session_manager.downloader:
+        scraping_session_manager.set_downloader(downloader)
 
 
 @router.get("/scrape", summary="Get streams for an item", operation_id="scrape_item")
@@ -259,6 +248,7 @@ def scrape_item(
 
     log_string = None
     item = None
+    indexer_result = None
 
     with db_session():
         if item_id:
@@ -271,7 +261,7 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            indexer_result = next(indexer.run(prepared_item), None)
         elif tvdb_id and media_type == "tv":
             prepared_item = MediaItem(
                 {
@@ -280,7 +270,7 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            indexer_result = next(indexer.run(prepared_item), None)
         elif imdb_id:
             prepared_item = MediaItem(
                 {
@@ -290,9 +280,12 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            indexer_result = next(indexer.run(prepared_item), None)
         else:
             raise HTTPException(status_code=400, detail="No valid ID provided")
+
+        if indexer_result:
+            item = indexer_result.media_items[0]
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -314,16 +307,17 @@ def scrape_item(
 async def start_manual_session(
     request: Request,
     background_tasks: BackgroundTasks,
+    magnet: str,
     item_id: str | None = None,
     tmdb_id: str | None = None,
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
     media_type: Literal["movie", "tv"] | None = None,
-    magnet: str | None = None,
 ) -> StartSessionResponse:
-    session_manager.cleanup_expired(background_tasks)
+    scraping_session_manager.cleanup_expired(background_tasks)
 
     info_hash = extract_infohash(magnet)
+
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
@@ -335,8 +329,11 @@ async def start_manual_session(
 
     initialize_downloader(downloader)
 
+    item = None
+    indexer_result = None
+
     if item_id:
-        item = db_functions.get_item_by_id(item_id)
+        item = db_functions.get_item_by_id(int(item_id))
     elif tmdb_id and media_type == "movie":
         prepared_item = MediaItem(
             {
@@ -345,7 +342,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        item = next(indexer.run(prepared_item), None)
+        indexer_result = next(indexer.run(prepared_item), None)
     elif tvdb_id and media_type == "tv":
         prepared_item = MediaItem(
             {
@@ -354,7 +351,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        item = next(indexer.run(prepared_item), None)
+        indexer_result = next(indexer.run(prepared_item), None)
     elif imdb_id:
         prepared_item = MediaItem(
             {
@@ -363,9 +360,12 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        item = next(indexer.run(prepared_item), None)
+        indexer_result = next(indexer.run(prepared_item), None)
     else:
         raise HTTPException(status_code=400, detail="No valid ID provided")
+
+    if indexer_result:
+        item = indexer_result.media_items[0]
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -377,7 +377,7 @@ async def start_manual_session(
             status_code=400, detail="Torrent is not cached, please try another stream"
         )
 
-    session = session_manager.create_session(
+    session = scraping_session_manager.create_session(
         item.id,
         info_hash,
         media_type=media_type,
@@ -387,28 +387,26 @@ async def start_manual_session(
     )
 
     try:
-        torrent_id: str = downloader.add_torrent(info_hash)
-        torrent_info: TorrentInfo = downloader.get_torrent_info(torrent_id)
-        session_manager.update_session(
+        torrent_id = downloader.add_torrent(info_hash)
+        torrent_info = downloader.get_torrent_info(torrent_id)
+        scraping_session_manager.update_session(
             session.id,
             torrent_id=torrent_id,
             torrent_info=torrent_info,
             containers=container,
         )
     except Exception as e:
-        background_tasks.add_task(session_manager.abort_session, session.id)
+        background_tasks.add_task(scraping_session_manager.abort_session, session.id)
         raise HTTPException(status_code=500, detail=str(e))
 
-    data = {
-        "message": "Started manual scraping session",
-        "session_id": session.id,
-        "torrent_id": torrent_id,
-        "torrent_info": torrent_info,
-        "containers": container,
-        "expires_at": session.expires_at.isoformat(),
-    }
-
-    return StartSessionResponse(**data)
+    return StartSessionResponse(
+        message="Started manual scraping session",
+        session_id=session.id,
+        torrent_id=torrent_id,
+        torrent_info=torrent_info,
+        containers=container,
+        expires_at=session.expires_at.isoformat(),
+    )
 
 
 @router.post(
@@ -417,17 +415,27 @@ async def start_manual_session(
     operation_id="manual_select",
 )
 def manual_select_files(
-    request: Request, session_id: str, files: Container
+    request: Request,
+    session_id: str,
+    files: Container,
 ) -> SelectFilesResponse:
-    downloader: Downloader = di[Program].services.downloader
-    session = session_manager.get_session(session_id)
+    if services := di[Program].services:
+        downloader = services.downloader
+    else:
+        raise HTTPException(status_code=412, detail="Required services not initialized")
+
+    session = scraping_session_manager.get_session(session_id)
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
+
     if not session.torrent_id:
-        session_manager.abort_session(session_id)
+        scraping_session_manager.abort_session(session_id)
+
         raise HTTPException(status_code=500, detail="No torrent ID found")
 
     download_type = "uncached"
+
     if files.model_dump() in session.containers:
         download_type = "cached"
 
@@ -435,6 +443,7 @@ def manual_select_files(
         downloader.select_files(
             session.torrent_id, [int(file_id) for file_id in files.root.keys()]
         )
+
         session.selected_files = files.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -472,44 +481,51 @@ async def manual_update_attributes(
         HTTPException: 404 if the session or target item cannot be found; 500 if the session lacks an associated item ID.
     """
 
-    session = session_manager.get_session(session_id)
+    scraping_session = scraping_session_manager.get_session(session_id)
     log_string = None
 
-    if not session:
+    if not scraping_session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
-    if not session.item_id:
-        session_manager.abort_session(session_id)
+    if not scraping_session.item_id:
+        scraping_session_manager.abort_session(session_id)
         raise HTTPException(status_code=500, detail="No item ID found")
 
     item = None
+    item_ids_to_submit = None
 
-    if session.media_type == "tv" and session.tvdb_id:
-        item = db_functions.get_item_by_external_id(tvdb_id=str(session.tvdb_id))
-    elif session.media_type == "movie" and session.tmdb_id:
-        item = db_functions.get_item_by_external_id(tmdb_id=str(session.tmdb_id))
-    elif session.imdb_id:
-        item = db_functions.get_item_by_external_id(imdb_id=session.imdb_id)
+    if scraping_session.media_type == "tv" and scraping_session.tvdb_id:
+        item = db_functions.get_item_by_external_id(
+            tvdb_id=str(scraping_session.tvdb_id)
+        )
+    elif scraping_session.media_type == "movie" and scraping_session.tmdb_id:
+        item = db_functions.get_item_by_external_id(
+            tmdb_id=str(scraping_session.tmdb_id)
+        )
+    elif scraping_session.imdb_id:
+        item = db_functions.get_item_by_external_id(imdb_id=scraping_session.imdb_id)
 
     if not item:
-        item_data = {}
+        item_data = dict[str, Any]()
 
-        if session.imdb_id:
-            item_data["imdb_id"] = session.imdb_id
+        if scraping_session.imdb_id:
+            item_data["imdb_id"] = scraping_session.imdb_id
 
-        if session.tmdb_id:
-            item_data["tmdb_id"] = session.tmdb_id
+        if scraping_session.tmdb_id:
+            item_data["tmdb_id"] = scraping_session.tmdb_id
 
-        if session.tvdb_id:
-            item_data["tvdb_id"] = session.tvdb_id
+        if scraping_session.tvdb_id:
+            item_data["tvdb_id"] = scraping_session.tvdb_id
 
         if item_data:
             item_data["requested_by"] = "riven"
             item_data["requested_at"] = datetime.now()
             prepared_item = MediaItem(item_data)
-            item = next(IndexerService().run(prepared_item), None)
 
-            if item:
+            indexer_result = next(IndexerService().run(prepared_item), None)
+
+            if indexer_result:
+                item = indexer_result.media_items[0]
                 session.merge(item)
                 session.commit()
 
@@ -519,7 +535,7 @@ async def manual_update_attributes(
         item = session.merge(item)
         item_ids_to_submit = set[int]()
 
-        def update_item(item: MediaItem, data: DebridFile, session: ScrapingSession):
+        def update_item(item: MediaItem, data: DebridFile):
             """
             Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
 
@@ -528,9 +544,10 @@ async def manual_update_attributes(
             Parameters:
                 item (MediaItem): The media item to update; will be merged into the active DB session as needed.
                 data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
-                session (ScrapingSession): Scraping session containing the magnet and torrent_info used to set active_stream and rank the stream.
             """
+
             di[Program].em.cancel_job(item.id)
+
             item.reset()
 
             # Ensure a staging MediaEntry exists and is linked
@@ -538,19 +555,20 @@ async def manual_update_attributes(
 
             fs_entry = None
 
-            if item.filesystem_entry:
-                fs_entry = item.filesystem_entry
+            if item.media_entry and data.filename:
+                fs_entry = item.media_entry
                 # Update source metadata on existing entry
                 fs_entry.original_filename = data.filename
             else:
                 # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                fs_entry = MediaEntry.create_virtual_entry(
+                fs_entry = MediaEntry.create_placeholder_entry(
                     original_filename=data.filename,
-                    download_url=getattr(data, "download_url", None),
+                    download_url=data.download_url,
                     provider=None,
                     provider_download_id=None,
-                    file_size=(data.filesize or 0),
+                    file_size=data.filesize or 0,
                 )
+
                 session.add(fs_entry)
                 session.commit()
                 session.refresh(fs_entry)
@@ -562,10 +580,14 @@ async def manual_update_attributes(
                 item = session.merge(item)
 
             item.active_stream = {
-                "infohash": session.magnet,
-                "id": session.torrent_info.id,
+                "infohash": scraping_session.magnet,
+                "id": scraping_session.torrent_info.id,
             }
-            torrent = rtn.rank(session.torrent_info.name, session.magnet)
+
+            torrent = rtn.rank(
+                scraping_session.torrent_info.name,
+                scraping_session.magnet,
+            )
 
             # Ensure the item is properly attached to the session before adding streams
             # This prevents SQLAlchemy warnings about detached objects
@@ -575,9 +597,8 @@ async def manual_update_attributes(
             item.streams.append(ItemStream(torrent))
             item_ids_to_submit.add(item.id)
 
-        if item.type == "movie":
-            update_item(item, data, session)
-
+        if isinstance(data, DebridFile):
+            update_item(item, data)
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
@@ -585,7 +606,7 @@ async def manual_update_attributes(
                         if episode := item.get_absolute_episode(
                             episode_number, season_number
                         ):
-                            update_item(episode, episode_data, session)
+                            update_item(episode, episode_data)
                         else:
                             logger.error(
                                 f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
@@ -595,7 +616,7 @@ async def manual_update_attributes(
                         if episode := item.parent.get_absolute_episode(
                             episode_number, season_number
                         ):
-                            update_item(episode, episode_data, session)
+                            update_item(episode, episode_data)
                         else:
                             logger.error(
                                 f"Failed to find season {season_number} for {item.log_string}"
@@ -607,30 +628,37 @@ async def manual_update_attributes(
                             and episode_number != item.number
                         ):
                             continue
-                        update_item(item, episode_data, session)
+                        update_item(item, episode_data)
                         break
                     else:
                         logger.error(f"Failed to find item type for {item.log_string}")
                         continue
 
         item.store_state()
+
         log_string = item.log_string
+
         session.merge(item)
         session.commit()
 
     # Sync VFS to reflect any deleted/updated entries
     # Must happen AFTER commit so the database reflects the changes
-
-    filesystem_service = di[Program].services.filesystem
+    if services := di[Program].services:
+        filesystem_service = services.filesystem
+    else:
+        raise HTTPException(
+            status_code=412, detail="Filesystem service not initialized"
+        )
 
     if filesystem_service and filesystem_service.riven_vfs:
         filesystem_service.riven_vfs.sync(item)
         logger.debug("VFS synced after manual scraping update")
 
-    for item_id in item_ids_to_submit:
-        di[Program].em.add_event(Event("ManualAPI", item_id))
+    if item_ids_to_submit:
+        for item_id in item_ids_to_submit:
+            di[Program].em.add_event(Event("ManualAPI", item_id))
 
-    return {"message": f"Updated given data to {log_string}"}
+    return UpdateAttributesResponse(message=f"Updated given data to {log_string}")
 
 
 @router.post(
@@ -641,12 +669,12 @@ async def manual_update_attributes(
 async def abort_manual_session(
     _: Request, background_tasks: BackgroundTasks, session_id: str
 ) -> SessionResponse:
-    session = session_manager.get_session(session_id)
+    session = scraping_session_manager.get_session(session_id)
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
-    background_tasks.add_task(session_manager.abort_session, session_id)
+    background_tasks.add_task(scraping_session_manager.abort_session, session_id)
 
     return SessionResponse(message=f"Aborted session {session_id}")
 
@@ -657,7 +685,7 @@ async def abort_manual_session(
     operation_id="complete_manual_session",
 )
 async def complete_manual_session(_: Request, session_id: str) -> SessionResponse:
-    session = session_manager.get_session(session_id)
+    session = scraping_session_manager.get_session(session_id)
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -665,7 +693,7 @@ async def complete_manual_session(_: Request, session_id: str) -> SessionRespons
     if not all([session.torrent_id, session.selected_files]):
         raise HTTPException(status_code=400, detail="Session is incomplete")
 
-    session_manager.complete_session(session_id)
+    scraping_session_manager.complete_session(session_id)
 
     return SessionResponse(message=f"Completed session {session_id}")
 
@@ -681,20 +709,24 @@ class ParseTorrentTitleResponse(BaseModel):
     operation_id="parse_torrent_titles",
 )
 async def parse_torrent_titles(
-    request: Request, titles: list[str]
+    request: Request,
+    titles: list[str],
 ) -> ParseTorrentTitleResponse:
-    parsed_titles = []
+    parsed_titles = list[dict[str, Any]]()
 
     if titles:
         for title in titles:
-            data = {}
-            data["raw_title"] = title
-            parsed_data = parse_title(title)
-            data = {**data, **parsed_data}
-            parsed_titles.append(data)
+            parsed_titles.append(
+                {
+                    "raw_title": title,
+                    **parse_title(title),
+                }
+            )
+
         if parsed_titles:
             return ParseTorrentTitleResponse(
-                message="Parsed torrent titles", data=parsed_titles
+                message="Parsed torrent titles",
+                data=parsed_titles,
             )
 
         return ParseTorrentTitleResponse(message="No titles could be parsed", data=[])

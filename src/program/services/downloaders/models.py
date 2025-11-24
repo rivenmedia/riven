@@ -66,18 +66,18 @@ class InvalidDebridFileException(Exception):
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 
-    file_id: int | None = Field(default=None)
-    filename: str | None = Field(default=None)
-    filesize: int | None = Field(default=None)
-    download_url: str | None = Field(default=None)
+    file_id: int
+    filename: str
+    filesize: int
+    download_url: str
 
     @classmethod
     def create(
         cls,
         filesize_bytes: int,
-        path: str | None = None,
-        filename: str | None = None,
-        filetype: Literal["movie", "show", "season", "episode"] | None = None,
+        path: str,
+        filename: str,
+        filetype: Literal["movie", "show", "season", "episode"],
         file_id: int | None = None,
         limit_filesize: bool = True,
     ) -> "DebridFile | None":

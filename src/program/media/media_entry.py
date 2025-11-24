@@ -104,7 +104,7 @@ class MediaEntry(FilesystemEntry):
             Always includes at least the base path.
         """
         from program.services.filesystem.vfs.naming import generate_clean_path
-        from program.settings import settings_manager
+        from program.settings.manager import settings_manager
 
         # Get the associated MediaItem
         item = self.media_item
@@ -150,6 +150,39 @@ class MediaEntry(FilesystemEntry):
         download_url: str,
         provider: str,
         provider_download_id: str,
+        file_size: int = 0,
+        media_metadata: MediaMetadata | None = None,
+    ) -> "MediaEntry":
+        """
+        Create a MediaEntry representing a virtual (RivenVFS) media file.
+
+        Parameters:
+            original_filename (str): Original filename from debrid provider (source of truth).
+            download_url (str): Provider-restricted URL used to fetch the file.
+            provider (str): Identifier of the provider that supplies the file.
+            provider_download_id (str): Provider-specific download identifier.
+            file_size (int): Size of the file in bytes; defaults to 0.
+            media_metadata (dict, optional): Cached media metadata to avoid re-parsing/probing.
+
+        Returns:
+            MediaEntry: A new MediaEntry instance populated with the provided values.
+        """
+        return cls(
+            original_filename=original_filename,
+            download_url=download_url,
+            provider=provider,
+            provider_download_id=provider_download_id,
+            file_size=file_size,
+            media_metadata=media_metadata,
+        )
+
+    @classmethod
+    def create_placeholder_entry(
+        cls,
+        original_filename: str,
+        download_url: str | None,
+        provider: str | None = None,
+        provider_download_id: str | None = None,
         file_size: int = 0,
         media_metadata: MediaMetadata | None = None,
     ) -> "MediaEntry":
