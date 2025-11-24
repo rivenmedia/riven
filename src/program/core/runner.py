@@ -70,11 +70,7 @@ class Runner(ABC, Generic[TSettings, TService]):
         return True
 
     @abstractmethod
-    def run(
-        self,
-        *args: tuple[Any] | None,
-        **kwargs: dict[str, Any] | None,
-    ) -> RunnerReturnType:
+    def run(self, item: MediaItem) -> RunnerReturnType:
         """Run the base runner"""
 
         raise NotImplementedError

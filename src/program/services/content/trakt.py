@@ -77,7 +77,7 @@ class TraktContent(ContentService[TraktModel]):
 
         return False
 
-    def run(self) -> MediaItemGenerator:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
 
         watchlist_ids = (

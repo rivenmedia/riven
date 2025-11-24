@@ -82,7 +82,7 @@ class PlexWatchlist(ContentService[PlexWatchlistModel]):
 
         return True
 
-    def run(self) -> MediaItemGenerator:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
 
         try:

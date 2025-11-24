@@ -26,54 +26,54 @@ class TVDBIndexer(BaseIndexer):
 
     def run(
         self,
-        in_item: MediaItem,
+        item: MediaItem,
         log_msg: bool = True,
     ) -> MediaItemGenerator[Show]:
         """Run the TVDB indexer for the given item."""
 
-        if in_item.type not in ["show", "mediaitem", "season", "episode"]:
+        if item.type not in ["show", "mediaitem", "season", "episode"]:
             logger.debug(
-                f"TVDB indexer skipping incorrect item type: {in_item.log_string}"
+                f"TVDB indexer skipping incorrect item type: {item.log_string}"
             )
 
             return
 
-        if not (in_item.imdb_id or in_item.tvdb_id):
+        if not (item.imdb_id or item.tvdb_id):
             logger.error(
-                f"Item {in_item.log_string} does not have an imdb_id or tvdb_id, cannot index it"
+                f"Item {item.log_string} does not have an imdb_id or tvdb_id, cannot index it"
             )
 
             return
 
         # Scenario 1: Fresh indexing - create new Show from API data
-        if in_item.type == "mediaitem":
-            if item := self._create_show_from_id(in_item.imdb_id, in_item.tvdb_id):
-                item = self.copy_items(in_item, item)
-                item.indexed_at = datetime.now()
+        if item.type == "mediaitem":
+            if indexed_item := self._create_show_from_id(item.imdb_id, item.tvdb_id):
+                indexed_item = self.copy_items(item, indexed_item)
+                indexed_item.indexed_at = datetime.now()
 
                 if log_msg:
                     logger.debug(
-                        f"Indexed TV show {item.log_string} (IMDB: {item.imdb_id}, TVDB: {item.tvdb_id})"
+                        f"Indexed TV show {indexed_item.log_string} (IMDB: {indexed_item.imdb_id}, TVDB: {indexed_item.tvdb_id})"
                     )
 
-                yield RunnerResult(media_items=[item])
+                yield RunnerResult(media_items=[indexed_item])
 
                 return
 
         # Scenario 2: Reindexing existing Show/Season/Episode - update in-place
-        elif isinstance(in_item, (Show, Season, Episode)):
+        elif isinstance(item, (Show, Season, Episode)):
             show: Show | None = None
 
             # Get the root Show object
-            if isinstance(in_item, Show):
-                show = in_item
-            elif isinstance(in_item, Season):
-                show = in_item.parent
+            if isinstance(item, Show):
+                show = item
+            elif isinstance(item, Season):
+                show = item.parent
             else:
-                show = in_item.parent.parent if in_item.parent else None
+                show = item.parent.parent if item.parent else None
 
             if not show:
-                logger.error(f"Could not find parent Show for {in_item.log_string}")
+                logger.error(f"Could not find parent Show for {item.log_string}")
                 return
 
             # Fetch fresh metadata from TVDB API
@@ -90,7 +90,7 @@ class TVDBIndexer(BaseIndexer):
                 return
 
         logger.error(
-            f"Failed to index TV show with ids: imdb={in_item.imdb_id}, tvdb={in_item.tvdb_id}"
+            f"Failed to index TV show with ids: imdb={item.imdb_id}, tvdb={item.tvdb_id}"
         )
 
         return

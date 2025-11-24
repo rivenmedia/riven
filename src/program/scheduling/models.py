@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import cast
 
 import sqlalchemy
 from sqlalchemy import Index
@@ -35,7 +36,9 @@ class ScheduledTask(Base):
         sqlalchemy.Enum(
             ScheduledStatus,
             name="scheduledstatus",
-            values_callable=lambda enum: [e.value for e in enum],
+            values_callable=lambda enum: [
+                e.value for e in cast(list[ScheduledStatus], enum)
+            ],
         ),
         default=ScheduledStatus.Pending,
     )

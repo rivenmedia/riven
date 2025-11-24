@@ -376,14 +376,6 @@ def run_thread_with_db_item(
                         item = runner_result.media_items[0]
                         run_at = runner_result.run_at
 
-                        if not isinstance(item, MediaItem):
-                            logger.log(
-                                "PROGRAM",
-                                f"Service {service.__class__.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
-                            )
-
-                            program.em.remove_id_from_queues(input_item.id)
-
                         if not cancellation_event.is_set():
                             # Update parent item based on type
                             if isinstance(input_item, Episode):

@@ -23,50 +23,50 @@ class TMDBIndexer(BaseIndexer):
 
     def run(
         self,
-        in_item: MediaItem,
+        item: MediaItem,
         log_msg: bool = True,
     ) -> MediaItemGenerator[Movie]:
         """Run the TMDB indexer for the given item."""
 
-        if not (in_item.imdb_id or in_item.tmdb_id):
+        if not (item.imdb_id or item.tmdb_id):
             logger.error(
-                f"Item {in_item.log_string} does not have an imdb_id or tmdb_id, cannot index it"
+                f"Item {item.log_string} does not have an imdb_id or tmdb_id, cannot index it"
             )
             return
 
-        if in_item.type not in ["movie", "mediaitem"]:
+        if item.type not in ["movie", "mediaitem"]:
             logger.debug(
-                f"TMDB indexer skipping incorrect item type: {in_item.log_string}"
+                f"TMDB indexer skipping incorrect item type: {item.log_string}"
             )
             return
 
         # Scenario 1: Fresh indexing - create new Movie from API data
-        if in_item.type == "mediaitem":
-            if item := self._create_movie_from_id(in_item.imdb_id, in_item.tmdb_id):
-                item = self.copy_items(in_item, item)
+        if item.type == "mediaitem":
+            if indexed_item := self._create_movie_from_id(item.imdb_id, item.tmdb_id):
+                indexed_item = self.copy_items(item, indexed_item)
+                indexed_item.indexed_at = datetime.now()
+                if log_msg:
+                    logger.debug(
+                        f"Indexed Movie {indexed_item.log_string} (IMDB: {indexed_item.imdb_id}, TMDB: {indexed_item.tmdb_id})"
+                    )
+
+                yield RunnerResult(media_items=[indexed_item])
+                return
+
+        # Scenario 2: Re-indexing existing Movie - update in-place
+        elif isinstance(item, Movie):
+            if self._update_movie_metadata(item):
                 item.indexed_at = datetime.now()
                 if log_msg:
                     logger.debug(
-                        f"Indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})"
+                        f"Re-indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})"
                     )
 
                 yield RunnerResult(media_items=[item])
                 return
 
-        # Scenario 2: Re-indexing existing Movie - update in-place
-        elif isinstance(in_item, Movie):
-            if self._update_movie_metadata(in_item):
-                in_item.indexed_at = datetime.now()
-                if log_msg:
-                    logger.debug(
-                        f"Re-indexed Movie {in_item.log_string} (IMDB: {in_item.imdb_id}, TMDB: {in_item.tmdb_id})"
-                    )
-
-                yield RunnerResult(media_items=[in_item])
-                return
-
         logger.error(
-            f"Failed to index movie with ids: imdb={in_item.imdb_id}, tmdb={in_item.tmdb_id}"
+            f"Failed to index movie with ids: imdb={item.imdb_id}, tmdb={item.tmdb_id}"
         )
         return
 

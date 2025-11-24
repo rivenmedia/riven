@@ -27,47 +27,43 @@ class IndexerService(BaseIndexer):
 
     def run(
         self,
-        in_item: MediaItem,
+        item: MediaItem,
         log_msg: bool = True,
     ) -> MediaItemGenerator:
         """Run the appropriate indexer based on item type."""
 
-        if isinstance(in_item, Movie) or (in_item.tmdb_id and not in_item.tvdb_id):
+        if isinstance(item, Movie) or (item.tmdb_id and not item.tvdb_id):
             yield from self.tmdb_indexer.run(
-                in_item=in_item,
+                item=item,
                 log_msg=log_msg,
             )
-        elif isinstance(in_item, (Show, Season, Episode)) or (
-            in_item.tvdb_id and not in_item.tmdb_id
+        elif isinstance(item, (Show, Season, Episode)) or (
+            item.tvdb_id and not item.tmdb_id
         ):
             yield from self.tvdb_indexer.run(
-                in_item=in_item,
+                item=item,
                 log_msg=log_msg,
             )
         else:
-            item = None
+            movie_result = self.tmdb_indexer.run(
+                item=item,
+                log_msg=False,
+            )
 
-            if not item:
-                movie_result = self.tmdb_indexer.run(
-                    in_item=in_item,
-                    log_msg=False,
-                )
-                item = next(movie_result, None)
+            indexed_item = next(movie_result, None)
 
-            if not item:
+            if not indexed_item:
                 show_result = self.tvdb_indexer.run(
-                    in_item=in_item,
+                    item=item,
                     log_msg=False,
                 )
-                item = next(show_result, None)
+                indexed_item = next(show_result, None)
 
-            if item:
-                yield item
+            if indexed_item:
+                yield indexed_item
                 return
 
-        logger.warning(
-            f"Unknown item type, cannot index {in_item.log_string}.. skipping"
-        )
+        logger.warning(f"Unknown item type, cannot index {item.log_string}.. skipping")
 
         return
 

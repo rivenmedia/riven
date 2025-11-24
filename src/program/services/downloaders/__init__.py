@@ -272,6 +272,13 @@ class Downloader(Runner[None, DownloaderBase]):
         Validate a single stream on a specific service by ensuring its files match the item's requirements.
         """
 
+        if item.type == "mediaitem":
+            logger.debug(
+                f"Item {item.log_string} has generic type 'mediaitem', cannot validate stream {stream.infohash}."
+            )
+
+            return None
+
         container = service.get_instant_availability(stream.infohash, item.type)
 
         if not container:
