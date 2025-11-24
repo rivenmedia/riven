@@ -1,5 +1,6 @@
 """MediaItem class"""
 
+from abc import abstractmethod
 from datetime import datetime
 from typing import Any, Literal, TYPE_CHECKING
 
@@ -542,6 +543,7 @@ class MediaItem(Base):
 
         return False
 
+    @abstractmethod
     def copy(self, other: "MediaItem"):
         self.id = other.id
 

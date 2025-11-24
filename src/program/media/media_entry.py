@@ -104,7 +104,7 @@ class MediaEntry(FilesystemEntry):
             Always includes at least the base path.
         """
         from program.services.filesystem.vfs.naming import generate_clean_path
-        from program.settings.manager import settings_manager
+        from program.settings import settings_manager
 
         # Get the associated MediaItem
         item = self.media_item
