@@ -48,8 +48,8 @@ class PlexAPI:
         rate_limits = {
             # 1 call per second, 60 calls per minute
             "metadata.provider.plex.tv": {
-                "rate": 1,
-                "capacity": 60,
+                "rate": 1.0,
+                "capacity": 60.0,
             },
         }
 
