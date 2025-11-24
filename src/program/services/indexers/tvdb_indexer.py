@@ -435,7 +435,7 @@ class TVDBIndexer(BaseIndexer):
 
         try:
             # Build a map of existing seasons by number for quick lookup
-            existing_seasons = {cast(int, s.number): s for s in show.seasons}
+            existing_seasons = {s.number: s for s in show.seasons}
 
             filtered_seasons = [
                 season
@@ -474,7 +474,7 @@ class TVDBIndexer(BaseIndexer):
                     if episodes := extended_data.episodes:
                         # Build a map of existing episodes by number
                         existing_episodes: dict[int, Episode] = {
-                            cast(int, e.number): e for e in season_item.episodes
+                            e.number: e for e in season_item.episodes
                         }
 
                         for episode_data in episodes:
@@ -597,6 +597,7 @@ class TVDBIndexer(BaseIndexer):
         try:
             # Parse aired date
             aired_at = None
+
             if first_aired := episode_data.aired:
                 try:
                     aired_at = datetime.strptime(first_aired, "%Y-%m-%d")

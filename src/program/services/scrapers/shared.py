@@ -127,6 +127,7 @@ def parse_results(
             if isinstance(item, Episode):
                 # Disregard torrents with incorrect episode number logic:
                 skip = False
+
                 # If the torrent has episodes, but the episode number is not present
                 if torrent.data.episodes:
                     if (
@@ -134,10 +135,12 @@ def parse_results(
                         and item.absolute_number not in torrent.data.episodes
                     ):
                         skip = True
+
                 # If the torrent does not have episodes, but has seasons, and the parent season is not present
                 elif torrent.data.seasons:
                     if item.parent.number not in torrent.data.seasons:
                         skip = True
+
                 # If the torrent has neither episodes nor seasons, skip (junk)
                 else:
                     skip = True

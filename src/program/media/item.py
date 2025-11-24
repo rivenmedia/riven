@@ -2,7 +2,7 @@
 
 from abc import abstractmethod
 from datetime import datetime
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING, Self, TypeVar, overload
 
 import sqlalchemy
 from loguru import logger
@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
 
 
+TMediaItem = TypeVar("TMediaItem", bound="MediaItem")
+
+
 class MediaItem(Base):
     """MediaItem class"""
 
@@ -38,7 +41,6 @@ class MediaItem(Base):
     tmdb_id: Mapped[str | None]
     title: Mapped[str]
     poster_path: Mapped[str | None]
-    number: Mapped[int | None]
     type: Mapped[Literal["episode", "season", "show", "movie", "mediaitem"]] = (
         mapped_column(nullable=False)
     )
@@ -508,7 +510,7 @@ class MediaItem(Base):
             dict["active_stream"] = (
                 self.active_stream if hasattr(self, "active_stream") else None
             )
-        dict["number"] = self.number if hasattr(self, "number") else None
+        dict["number"] = self.number if isinstance(self, Episode | Season) else None
         dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
 
         dict["filesystem_entry"] = (
@@ -543,14 +545,10 @@ class MediaItem(Base):
 
         return False
 
-    @abstractmethod
-    def copy(self, other: "MediaItem"):
+    def _copy_common_attributes(self, other: "MediaItem") -> None:
+        """Copy common attributes from another MediaItem."""
+
         self.id = other.id
-
-        if other.number is not None:
-            self.number = other.number
-
-        return self
 
     def get(self, key: str, default: Any = None):
         """Get item attribute"""
@@ -783,8 +781,9 @@ class Movie(MediaItem):
         "polymorphic_load": "selectin",
     }
 
-    def copy(self, other: "Movie"):
-        super().copy(other)
+    def copy(self, other: "Self") -> Self:
+        super()._copy_common_attributes(other)
+
         return self
 
     def __init__(self, item: dict[str, Any]):
@@ -915,8 +914,8 @@ class Show(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-    def copy(self, other: "Show"):
-        super(Show, self).copy(other)
+    def copy(self, other: "Self") -> Self:
+        super()._copy_common_attributes(other)
 
         self.seasons = []
 
@@ -933,7 +932,7 @@ class Show(MediaItem):
         if season.number not in [s.number for s in self.seasons]:
             self.seasons.append(season)
             season.parent = self
-            self.seasons = sorted(self.seasons, key=lambda s: s.number)
+            self.seasons = sorted(self.seasons, key=lambda s: s.number or 0)
 
     def get_absolute_episode(
         self,
@@ -972,6 +971,7 @@ class Season(MediaItem):
     id: Mapped[int] = mapped_column(
         sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
     )
+    number: Mapped[int]
     parent_id: Mapped[int] = mapped_column(
         sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
     )
@@ -1003,7 +1003,7 @@ class Season(MediaItem):
 
     def __init__(self, item: dict[str, Any]):
         self.type = "season"
-        self.number = item.get("number", None)
+        self.number = item["number"]
         self.episodes = item.get("episodes", [])
 
         super().__init__(item)
@@ -1087,13 +1087,15 @@ class Season(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-    def copy(self, other: "Season", copy_parent: bool = True):
-        super(Season, self).copy(other)
+    def copy(self, other: "Self", copy_parent: bool = True) -> Self:
+        super()._copy_common_attributes(other)
 
         for episode in other.episodes:
             new_episode = Episode(item={}).copy(episode, False)
             new_episode.parent = self
             self.episodes.append(new_episode)
+
+        self.number = other.number
 
         if copy_parent and other.parent:
             self.parent = Show(item={}).copy(other.parent)
@@ -1108,7 +1110,7 @@ class Season(MediaItem):
 
         self.episodes.append(episode)
         episode.parent = self
-        self.episodes = sorted(self.episodes, key=lambda e: e.number)
+        self.episodes = sorted(self.episodes, key=lambda e: e.number or 0)
 
     @property
     def log_string(self):
@@ -1132,6 +1134,7 @@ class Episode(MediaItem):
     id: Mapped[int] = mapped_column(
         sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
     )
+    number: Mapped[int]
     parent_id: Mapped[int] = mapped_column(
         sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True
     )
@@ -1149,7 +1152,7 @@ class Episode(MediaItem):
 
     def __init__(self, item: dict[str, Any]):
         self.type = "episode"
-        self.number = item.get("number", None)
+        self.number = item["number"]
 
         super().__init__(item)
 
@@ -1159,8 +1162,10 @@ class Episode(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-    def copy(self, other: "Episode", copy_parent: bool = True):
-        super(Episode, self).copy(other)
+    def copy(self, other: "Self", copy_parent: bool = True) -> Self:
+        super()._copy_common_attributes(other)
+
+        self.number = other.number
 
         if copy_parent and other.parent:
             self.parent = Season(item={}).copy(other.parent)
