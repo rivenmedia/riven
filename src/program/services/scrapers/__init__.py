@@ -33,19 +33,19 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             settings_manager.settings.scraping.max_failed_attempts
         )
 
-        self.services = [
-            Comet(),
-            Jackett(),
-            Mediafusion(),
-            Orionoid(),
-            Prowlarr(),
-            Rarbg(),
-            Torrentio(),
-            Zilean(),
-        ]
+        self.services = {
+            Comet: Comet(),
+            Jackett: Jackett(),
+            Mediafusion: Mediafusion(),
+            Orionoid: Orionoid(),
+            Prowlarr: Prowlarr(),
+            Rarbg: Rarbg(),
+            Torrentio: Torrentio(),
+            Zilean: Zilean(),
+        }
 
         self.initialized_services = [
-            service for service in self.services if service.initialized
+            service for service in self.services.values() if service.initialized
         ]
         self.initialized = self.validate()
 

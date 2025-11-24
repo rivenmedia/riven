@@ -422,15 +422,10 @@ class RealDebridDownloader(DownloaderBase):
         if not response.ok:
             raise RealDebridError(self._handle_error(response))
 
-    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo | None:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """
         Retrieve torrent information and normalize into TorrentInfo.
-        Returns None on API-level failure (non-OK) to match current behavior.
         """
-
-        if not torrent_id:
-            logger.debug("No torrent ID provided")
-            return None
 
         assert self.api
 
@@ -441,7 +436,7 @@ class RealDebridDownloader(DownloaderBase):
             logger.debug(
                 f"Failed to get torrent info for {torrent_id}: {self._handle_error(response)}"
             )
-            return None
+            raise RealDebridError(response.data)
 
         torrent_info = RealDebridTorrentInfo.model_validate(response.json())
 

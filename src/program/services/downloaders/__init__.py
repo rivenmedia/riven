@@ -41,15 +41,15 @@ class UnrestrictedLink(BaseModel):
 class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
         self.initialized = False
-        self.services = [
-            RealDebridDownloader(),
-            DebridLinkDownloader(),
-            AllDebridDownloader(),
-        ]
+        self.services = {
+            RealDebridDownloader: RealDebridDownloader(),
+            DebridLinkDownloader: DebridLinkDownloader(),
+            AllDebridDownloader: AllDebridDownloader(),
+        }
 
         # Get all initialized services instead of just the first one
         self.initialized_services = [
-            service for service in self.services if service.initialized
+            service for service in self.services.values() if service.initialized
         ]
 
         # Keep backward compatibility - primary service is the first initialized one
@@ -639,7 +639,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.add_torrent(infohash)
 
-    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo | None:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """Get information about a torrent"""
 
         assert self.service

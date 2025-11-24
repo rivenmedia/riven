@@ -37,7 +37,7 @@ class Runner(ABC, Generic[TSettings, TService]):
 
     is_content_service: bool = False
     settings: TSettings
-    services: list[TService] | dict[type[TService], TService]
+    services: dict[type[TService], TService]
 
     def __init__(self):
         super().__init__()
@@ -78,3 +78,9 @@ class Runner(ABC, Generic[TSettings, TService]):
         """Run the base runner"""
 
         raise NotImplementedError
+
+    @classmethod
+    def should_submit(cls, item: MediaItem) -> bool:
+        """Determine if the runner should submit an item for processing."""
+
+        return True

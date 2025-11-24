@@ -12,7 +12,7 @@ from sqlalchemy.orm import object_session
 
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import Episode, MediaItem, Season, Show
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
@@ -36,7 +36,7 @@ class ScrapeItemResponse(BaseModel):
 class StartSessionResponse(BaseModel):
     message: str
     session_id: str
-    torrent_id: str
+    torrent_id: str | int
     torrent_info: TorrentInfo
     containers: TorrentContainer | None
     expires_at: str
@@ -104,7 +104,7 @@ class ScrapingSession:
     def __init__(
         self,
         id: str,
-        item_id: str,
+        item_id: int,
         media_type: Literal["movie", "tv"] | None = None,
         imdb_id: str | None = None,
         tmdb_id: str | None = None,
@@ -137,7 +137,7 @@ class ScrapingSessionManager:
 
     def create_session(
         self,
-        item_id: str,
+        item_id: int,
         magnet: str,
         media_type: Literal["movie", "tv"] | None = None,
         imdb_id: str | None = None,
@@ -147,7 +147,13 @@ class ScrapingSessionManager:
         """Create a new scraping session"""
         session_id = str(uuid4())
         session = ScrapingSession(
-            session_id, item_id, media_type, imdb_id, tmdb_id, tvdb_id, magnet
+            session_id,
+            item_id,
+            media_type,
+            imdb_id,
+            tmdb_id,
+            tvdb_id,
+            magnet,
         )
         self.sessions[session_id] = session
         return session

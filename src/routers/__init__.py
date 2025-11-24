@@ -19,10 +19,10 @@ app_router = APIRouter(prefix=f"/api/{API_VERSION}")
 
 @app_router.get("/", operation_id="root")
 async def root(_: Request) -> RootResponse:
-    return {
-        "message": "Riven is running!",
-        "version": settings_manager.settings.version,
-    }
+    return RootResponse(
+        message="Riven is running!",
+        version=settings_manager.settings.version,
+    )
 
 
 app_router.include_router(default_router, dependencies=[Depends(resolve_api_key)])

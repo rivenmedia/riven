@@ -23,18 +23,18 @@ class Updater(Runner[None, BaseUpdater]):
 
     def __init__(self):
         self.library_path = settings_manager.settings.updaters.library_path
-        self.services = [
-            PlexUpdater(),
-            JellyfinUpdater(),
-            EmbyUpdater(),
-        ]
+        self.services = {
+            PlexUpdater: PlexUpdater(),
+            JellyfinUpdater: JellyfinUpdater(),
+            EmbyUpdater: EmbyUpdater(),
+        }
         self.initialized = self.validate()
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
 
         initialized_services = [
-            service for service in self.services if service.initialized
+            service for service in self.services.values() if service.initialized
         ]
 
         return len(initialized_services) > 0
@@ -118,7 +118,7 @@ class Updater(Runner[None, BaseUpdater]):
 
         success = False
 
-        for service in self.services:
+        for service in self.services.values():
             if service.initialized:
                 try:
                     if service.refresh_path(path):

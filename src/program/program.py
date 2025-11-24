@@ -350,21 +350,24 @@ class Program(threading.Thread):
             next_service = processed_event.service
             items_to_submit = processed_event.related_media_items
 
-            for item_to_submit in items_to_submit:
-                if not next_service:
-                    self.em.add_event_to_queue(
-                        Event(emitted_by="StateTransition", item_id=item_to_submit.id)
-                    )
-                else:
-                    # We are in the database, pass on id.
-                    if item_to_submit.id:
-                        event = Event(next_service, item_id=item_to_submit.id)
-                    # We are not, lets pass the MediaItem
+            if items_to_submit:
+                for item_to_submit in items_to_submit:
+                    if not next_service:
+                        self.em.add_event_to_queue(
+                            Event(
+                                emitted_by="StateTransition", item_id=item_to_submit.id
+                            )
+                        )
                     else:
-                        event = Event(next_service, content_item=item_to_submit)
+                        # We are in the database, pass on id.
+                        if item_to_submit.id:
+                            event = Event(next_service, item_id=item_to_submit.id)
+                        # We are not, lets pass the MediaItem
+                        else:
+                            event = Event(next_service, content_item=item_to_submit)
 
-                    # Event will be added to running when job actually starts in submit_job
-                    self.em.submit_job(next_service, self, event)
+                        # Event will be added to running when job actually starts in submit_job
+                        self.em.submit_job(next_service, self, event)
 
     def stop(self):
         if not self.initialized:

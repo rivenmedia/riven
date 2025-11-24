@@ -41,8 +41,8 @@ class MediaAnalysisService(Runner):
         """Media analysis is always enabled as it's a core service."""
         return True
 
-    @staticmethod
-    def should_submit(item: MediaItem) -> bool:
+    @classmethod
+    def should_submit(cls, item: MediaItem) -> bool:
         """
         Determine if media analysis should run for this item.
 
@@ -57,6 +57,7 @@ class MediaAnalysisService(Runner):
         Returns:
             True if analysis should run, False otherwise
         """
+
         if not isinstance(item, (Movie, Episode)):
             return False
 

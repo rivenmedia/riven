@@ -82,7 +82,7 @@ class PostProcessing(Runner[PostProcessingModel]):
                 self.services[MediaAnalysisService].run(process_item)
 
             # Run subtitle service second (uses metadata from analysis)
-            if self.services[SubtitleService].should_submit(process_item):
+            if SubtitleService.should_submit(process_item):
                 self.services[SubtitleService].run(process_item)
 
             # Clean up streams when item is completed -- TODO: BLACKLISTING WONT WORK, WHY?

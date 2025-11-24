@@ -76,7 +76,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo | None:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID
 

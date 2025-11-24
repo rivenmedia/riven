@@ -43,6 +43,7 @@ class SubtitleService(Runner[SubtitleConfig]):
 
         # Parse language codes
         self.languages = self._parse_languages(self.settings.languages)
+
         if not self.languages:
             logger.warning("No valid languages configured for subtitles")
             return
@@ -73,7 +74,8 @@ class SubtitleService(Runner[SubtitleConfig]):
         # if provider_configs.get("opensubtitlescom", {}).get("enabled"):
         #     ...
 
-    def _parse_languages(self, language_codes: list[str]) -> list[str]:
+    @classmethod
+    def _parse_languages(cls, language_codes: list[str]) -> list[str]:
         """
         Parse and validate language codes.
 
@@ -139,6 +141,7 @@ class SubtitleService(Runner[SubtitleConfig]):
 
             # Get existing embedded subtitles from media_metadata
             embedded_subtitle_languages = self._get_embedded_subtitle_languages(item)
+
             if embedded_subtitle_languages:
                 logger.debug(
                     f"Found {len(embedded_subtitle_languages)} embedded subtitle language(s) in {item.log_string}: {', '.join(embedded_subtitle_languages)}"
@@ -216,7 +219,8 @@ class SubtitleService(Runner[SubtitleConfig]):
         except Exception as e:
             logger.error(f"Failed to fetch subtitles for {item.log_string}: {e}")
 
-    def _get_embedded_subtitle_languages(self, item: MediaItem) -> set[str]:
+    @classmethod
+    def _get_embedded_subtitle_languages(cls, item: MediaItem) -> set[str]:
         """
         Extract embedded subtitle languages from media_metadata.
 
@@ -572,7 +576,8 @@ class SubtitleService(Runner[SubtitleConfig]):
             logger.error(f"Failed to check for existing subtitle: {e}")
             return None
 
-    def should_submit(self, item: MediaItem) -> bool:
+    @classmethod
+    def should_submit(cls, item: MediaItem) -> bool:
         """
         Check if subtitles should be fetched for an item.
 
@@ -597,11 +602,11 @@ class SubtitleService(Runner[SubtitleConfig]):
             return False
 
         # If subtitle service is not enabled, don't submit
-        if not self.enabled:
+        if not cls.enabled:
             return False
 
         # Get embedded subtitle languages from media_metadata (ffprobe)
-        embedded_languages = self._get_embedded_subtitle_languages(item)
+        embedded_languages = cls._get_embedded_subtitle_languages(item)
 
         # Get already downloaded subtitle languages from database
         downloaded_languages = set[str]()
@@ -621,7 +626,9 @@ class SubtitleService(Runner[SubtitleConfig]):
         available_languages = embedded_languages | downloaded_languages
 
         # Check if any wanted language is missing
-        missing_languages = set(self.languages) - available_languages
+        languages = cls._parse_languages(language_codes=cls.settings.languages)
+
+        missing_languages = set(languages) - available_languages
 
         if not missing_languages:
             logger.debug(
