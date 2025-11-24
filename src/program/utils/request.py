@@ -5,14 +5,14 @@ import random
 import ssl
 import time
 import threading
+import httpx
+import requests
+
 from email.utils import parsedate_to_datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from urllib.parse import urlparse
 from contextlib import closing
-
-import httpx
-import requests
 from loguru import logger
 from lxml import etree
 
@@ -245,14 +245,20 @@ class SmartResponse(requests.Response):
 
         root = etree.fromstring(xml_string)
 
-        def element_to_simplenamespace(element):
+        def element_to_simplenamespace(element: etree.Element) -> SimpleNamespace:
             children_as_ns = {
-                child.tag: element_to_simplenamespace(child) for child in element
+                str(child.tag): element_to_simplenamespace(child) for child in element
             }
-            attributes = {key: value for key, value in element.attrib.items()}
-            attributes.update(children_as_ns)
 
-            return SimpleNamespace(**attributes, text=element.text)
+            attributes = {key: value for key, value in element.attrib.items()}
+
+            return SimpleNamespace(
+                {
+                    **attributes,
+                    **children_as_ns,
+                },
+                text=element.text,
+            )
 
         return element_to_simplenamespace(root)
 
@@ -546,7 +552,8 @@ class SmartSession:
                                     orig_close()
                                 finally:
                                     try:
-                                        tmp_client.close()
+                                        if tmp_client:
+                                            tmp_client.close()
                                     except Exception:
                                         pass
 
@@ -638,7 +645,7 @@ class SmartSession:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any):
         self.close()
 
     # --- helpers ---
@@ -665,7 +672,7 @@ class SmartSession:
                 def __init__(self, resp: httpx.Response):
                     self._resp = resp
 
-                def read(self, *args, **kwargs):
+                def read(self, *args: tuple[Any, ...], **kwargs: dict[str, Any]):
                     # Read full body on-demand; httpx buffers efficiently
                     return self._resp.read()
 
@@ -715,7 +722,7 @@ class SmartSession:
     def _compute_retry_delay(
         self, httpx_response: httpx.Response, attempt: int
     ) -> float:
-        # Honor Retry-After if present
+        # Honour Retry-After if present
 
         try:
             ra = httpx_response.headers.get("Retry-After")
@@ -727,10 +734,11 @@ class SmartSession:
                 return max(0.0, float(int(ra)))
             except Exception:
                 try:
-                    dt = cast(datetime | None, parsedate_to_datetime(ra))
+                    dt = cast(datetime, parsedate_to_datetime(ra))
                     return max(0.0, float(int(round(dt.timestamp() - time.time()))))
                 except Exception:
                     pass
+
         # Fallback to exponential backoff
         return self._backoff(attempt)
 
