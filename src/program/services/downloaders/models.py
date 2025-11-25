@@ -42,13 +42,13 @@ episode_max_filesize = settings_manager.settings.downloaders.episode_filesize_mb
 
 # constraints for filesizes, follows the format tuple(min, max)
 FILESIZE_MOVIE_CONSTRAINT = (
-    movie_min_filesize,
-    movie_max_filesize if movie_max_filesize > 0 else None,
+    movie_min_filesize if movie_min_filesize >= 0 else 0,
+    movie_max_filesize if movie_max_filesize > 0 else float("inf"),
 )
 
 FILESIZE_EPISODE_CONSTRAINT = (
-    episode_min_filesize,
-    episode_max_filesize if episode_max_filesize > 0 else None,
+    episode_min_filesize if episode_min_filesize >= 0 else 0,
+    episode_max_filesize if episode_max_filesize > 0 else float("inf"),
 )
 
 
@@ -102,7 +102,7 @@ class DebridFile(BaseModel):
                 if not (
                     FILESIZE_MOVIE_CONSTRAINT[0]
                     <= filesize_mb
-                    <= (FILESIZE_MOVIE_CONSTRAINT[1] or float("inf"))
+                    <= FILESIZE_MOVIE_CONSTRAINT[1]
                 ):
                     raise InvalidDebridFileException(
                         f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_MOVIE_CONSTRAINT[0]}MB to {FILESIZE_MOVIE_CONSTRAINT[1]}MB"
@@ -111,7 +111,7 @@ class DebridFile(BaseModel):
                 if not (
                     FILESIZE_EPISODE_CONSTRAINT[0]
                     <= filesize_mb
-                    <= (FILESIZE_EPISODE_CONSTRAINT[1] or float("inf"))
+                    <= FILESIZE_EPISODE_CONSTRAINT[1]
                 ):
                     raise InvalidDebridFileException(
                         f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_EPISODE_CONSTRAINT[0]}MB to {FILESIZE_EPISODE_CONSTRAINT[1]}MB"

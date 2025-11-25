@@ -78,11 +78,11 @@ class PostProcessing(Runner[PostProcessingModel]):
         # Process each item through the service pipeline
         for process_item in items_to_process:
             # Run media analysis first (runs once per item)
-            if MediaAnalysisService.should_submit(process_item):
+            if self.services[MediaAnalysisService].should_submit(process_item):
                 self.services[MediaAnalysisService].run(process_item)
 
             # Run subtitle service second (uses metadata from analysis)
-            if SubtitleService.should_submit(process_item):
+            if self.services[SubtitleService].should_submit(process_item):
                 self.services[SubtitleService].run(process_item)
 
             # Clean up streams when item is completed -- TODO: BLACKLISTING WONT WORK, WHY?
