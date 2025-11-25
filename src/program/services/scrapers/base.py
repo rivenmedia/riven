@@ -13,7 +13,7 @@ from program.settings.models import Observable
 T = TypeVar("T", bound=Observable, covariant=True)
 
 
-class ScraperService(Runner[T]):
+class ScraperService(Runner[T, "ScraperService[T]", dict[str, str]]):
     """Base class for all scraper services.
 
     Implementations should set:
@@ -41,9 +41,6 @@ class ScraperService(Runner[T]):
 
     @abstractmethod
     def validate(self) -> bool: ...
-
-    @abstractmethod
-    def run(self, item: MediaItem) -> dict[str, str]: ...
 
     @abstractmethod
     def scrape(self, item: MediaItem) -> dict[str, str]: ...
