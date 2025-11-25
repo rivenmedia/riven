@@ -307,13 +307,7 @@ class Downloader(Runner[None, DownloaderBase]):
             show: Show | None = None
 
             if isinstance(item, (Show, Season, Episode)):
-                show = (
-                    item
-                    if isinstance(item, Show)
-                    else (
-                        item.parent if isinstance(item, Season) else item.parent.parent
-                    )
-                )
+                show = item.top_parent
 
                 try:
                     method_1 = sum(len(season.episodes) for season in show.seasons)
@@ -329,7 +323,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     pass
 
             found = False
-            files = list(download_result.container.files or [])
+            files = download_result.container.files
 
             # Track episodes we've already processed to avoid duplicates
             processed_episode_ids: set[str] = set()

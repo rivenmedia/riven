@@ -86,7 +86,7 @@ class NameBuilder(BaseModel, Generic[T]):
         """Get show-level data if applicable"""
 
         if isinstance(self._item, Episode):
-            top_parent = self._item.get_top_parent()
+            top_parent = self._item.top_parent
 
             return self.ShowData.model_validate(
                 {
@@ -410,7 +410,7 @@ class NamingService:
         """
 
         # Build show directory context
-        show_context = NameBuilder(item=item.get_top_parent())
+        show_context = NameBuilder(item=item.top_parent)
 
         # Render show directory template
         show_dir_template = settings_manager.settings.filesystem.show_dir_template
@@ -517,7 +517,7 @@ class NamingService:
         episode_context = NameBuilder(item=item)
 
         # Use show-level (top parent) for title/year
-        season_context = NameBuilder(item=item.get_top_parent())
+        season_context = NameBuilder(item=item.top_parent)
 
         # Check for multi-episode file from metadata
         # Default to single episode

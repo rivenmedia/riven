@@ -373,6 +373,7 @@ class MediaItem(Base):
             return States.Unreleased
         elif (self.imdb_id or self.tmdb_id or self.tvdb_id) and self.requested_by:
             return States.Requested
+
         return States.Unknown
 
     def is_scraped(self) -> bool:
@@ -739,17 +740,6 @@ class MediaItem(Base):
 
         return False
 
-    def get_top_parent(self) -> "MediaItem":
-        """Return the top-most parent item in the hierarchy."""
-
-        if isinstance(self, Season):
-            return self.parent
-
-        if isinstance(self, Episode):
-            return self.parent.parent
-
-        return self
-
 
 class Movie(MediaItem):
     """Movie class"""
@@ -823,6 +813,12 @@ class Show(MediaItem):
         "polymorphic_identity": "show",
         "polymorphic_load": "selectin",
     }
+
+    @property
+    def top_parent(self) -> "Show":
+        """Return the top-level parent"""
+
+        return self
 
     def __init__(self, item: dict[str, Any]):
         self.type = "show"
@@ -975,6 +971,12 @@ class Season(MediaItem):
         "polymorphic_identity": "season",
         "polymorphic_load": "selectin",
     }
+
+    @property
+    def top_parent(self) -> "Show":
+        """Return the top-level parent"""
+
+        return self.parent
 
     def store_state(
         self,
@@ -1132,6 +1134,12 @@ class Episode(MediaItem):
         "polymorphic_load": "selectin",
     }
 
+    @property
+    def top_parent(self) -> "Show":
+        """Return the top-level parent"""
+
+        return self.parent.parent
+
     def __init__(self, item: dict[str, Any]):
         self.type = "episode"
         self.number = item["number"]
@@ -1186,7 +1194,7 @@ class Episode(MediaItem):
         return f"{self.parent.log_string}E{self.number:02}"
 
     def get_top_title(self) -> str:
-        return getattr(self.parent.parent, "title")
+        return self.top_parent.title
 
 
 def _set_nested_attr(obj: object, key: str, value: Any):

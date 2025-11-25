@@ -35,6 +35,7 @@ class NotificationService(Runner[NotificationsModel]):
 
     def _initialize_apprise(self):
         """Initialize Apprise with configured service URLs."""
+
         if not self.settings.enabled:
             logger.debug("Notifications are disabled in settings")
             return
@@ -57,6 +58,7 @@ class NotificationService(Runner[NotificationsModel]):
 
     def validate(self) -> bool:
         """Validate that the notification service is properly configured."""
+
         return True  # Service is always valid, even if no external services configured
 
     def run(
