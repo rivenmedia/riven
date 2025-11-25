@@ -1072,9 +1072,7 @@ class Season(MediaItem):
         # If it's an inherited attribute and the value is empty/None, try to get from parent
         if name in inherited_attrs and not value:
             try:
-                parent = object.__getattribute__(self, "parent")
-                if parent:
-                    return getattr(parent, name, value)
+                return getattr(self.parent, name, value)
             except AttributeError:
                 pass
 
@@ -1173,6 +1171,7 @@ class Episode(MediaItem):
 
     def __getattribute__(self, name: str):
         """Override attribute access to inherit from parent show (through season) if not set"""
+
         # List of attributes that should be inherited from parent show
         inherited_attrs = {
             "genres",
@@ -1191,9 +1190,7 @@ class Episode(MediaItem):
         # If it's an inherited attribute and the value is empty/None, try to get from parent show
         if name in inherited_attrs and not value:
             try:
-                parent = object.__getattribute__(self, "parent")
-                if parent and hasattr(parent, "parent"):
-                    return getattr(parent.parent, name, value)
+                return getattr(self.parent.parent, name, value)
             except AttributeError:
                 pass
 

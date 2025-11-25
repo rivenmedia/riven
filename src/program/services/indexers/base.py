@@ -2,7 +2,7 @@
 
 from loguru import logger
 
-from program.media.item import MediaItem, Movie, Show
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.settings import settings_manager
 from program.core.runner import Runner
 from program.settings.models import IndexerModel
@@ -43,12 +43,12 @@ class BaseIndexer(Runner[IndexerModel]):
     def copy_items[T: MediaItem](self, item_a: MediaItem, item_b: T) -> T:
         """Copy attributes from item A to item B recursively."""
 
-        is_anime = item_a.is_anime or item_b.is_anime
+        is_anime = bool(item_a.is_anime or item_b.is_anime)
 
-        if isinstance(item_b, Show):
+        if isinstance(item_a, Show) and isinstance(item_b, Show):
             item_a.seasons = item_b.seasons
 
-        if isinstance(item_b, Show) and not isinstance(item_a, Movie):
+        if isinstance(item_b, Show) and isinstance(item_a, (Show, Season, Episode)):
             for season_a in item_a.seasons:
                 for season_b in item_b.seasons:
                     if season_a.number == season_b.number:  # Check if seasons match
