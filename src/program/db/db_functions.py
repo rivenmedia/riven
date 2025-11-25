@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
-from program.core.runner import RunnerReturnType
+from program.core.runner import RunnerResult, RunnerReturnType
 
 from .db import db, db_session
 
@@ -451,16 +451,18 @@ def run_thread_with_db_item(
                 return indexed_item.id
     else:
         # Content services dont pass events
-        runner_result = fn(None)
+        fn_result = fn(None)
+
+        logger.debug(f"fn_result: {fn_result}")
+
+        if isinstance(fn_result, dict) or fn_result is None:
+            return None
+
+        runner_result = next(fn_result, None)
 
         if runner_result:
-            for i in runner_result:
-                if isinstance(i, MediaItem):
-                    i = [i]
-
-                if isinstance(i, list):
-                    for item in i:
-                        program.em.add_item(item, service=service.__class__.__name__)
+            for item in runner_result.media_items:
+                program.em.add_item(item, service=service.__class__.__name__)
 
     return None
 

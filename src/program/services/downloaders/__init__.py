@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from loguru import logger
-from RTN import ParsedData
+from RTN import ParsedData, Torrent
 
 from program.media.item import (
     Episode,
@@ -483,7 +483,11 @@ class Downloader(Runner[None, DownloaderBase]):
 
         if found and isinstance(item, (Show, Season)):
             item.active_stream = Stream(
-                torrent=download_result,
+                torrent=Torrent(
+                    raw_title=file_data.raw_title,
+                    infohash=download_result.infohash,
+                    data=file_data,
+                ),
             )
 
         return found
@@ -566,13 +570,18 @@ class Downloader(Runner[None, DownloaderBase]):
             service: Optional debrid service instance; defaults to the downloader's configured service.
             file_data (ParsedData, optional): Parsed filename metadata from RTN to cache in MediaEntry.
         """
+
         if service is None:
             service = self.service
 
-        item.active_stream = {
-            "infohash": download_result.infohash,
-            "id": download_result.info.id,
-        }
+        if file_data:
+            item.active_stream = Stream(
+                Torrent(
+                    raw_title=file_data.raw_title,
+                    infohash=download_result.infohash,
+                    data=file_data,
+                )
+            )
 
         # Create MediaEntry for virtual file if download URL is available
         if debrid_file.download_url:
