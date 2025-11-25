@@ -1,7 +1,6 @@
 """TVDB indexer module"""
 
 from datetime import datetime
-from typing import cast
 
 import regex
 from kink import di

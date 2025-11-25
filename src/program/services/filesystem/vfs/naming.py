@@ -13,7 +13,7 @@ from pydantic import BaseModel, computed_field
 
 from program.media.item import MediaItem, Movie, Show, Season, Episode
 from program.settings import settings_manager
-from PTT import parse_title
+from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 
 from program.media.media_entry import MediaEntry
 from program.utils.safe_formatter import SafeFormatter

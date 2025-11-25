@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
-from program.core.runner import RunnerResult, RunnerReturnType
+from program.core.runner import RunnerReturnType
 
 from .db import db, db_session
 
@@ -354,7 +354,7 @@ def run_thread_with_db_item(
         The produced item identifier as a string, a tuple `(item_id, run_at)` when the worker returned scheduling info, or `None` when no item was produced or processing was skipped.
     """
 
-    from program.media.item import MediaItem, Episode, Season
+    from program.media.item import Episode, Season
 
     if event:
         with db_session() as session:
