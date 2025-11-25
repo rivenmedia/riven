@@ -480,8 +480,8 @@ class DebridLinkDownloader(DownloaderBase):
 
         for idx, file_info in enumerate(torrent_files):
             file_name = file_info.name
-            file_size = getattr(file_info, "size", 0)
-            download_url = getattr(file_info, "downloadUrl", "")
+            file_size = file_info.size
+            download_url = file_info.download_url
 
             files[idx] = TorrentFile(
                 id=idx,
@@ -495,16 +495,16 @@ class DebridLinkDownloader(DownloaderBase):
                 links.append(download_url)
 
         # Convert status code to string for TorrentInfo model
-        status_code = getattr(torrent_data, "status", 0)
+        status_code = torrent_data.status
         status = "downloaded" if status_code == 100 else "not_downloaded"
 
         return TorrentInfo(
             id=torrent_id,
-            name=getattr(torrent_data, "name", ""),
+            name=torrent_data.name,
             status=status,
-            infohash=getattr(torrent_data, "hashString", ""),
-            bytes=getattr(torrent_data, "totalSize", 0),
-            created_at=datetime.fromtimestamp(getattr(torrent_data, "created", 0)),
+            infohash=torrent_data.hash_string,
+            bytes=torrent_data.total_size,
+            created_at=datetime.fromtimestamp(torrent_data.created),
             progress=torrent_data.download_percent,
             files=files,
             links=links,

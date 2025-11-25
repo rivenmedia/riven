@@ -322,11 +322,10 @@ class Downloader(Runner[None, DownloaderBase]):
                 except Exception as e:
                     pass
 
-            found = False
             files = download_result.container.files
 
             # Track episodes we've already processed to avoid duplicates
-            processed_episode_ids: set[str] = set()
+            processed_episode_ids = set[str]()
 
             for file in files:
                 try:
@@ -354,9 +353,9 @@ class Downloader(Runner[None, DownloaderBase]):
                     processed_episode_ids,
                     service,
                 ):
-                    found = True
+                    return True
 
-            return found
+            return False
         except Exception as e:
             logger.debug(f"update_item_attributes: exception for item {item.id}: {e}")
             raise
@@ -402,7 +401,15 @@ class Downloader(Runner[None, DownloaderBase]):
 
         if isinstance(item, Movie) and file_data.type == "movie":
             logger.debug("match_file_to_item: movie match -> updating attributes")
-            self._update_attributes(item, file, download_result, service, file_data)
+
+            self._update_attributes(
+                item,
+                file,
+                download_result,
+                service,
+                file_data,
+            )
+
             return True
 
         if isinstance(item, (Show, Season, Episode)):
@@ -413,6 +420,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     logger.debug(
                         f"Invalid episode number {file_episode} for {getattr(show, 'log_string', 'show?')}. Skipping '{file.filename}'"
                     )
+
                     continue
 
                 assert show
@@ -423,12 +431,14 @@ class Downloader(Runner[None, DownloaderBase]):
                     logger.debug(
                         f"Episode {file_episode} from file does not match any episode in {getattr(show, 'log_string', 'show?')}"
                     )
+
                     continue
 
                 if episode.filesystem_entry:
                     logger.debug(
                         f"Episode {episode.log_string} already has filesystem_entry; skipping"
                     )
+
                     continue
 
                 if episode and episode.state not in [
@@ -442,17 +452,26 @@ class Downloader(Runner[None, DownloaderBase]):
                         and str(episode.id) in processed_episode_ids
                     ):
                         continue
+
                     logger.debug(
                         f"match_file_to_item: updating episode {episode.id} from file '{file.filename}'"
                     )
+
                     self._update_attributes(
-                        episode, file, download_result, service, file_data
+                        episode,
+                        file,
+                        download_result,
+                        service,
+                        file_data,
                     )
+
                     if processed_episode_ids is not None:
                         processed_episode_ids.add(str(episode.id))
+
                     logger.debug(
                         f"Matched episode {episode.log_string} to file {file.filename}"
                     )
+
                     found = True
 
         if found and isinstance(item, (Show, Season)):
