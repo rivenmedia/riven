@@ -1,7 +1,7 @@
 """Zilean scraper module"""
 
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.scrapers.base import ScraperService
@@ -11,9 +11,11 @@ from program.settings.models import ZileanConfig
 
 
 class Params(BaseModel):
-    query: str = Field(alias="Query")
-    season: int | None = Field(default=None, alias="Season")
-    episode: int | None = Field(default=None, alias="Episode")
+    model_config = ConfigDict(serialize_by_alias=True)
+
+    query: str = Field(serialization_alias="Query")
+    season: int | None = Field(default=None, serialization_alias="Season")
+    episode: int | None = Field(default=None, serialization_alias="Episode")
 
 
 class ZileanScrapeResponse(BaseModel):
@@ -90,17 +92,23 @@ class Zilean(ScraperService[ZileanConfig]):
     def _build_query_params(self, item: MediaItem) -> Params:
         """Build the query params for the Zilean API"""
 
-        params: dict[str, int | str | None] = {"Query": item.get_top_title()}
+        query = item.get_top_title()
+        season = None
+        episode = None
 
         if isinstance(item, Show):
-            params["Season"] = 1
+            season = 1
         elif isinstance(item, Season):
-            params["Season"] = item.number
+            season = item.number
         elif isinstance(item, Episode):
-            params["Season"] = item.parent.number
-            params["Episode"] = item.number
+            season = item.parent.number
+            episode = item.number
 
-        return Params.model_validate(params)
+        return Params(
+            query=query,
+            season=season,
+            episode=episode,
+        )
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Wrapper for `Zilean` scrape method"""
@@ -110,12 +118,12 @@ class Zilean(ScraperService[ZileanConfig]):
 
         response = self.session.get(
             url,
-            params=params.model_dump(by_alias=True),
+            params=params.model_dump(exclude_none=True),
             timeout=self.timeout,
         )
 
         if not response.ok:
-            logger.debug(
+            logger.error(
                 f"Zilean responded with status code {response.status_code} for {item.log_string}: {response.text}"
             )
             return {}

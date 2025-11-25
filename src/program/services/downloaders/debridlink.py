@@ -67,7 +67,7 @@ class DebridLinkSeedBoxListItem(BaseModel):
     id: str
     name: str
     hash_string: str = Field(alias="hashString")
-    status: str
+    status: int
     created: int
     total_size: int = Field(alias="totalSize")
     download_percent: float = Field(alias="downloadPercent")

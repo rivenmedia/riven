@@ -59,7 +59,7 @@ class TVDBIndexer(BaseIndexer):
 
                 return
 
-        # Scenario 2: Reindexing existing Show/Season/Episode - update in-place
+        # Scenario 2: Re-indexing existing Show/Season/Episode - update in-place
         elif isinstance(item, (Show, Season, Episode)):
             show: Show | None = None
 
@@ -611,7 +611,7 @@ class TVDBIndexer(BaseIndexer):
             # Update episode attributes
             episode.tvdb_id = str(episode_data.id)
             episode.title = episode_data.name or f"Episode {episode_data.number}"
-            episode.poster_path = episode_data.poster_path
+            episode.poster_path = episode_data.image
             episode.aired_at = aired_at
             episode.year = year
             episode.absolute_number = episode_data.absolute_number
@@ -650,7 +650,7 @@ class TVDBIndexer(BaseIndexer):
                     "number": episode_number,
                     "tvdb_id": str(episode_data.id),
                     "title": episode_data.name or f"Episode {episode_number}",
-                    "poster_path": episode_data.poster_path,
+                    "poster_path": episode_data.image,
                     "aired_at": aired_at,
                     "year": year,
                     "type": "episode",

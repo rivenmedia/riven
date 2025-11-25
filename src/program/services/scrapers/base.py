@@ -25,7 +25,7 @@ class ScraperService(Runner[T]):
     - requires_imdb_id: whether the scraper needs an IMDb id to function
     """
 
-    requires_imdb_id: bool = False
+    requires_imdb_id = False
 
     def __init__(self, service_name: str):
         self.key = service_name

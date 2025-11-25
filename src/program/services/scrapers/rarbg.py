@@ -107,12 +107,12 @@ class Rarbg(ScraperService[RarbgConfig]):
         while current_url:
             response = self.session.get(current_url, timeout=self.timeout)
 
-            if not response.ok:
+            if not response.ok or not response.data:
                 break
 
             data = RarbgScrapeResponse.model_validate(response.json())
 
-            if hasattr(data, "results") and data.results:
+            if data.results:
                 for result in data.results:
                     if not result.h:  # h is the infoHash
                         continue

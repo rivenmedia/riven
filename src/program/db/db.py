@@ -94,6 +94,7 @@ def run_migrations(database_url: str | None = None):
 
     try:
         alembic_cfg = Config(root_dir / "src" / "alembic.ini")
+
         if database_url:
             alembic_cfg.set_main_option("sqlalchemy.url", database_url)
 
