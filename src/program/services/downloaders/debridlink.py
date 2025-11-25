@@ -252,7 +252,9 @@ class DebridLinkDownloader(DownloaderBase):
         try:
             torrent_id = self.add_torrent(infohash)
             container, reason, info = self._process_torrent(
-                torrent_id, infohash, item_type
+                torrent_id,
+                infohash,
+                item_type,
             )
 
             if container is None and reason:

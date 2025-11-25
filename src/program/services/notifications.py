@@ -153,7 +153,9 @@ class NotificationService(Runner[NotificationsModel, None, None]):
             "log_string": item.log_string,
             "imdb_id": item.imdb_id,
         }
+
         sse_manager.publish_event("notifications", json.dumps(notification_data))
+
         logger.debug(f"SSE notification published for {item.log_string}")
 
         # Send external notifications if enabled
