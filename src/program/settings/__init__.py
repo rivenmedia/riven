@@ -23,7 +23,8 @@ class SettingsManager:
         if not self.settings_file.exists():
             logger.info(f"Settings filename: {self.filename}")
 
-            self.settings = AppModel().model_validate(
+            self.settings = AppModel()
+            self.settings = AppModel.model_validate(
                 self.check_environment(
                     self.settings.model_dump(),
                     "RIVEN",
