@@ -586,21 +586,6 @@ class MediaItem(Base):
         return self.filesystem_entries[0] if self.filesystem_entries else None
 
     @property
-    def filesystem_path(self) -> str | None:
-        """
-        Return the filesystem path of the first FilesystemEntry for this media item, if any.
-
-        Returns:
-            The filesystem path string from the first entry, or None if no entries exist.
-        """
-
-        logger.debug(
-            f"Getting filesystem path for item {self.log_string}: {self.media_entry}"
-        )
-
-        return self.media_entry.path if self.media_entry else None
-
-    @property
     def media_entry(self) -> "MediaEntry | None":
         """
         Return the first MediaEntry for this media item, if any.
