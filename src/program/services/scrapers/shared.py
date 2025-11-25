@@ -29,8 +29,8 @@ def parse_results(
 ) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
 
-    torrents: set[Torrent] = set()
-    processed_infohashes: set[str] = set()
+    torrents = set[Torrent]()
+    processed_infohashes = set[str]()
     correct_title: str = item.get_top_title()
 
     aliases = (
@@ -46,7 +46,7 @@ def parse_results(
             continue
 
         try:
-            torrent: Torrent = rtn.rank(
+            torrent = rtn.rank(
                 raw_title=raw_title,
                 infohash=infohash,
                 correct_title=correct_title,

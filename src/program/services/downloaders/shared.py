@@ -127,13 +127,9 @@ def parse_filename(filename: str) -> ParsedData:
 
 def premium_days_left(expiration: datetime) -> str:
     """Convert an expiration date into a message showing days remaining on the user's premium account"""
-    # Handle both timezone-aware and naive datetimes
-    if expiration.tzinfo is not None:
-        # Timezone-aware: compare with timezone-aware now
-        now = datetime.now(tz=timezone.utc)
-    else:
-        # Naive: compare with naive now (UTC)
-        now = datetime.now(timezone.utc)
+
+    now = datetime.now(tz=timezone.utc)
+    expiration = expiration.replace(tzinfo=timezone.utc)
 
     time_left = expiration - now
     days_left = time_left.days

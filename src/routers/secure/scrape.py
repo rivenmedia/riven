@@ -5,8 +5,8 @@ from uuid import uuid4
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from kink import di
 from loguru import logger
-from PTT import parse_title
-from pydantic import BaseModel, RootModel
+from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 from sqla_wrapper import Session
 from sqlalchemy.orm import object_session
 
@@ -28,9 +28,14 @@ from program.program import Program
 from ..models.shared import MessageResponse
 
 
+class Stream(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    metadata: dict[str, str] = Field(alias="metadata_")
+
+
 class ScrapeItemResponse(BaseModel):
     message: str
-    streams: dict[str, ItemStream]
+    streams: dict[str, Stream]
 
 
 class StartSessionResponse(BaseModel):
@@ -301,7 +306,10 @@ def scrape_item(
 
     return ScrapeItemResponse(
         message=f"Manually scraped streams for item {log_string}",
-        streams=streams,
+        streams={
+            stream.infohash: Stream.model_validate(stream)
+            for stream in streams.values()
+        },
     )
 
 

@@ -143,14 +143,15 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams: dict[str, Stream] = parse_results(
-            item, results, verbose_logging
-        )
+        sorted_streams = parse_results(item, results, verbose_logging)
+
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
-            top_results: list[Stream] = list(sorted_streams.values())[:10]
+            top_results = list(sorted_streams.values())[:10]
+
             logger.debug(
                 f"Displaying top {len(top_results)} results for {item.log_string}"
             )
+
             for stream in top_results:
                 logger.debug(
                     f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})"
