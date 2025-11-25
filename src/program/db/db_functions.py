@@ -451,7 +451,7 @@ def run_thread_with_db_item(
                 return indexed_item.id
     else:
         # Content services dont pass events
-        runner_result = fn()
+        runner_result = fn(None)
 
         if runner_result:
             for i in runner_result:

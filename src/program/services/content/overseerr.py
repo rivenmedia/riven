@@ -9,6 +9,7 @@ from program.settings import settings_manager
 from program.core.content_service import ContentService
 from program.settings.models import OverseerrModel
 from program.core.runner import MediaItemGenerator, RunnerResult
+from program.media.item import MediaItem
 
 
 class Overseerr(ContentService[OverseerrModel]):
@@ -48,7 +49,7 @@ class Overseerr(ContentService[OverseerrModel]):
         except Exception:
             return False
 
-    def run(self) -> MediaItemGenerator:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch new media from `Overseerr`"""
 
         if self.settings.use_webhook and self.run_once:
