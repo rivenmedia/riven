@@ -88,6 +88,7 @@ class MediaStream:
         self._stream_error: trio_util.AsyncValue[Exception | None] = (
             trio_util.AsyncValue(None)
         )
+        self.enable_tracing = settings_manager.settings.enable_stream_tracing
 
         # Store initial URL to avoid redundant unrestrict calls
         self.target_url: trio_util.AsyncValue[str] = trio_util.AsyncValue(initial_url)
@@ -115,13 +116,14 @@ class MediaStream:
             file_size=file_size,
         )
 
-        logger.log(
-            "STREAM",
-            self.build_log_message(
-                f"Initialized stream with chunk size {self.config.chunk_size / (1024 * 1024):.2f} MB. "
-                f"file_size={self.file_metadata.file_size} bytes",
-            ),
-        )
+        if self.enable_tracing:
+            logger.log(
+                "STREAM",
+                self.build_log_message(
+                    f"Initialized stream with chunk size {self.config.chunk_size / (1024 * 1024):.2f} MB. "
+                    f"file_size={self.file_metadata.file_size} bytes",
+                ),
+            )
 
         # Validate cache size
         # Cache needs to hold 10 chunks (10MiB) to avoid thrashing with concurrent reads
@@ -193,19 +195,21 @@ class MediaStream:
         try:
             self.is_streaming.value = True
 
-            logger.log(
-                "STREAM",
-                self.build_log_message("Starting stream lifecycle"),
-            )
+            if self.enable_tracing:
+                logger.log(
+                    "STREAM",
+                    self.build_log_message("Starting stream lifecycle"),
+                )
 
             yield
         finally:
             self.is_streaming.value = False
 
-            logger.log(
-                "STREAM",
-                self.build_log_message("Stream lifecycle ended"),
-            )
+            if self.enable_tracing:
+                logger.log(
+                    "STREAM",
+                    self.build_log_message("Stream lifecycle ended"),
+                )
 
     @asynccontextmanager
     async def manage_connection(
@@ -289,21 +293,23 @@ class MediaStream:
                                     chunks: OrderedSet[Chunk],
                                 ) -> None:
                                     if len(chunks) == 0:
-                                        logger.log(
-                                            "STREAM",
-                                            self.build_log_message(
-                                                "Received no chunks to process; skipping."
-                                            ),
-                                        )
+                                        if self.enable_tracing:
+                                            logger.log(
+                                                "STREAM",
+                                                self.build_log_message(
+                                                    "Received no chunks to process; skipping."
+                                                ),
+                                            )
 
                                         return
 
-                                    logger.log(
-                                        "STREAM",
-                                        self.build_log_message(
-                                            f"Received chunks to process: {chunks}"
-                                        ),
-                                    )
+                                    if self.enable_tracing:
+                                        logger.log(
+                                            "STREAM",
+                                            self.build_log_message(
+                                                f"Received chunks to process: {chunks}"
+                                            ),
+                                        )
 
                                     chunk_range_label = (
                                         f"{chunks[0].index}"
@@ -316,24 +322,32 @@ class MediaStream:
                                     )
 
                                     with benchmark(
-                                        log=lambda duration, conn=connection, start=start_read_position: logger.log(
-                                            "STREAM",
-                                            self.build_log_message(
-                                                f"Stream fetched {start}-{conn.current_read_position} "
-                                                f"({conn.current_read_position - start} bytes) "
-                                                f"in {duration}s."
-                                            ),
+                                        log=lambda duration, conn=connection, start=start_read_position: (
+                                            logger.log(
+                                                "STREAM",
+                                                self.build_log_message(
+                                                    f"Stream fetched {start}-{conn.current_read_position} "
+                                                    f"({conn.current_read_position - start} bytes) "
+                                                    f"in {duration}s."
+                                                ),
+                                            )
+                                            if self.enable_tracing
+                                            else None
                                         )
                                     ):
                                         for chunk in chunks:
                                             chunk_label = f"[{chunk.start}-{chunk.end}]"
 
                                             with benchmark(
-                                                log=lambda duration, c=chunk: logger.log(
-                                                    "STREAM",
-                                                    self.build_log_message(
-                                                        f"Fetching {c} took {duration}s"
-                                                    ),
+                                                log=lambda duration, c=chunk: (
+                                                    logger.log(
+                                                        "STREAM",
+                                                        self.build_log_message(
+                                                            f"Fetching {c} took {duration}s"
+                                                        ),
+                                                    )
+                                                    if self.enable_tracing
+                                                    else None
                                                 )
                                             ):
                                                 data = await anext(connection.reader)
@@ -344,11 +358,15 @@ class MediaStream:
                                                 )
 
                                             with benchmark(
-                                                log=lambda duration, label=chunk_label, range_label=chunk_range_label: logger.log(
-                                                    "STREAM",
-                                                    self.build_log_message(
-                                                        f"Processing chunk(s) #{range_label} {label} took {duration}s"
-                                                    ),
+                                                log=lambda duration, label=chunk_label, range_label=chunk_range_label: (
+                                                    logger.log(
+                                                        "STREAM",
+                                                        self.build_log_message(
+                                                            f"Processing chunk(s) #{range_label} {label} took {duration}s"
+                                                        ),
+                                                    )
+                                                    if self.enable_tracing
+                                                    else None
                                                 )
                                             ):
                                                 connection.increment_sequential_chunks()
@@ -389,12 +407,13 @@ class MediaStream:
                                     if len(uncached_chunks) == 0:
                                         continue
 
-                                    logger.log(
-                                        "STREAM",
-                                        self.build_log_message(
-                                            f"Received read event: {read} with uncached_chunks {uncached_chunks}"
-                                        ),
-                                    )
+                                    if self.enable_tracing:
+                                        logger.log(
+                                            "STREAM",
+                                            self.build_log_message(
+                                                f"Received read event: {read} with uncached_chunks {uncached_chunks}"
+                                            ),
+                                        )
 
                                     request_start, _ = read.chunk_range.request_range
 
@@ -408,15 +427,16 @@ class MediaStream:
                                         # If the requested start is before the start of the stream, we will always need to seek.
                                         # This is because streams can only read forwards, so a new connection must be made.
 
-                                        logger.log(
-                                            "STREAM",
-                                            self.build_log_message(
-                                                f"Requested start {request_start} "
-                                                f"is before current read position {connection.current_read_position} "
-                                                f"for {self.file_metadata.path}. "
-                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
-                                            ),
-                                        )
+                                        if self.enable_tracing:
+                                            logger.log(
+                                                "STREAM",
+                                                self.build_log_message(
+                                                    f"Requested start {request_start} "
+                                                    f"is before current read position {connection.current_read_position} "
+                                                    f"for {self.file_metadata.path}. "
+                                                    f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
+                                                ),
+                                            )
 
                                         connection.seek(chunk_range=read.chunk_range)
 
@@ -432,15 +452,16 @@ class MediaStream:
                                         # This is because streams cannot skip chunks of data, so a new connection must be made,
                                         # to avoid requesting data that will be discarded and using unnecessary bandwidth.
 
-                                        logger.log(
-                                            "STREAM",
-                                            self.build_log_message(
-                                                f"Request chunk start {uncached_chunks[0].start} "
-                                                f"is after current read position {connection.current_read_position} "
-                                                f"for {self.file_metadata.path}. "
-                                                f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
-                                            ),
-                                        )
+                                        if self.enable_tracing:
+                                            logger.log(
+                                                "STREAM",
+                                                self.build_log_message(
+                                                    f"Request chunk start {uncached_chunks[0].start} "
+                                                    f"is after current read position {connection.current_read_position} "
+                                                    f"for {self.file_metadata.path}. "
+                                                    f"Seeking to new start position {uncached_chunks[0].start}/{self.file_metadata.file_size}."
+                                                ),
+                                            )
 
                                         connection.seek(chunk_range=read.chunk_range)
 
@@ -511,13 +532,14 @@ class MediaStream:
                 reader=response.aiter_raw(chunk_size=self.config.chunk_size),
             )
 
-            logger.log(
-                "STREAM",
-                self.build_log_message(
-                    f"{response.http_version} stream connection established "
-                    f"from byte {chunk_aligned_start} / {self.file_metadata.file_size}."
-                ),
-            )
+            if self.enable_tracing:
+                logger.log(
+                    "STREAM",
+                    self.build_log_message(
+                        f"{response.http_version} stream connection established "
+                        f"from byte {chunk_aligned_start} / {self.file_metadata.file_size}."
+                    ),
+                )
 
             yield stream_connection
 
@@ -542,14 +564,15 @@ class MediaStream:
                     self.build_log_message("Stream didn't stop within 5 seconds")
                 )
 
-        logger.log(
-            "STREAM",
-            self.build_log_message(
-                f"Ended stream for {self.file_metadata.path} fh={self.fh} "
-                f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
-                f"in {self.session_statistics.total_session_connections} connections."
-            ),
-        )
+        if self.enable_tracing:
+            logger.log(
+                "STREAM",
+                self.build_log_message(
+                    f"Ended stream for {self.file_metadata.path} fh={self.fh} "
+                    f"after transferring {self.session_statistics.bytes_transferred / (1024 * 1024):.2f}MB "
+                    f"in {self.session_statistics.total_session_connections} connections."
+                ),
+            )
 
     async def scan(self, read_position: int, size: int) -> bytes:
         """Fetch a one-off range of data for scanning purposes."""
@@ -658,12 +681,13 @@ class MediaStream:
 
         async with self.capture_stream_errors():
             async with self.read_lifecycle(chunk_range=read_range) as read_type:
-                logger.log(
-                    "STREAM",
-                    self.build_log_message(
-                        f"Performing {read_type} for [{request_start}-{request_end}]"
-                    ),
-                )
+                if self.enable_tracing:
+                    logger.log(
+                        "STREAM",
+                        self.build_log_message(
+                            f"Performing {read_type} for [{request_start}-{request_end}]"
+                        ),
+                    )
 
                 match read_type:
                     case "cache_hit":
@@ -708,10 +732,13 @@ class MediaStream:
 
         await self._wait_until_chunks_ready(chunk_range=chunk_range)
 
-        logger.log(
-            "STREAM",
-            self.build_log_message(f"Found cache, attempting to read {start}-{end}"),
-        )
+        if self.enable_tracing:
+            logger.log(
+                "STREAM",
+                self.build_log_message(
+                    f"Found cache, attempting to read {start}-{end}"
+                ),
+            )
 
         cached_data = await self._read_cache(
             start=start,
@@ -719,12 +746,13 @@ class MediaStream:
         )
 
         if cached_data:
-            logger.log(
-                "STREAM",
-                self.build_log_message(
-                    f"Found data {start}-{end} ({len(cached_data)} bytes) from cache"
-                ),
-            )
+            if self.enable_tracing:
+                logger.log(
+                    "STREAM",
+                    self.build_log_message(
+                        f"Found data {start}-{end} ({len(cached_data)} bytes) from cache"
+                    ),
+                )
 
             return cached_data
 
@@ -1138,12 +1166,13 @@ class MediaStream:
             fresh_url = entry_info.get("url")
 
             if fresh_url and fresh_url != self.target_url.value:
-                logger.log(
-                    "STREAM",
-                    self.build_log_message(
-                        f"Refreshed URL for {self.file_metadata.original_filename}"
-                    ),
-                )
+                if self.enable_tracing:
+                    logger.log(
+                        "STREAM",
+                        self.build_log_message(
+                            f"Refreshed URL for {self.file_metadata.original_filename}"
+                        ),
+                    )
 
                 self.target_url.value = fresh_url
 

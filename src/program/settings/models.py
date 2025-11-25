@@ -923,6 +923,10 @@ class AppModel(Observable):
         default=False,
         description="Enable detailed network request/response logging",
     )
+    enable_stream_tracing: bool = Field(
+        default=False,
+        description="Enable detailed stream request/response logging",
+    )
     retry_interval: int = Field(
         default=60 * 60 * 24,
         ge=0,
