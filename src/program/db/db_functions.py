@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
-from program.core.runner import RunnerReturnType
+from program.core.runner import MediaItemGenerator
 
 from .db import db, db_session
 
@@ -329,7 +329,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
 
 
 def run_thread_with_db_item(
-    fn: Callable[..., RunnerReturnType],
+    fn: Callable[..., MediaItemGenerator],
     service: "Service",
     program: "Program",
     event: Event | None,
@@ -363,9 +363,7 @@ def run_thread_with_db_item(
 
                 if input_item:
                     input_item = session.merge(input_item)
-                    return_value = fn(input_item)
-
-                    runner_result = next(return_value, None)
+                    runner_result = next(fn(input_item), None)
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:
@@ -393,9 +391,7 @@ def run_thread_with_db_item(
                         return item.id
 
             if event.content_item:
-                return_value = fn(event.content_item)
-
-                runner_result = next(return_value, None)
+                runner_result = next(fn(event.content_item), None)
 
                 if runner_result is None:
                     msg = (
@@ -451,12 +447,7 @@ def run_thread_with_db_item(
                 return indexed_item.id
     else:
         # Content services dont pass events
-        fn_result = fn(None)
-
-        if isinstance(fn_result, dict) or fn_result is None:
-            return None
-
-        runner_result = next(fn_result, None)
+        runner_result = next(fn(None), None)
 
         if runner_result:
             for item in runner_result.media_items:

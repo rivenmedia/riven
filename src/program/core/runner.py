@@ -29,8 +29,6 @@ type MediaItemGenerator[T: MediaItem = MediaItem] = Generator[
     RunnerResult[T], None, RunnerResult[T] | None
 ]
 
-type RunnerReturnType = MediaItemGenerator | dict[str, str] | None
-
 
 class Runner(ABC, Generic[TSettings, TService]):
     """Base class for all runners"""
@@ -70,7 +68,7 @@ class Runner(ABC, Generic[TSettings, TService]):
         return True
 
     @abstractmethod
-    def run(self, item: MediaItem) -> RunnerReturnType:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Run the base runner"""
 
         raise NotImplementedError
