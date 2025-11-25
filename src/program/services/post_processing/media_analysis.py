@@ -20,10 +20,10 @@ from program.media.models import DataSource, MediaMetadata
 
 from program.media.item import Episode, MediaItem, Movie
 from program.settings import settings_manager
-from program.core.runner import Runner
+from program.core.analysis_service import AnalysisService
 
 
-class MediaAnalysisService(Runner):
+class MediaAnalysisService(AnalysisService):
     """Service for analyzing media files and extracting metadata."""
 
     def __init__(self):

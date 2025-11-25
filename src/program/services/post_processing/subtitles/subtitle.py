@@ -12,17 +12,17 @@ from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie
 from program.media.subtitle_entry import SubtitleEntry
 from program.settings import settings_manager
-from program.core.runner import Runner
 from program.settings.models import SubtitleConfig
 from program.services.post_processing.subtitles.providers.base import (
     SubtitleItem,
     SubtitleProvider,
 )
+from program.core.analysis_service import AnalysisService
 from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
 
 
-class SubtitleService(Runner[SubtitleConfig]):
+class SubtitleService(AnalysisService[SubtitleConfig]):
     """Service for fetching and managing subtitles."""
 
     def __init__(self):
