@@ -13,7 +13,7 @@ from program.settings.models import Observable
 T = TypeVar("T", bound=Observable, covariant=True)
 
 
-class ScraperService(Runner[T, "ScraperService[T]", dict[str, str]]):
+class ScraperService(Runner[T, "ScraperService", dict[str, str]]):
     """Base class for all scraper services.
 
     Implementations should set:
