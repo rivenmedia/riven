@@ -300,7 +300,7 @@ class MediaMetadata(BaseModel):
         self.duration = probed_data.duration
         self.file_size = probed_data.file_size
         self.bitrate = probed_data.bitrate
-        self.container_format = probed_data.format
+        self.container_formats = probed_data.format
 
         # Update video metadata (probed data overrides parsed)
         if probed_data.video:
