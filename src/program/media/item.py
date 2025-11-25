@@ -402,54 +402,24 @@ class MediaItem(Base):
         season_number = None
         episode_number = None
         parent_ids = {
-            "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
-            "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
-            "tmdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
+            "imdb_id": self.imdb_id,
+            "tvdb_id": self.tvdb_id,
+            "tmdb_id": self.tmdb_id,
         }
 
         if isinstance(self, Season):
             parent_title = self.parent.title
             season_number = self.number
-            parent_ids["imdb_id"] = (
-                self.parent.imdb_id
-                if hasattr(self, "parent") and hasattr(self.parent, "imdb_id")
-                else None
-            )
-            parent_ids["tvdb_id"] = (
-                self.parent.tvdb_id
-                if hasattr(self, "parent") and hasattr(self.parent, "tvdb_id")
-                else None
-            )
-            parent_ids["tmdb_id"] = (
-                self.parent.tmdb_id
-                if hasattr(self, "parent") and hasattr(self.parent, "tmdb_id")
-                else None
-            )
+            parent_ids["imdb_id"] = self.parent.imdb_id
+            parent_ids["tvdb_id"] = self.parent.tvdb_id
+            parent_ids["tmdb_id"] = self.parent.tmdb_id
         elif isinstance(self, Episode):
             parent_title = self.parent.parent.title
             season_number = self.parent.number
             episode_number = self.number
-            parent_ids["imdb_id"] = (
-                self.parent.parent.imdb_id
-                if hasattr(self, "parent")
-                and hasattr(self.parent, "parent")
-                and hasattr(self.parent.parent, "imdb_id")
-                else None
-            )
-            parent_ids["tvdb_id"] = (
-                self.parent.parent.tvdb_id
-                if hasattr(self, "parent")
-                and hasattr(self.parent, "parent")
-                and hasattr(self.parent.parent, "tvdb_id")
-                else None
-            )
-            parent_ids["tmdb_id"] = (
-                self.parent.parent.tmdb_id
-                if hasattr(self, "parent")
-                and hasattr(self.parent, "parent")
-                and hasattr(self.parent.parent, "tmdb_id")
-                else None
-            )
+            parent_ids["imdb_id"] = self.parent.parent.imdb_id
+            parent_ids["tvdb_id"] = self.parent.parent.tvdb_id
+            parent_ids["tmdb_id"] = self.parent.parent.tmdb_id
 
         data = {
             "id": str(self.id),
@@ -459,14 +429,14 @@ class MediaItem(Base):
             "parent_title": parent_title,
             "season_number": season_number,
             "episode_number": episode_number,
-            "imdb_id": self.imdb_id if hasattr(self, "imdb_id") else None,
-            "tvdb_id": self.tvdb_id if hasattr(self, "tvdb_id") else None,
-            "tmdb_id": self.tmdb_id if hasattr(self, "tmdb_id") else None,
+            "imdb_id": self.imdb_id,
+            "tvdb_id": self.tvdb_id,
+            "tmdb_id": self.tmdb_id,
             "parent_ids": parent_ids,
             "state": self.last_state.name if self.last_state else self.state.name,
             "aired_at": str(self.aired_at),
-            "genres": self.genres if hasattr(self, "genres") else None,
-            "is_anime": self.is_anime if hasattr(self, "is_anime") else False,
+            "genres": self.genres,
+            "is_anime": bool(self.is_anime),
             "guid": self.guid,
             "rating": self.rating,
             "content_rating": self.content_rating,
@@ -476,7 +446,7 @@ class MediaItem(Base):
             "scraped_times": self.scraped_times,
         }
 
-        if hasattr(self, "seasons") or hasattr(self, "episodes"):
+        if isinstance(self, (Show, Season)):
             data["parent_ids"] = parent_ids
 
         return data
@@ -500,21 +470,18 @@ class MediaItem(Base):
                 for episode in self.episodes
             ]
 
-        dict["language"] = self.language if hasattr(self, "language") else None
-        dict["country"] = self.country if hasattr(self, "country") else None
-        dict["network"] = self.network if hasattr(self, "network") else None
+        dict["language"] = self.language
+        dict["country"] = self.country
+        dict["network"] = self.network
+
         if with_streams:
-            dict["streams"] = [
-                stream.to_dict() for stream in getattr(self, "streams", [])
-            ]
+            dict["streams"] = [stream.to_dict() for stream in self.streams]
             dict["blacklisted_streams"] = [
-                stream.to_dict() for stream in getattr(self, "blacklisted_streams", [])
+                stream.to_dict() for stream in self.blacklisted_streams
             ]
-            dict["active_stream"] = (
-                self.active_stream if hasattr(self, "active_stream") else None
-            )
+            dict["active_stream"] = self.active_stream
         dict["number"] = self.number if isinstance(self, Episode | Season) else None
-        dict["is_anime"] = self.is_anime if hasattr(self, "is_anime") else None
+        dict["is_anime"] = bool(self.is_anime)
 
         dict["filesystem_entry"] = (
             self.filesystem_entry.to_dict() if self.filesystem_entry else None
@@ -524,11 +491,7 @@ class MediaItem(Base):
             if isinstance(self.filesystem_entry, MediaEntry)
             else None
         )
-        dict["subtitles"] = (
-            [subtitle.to_dict() for subtitle in self.subtitles]
-            if hasattr(self, "subtitles")
-            else []
-        )
+        dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles]
         # Include embedded subtitles from media_metadata
         if self.media_entry and self.media_entry.media_metadata:
             embedded_subs = self.media_entry.media_metadata.subtitle_tracks

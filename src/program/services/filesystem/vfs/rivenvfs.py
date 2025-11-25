@@ -168,9 +168,9 @@ class RivenVFS(pyfuse3.Operations):
             cfg=CacheConfig(
                 cache_dir=cache_dir,
                 max_size_bytes=effective_max_bytes,
-                ttl_seconds=int(getattr(self.fs, "cache_ttl_seconds", 2 * 60 * 60)),
-                eviction=(getattr(self.fs, "cache_eviction", "LRU") or "LRU"),
-                metrics_enabled=bool(getattr(self.fs, "cache_metrics", True)),
+                ttl_seconds=self.fs.cache_ttl_seconds,
+                eviction=self.fs.cache_eviction,
+                metrics_enabled=self.fs.cache_metrics,
             )
         )
 
@@ -256,7 +256,7 @@ class RivenVFS(pyfuse3.Operations):
 
             pyfuse3.init(self, self._mountpoint, fuse_options)
 
-            self._mounted = True
+            self.mounted = True
 
             # Open stream nursery for handling streaming operations.
             # This is separate from the main FUSE loop,
@@ -273,7 +273,7 @@ class RivenVFS(pyfuse3.Operations):
                         nursery.cancel_scope.cancel()
         finally:
             self._cleanup_mountpoint(self._mountpoint)
-            self._mounted = False
+            self.mounted = False
 
     async def _monitor_stream_timeouts(self) -> None:
         """Background task to monitor and close timed-out streams to clean up resources."""
@@ -686,7 +686,7 @@ class RivenVFS(pyfuse3.Operations):
     def _cleanup_mountpoint(self, mountpoint: str) -> None:
         """Clean up mountpoint after unmounting."""
 
-        if not self._mounted:
+        if not self.mounted:
             return
 
         try:
@@ -844,7 +844,7 @@ class RivenVFS(pyfuse3.Operations):
                     except OSError as e:
                         # Expected: some inodes may not be in kernel cache
                         # This is not an error, just means kernel already evicted them
-                        if getattr(e, "errno", None) != errno.ENOENT:
+                        if e.errno != errno.ENOENT:
                             logger.trace(f"Could not invalidate inode {inode}: {e}")
                 if invalidated_count > 0:
                     logger.trace(
@@ -1385,7 +1385,7 @@ class RivenVFS(pyfuse3.Operations):
                     ignore_enoent=True,
                 )
         except OSError as e:
-            if getattr(e, "errno", None) != errno.ENOENT:
+            if e.errno != errno.ENOENT:
                 logger.warning(
                     f"Failed to invalidate entry '{entry_name}' in {parent_path}: {e}"
                 )
@@ -1408,7 +1408,7 @@ class RivenVFS(pyfuse3.Operations):
             try:
                 pyfuse3.invalidate_inode(ino, attr_only=attr_only)
             except OSError as e:
-                if getattr(e, "errno", None) == errno.ENOENT:
+                if e.errno == errno.ENOENT:
                     # Expected - inode not cached by kernel yet
                     pass
                 else:

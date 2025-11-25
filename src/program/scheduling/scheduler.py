@@ -246,9 +246,7 @@ class ProgramScheduler:
             self._mark_task_status(
                 session, task, ScheduledStatus.Failed, datetime.now()
             )
-            logger.error(
-                f"Failed processing ScheduledTask {getattr(task,'id',None)}: {e}"
-            )
+            logger.error(f"Failed processing ScheduledTask {task.id}: {e}")
 
     def _load_item_for_task(self, session: Session, task: ScheduledTask):
         """Load and merge the MediaItem for a scheduled task.
@@ -282,7 +280,7 @@ class ProgramScheduler:
     def _enqueue_item_if_needed(self, session: Session, item: MediaItem) -> None:
         """Refresh state and enqueue item to the event manager if not completed."""
 
-        was_completed = getattr(item, "last_state", None) == States.Completed
+        was_completed = item.last_state == States.Completed
         item.store_state()
         session.commit()
 

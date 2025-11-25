@@ -213,6 +213,7 @@ class LibraryProfileMatcher:
         # Check inclusions (must have at least one match if inclusions exist)
         if inclusions:
             has_match = any(inc in item_values_lower for inc in inclusions)
+
             if not has_match:
                 return False
 
@@ -245,30 +246,35 @@ class LibraryProfileMatcher:
 
     def _get_normalized_genres(self, item: MediaItem) -> list[str]:
         """Get normalized genre list (lowercase) from MediaItem."""
+
         if not item.genres:
             return []
+
         return [g.lower() for g in item.genres if g]
 
     def _get_normalized_networks(self, item: MediaItem) -> list[str]:
-        """Get normalized network list (lowercase) from MediaItem.
+        """
+        Get normalized network list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "HBO Max") or a list of strings.
         """
-        v = getattr(item, "network", None)
-        return self._normalize_str_list(v)
+
+        return self._normalize_str_list(item.network)
 
     def _get_normalized_countries(self, item: MediaItem) -> list[str]:
-        """Get normalized country list (lowercase) from MediaItem.
+        """
+        Get normalized country list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "USA") or a list of strings/codes.
         """
-        v = getattr(item, "country", None)
-        return self._normalize_str_list(v)
+
+        return self._normalize_str_list(item.country)
 
     def _get_normalized_languages(self, item: MediaItem) -> list[str]:
-        """Get normalized language list (lowercase) from MediaItem.
+        """
+        Get normalized language list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "eng") or a list of ISO 639-3 codes.
         """
-        v = getattr(item, "language", None)
-        return self._normalize_str_list(v)
+
+        return self._normalize_str_list(item.language)
 
     def _normalize_str_list(self, value: Any) -> list[str]:
         """Normalize a string or iterable of strings into a lowercase list.

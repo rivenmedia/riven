@@ -102,11 +102,9 @@ def setup_logger(
         f"{log_settings.retention_hours} hours" if log_settings.enabled else None
     )
     rotation_value = (
-        f"{getattr(log_settings, 'rotation_mb', 10)} MB"
-        if getattr(log_settings, "rotation_mb", 10) > 0
-        else None
+        f"{log_settings.rotation_mb} MB" if log_settings.rotation_mb > 0 else None
     )
-    compression_value = getattr(log_settings, "compression", "disabled")
+    compression_value = log_settings.compression
 
     handlers: list[HandlerConfig] = [
         {

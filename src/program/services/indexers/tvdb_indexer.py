@@ -174,7 +174,8 @@ class TVDBIndexer(BaseIndexer):
                 if translation := self.api.get_translation(show_data.id, "eng"):
                     if translation.name:
                         title = translation.name
-                        if hasattr(translation, "aliases") and translation.aliases:
+
+                        if translation.aliases:
                             additional_aliases = translation.aliases
                             aliases["us"].extend(
                                 [alias for alias in additional_aliases]
@@ -184,11 +185,7 @@ class TVDBIndexer(BaseIndexer):
                 aliases = {k: list(set(v)) for k, v in aliases.items()}
 
             # Extract genres and determine if anime
-            genres_lower = [
-                (g.name or "").lower()
-                for g in (show_data.genres or [])
-                if hasattr(g, "name")
-            ]
+            genres_lower = [g.name.lower() for g in (show_data.genres or []) if g.name]
             is_anime = ("anime" in genres_lower) or (
                 "animation" in genres_lower and show_data.original_language != "eng"
             )
@@ -343,13 +340,10 @@ class TVDBIndexer(BaseIndexer):
 
             if show_data.original_language != "eng" and show_data.id:
                 if translation := self.api.get_translation(show_data.id, "eng"):
-                    if (
-                        translation
-                        and hasattr(translation, "data")
-                        and translation.name
-                    ):
+                    if translation and translation.name:
                         title = translation.name
-                        if hasattr(translation, "aliases") and translation.aliases:
+
+                        if translation.aliases:
                             additional_aliases = translation.aliases
 
                             aliases["us"].extend(
@@ -360,11 +354,7 @@ class TVDBIndexer(BaseIndexer):
                 # get rid of duplicate values
                 aliases = {k: list(set(v)) for k, v in aliases.items()}
 
-            genres_lower = [
-                (g.name or "").lower()
-                for g in (show_data.genres or [])
-                if hasattr(g, "name")
-            ]
+            genres_lower = [g.name.lower() for g in (show_data.genres or []) if g.name]
             is_anime = ("anime" in genres_lower) or (
                 "animation" in genres_lower and show_data.original_language != "eng"
             )
@@ -382,15 +372,15 @@ class TVDBIndexer(BaseIndexer):
             if show_data.content_ratings:
                 # Look for US content rating
                 for rating_obj in show_data.content_ratings:
-                    if hasattr(rating_obj, "country") and rating_obj.country == "usa":
-                        if hasattr(rating_obj, "name") and rating_obj.name:
+                    if rating_obj.country == "usa":
+                        if rating_obj.name:
                             content_rating = rating_obj.name
                             break
 
             # Extract TVDB status (Continuing, Ended, Upcoming)
             tvdb_status = None
-            if hasattr(show_data, "status") and show_data.status:
-                if hasattr(show_data.status, "name"):
+            if show_data.status:
+                if show_data.status.name:
                     tvdb_status = show_data.status.name
 
             show_item = {
@@ -559,13 +549,15 @@ class TVDBIndexer(BaseIndexer):
                 pass
 
             poster_path = None
-            if hasattr(season_data, "image") and season_data.image:
+
+            if season_data.image:
                 poster_path = season_data.image
             else:
                 poster_path = show.poster_path
 
             year = None
-            if hasattr(season_data, "year") and season_data.year:
+
+            if season_data.year:
                 year = int(season_data.year)
 
             season_item = {
@@ -605,7 +597,8 @@ class TVDBIndexer(BaseIndexer):
 
             # Extract year
             year = None
-            if hasattr(episode_data, "year") and episode_data.year:
+
+            if episode_data.year:
                 year = int(episode_data.year)
 
             # Update episode attributes
@@ -642,7 +635,7 @@ class TVDBIndexer(BaseIndexer):
 
             year = None
 
-            if hasattr(episode_data, "year") and episode_data.year:
+            if episode_data.year:
                 year = int(episode_data.year)
 
             episode = Episode(

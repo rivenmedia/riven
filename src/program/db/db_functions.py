@@ -394,11 +394,7 @@ def run_thread_with_db_item(
                 runner_result = next(fn(event.content_item), None)
 
                 if runner_result is None:
-                    msg = (
-                        event.content_item.log_string
-                        if getattr(event.content_item, "log_string", None) is not None
-                        else event.content_item.imdb_id
-                    )
+                    msg = event.content_item.log_string or event.content_item.imdb_id
 
                     logger.debug(f"Unable to index {msg}")
 

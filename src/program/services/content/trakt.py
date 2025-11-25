@@ -215,12 +215,12 @@ class TraktContent(ContentService[TraktModel]):
 
             for item in items:
                 if item.movie:
-                    tmdb_id = getattr(item.movie.ids, "tmdb", None)
+                    tmdb_id = str(item.movie.ids.tmdb) if item.movie.ids else None
 
                     if tmdb_id:
                         ids.append((tmdb_id, "movie"))
                 elif item.show:
-                    tvdb_id = getattr(item.show.ids, "tvdb", None)
+                    tvdb_id = str(item.show.ids.tvdb) if item.show.ids else None
 
                     if tvdb_id:
                         ids.append((tvdb_id, "show"))

@@ -418,7 +418,7 @@ class Downloader(Runner[None, DownloaderBase]):
             for file_episode in file_data.episodes:
                 if episode_cap and file_episode > episode_cap:
                     logger.debug(
-                        f"Invalid episode number {file_episode} for {getattr(show, 'log_string', 'show?')}. Skipping '{file.filename}'"
+                        f"Invalid episode number {file_episode} for {show.log_string if show else 'show?'} Skipping '{file.filename}'"
                     )
 
                     continue
@@ -429,7 +429,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
                 if episode is None:
                     logger.debug(
-                        f"Episode {file_episode} from file does not match any episode in {getattr(show, 'log_string', 'show?')}"
+                        f"Episode {file_episode} from file does not match any episode in {show.log_string if show else 'show?'}"
                     )
 
                     continue

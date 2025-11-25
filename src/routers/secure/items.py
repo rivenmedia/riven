@@ -104,16 +104,15 @@ def apply_item_mutation(
     # Update parent states (non-recursive)
     try:
         if isinstance(item, Episode):
-            season = session.get(Season, getattr(item, "parent_id", None))
+            season = session.get(Season, item.parent_id)
 
             if season:
                 MediaItem.store_state(season)
-                show = session.get(Show, getattr(season, "parent_id", None))
-
+                show = session.get(Show, season.parent_id)
                 if show:
                     MediaItem.store_state(show)
         elif isinstance(item, Season):
-            show = session.get(Show, getattr(item, "parent_id", None))
+            show = session.get(Show, item.parent_id)
 
             if show:
                 MediaItem.store_state(show)

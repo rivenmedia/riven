@@ -40,7 +40,7 @@ class FilesystemService(Runner[FilesystemModel]):
             from .vfs import RivenVFS
 
             # If VFS already exists and is mounted, synchronize it with current settings
-            if self.riven_vfs and getattr(self.riven_vfs, "_mounted", False):
+            if self.riven_vfs and self.riven_vfs.mounted:
                 logger.info("Synchronizing existing RivenVFS with library profiles")
                 self.riven_vfs.sync()
                 return
@@ -120,7 +120,7 @@ class FilesystemService(Runner[FilesystemModel]):
             return False
 
         # Check RivenVFS is mounted
-        if not getattr(self.riven_vfs, "_mounted", False):
+        if not self.riven_vfs.mounted:
             logger.error("FilesystemService: RivenVFS not mounted")
             return False
 

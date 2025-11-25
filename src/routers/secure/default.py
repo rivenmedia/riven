@@ -143,7 +143,7 @@ async def get_services(request: Request) -> dict[str, bool]:
         for service in services.to_dict().values():
             data[service.key] = service.initialized
 
-            if not hasattr(service, "services"):
+            if service.services:
                 continue
 
             for sub_service in service.services.values():

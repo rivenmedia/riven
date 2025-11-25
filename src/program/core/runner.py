@@ -63,9 +63,6 @@ class Runner(ABC, Generic[TSettings, TService, TRunnerReturnType]):
         Returns True for core runners without settings, else returns the `enabled` attribute from the runner's settings.
         """
 
-        if not hasattr(self, "settings") or not hasattr(self.settings, "enabled"):
-            return True
-
         return getattr(self.settings, "enabled", True)
 
     def validate(self) -> bool:
