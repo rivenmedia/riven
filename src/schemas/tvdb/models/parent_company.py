@@ -95,7 +95,7 @@ class ParentCompany(BaseModel):
                 "id": obj.get("id"),
                 "name": obj.get("name"),
                 "relation": (
-                    CompanyRelationShip.from_dict(obj["relation"])
+                    CompanyRelationShip.from_dict(obj["relation"]).model_dump()
                     if obj.get("relation") is not None
                     else None
                 ),

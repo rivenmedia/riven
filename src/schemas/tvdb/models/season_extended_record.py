@@ -27,6 +27,7 @@ from schemas.tvdb.models.trailer import Trailer
 from schemas.tvdb.models.translation import Translation
 from typing import Optional, Set
 from typing_extensions import Self
+from schemas.tvdb.models.companies import Companies
 
 
 class SeasonExtendedRecord(BaseModel):
@@ -172,7 +173,7 @@ class SeasonExtendedRecord(BaseModel):
                     else None
                 ),
                 "companies": (
-                    Companies.from_dict(obj["companies"])
+                    Companies.from_dict(obj["companies"]).model_dump()
                     if obj.get("companies") is not None
                     else None
                 ),

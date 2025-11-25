@@ -35,6 +35,7 @@ from schemas.tvdb.models.studio_base_record import StudioBaseRecord
 from schemas.tvdb.models.tag_option import TagOption
 from schemas.tvdb.models.trailer import Trailer
 from schemas.tvdb.models.translation_extended import TranslationExtended
+from schemas.tvdb.models.companies import Companies
 from typing import Optional, Set
 from typing_extensions import Self
 
@@ -321,7 +322,7 @@ class MovieExtendedRecord(BaseModel):
                     else None
                 ),
                 "companies": (
-                    Companies.from_dict(obj["companies"])
+                    Companies.from_dict(obj["companies"]).model_dump()
                     if obj.get("companies") is not None
                     else None
                 ),

@@ -22,6 +22,7 @@ from typing import Any, ClassVar, Dict, List, Optional
 from schemas.tvdb.models.season_type import SeasonType
 from typing import Optional, Set
 from typing_extensions import Self
+from schemas.tvdb.models.companies import Companies
 
 
 class SeasonBaseRecord(BaseModel):
@@ -125,7 +126,7 @@ class SeasonBaseRecord(BaseModel):
                 "number": obj.get("number"),
                 "overviewTranslations": obj.get("overviewTranslations"),
                 "companies": (
-                    Companies.from_dict(obj["companies"])
+                    Companies.from_dict(obj["companies"]).model_dump()
                     if obj.get("companies") is not None
                     else None
                 ),
