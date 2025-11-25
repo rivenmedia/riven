@@ -57,7 +57,7 @@ class VFSDirectory(VFSNode):
     def children(self) -> dict[str, VFSNode]:
         """Get children dict."""
 
-        if not self._children:
+        if not hasattr(self, "_children"):
             self._children = dict[str, VFSNode]()
 
         return self._children
