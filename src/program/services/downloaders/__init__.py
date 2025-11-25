@@ -17,7 +17,6 @@ from program.media.models import MediaMetadata
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
-    InvalidDebridFileException,
     NoMatchingFilesException,
     NotCachedException,
     TorrentContainer,
@@ -67,9 +66,11 @@ class Downloader(Runner[None, DownloaderBase]):
                 "No downloader service is initialized. Please initialize a downloader service."
             )
             return False
+
         logger.info(
             f"Initialized {len(self.initialized_services)} downloader service(s): {', '.join(s.key for s in self.initialized_services)}"
         )
+
         return True
 
     def run(self, item: MediaItem) -> MediaItemGenerator:
@@ -280,28 +281,7 @@ class Downloader(Runner[None, DownloaderBase]):
             )
             return None
 
-        valid_files = []
-
-        for file in container.files or []:
-            if isinstance(file, DebridFile):
-                valid_files.append(file)
-                continue
-
-            try:
-                debrid_file = DebridFile.create(
-                    filename=file.filename,
-                    filesize_bytes=file.filesize,
-                    filetype=item.type,
-                    file_id=file.file_id,
-                )
-
-                valid_files.append(debrid_file)
-            except InvalidDebridFileException as e:
-                logger.debug(f"{stream.infohash}: {e}")
-                continue
-
-        if valid_files:
-            container.files = valid_files
+        if container.files:
             return container
 
         return None

@@ -356,8 +356,6 @@ def run_thread_with_db_item(
 
     from program.media.item import Episode, Season
 
-    logger.debug(f"Running DB worker for service: {service.__class__.__name__}")
-
     if event:
         with db_session() as session:
             if event.item_id:
