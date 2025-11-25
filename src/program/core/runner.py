@@ -75,8 +75,7 @@ class Runner(ABC, Generic[TSettings, TService]):
 
         raise NotImplementedError
 
-    @classmethod
-    def should_submit(cls, item: MediaItem) -> bool:
+    def should_submit(self, item: MediaItem) -> bool:
         """Determine if the runner should submit an item for processing."""
 
         return True

@@ -159,8 +159,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         return sorted_streams
 
-    @classmethod
-    def should_submit(cls, item: MediaItem) -> bool:
+    def should_submit(self, item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
 
         settings = settings_manager.settings.scraping
