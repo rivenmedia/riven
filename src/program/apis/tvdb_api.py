@@ -141,11 +141,13 @@ class TVDBApi:
 
             from schemas.tvdb import GetSeriesArtworks200Response
 
-            validated_response = GetSeriesArtworks200Response.from_dict(response.json())
+            validated_response = GetSeriesArtworks200Response.model_validate(
+                response.json(),
+            )
 
-            assert validated_response
+            assert validated_response.data
 
-            return SeriesRelease.model_validate(validated_response.data)
+            return SeriesRelease.model_validate(validated_response.data.model_dump())
         except Exception as e:
             logger.error(f"Error getting series details: {str(e)}")
 

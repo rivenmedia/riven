@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from typing import Optional, Set
 from typing_extensions import Self
+from schemas.tvdb.models.company_relation_ship import CompanyRelationShip
 
 
 class ParentCompany(BaseModel):

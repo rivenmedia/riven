@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from typing import Any, ClassVar, Dict, List, Optional
 from schemas.tvdb.models.alias import Alias
 from schemas.tvdb.models.tag_option import TagOption
+from schemas.tvdb.models.parent_company import ParentCompany
 from typing import Optional, Set
 from typing_extensions import Self
 
