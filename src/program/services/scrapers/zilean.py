@@ -116,7 +116,7 @@ class Zilean(ScraperService[ZileanConfig]):
 
         if not response.ok:
             logger.debug(
-                f"Zilean responded with status code {response.status_code} for {item.log_string}"
+                f"Zilean responded with status code {response.status_code} for {item.log_string}: {response.text}"
             )
             return {}
 

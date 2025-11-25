@@ -453,8 +453,6 @@ def run_thread_with_db_item(
         # Content services dont pass events
         fn_result = fn(None)
 
-        logger.debug(f"fn_result: {fn_result}")
-
         if isinstance(fn_result, dict) or fn_result is None:
             return None
 
