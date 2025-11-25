@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
+from RTN import Torrent
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from kink import di
 from loguru import logger
@@ -25,6 +26,7 @@ from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
+from program.services.downloaders.shared import parse_filename
 from ..models.shared import MessageResponse
 
 
@@ -600,10 +602,13 @@ async def manual_update_attributes(
             assert scraping_session.magnet
             assert scraping_session.torrent_info
 
-            item.active_stream = {
-                "infohash": scraping_session.magnet,
-                "id": scraping_session.torrent_info.id,
-            }
+            item.active_stream = ItemStream(
+                torrent=Torrent(
+                    raw_title=scraping_session.torrent_info.name,
+                    infohash=scraping_session.magnet,
+                    data=parse_filename(scraping_session.torrent_info.name),
+                ),
+            )
 
             torrent = rtn.rank(
                 scraping_session.torrent_info.name,

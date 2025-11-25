@@ -358,7 +358,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 try:
                     assert file.filename
 
-                    file_data: ParsedData = parse_filename(file.filename)
+                    file_data = parse_filename(file.filename)
                 except Exception as e:
                     continue
 
