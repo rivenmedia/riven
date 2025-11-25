@@ -14,10 +14,10 @@ from program.services.downloaders.models import (
     TorrentFile,
     TorrentInfo,
     UserInfo,
+    UnrestrictedLink,
 )
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
-from program.services.downloaders import UnrestrictedLink
 from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left

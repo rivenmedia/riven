@@ -9,10 +9,10 @@ from program.services.downloaders.models import (
     TorrentContainer,
     TorrentInfo,
     UserInfo,
+    UnrestrictedLink,
 )
 from program.settings import settings_manager
 
-from program.services.downloaders import UnrestrictedLink
 from program.media.item import ProcessedItemType
 
 

@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
-from pydantic import BaseModel
 
 from program.media.item import (
     Episode,
@@ -36,12 +35,6 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
-
-
-class UnrestrictedLink(BaseModel):
-    download: str
-    filename: str
-    filesize: int
 
 
 class Downloader(Runner[None, DownloaderBase]):

@@ -232,3 +232,9 @@ class UserInfo(BaseModel):
     points: int | None = None  # Real-Debrid
     total_downloaded_bytes: int | None = None
     cooldown_until: datetime | None = None
+
+
+class UnrestrictedLink(BaseModel):
+    download: str
+    filename: str
+    filesize: int
