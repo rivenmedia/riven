@@ -148,7 +148,7 @@ class TorrentContainer(BaseModel):
     def file_ids(self) -> list[int]:
         """Get the file ids of the cached files"""
 
-        return [file.file_id for file in self.files]
+        return [file.file_id for file in self.files if file.file_id is not None]
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the TorrentContainer to a dictionary including the infohash"""
