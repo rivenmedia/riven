@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal, TYPE_CHECKING, Self, TypeVar
 
+from kink import di
 import sqlalchemy
 from loguru import logger
 from sqlalchemy import Dialect, Index, TypeDecorator
@@ -187,17 +188,17 @@ class MediaItem(Base):
         # Notify about state change via NotificationService
         if previous_state and previous_state != new_state:
             try:
-                from program.program import riven
+                from program.program import Program
 
-                assert riven.services
+                services = di[Program].services
 
-                notification_service = riven.services.notifications
-                if notification_service:
-                    notification_service.run(
-                        self,
-                        previous_state=previous_state,
-                        new_state=new_state,
-                    )
+                assert services
+
+                services.notifications.run(
+                    item=self,
+                    previous_state=previous_state,
+                    new_state=new_state,
+                )
             except Exception as e:
                 # Fallback: log error but don't break state storage
                 logger.debug(f"Failed to send state change notification: {e}")
@@ -355,8 +356,10 @@ class MediaItem(Base):
     def _determine_state(self) -> States:
         if self.last_state == States.Paused:
             return States.Paused
+
         if self.last_state == States.Failed:
             return States.Failed
+
         if self.updated:
             return States.Completed
         elif self.available_in_vfs:
@@ -584,6 +587,7 @@ class MediaItem(Base):
         Returns:
             The first `FilesystemEntry` instance if any exist, otherwise `None`.
         """
+
         return self.filesystem_entries[0] if self.filesystem_entries else None
 
     @property

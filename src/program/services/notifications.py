@@ -10,11 +10,11 @@ from program.managers.sse_manager import sse_manager
 from program.media.item import Episode, MediaItem, Season
 from program.media.state import States
 from program.settings import settings_manager
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner
 from program.settings.models import NotificationsModel
 
 
-class NotificationService(Runner[NotificationsModel]):
+class NotificationService(Runner[NotificationsModel, None, None]):
     """
     Unified notification service that handles all notification types:
     - SSE state change notifications (real-time UI updates)
@@ -67,7 +67,7 @@ class NotificationService(Runner[NotificationsModel]):
         *,
         previous_state: States | None = None,
         new_state: States | None = None,
-    ) -> MediaItemGenerator:
+    ):
         """
         Main entry point for sending notifications.
 
@@ -97,8 +97,6 @@ class NotificationService(Runner[NotificationsModel]):
         # Handle completion notifications
         if item_to_notify.last_state == States.Completed:
             self._notify_completion(item_to_notify)
-
-        yield RunnerResult(media_items=[])
 
     def _notify_state_change(
         self, item: MediaItem, previous_state: States, new_state: States

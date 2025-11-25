@@ -31,15 +31,16 @@ class Torrentio(ScraperService[TorrentioConfig]):
         self.settings = settings_manager.settings.scraping.torrentio
         self.timeout = self.settings.timeout or 15
 
-        if self.settings.ratelimit:
-            rate_limits = {
+        rate_limits = (
+            {
                 "torrentio.strem.fun": {
                     "rate": 150 / 60,
                     "capacity": 150,
                 }  # 150 calls per minute
             }
-        else:
-            rate_limits = {}
+            if self.settings.ratelimit
+            else {}
+        )
 
         self.session = SmartSession(
             rate_limits=rate_limits, retries=self.settings.retries, backoff_factor=0.3
@@ -74,13 +75,11 @@ class Torrentio(ScraperService[TorrentioConfig]):
                 url, timeout=10, headers=self.headers, proxies=self.proxies
             )
 
-            if response.ok:
-                return True
+            return response.ok
         except Exception as e:
             logger.error(f"Torrentio failed to initialize: {e}")
 
             return False
-        return True
 
     def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape Torrentio with the given media item for streams"""
