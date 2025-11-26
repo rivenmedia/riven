@@ -186,6 +186,7 @@ class Program(threading.Thread):
 
     def validate_database(self) -> bool:
         """Validate that the database is accessible."""
+
         try:
             with db_session() as session:
                 session.execute(text("SELECT 1"))

@@ -623,7 +623,7 @@ class EventManager:
             return False
 
         for ev in queue:
-            if ev.item_id == item_id:
+            if item_id and ev.item_id == item_id:
                 return True
 
             content_item = ev.content_item

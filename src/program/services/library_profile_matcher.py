@@ -179,6 +179,7 @@ class LibraryProfileMatcher:
             3. If inclusions exist and none match item_values, return False
             4. Otherwise return True
         """
+
         if not item_values:
             # Item has no values for this filter
             # Only fail if there are inclusion rules (item must have at least one)
