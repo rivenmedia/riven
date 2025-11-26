@@ -24,7 +24,7 @@ rtn = RTN(ranking_settings, ranking_model)
 
 
 def _parse_results(
-    item: MediaItem, results: Dict[str, str], log_msg: bool = True
+    item: MediaItem, results: Dict[str, str], log_msg: bool = True, manual: bool = False
 ) -> Dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
     torrents: Set[Torrent] = set()
@@ -52,7 +52,9 @@ def _parse_results(
                 correct_title=correct_title,
                 remove_trash=settings_manager.settings.ranking.options[
                     "remove_all_trash"
-                ],
+                ]
+                if not manual
+                else False,
                 aliases=aliases,
             )
 
