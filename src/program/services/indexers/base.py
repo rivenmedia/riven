@@ -45,8 +45,8 @@ class BaseIndexer(Runner[IndexerModel]):
 
         is_anime = bool(item_a.is_anime or item_b.is_anime)
 
-        if isinstance(item_a, Show) and isinstance(item_b, Show):
-            item_a.seasons = item_b.seasons
+        if item_a.type == "mediaitem" and isinstance(item_b, Show):
+            item_a.set("seasons", item_b.seasons)
 
         if isinstance(item_b, Show) and isinstance(item_a, (Show, Season, Episode)):
             for season_a in item_a.seasons:
