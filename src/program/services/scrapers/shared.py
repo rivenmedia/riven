@@ -26,6 +26,7 @@ def parse_results(
     item: MediaItem,
     results: dict[str, str],
     log_msg: bool = True,
+    manual: bool = False,
 ) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
 
@@ -52,7 +53,9 @@ def parse_results(
                 correct_title=correct_title,
                 remove_trash=settings_manager.settings.ranking.options[
                     "remove_all_trash"
-                ],
+                ]
+                if not manual
+                else False,
                 aliases=aliases,
             )
 
