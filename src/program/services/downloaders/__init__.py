@@ -441,7 +441,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
                     continue
 
-                if episode and episode.state not in [
+                if episode.state not in [
                     States.Completed,
                     States.Symlinked,
                     States.Downloaded,
