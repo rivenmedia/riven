@@ -2,6 +2,7 @@
 
 from loguru import logger
 from pydantic import BaseModel, Field
+from requests import HTTPError
 
 from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
@@ -86,13 +87,17 @@ class Torrentio(ScraperService[TorrentioConfig]):
 
         try:
             return self.scrape(item)
-        except Exception as e:
-            if "rate limit" in str(e).lower() or "429" in str(e):
+        except HTTPError as http_err:
+            if http_err.response.status_code == 429:
                 logger.debug(
                     f"Torrentio rate limit exceeded for item: {item.log_string}"
                 )
             else:
-                logger.exception(f"Torrentio exception thrown: {str(e)}")
+                logger.error(
+                    f"Torrentio HTTP error for {item.log_string}: {str(http_err)}"
+                )
+        except Exception as e:
+            logger.exception(f"Torrentio exception thrown: {str(e)}")
 
         return {}
 
@@ -119,7 +124,10 @@ class Torrentio(ScraperService[TorrentioConfig]):
         )
 
         if not response.ok:
-            logger.error(f"Torrentio request failed for {item.log_string}")
+            response.raise_for_status()
+            logger.error(
+                f"Torrentio request failed for {item.log_string}: {response.text}"
+            )
             return {}
 
         data = TorrentioScrapeResponse.model_validate(response.json())

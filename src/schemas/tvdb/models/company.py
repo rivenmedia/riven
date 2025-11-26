@@ -47,9 +47,7 @@ class Company(BaseModel):
         default=None, alias="primaryCompanyType"
     )
     slug: Optional[StrictStr] = None
-    parent_company: Optional[Dict[str, Any]] = Field(
-        default=None, alias="parentCompany"
-    )
+    parent_company: Optional[ParentCompany] = Field(default=None, alias="parentCompany")
     tag_options: Optional[List[TagOption]] = Field(default=None, alias="tagOptions")
     __properties: ClassVar[List[str]] = [
         "activeDate",

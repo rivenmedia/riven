@@ -31,7 +31,7 @@ class ParentCompany(BaseModel):
 
     id: Optional[StrictInt] = None
     name: Optional[StrictStr] = None
-    relation: Optional[Dict[str, Any]] = None
+    relation: Optional[CompanyRelationShip] = None
     __properties: ClassVar[List[str]] = ["id", "name", "relation"]
 
     model_config = ConfigDict(
@@ -95,7 +95,7 @@ class ParentCompany(BaseModel):
                 "id": obj.get("id"),
                 "name": obj.get("name"),
                 "relation": (
-                    CompanyRelationShip.from_dict(obj["relation"]).model_dump()
+                    CompanyRelationShip.from_dict(obj["relation"])
                     if obj.get("relation") is not None
                     else None
                 ),
