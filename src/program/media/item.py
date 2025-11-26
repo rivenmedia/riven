@@ -425,7 +425,7 @@ class MediaItem(Base):
             "id": str(self.id),
             "title": self.title,
             "poster_path": self.poster_path,
-            "type": self.__class__.__name__,
+            "type": self.type,
             "parent_title": parent_title,
             "season_number": season_number,
             "episode_number": episode_number,
