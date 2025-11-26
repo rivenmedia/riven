@@ -55,7 +55,10 @@ class Overseerr(ContentService[OverseerrModel]):
         if self.settings.use_webhook and self.run_once:
             return
 
-        overseerr_items = self.api.get_media_requests(self.key)
+        overseerr_items = self.api.get_media_requests(
+            self.key,
+            filter_pending_items=self.run_once,
+        )
 
         if self.settings.use_webhook:
             logger.info(

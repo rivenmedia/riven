@@ -1,8 +1,9 @@
 """Base indexer module"""
 
+from typing import cast
 from loguru import logger
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.item import MediaItem, Movie, Show
 from program.settings import settings_manager
 from program.core.runner import Runner
 from program.settings.models import IndexerModel
@@ -48,7 +49,9 @@ class BaseIndexer(Runner[IndexerModel]):
         if item_a.type == "mediaitem" and isinstance(item_b, Show):
             item_a.set("seasons", item_b.seasons)
 
-        if isinstance(item_b, Show) and isinstance(item_a, (Show, Season, Episode)):
+        if isinstance(item_b, Show) and item_a.type != "movie":
+            item_a = cast(Show, item_a)
+
             for season_a in item_a.seasons:
                 for season_b in item_b.seasons:
                     if season_a.number == season_b.number:  # Check if seasons match

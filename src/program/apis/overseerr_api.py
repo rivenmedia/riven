@@ -68,6 +68,7 @@ class OverseerrAPI:
             | None
         ) = "approved",
         take: int = 10000,
+        filter_pending_items: bool = True,
     ) -> list["MediaItem"]:
         """Get media requests from `Overseerr`"""
 
@@ -105,7 +106,7 @@ class OverseerrAPI:
         # Lets look at approved items only that are only in the pending state
         pending_items = response_data.results
 
-        if filter == "approved":
+        if filter_pending_items and filter == "approved":
             pending_items = [
                 item
                 for item in response_data.results
