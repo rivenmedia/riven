@@ -798,6 +798,8 @@ class MediaStream:
                     headers=headers,
                     extensions=extensions,
                 ) as stream:
+                    stream.raise_for_status()
+
                     content_length = stream.headers.get("Content-Length")
 
                     if end is not None:
