@@ -12,12 +12,12 @@ from program.settings.models import OrionoidConfig
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
 
 
-class OrionoidAuthErrorResponse(BaseModel):
+class OrionoidErrorResponse(BaseModel):
     class Result(BaseModel):
         status: str
+        message: str
 
     result: Result
-    reason: str
 
 
 class OrionoidAuthResponse(BaseModel):
@@ -160,12 +160,10 @@ class Orionoid(ScraperService[OrionoidConfig]):
             response = self.session.get(url, timeout=self.timeout)
 
             if not response.ok:
-                error_response = OrionoidAuthErrorResponse.model_validate(
-                    response.json()
-                )
+                error_response = OrionoidErrorResponse.model_validate(response.json())
 
                 logger.error(
-                    f"Orionoid failed to authenticate: {error_response.reason}"
+                    f"Orionoid failed to authenticate: {error_response.result.message}"
                 )
 
                 return False
@@ -195,11 +193,11 @@ class Orionoid(ScraperService[OrionoidConfig]):
             response = self.session.get(url)
 
             if not response.ok:
-                error_response = OrionoidAuthErrorResponse.model_validate(
-                    response.json()
-                )
+                error_response = OrionoidErrorResponse.model_validate(response.json())
 
-                logger.error(f"Orionoid failed to check limit: {error_response.reason}")
+                logger.error(
+                    f"Orionoid failed to check limit: {error_response.result.message}"
+                )
 
                 return False
 
@@ -282,11 +280,14 @@ class Orionoid(ScraperService[OrionoidConfig]):
             timeout=self.timeout,
         )
 
-        data = OrionoidScrapeResponse.model_validate(response.json())
-
         if not response.ok:
-            logger.error(f"Orionoid scrape failed for {item.log_string}: {data}")
+            logger.error(
+                f"Orionoid scrape failed for {item.log_string}: {response.text}"
+            )
+
             return {}
+
+        data = OrionoidScrapeResponse.model_validate(response.json())
 
         if not data.data:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")

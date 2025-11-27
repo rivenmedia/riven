@@ -174,6 +174,7 @@ class ProgramScheduler:
 
     def _get_pending_scheduled_tasks(self, session: Session) -> Sequence[ScheduledTask]:
         """Return all pending scheduled tasks."""
+
         try:
             return (
                 session.execute(
@@ -191,7 +192,8 @@ class ProgramScheduler:
             return []
 
     def _process_scheduled_tasks(self) -> None:
-        """Process due scheduled tasks by delegating to focused helpers.
+        """
+        Process due scheduled tasks by delegating to focused helpers.
 
         Responsibilities split into:
         - fetching due tasks;
@@ -217,7 +219,8 @@ class ProgramScheduler:
         task: ScheduledTask,
         now: datetime,
     ) -> None:
-        """Process a single ScheduledTask instance.
+        """
+        Process a single ScheduledTask instance.
 
         Args:
             session: Active SQLAlchemy session.
@@ -226,11 +229,19 @@ class ProgramScheduler:
         """
         try:
             item = self._load_item_for_task(session, task)
+
             if not item:
-                self._mark_task_status(session, task, ScheduledStatus.Failed, now)
+                self._mark_task_status(
+                    session,
+                    task,
+                    ScheduledStatus.Failed,
+                    now,
+                )
+
                 logger.debug(
                     f"ScheduledTask {task.id} item {task.item_id} no longer exists"
                 )
+
                 return
 
             if task.task_type in ("reindex_show", "reindex", "reindex_movie"):
@@ -239,25 +250,27 @@ class ProgramScheduler:
                 self._enqueue_item_if_needed(session, item)
 
             self._mark_task_status(
-                session, task, ScheduledStatus.Completed, datetime.now()
+                session,
+                task,
+                ScheduledStatus.Completed,
+                datetime.now(),
             )
         except Exception as e:
             session.rollback()
             self._mark_task_status(
                 session, task, ScheduledStatus.Failed, datetime.now()
             )
-            logger.error(f"Failed processing ScheduledTask {task.id}: {e}")
+            logger.exception(f"Failed processing ScheduledTask {task.id}: {e}")
 
     def _load_item_for_task(self, session: Session, task: ScheduledTask):
-        """Load and merge the MediaItem for a scheduled task.
+        """
+        Load and merge the MediaItem for a scheduled task.
 
         Returns:
             The merged item or None if missing.
         """
 
-        item = db_functions.get_item_by_id(
-            task.item_id, session=session, load_tree=False
-        )
+        item = db_functions.get_item_by_id(task.item_id, session=session)
 
         if not item:
             return None
@@ -288,21 +301,23 @@ class ProgramScheduler:
             self.program.em.add_event(Event(emitted_by="Scheduler", item_id=item.id))
             logger.info(f"Enqueued {item.log_string} from scheduler")
 
-    @staticmethod
     def _mark_task_status(
+        self,
         session: Session,
         task: ScheduledTask,
         status: ScheduledStatus,
         executed_at: datetime,
     ) -> None:
         """Persist a task status update in a single place."""
+
         task.status = status
         task.executed_at = executed_at
         session.add(task)
         session.commit()
 
     def _monitor_ongoing_schedules(self) -> None:
-        """Ensure schedules exist for upcoming releases and metadata refreshes.
+        """
+        Ensure schedules exist for upcoming releases and metadata refreshes.
 
         Decomposed into helpers for clarity:
         - schedule upcoming episodes
@@ -331,6 +346,7 @@ class ProgramScheduler:
         now: datetime,
     ) -> bool:
         """Return True if a pending future task of this type already exists for item."""
+
         existing = (
             session.execute(
                 select(ScheduledTask)

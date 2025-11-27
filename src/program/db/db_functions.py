@@ -47,8 +47,6 @@ def get_item_by_id(
     item_id: int,
     item_types: list[str] | None = None,
     session: Session | None = None,
-    *,
-    load_tree: bool = False,
 ) -> "MediaItem | None":
     """
     Retrieve a MediaItem by its database ID.
@@ -57,21 +55,15 @@ def get_item_by_id(
         item_id (int): The numeric primary key of the MediaItem to retrieve.
         item_types (list[str] | None): If provided, restricts the lookup to items whose `type` is one of these values (e.g., "movie", "show").
         session (Session | None): Database session to use; if omitted, a new session will be created for the query.
-        load_tree (bool): If True, include related seasons and episodes when the item is a show.
 
     Returns:
         MediaItem | None: The matching MediaItem detached from the session, or `None` if no matching item exists.
     """
 
-    from program.media.item import MediaItem, Season, Show
+    from program.media.item import MediaItem
 
     with _maybe_session(session) as (_s, _):
         query = select(MediaItem).where(MediaItem.id == item_id)
-
-        if load_tree:
-            query = query.options(
-                selectinload(Show.seasons).selectinload(Season.episodes)
-            )
 
         if item_types:
             query = query.where(MediaItem.type.in_(item_types))
