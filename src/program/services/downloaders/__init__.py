@@ -136,7 +136,9 @@ class Downloader(Runner[None, DownloaderBase]):
 
                         # Try to download using this service
                         download_result = self.download_cached_stream_on_service(
-                            stream, container, service
+                            stream,
+                            container,
+                            service,
                         )
 
                         if self.update_item_attributes(item, download_result, service):

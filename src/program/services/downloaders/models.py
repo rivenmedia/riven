@@ -41,12 +41,12 @@ episode_min_filesize = settings_manager.settings.downloaders.episode_filesize_mb
 episode_max_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
 
 # constraints for filesizes, follows the format tuple(min, max)
-FILESIZE_MOVIE_CONSTRAINT = (
+(MOVIE_MIN_FILESIZE, MOVIE_MAX_FILESIZE) = (
     movie_min_filesize if movie_min_filesize >= 0 else 0,
     movie_max_filesize if movie_max_filesize > 0 else float("inf"),
 )
 
-FILESIZE_EPISODE_CONSTRAINT = (
+(EPISODE_MIN_FILESIZE, EPISODE_MAX_FILESIZE) = (
     episode_min_filesize if episode_min_filesize >= 0 else 0,
     episode_max_filesize if episode_max_filesize > 0 else float("inf"),
 )
@@ -99,22 +99,14 @@ class DebridFile(BaseModel):
             filesize_mb = filesize_bytes / 1_000_000
 
             if filetype == "movie":
-                if not (
-                    FILESIZE_MOVIE_CONSTRAINT[0]
-                    <= filesize_mb
-                    <= FILESIZE_MOVIE_CONSTRAINT[1]
-                ):
+                if not (MOVIE_MIN_FILESIZE <= filesize_mb <= MOVIE_MAX_FILESIZE):
                     raise InvalidDebridFileException(
-                        f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_MOVIE_CONSTRAINT[0]}MB to {FILESIZE_MOVIE_CONSTRAINT[1]}MB"
+                        f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {MOVIE_MIN_FILESIZE}MB to {MOVIE_MAX_FILESIZE}MB"
                     )
             elif filetype in ["show", "season", "episode"]:
-                if not (
-                    FILESIZE_EPISODE_CONSTRAINT[0]
-                    <= filesize_mb
-                    <= FILESIZE_EPISODE_CONSTRAINT[1]
-                ):
+                if not (EPISODE_MIN_FILESIZE <= filesize_mb <= EPISODE_MAX_FILESIZE):
                     raise InvalidDebridFileException(
-                        f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {FILESIZE_EPISODE_CONSTRAINT[0]}MB to {FILESIZE_EPISODE_CONSTRAINT[1]}MB"
+                        f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {EPISODE_MIN_FILESIZE}MB to {EPISODE_MAX_FILESIZE}MB"
                     )
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)

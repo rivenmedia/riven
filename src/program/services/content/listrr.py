@@ -84,16 +84,16 @@ class Listrr(ContentService[ListrrModel]):
             return
 
         tmdb_ids = [
-            item[1]
-            for item in get_movies_response
-            if not item_exists_by_any_id(imdb_id=item[0], tmdb_id=str(item[1]))
+            tmdb_id
+            for (imdb_id, tmdb_id) in get_movies_response
+            if not item_exists_by_any_id(imdb_id=imdb_id, tmdb_id=str(tmdb_id))
         ]
 
         tvdb_ids = [
-            item[1]
-            for item in get_shows_response
-            if not item_exists_by_any_id(imdb_id=item[0], tvdb_id=str(item[1]))
-            if item[1] is not None
+            tvdb_id
+            for (imdb_id, tvdb_id) in get_shows_response
+            if not item_exists_by_any_id(imdb_id=imdb_id, tvdb_id=str(tvdb_id))
+            if tvdb_id is not None
         ]
 
         listrr_items = list[MediaItem]()

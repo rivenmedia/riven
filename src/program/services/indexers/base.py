@@ -50,9 +50,7 @@ class BaseIndexer(Runner[IndexerModel]):
             item_a.set("seasons", item_b.seasons)
 
         if isinstance(item_b, Show) and item_a.type != "movie":
-            item_a = cast(Show, item_a)
-
-            for season_a in item_a.seasons:
+            for season_a in cast(Show, item_a).seasons:
                 for season_b in item_b.seasons:
                     if season_a.number == season_b.number:  # Check if seasons match
                         for episode_a in season_a.episodes:
