@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
-from RTN import Torrent
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from kink import di
 from loguru import logger
@@ -26,7 +25,6 @@ from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
-from program.services.downloaders.shared import parse_filename
 from ..models.shared import MessageResponse
 
 
@@ -602,14 +600,6 @@ async def manual_update_attributes(
             assert scraping_session.magnet
             assert scraping_session.torrent_info
 
-            item.active_stream = ItemStream(
-                torrent=Torrent(
-                    raw_title=scraping_session.torrent_info.name,
-                    infohash=scraping_session.magnet,
-                    data=parse_filename(scraping_session.torrent_info.name),
-                ),
-            )
-
             torrent = rtn.rank(
                 scraping_session.torrent_info.name,
                 scraping_session.magnet,
@@ -620,7 +610,10 @@ async def manual_update_attributes(
             if object_session(item) is not session:
                 item = session.merge(item)
 
-            item.streams.append(ItemStream(torrent))
+            active_stream = ItemStream(torrent=torrent)
+
+            item.active_stream = active_stream
+            item.streams.append(active_stream)
             item_ids_to_submit.add(item.id)
 
         if isinstance(data, DebridFile):
