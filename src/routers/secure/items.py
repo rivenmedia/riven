@@ -429,7 +429,7 @@ class ResetResponse(BaseModel):
 async def reset_items(
     request: Request,
     ids: str,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session.__wrapped__),
 ) -> ResetResponse:
     """
     Reset the specified media items to their initial state and trigger a media-server library refresh when applicable.
@@ -626,7 +626,7 @@ class RemoveResponse(BaseModel):
 async def remove_item(
     request: Request,
     ids: str,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session.__wrapped__),
 ) -> RemoveResponse:
     """
     Remove one or more media items identified by their IDs.
@@ -685,9 +685,7 @@ async def remove_item(
 
         media_entry = item.media_entry
 
-        assert media_entry, f"Media entry not found for item {item.id}"
-
-        if updater and item.filesystem_entry:
+        if media_entry and updater and item.filesystem_entry:
             vfs_paths = media_entry.get_all_vfs_paths()
 
             for vfs_path in vfs_paths:
@@ -762,7 +760,7 @@ class StreamsResponse(BaseModel):
 
 
 @router.get("/{item_id}/streams")
-async def get_item_streams(_: Request, item_id: int, db: Session = Depends(db_session)):
+async def get_item_streams(_: Request, item_id: int, db: Session = Depends(db_session.__wrapped__)):
     item = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
         .unique()
@@ -786,7 +784,7 @@ async def blacklist_stream(
     request: Request,
     item_id: int,
     stream_id: int,
-    db: Session = Depends(db_session),
+    db: Session = Depends(db_session.__wrapped__),
 ):
     item = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
@@ -825,7 +823,7 @@ async def unblacklist_stream(
     request: Request,
     item_id: int,
     stream_id: int,
-    db: Session = Depends(db_session),
+    db: Session = Depends(db_session.__wrapped__),
 ):
     item = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
@@ -868,7 +866,7 @@ async def unblacklist_stream(
 async def reset_item_streams(
     request: Request,
     item_id: int,
-    db: Session = Depends(db_session),
+    db: Session = Depends(db_session.__wrapped__),
 ):
     item = (
         db.execute(select(MediaItem).where(MediaItem.id == item_id))
@@ -1132,7 +1130,7 @@ class ItemAliasesResponse(BaseModel):
 async def get_item_aliases(
     _: Request,
     item_id: int,
-    db: Session = Depends(db_session),
+    db: Session = Depends(db_session.__wrapped__),
 ) -> ItemAliasesResponse:
     """Get aliases for a media item"""
 
@@ -1159,7 +1157,7 @@ async def get_item_aliases(
 async def get_item_metadata(
     _: Request,
     item_id: int,
-    db: Session = Depends(db_session),
+    db: Session = Depends(db_session.__wrapped__),
 ) -> MediaMetadata:
     """Get all metadata for a media item using item ID"""
     item = (
