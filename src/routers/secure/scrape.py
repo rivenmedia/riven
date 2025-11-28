@@ -31,7 +31,13 @@ from ..models.shared import MessageResponse
 
 class Stream(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    metadata: dict[str, str] = Field(alias="metadata_")
+    infohash: str
+    raw_title: str
+    parsed_title: str
+    parsed_data: Any
+    rank: int
+    lev_ratio: float
+    resolution: str
 
 
 class ScrapeItemResponse(BaseModel):
@@ -369,7 +375,9 @@ async def start_manual_session(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            result = next(indexer.run(prepared_item), None)
+            if result and result.media_items:
+                item = result.media_items[0]
         elif tvdb_id and media_type == "tv":
             prepared_item = MediaItem(
                 {
@@ -378,7 +386,9 @@ async def start_manual_session(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            result = next(indexer.run(prepared_item), None)
+            if result and result.media_items:
+                item = result.media_items[0]
         elif imdb_id:
             prepared_item = MediaItem(
                 {
@@ -387,7 +397,9 @@ async def start_manual_session(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            result = next(indexer.run(prepared_item), None)
+            if result and result.media_items:
+                item = result.media_items[0]
         else:
             raise HTTPException(status_code=400, detail="No valid ID provided")
 
@@ -492,7 +504,7 @@ async def manual_update_attributes(
     request: Request,
     session_id: str,
     data: DebridFile | ShowFileData,
-    session: Session = Depends(db_session),
+    session: Session = Depends(db_session.__wrapped__),
 ) -> UpdateAttributesResponse:
     """
     Apply selected file attributes from a scraping session to the referenced media item(s).
@@ -548,7 +560,9 @@ async def manual_update_attributes(
         }
 
         if item_data:
-            if indexed := next(IndexerService().run(MediaItem(item_data)), None):
+            result = next(IndexerService().run(MediaItem(item_data)), None)
+            if result and result.media_items:
+                indexed = result.media_items[0]
                 # Check if the indexed item actually exists (e.g. via a newly discovered ID)
                 try:
                     if existing := db_functions.get_item_by_external_id(
@@ -592,11 +606,39 @@ async def manual_update_attributes(
             fs_entry.original_filename = data.filename
         else:
             # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+            downloader = di[Program].services.downloader
+            provider = downloader.service.key if downloader and downloader.service else None
+
+            # Get torrent ID from scraping session
+            torrent_id = (
+                scraping_session.torrent_info.id if scraping_session.torrent_info else None
+            )
+            
+            download_url = data.download_url
+            
+            # If download_url is missing, try to refresh torrent info to get it
+            if not download_url and torrent_id and downloader and downloader.service:
+                try:
+                    logger.debug(f"Refreshing torrent info for {torrent_id} to resolve download_url")
+                    fresh_info = downloader.service.get_torrent_info(torrent_id)
+                    
+                    # Find matching file
+                    for file in fresh_info.files.values():
+                        if file.filename == data.filename:
+                            if file.download_url:
+                                download_url = file.download_url
+                                logger.debug(f"Resolved download_url for {data.filename}: {download_url}")
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to refresh torrent info: {e}")
+
+            logger.debug(f"Manual Update Attributes: provider={provider}, torrent_id={torrent_id}, download_url={download_url}")
+
             fs_entry = MediaEntry.create_placeholder_entry(
                 original_filename=data.filename,
-                download_url=data.download_url,
-                provider=None,
-                provider_download_id=None,
+                download_url=download_url,
+                provider=provider,
+                provider_download_id=str(torrent_id) if torrent_id else None,
                 file_size=data.filesize or 0,
             )
 
@@ -614,14 +656,18 @@ async def manual_update_attributes(
         assert scraping_session.magnet
         assert scraping_session.torrent_info
 
+        infohash = scraping_session.torrent_info.infohash
+        if not infohash:
+            infohash = extract_infohash(scraping_session.magnet)
+
         item.active_stream = ActiveStream(
-            infohash=scraping_session.magnet,
+            infohash=infohash,
             id=scraping_session.torrent_info.id,
         )
 
         torrent = rtn.rank(
             scraping_session.torrent_info.name,
-            scraping_session.magnet,
+            infohash,
         )
 
         # Ensure the item is properly attached to the session before adding streams
@@ -761,7 +807,7 @@ async def overseerr_requests(
     request: Request,
     filter: str | None = None,
     take: int = 100000,
-    db: Session = Depends(db_session),
+    db: Session = Depends(db_session.__wrapped__),
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""
     from program.apis.overseerr_api import OverseerrAPI
