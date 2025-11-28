@@ -1,17 +1,18 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy
 from RTN import Torrent
 from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from program.db.db import db
+from program.db.base_model import Base
+
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
 
-class StreamRelation(db.Model):
+class StreamRelation(Base):
     __tablename__ = "StreamRelation"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
@@ -28,7 +29,7 @@ class StreamRelation(db.Model):
     )
 
 
-class StreamBlacklistRelation(db.Model):
+class StreamBlacklistRelation(Base):
     __tablename__ = "StreamBlacklistRelation"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
@@ -45,17 +46,16 @@ class StreamBlacklistRelation(db.Model):
     )
 
 
-class Stream(db.Model):
+class Stream(Base):
     __tablename__ = "Stream"
 
     id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    infohash: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    raw_title: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    parsed_title: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
-    rank: Mapped[int] = mapped_column(sqlalchemy.Integer, nullable=False)
-    lev_ratio: Mapped[float] = mapped_column(sqlalchemy.Float, nullable=False)
-    resolution: Mapped[Optional[str]] = mapped_column(sqlalchemy.String, nullable=True)
-
+    infohash: Mapped[str]
+    raw_title: Mapped[str]
+    parsed_title: Mapped[str]
+    rank: Mapped[int]
+    lev_ratio: Mapped[float]
+    resolution: Mapped[str | None]
     parents: Mapped[list["MediaItem"]] = relationship(
         secondary="StreamRelation", back_populates="streams", lazy="selectin"
     )
@@ -85,13 +85,14 @@ class Stream(db.Model):
         )
 
     def __hash__(self):
-        return self.infohash
+        return hash(self.infohash)
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         return isinstance(other, Stream) and self.infohash == other.infohash
 
     def to_dict(self):
         """Convert stream to dictionary for API serialization"""
+
         return {
             "id": self.id,
             "infohash": self.infohash,

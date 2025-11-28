@@ -43,7 +43,8 @@ dependencies = [
     "rank-torrent-name>=1.9.3,<2",
     "parsett>=1.8.2,<2",
     "trio-util>=0.8.0",
-    "ordered-set>=4.1.0"
+    "ordered-set>=4.1.0",
+    "lazy-imports>=1.1.0",
 ]
 
 [dependency-groups]
@@ -62,6 +63,8 @@ dev = [
     "requests-mock>=1.12.1,<2",
     "black>=25.9.0,<26",
     "pre-commit>=4.3.0,<5",
+    "openapi-generator-cli[jdk4py]>=7.17.0",
+    "types-lxml>=2025.8.25",
 ]
 test = ["pytest>=8.3.2,<9"]
 

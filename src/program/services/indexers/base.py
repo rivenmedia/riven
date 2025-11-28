@@ -1,26 +1,27 @@
 """Base indexer module"""
 
-from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
-from typing import Generator, Union
-
+from typing import cast
 from loguru import logger
 
-from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.settings.manager import settings_manager
+from program.media.item import MediaItem, Movie, Show
+from program.settings import settings_manager
+from program.core.runner import Runner
+from program.settings.models import IndexerModel
 
 
-class BaseIndexer(ABC):
+class BaseIndexer(Runner[IndexerModel]):
     """Base class for all indexers"""
 
-    def __init__(self):
-        self.key = self.__class__.__name__.lower()
+    def __init__(self) -> None:
+        super().__init__()
+
         self.settings = settings_manager.settings.indexer
         self.initialized = True
 
     @staticmethod
-    def copy_attributes(source, target):
+    def copy_attributes(source: MediaItem, target: MediaItem) -> None:
         """Copy attributes from source to target."""
+
         attributes = [
             "file",
             "folder",
@@ -36,53 +37,36 @@ class BaseIndexer(ABC):
             "requested_id",
             "streams",
         ]
+
         for attr in attributes:
             target.set(attr, getattr(source, attr, None))
 
-    def copy_items(self, itema: MediaItem, itemb: MediaItem):
-        """Copy attributes from itema to itemb recursively."""
-        is_anime = itema.is_anime or itemb.is_anime
-        if itema.type == "mediaitem" and itemb.type == "show":
-            itema.seasons = itemb.seasons
-        if itemb.type == "show" and itema.type != "movie":
-            for seasona in itema.seasons:
-                for seasonb in itemb.seasons:
-                    if seasona.number == seasonb.number:  # Check if seasons match
-                        for episodea in seasona.episodes:
-                            for episodeb in seasonb.episodes:
+    def copy_items[T: MediaItem](self, item_a: MediaItem, item_b: T) -> T:
+        """Copy attributes from item A to item B recursively."""
+
+        is_anime = bool(item_a.is_anime or item_b.is_anime)
+
+        if item_a.type == "mediaitem" and isinstance(item_b, Show):
+            item_a.set("seasons", item_b.seasons)
+
+        if isinstance(item_b, Show) and item_a.type != "movie":
+            for season_a in cast(Show, item_a).seasons:
+                for season_b in item_b.seasons:
+                    if season_a.number == season_b.number:  # Check if seasons match
+                        for episode_a in season_a.episodes:
+                            for episode_b in season_b.episodes:
                                 if (
-                                    episodea.number == episodeb.number
+                                    episode_a.number == episode_b.number
                                 ):  # Check if episodes match
-                                    self.copy_attributes(episodea, episodeb)
-                        seasonb.set("is_anime", is_anime)
-            itemb.set("is_anime", is_anime)
-        elif itemb.type == "movie":
-            self.copy_attributes(itema, itemb)
-            itemb.set("is_anime", is_anime)
+                                    self.copy_attributes(episode_a, episode_b)
+                        season_b.set("is_anime", is_anime)
+            item_b.set("is_anime", is_anime)
+        elif isinstance(item_b, Movie):
+            self.copy_attributes(item_a, item_b)
+            item_b.set("is_anime", is_anime)
         else:
             logger.error(
-                f"Item types {itema.type} and {itemb.type} do not match cant copy metadata"
-            )
-        return itemb
-
-    @abstractmethod
-    def run(
-        self, in_item: MediaItem, log_msg: bool = True
-    ) -> Generator[Union[Movie, Show, Season, Episode], None, None]:
-        """Run the indexer for the given item. Must be implemented by subclasses."""
-
-    @staticmethod
-    def should_submit(item: MediaItem) -> bool:
-        if not item.indexed_at or not item.title:
-            return True
-
-        try:
-            settings = settings_manager.settings.indexer
-            interval = timedelta(seconds=settings.update_interval)
-            return datetime.now() - item.indexed_at > interval
-        except Exception:
-            logger.error(
-                f"Failed to parse date: {item.indexed_at} with format: {interval}"
+                f"Item types {item_a.type} and {item_b.type} do not match cant copy metadata"
             )
 
-        return False
+        return item_b

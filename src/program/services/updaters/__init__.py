@@ -1,18 +1,19 @@
 """Updater module"""
 
 import os
-from typing import Generator
 
 from loguru import logger
 
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.services.updaters.base import BaseUpdater
 
 
-class Updater:
+class Updater(Runner[None, BaseUpdater]):
     """
     Main updater service that coordinates multiple media server updaters.
 
@@ -21,7 +22,6 @@ class Updater:
     """
 
     def __init__(self):
-        self.key = "updater"
         self.library_path = settings_manager.settings.updaters.library_path
         self.services = {
             PlexUpdater: PlexUpdater(),
@@ -32,12 +32,14 @@ class Updater:
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""
+
         initialized_services = [
             service for service in self.services.values() if service.initialized
         ]
+
         return len(initialized_services) > 0
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """
         Update media servers for the given item.
 
@@ -55,21 +57,23 @@ class Updater:
         Yields:
             MediaItem: The item after processing
         """
+
         logger.debug(f"Starting update process for {item.log_string}")
         items = self.get_items_to_update(item)
-        refreshed_paths = set()  # Track refreshed paths to avoid duplicates
+        refreshed_paths = set[str]()  # Track refreshed paths to avoid duplicates
 
         for _item in items:
             # Get all VFS paths from the entry's helper method
-            fe = getattr(_item, "filesystem_entry", None)
-            if not fe:
+            media_entry = _item.media_entry
+
+            if not media_entry:
                 logger.debug(
                     f"No filesystem entry for {_item.log_string}; skipping updater"
                 )
                 continue
 
             try:
-                all_vfs_paths = fe.get_all_vfs_paths()
+                all_vfs_paths = media_entry.get_all_vfs_paths()
             except Exception as e:
                 logger.error(f"Failed to get VFS paths for {_item.log_string}: {e}")
                 continue
@@ -96,7 +100,8 @@ class Updater:
         logger.info(
             f"Updated {item.log_string} ({len(refreshed_paths)} unique paths refreshed)"
         )
-        yield item
+
+        yield RunnerResult(media_items=[item])
 
     def refresh_path(self, path: str) -> bool:
         """
@@ -111,7 +116,9 @@ class Updater:
         Returns:
             bool: True if at least one service refreshed successfully, False otherwise
         """
+
         success = False
+
         for service in self.services.values():
             if service.initialized:
                 try:
@@ -125,15 +132,19 @@ class Updater:
 
     def get_items_to_update(self, item: MediaItem) -> list[MediaItem]:
         """Get the list of files to update for the given item."""
-        if item.type in ["movie", "episode"]:
+
+        if isinstance(item, (Movie, Episode)):
             return [item]
-        if item.type == "show":
+
+        if isinstance(item, Show):
             return [
                 e
                 for season in item.seasons
                 for e in season.episodes
                 if e.available_in_vfs
             ]
-        if item.type == "season":
+
+        if isinstance(item, Season):
             return [e for e in item.episodes if e.available_in_vfs]
+
         return []

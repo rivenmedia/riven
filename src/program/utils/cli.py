@@ -3,7 +3,6 @@ import os
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from typing import Tuple, Optional
 
 from program.db.db_functions import (
     hard_reset_database,
@@ -11,13 +10,14 @@ from program.db.db_functions import (
 from program.utils.logging import log_cleaner, logger
 
 
-def _parse_db_connection(db_url: str) -> Optional[Tuple[str, str, str, str, str]]:
+def _parse_db_connection(db_url: str) -> tuple[str, str, str, str, str] | None:
     """
     Parse database connection string.
 
     Returns:
         Tuple of (user, password, host, port, dbname) or None if invalid
     """
+
     # Format: postgresql+psycopg2://user:password@host:port/dbname
     try:
         if "://" not in db_url:
@@ -59,13 +59,16 @@ def _parse_db_connection(db_url: str) -> Optional[Tuple[str, str, str, str, str]
         return None
 
 
-def _setup_pg_env(password: str) -> dict:
+def _setup_pg_env(password: str) -> dict[str, str]:
     """Setup environment variables for PostgreSQL commands."""
+
     env = os.environ.copy()
+
     if password:
         env["PGPASSWORD"] = password
     else:
         env.pop("PGPASSWORD", None)
+
     return env
 
 
@@ -147,7 +150,10 @@ def _run_psql(
         return False
 
 
-def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
+def snapshot_database(
+    snapshot_dir: Path | None = None,
+    snapshot_name: str | None = None,
+):
     """
     Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
 
@@ -161,7 +167,7 @@ def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
     Returns:
         bool: `True` if the snapshot was created and the `latest.sql` symlink updated, `False` otherwise.
     """
-    from program.settings.manager import settings_manager
+    from program.settings import settings_manager
 
     if snapshot_dir is None:
         snapshot_dir = Path("./data/db_snapshot")
@@ -208,7 +214,7 @@ def snapshot_database(snapshot_dir: Path = None, snapshot_name: str = None):
         return False
 
 
-def restore_database(snapshot_file: Path = None):
+def restore_database(snapshot_file: Path | None = None):
     """
     Restore the configured PostgreSQL database from a SQL snapshot file.
 
@@ -220,7 +226,7 @@ def restore_database(snapshot_file: Path = None):
     Returns:
         bool: `True` if the restore completed successfully, `False` otherwise.
     """
-    from program.settings.manager import settings_manager
+    from program.settings import settings_manager
 
     if snapshot_file is None:
         snapshot_dir = Path("./data/db_snapshot")

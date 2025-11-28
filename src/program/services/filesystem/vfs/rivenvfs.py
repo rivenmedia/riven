@@ -32,10 +32,8 @@ Usage:
 
 from __future__ import annotations
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, contextmanager
-from http import HTTPStatus
+from contextlib import asynccontextmanager
 
-import httpx
 import pyfuse3
 import trio
 import os
@@ -44,6 +42,7 @@ import errno
 import subprocess
 from typing import (
     TYPE_CHECKING,
+    Any,
     Literal,
     NoReturn,
     TypedDict,
@@ -62,9 +61,8 @@ from program.services.filesystem.vfs.vfs_node import (
     VFSRoot,
 )
 
-from program.utils.async_client import AsyncClient
 from program.utils.logging import logger
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.services.filesystem.vfs.db import VFSDatabase
 from program.services.streaming.exceptions import (
     MediaStreamDataException,
@@ -78,6 +76,8 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
+from program.utils.debrid_cdn_url import DebridCDNUrl
+from program.db.db import db_session
 
 from ...streaming import (
     Cache,
@@ -96,6 +96,11 @@ class FileHandle(TypedDict):
     inode: pyfuse3.InodeT
     last_read_end: int
     subtitle_content: bytes | None
+
+
+class CachedDirectoryEntry(TypedDict):
+    name: str
+    is_directory: bool
 
 
 class RivenVFS(pyfuse3.Operations):
@@ -161,9 +166,9 @@ class RivenVFS(pyfuse3.Operations):
             cfg=CacheConfig(
                 cache_dir=cache_dir,
                 max_size_bytes=effective_max_bytes,
-                ttl_seconds=int(getattr(self.fs, "cache_ttl_seconds", 2 * 60 * 60)),
-                eviction=(getattr(self.fs, "cache_eviction", "LRU") or "LRU"),
-                metrics_enabled=bool(getattr(self.fs, "cache_metrics", True)),
+                ttl_seconds=self.fs.cache_ttl_seconds,
+                eviction=self.fs.cache_eviction,
+                metrics_enabled=self.fs.cache_metrics,
             )
         )
 
@@ -198,7 +203,7 @@ class RivenVFS(pyfuse3.Operations):
         self._next_fh = pyfuse3.FileHandleT(1)
 
         # Opener statistics
-        self._opener_stats: dict[str, dict] = {}
+        self.opener_stats: dict[str, dict[str, Any]] = {}
 
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)
@@ -249,7 +254,7 @@ class RivenVFS(pyfuse3.Operations):
 
             pyfuse3.init(self, self._mountpoint, fuse_options)
 
-            self._mounted = True
+            self.mounted = True
 
             # Open stream nursery for handling streaming operations.
             # This is separate from the main FUSE loop,
@@ -266,7 +271,7 @@ class RivenVFS(pyfuse3.Operations):
                         nursery.cancel_scope.cancel()
         finally:
             self._cleanup_mountpoint(self._mountpoint)
-            self._mounted = False
+            self.mounted = False
 
     async def _monitor_stream_timeouts(self) -> None:
         """Background task to monitor and close timed-out streams to clean up resources."""
@@ -475,12 +480,16 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             List of parent inodes (excluding root)
         """
-        inodes = []
+
+        inodes = list[pyfuse3.InodeT]([])
         current = node.parent
+
         while current and current != self._root:
             if current.inode:
                 inodes.append(current.inode)
+
             current = current.parent
+
         return inodes
 
     # Public API methods
@@ -507,7 +516,7 @@ class RivenVFS(pyfuse3.Operations):
         else:
             self._sync_individual(item)
 
-    def add(self, item: "MediaItem") -> bool:
+    def add(self, item: MediaItem) -> bool:
         """
         Add a MediaItem to the VFS.
 
@@ -520,16 +529,10 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully added, False otherwise
         """
-        from program.media.media_entry import MediaEntry
 
-        # Only process if this item has a filesystem entry
-        if not item.filesystem_entry:
-            logger.debug(f"Item {item.id} has no filesystem_entry, skipping VFS add")
-            return False
-
-        entry = item.filesystem_entry
-        if not isinstance(entry, MediaEntry):
-            logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
+        # Only process if this item has a media entry
+        if not (entry := item.media_entry):
+            logger.debug(f"Item {item.id} has no media entry, skipping VFS add")
             return False
 
         # Register the MediaEntry (video file)
@@ -548,7 +551,7 @@ class RivenVFS(pyfuse3.Operations):
 
         return True
 
-    def remove(self, item: "MediaItem") -> bool:
+    def remove(self, item: MediaItem) -> bool:
         """
         Remove a MediaItem from the VFS.
 
@@ -563,12 +566,13 @@ class RivenVFS(pyfuse3.Operations):
         """
 
         from program.media.media_entry import MediaEntry
+        from program.media.item import Season, Show
 
-        if item.type == "show":
+        if isinstance(item, Show):
             for season in item.seasons:
                 self.remove(season)
 
-        if item.type == "season":
+        if isinstance(item, Season):
             for episode in item.episodes:
                 self.remove(episode)
 
@@ -673,7 +677,7 @@ class RivenVFS(pyfuse3.Operations):
     def _cleanup_mountpoint(self, mountpoint: str) -> None:
         """Clean up mountpoint after unmounting."""
 
-        if not self._mounted:
+        if not self.mounted:
             return
 
         try:
@@ -695,6 +699,7 @@ class RivenVFS(pyfuse3.Operations):
 
     async def _terminate_async(self) -> None:
         """Async helper to call pyfuse3.terminate() within the Trio loop."""
+
         try:
             pyfuse3.terminate()
         except Exception:
@@ -711,6 +716,7 @@ class RivenVFS(pyfuse3.Operations):
         4. Re-register all entries using add()
         5. Batch invalidate all collected inodes
         """
+
         from program.media.media_entry import MediaEntry
         from program.services.library_profile_matcher import LibraryProfileMatcher
 
@@ -740,12 +746,10 @@ class RivenVFS(pyfuse3.Operations):
         matcher = LibraryProfileMatcher()
 
         # Step 1: Re-match all entries against current library profiles and collect item IDs
-        from program.db.db import db as db_module
-
-        item_ids = []
+        item_ids = list[int]([])
         rematched_count = 0
 
-        with db_module.Session() as session:
+        with db_session() as session:
             entries = (
                 session.query(MediaEntry).filter(MediaEntry.is_directory == False).all()
             )
@@ -753,6 +757,7 @@ class RivenVFS(pyfuse3.Operations):
             for entry in entries:
                 # Get the MediaItem for this entry to re-match profiles
                 item = entry.media_item
+
                 if not item:
                     logger.warning(
                         f"MediaEntry {entry.id} has no associated MediaItem, skipping"
@@ -773,10 +778,12 @@ class RivenVFS(pyfuse3.Operations):
                     item_ids.append(item.id)
 
             session.commit()
+
             logger.debug(f"Re-matched {rematched_count} entries with updated profiles")
 
         # Step 2: Clear VFS tree and rebuild from scratch
         logger.debug("Clearing VFS tree for rebuild")
+
         with self._tree_lock:
             # Create new root node
             self._root = VFSRoot()
@@ -787,9 +794,10 @@ class RivenVFS(pyfuse3.Operations):
 
         # Step 3: Re-register all items
         logger.debug(f"Re-registering {len(item_ids)} items")
+
         registered_count = 0
 
-        with db_module.Session() as session:
+        with db_session() as session:
             from program.media.item import MediaItem
 
             items = session.query(MediaItem).filter(MediaItem.id.in_(item_ids)).all()
@@ -798,6 +806,7 @@ class RivenVFS(pyfuse3.Operations):
             for item_id in item_ids:
                 try:
                     item = item_map.get(item_id)
+
                     if not item:
                         continue
 
@@ -828,7 +837,7 @@ class RivenVFS(pyfuse3.Operations):
                     except OSError as e:
                         # Expected: some inodes may not be in kernel cache
                         # This is not an error, just means kernel already evicted them
-                        if getattr(e, "errno", None) != errno.ENOENT:
+                        if e.errno != errno.ENOENT:
                             logger.trace(f"Could not invalidate inode {inode}: {e}")
                 if invalidated_count > 0:
                     logger.trace(
@@ -858,7 +867,7 @@ class RivenVFS(pyfuse3.Operations):
             item: MediaItem to re-sync
         """
         from sqlalchemy.orm import object_session
-        from program.db.db import db as db_module
+        from program.db.db import db_session
 
         logger.debug(f"Individual sync: re-registering item {item.id}")
 
@@ -878,7 +887,7 @@ class RivenVFS(pyfuse3.Operations):
             self.add(item)
         else:
             # Item is detached - fetch it in a new session
-            with db_module.Session() as session:
+            with db_session() as session:
                 from program.media.item import MediaItem
 
                 fresh_item = (
@@ -961,14 +970,16 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             List of registered VFS paths
         """
+
         from program.media.media_entry import MediaEntry
         from program.media.subtitle_entry import SubtitleEntry
         import os
 
         if isinstance(entry, MediaEntry):
             # Register MediaEntry (video file)
+
             all_paths = entry.get_all_vfs_paths()
-            registered_paths = []
+            registered_paths = list[str]([])
 
             for path in all_paths:
                 if self._register_clean_path(
@@ -991,7 +1002,7 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 return []
 
-            registered_paths = []
+            registered_paths = list[str]([])
             language = entry.language
 
             for video_path in video_paths:
@@ -1017,6 +1028,7 @@ class RivenVFS(pyfuse3.Operations):
 
         else:
             logger.warning(f"Unknown FilesystemEntry type: {type(entry)}")
+
             return []
 
     def _unregister_filesystem_entry(
@@ -1054,7 +1066,7 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 return []
 
-            unregistered_paths = []
+            unregistered_paths = list[str]([])
             language = entry.language
 
             for video_path in video_paths:
@@ -1194,7 +1206,8 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             List of unregistered VFS paths
         """
-        unregistered_paths = []
+
+        unregistered_paths = list[str]([])
 
         # Find all nodes with matching original_filename
         nodes_to_remove = self._get_nodes_by_original_filename(original_filename)
@@ -1217,7 +1230,7 @@ class RivenVFS(pyfuse3.Operations):
             True if successfully unregistered
         """
         normalized_path = self._normalize_path(path)
-        inodes_to_invalidate = set()
+        inodes_to_invalidate = set[pyfuse3.InodeT]()
 
         with self._tree_lock:
             node = self._get_node_by_path(normalized_path)
@@ -1228,7 +1241,7 @@ class RivenVFS(pyfuse3.Operations):
             # Remove the file node
             parent = node.parent
 
-            if not parent or not isinstance(parent, VFSDirectory):
+            if not parent:
                 return False
 
             parent.remove_child(node.name)
@@ -1291,7 +1304,7 @@ class RivenVFS(pyfuse3.Operations):
             return "/"
         return "/".join(path.rstrip("/").split("/")[:-1]) or "/"
 
-    def _list_directory_cached(self, path: str) -> list[dict]:
+    def _list_directory_cached(self, path: str) -> list["CachedDirectoryEntry"] | None:
         """
         List directory contents using VFS tree for O(1) lookups.
 
@@ -1301,20 +1314,23 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             path: NORMALIZED VFS path (caller must normalize)
         """
+
         with self._tree_lock:
             # Get node from tree
             node = self._get_node_by_path(path)
+
             if node is None or not isinstance(node, VFSDirectory):
-                return []
+                return None
 
             # Build result list from node's children - no database queries!
-            children = []
+            children = list[CachedDirectoryEntry]([])
+
             for name, child in node.children.items():
                 children.append(
-                    {
-                        "name": name,
-                        "is_directory": isinstance(child, VFSDirectory),
-                    }
+                    CachedDirectoryEntry(
+                        name=name,
+                        is_directory=isinstance(child, VFSDirectory),
+                    )
                 )
 
             return children
@@ -1362,7 +1378,7 @@ class RivenVFS(pyfuse3.Operations):
                     ignore_enoent=True,
                 )
         except OSError as e:
-            if getattr(e, "errno", None) != errno.ENOENT:
+            if e.errno != errno.ENOENT:
                 logger.warning(
                     f"Failed to invalidate entry '{entry_name}' in {parent_path}: {e}"
                 )
@@ -1385,7 +1401,7 @@ class RivenVFS(pyfuse3.Operations):
             try:
                 pyfuse3.invalidate_inode(ino, attr_only=attr_only)
             except OSError as e:
-                if getattr(e, "errno", None) == errno.ENOENT:
+                if e.errno == errno.ENOENT:
                     # Expected - inode not cached by kernel yet
                     pass
                 else:
@@ -1415,7 +1431,11 @@ class RivenVFS(pyfuse3.Operations):
         )
 
     # FUSE Operations
-    async def getattr(self, inode: pyfuse3.InodeT, ctx=None) -> pyfuse3.EntryAttributes:
+    async def getattr(
+        self,
+        inode: pyfuse3.InodeT,
+        ctx: pyfuse3.RequestContext | None = None,
+    ) -> pyfuse3.EntryAttributes:
         """Get file/directory attributes."""
         try:
             path = self._get_path_from_inode(inode)
@@ -1520,13 +1540,14 @@ class RivenVFS(pyfuse3.Operations):
         self,
         parent_inode: pyfuse3.InodeT,
         name: bytes,
-        ctx=None,
+        ctx: pyfuse3.RequestContext | None = None,
     ) -> pyfuse3.EntryAttributes:
         """Look up a directory entry using VFS tree."""
         try:
             with self._tree_lock:
                 # Get parent node from tree
                 parent_node = self._inode_to_node.get(parent_inode)
+
                 if parent_node is None:
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
@@ -1546,21 +1567,24 @@ class RivenVFS(pyfuse3.Operations):
                 else:
                     # Look up child in parent's children
                     child_node = parent_node.get_child(name_str)
+
                     if child_node is None:
                         raise pyfuse3.FUSEError(errno.ENOENT)
+
                     child_inode = child_node.inode
 
-                if child_inode is None:
-                    raise pyfuse3.FUSEError(errno.ENOENT)
-
-            return await self.getattr(child_inode)
+            return await self.getattr(child_inode, ctx)
         except pyfuse3.FUSEError:
             raise
         except Exception:
             logger.exception(f"lookup error: parent={parent_inode} name={name}")
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def opendir(self, inode: pyfuse3.InodeT, ctx):
+    async def opendir(
+        self,
+        inode: pyfuse3.InodeT,
+        ctx: pyfuse3.RequestContext,
+    ) -> pyfuse3.FileHandleT:
         """Open a directory for reading."""
         try:
             with self._tree_lock:
@@ -1591,6 +1615,9 @@ class RivenVFS(pyfuse3.Operations):
         try:
             path = self._get_path_from_inode(fh)
             entries = self._list_directory_cached(path)
+
+            if not entries:
+                raise pyfuse3.FUSEError(errno.ENOENT)
 
             # Build directory listing
             with self._tree_lock:
@@ -1634,7 +1661,7 @@ class RivenVFS(pyfuse3.Operations):
         self,
         inode: pyfuse3.InodeT,
         flags: int,
-        ctx,
+        ctx: pyfuse3.RequestContext,
     ) -> pyfuse3.FileInfo:
         """Open a file for reading."""
         try:
@@ -1651,36 +1678,7 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
-                entry_info = await trio.to_thread.run_sync(
-                    lambda: self.vfs_db.get_entry_by_original_filename(
-                        original_filename=node.original_filename,
-                    )
-                )
-
-                if (
-                    not entry_info
-                    or not entry_info["url"]
-                    or not entry_info["provider"]
-                ):
-                    raise pyfuse3.FUSEError(errno.ENOENT)
-
-                try:
-                    # Test URL availability
-                    async with di[AsyncClient].stream(
-                        method="GET",
-                        url=entry_info["url"],
-                    ) as response:
-                        response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    status_code = e.response.status_code
-
-                    if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                        await trio.to_thread.run_sync(
-                            lambda: self.vfs_db.get_entry_by_original_filename(
-                                original_filename=node.original_filename,
-                                force_resolve=True,
-                            )
-                        )
+                DebridCDNUrl(filename=node.original_filename).validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."
@@ -1869,7 +1867,7 @@ class RivenVFS(pyfuse3.Operations):
             except* ChunksTooSlowException as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.ETIMEDOUT) from e
@@ -1879,35 +1877,35 @@ class RivenVFS(pyfuse3.Operations):
             ) as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.ENOENT) from e
             except* DebridServiceForbiddenException as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.EACCES) from e
             except* DebridServiceRangeNotSatisfiableException as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.EINVAL) from e
             except* DebridServiceRefusedRangeRequestException as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.ERANGE) from e
             except* DebridServiceRateLimitedException as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.EAGAIN) from e
@@ -1917,7 +1915,7 @@ class RivenVFS(pyfuse3.Operations):
             ) as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.ECONNABORTED) from e
@@ -1927,7 +1925,7 @@ class RivenVFS(pyfuse3.Operations):
             ) as e:
                 for exc in e.exceptions:
                     logger.error(
-                        stream._build_log_message(f"{exc.__class__.__name__}: {exc}")
+                        stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
 
                 raise pyfuse3.FUSEError(errno.EIO) from e
@@ -1935,9 +1933,7 @@ class RivenVFS(pyfuse3.Operations):
                 for exc in e.exceptions:
                     if stream:
                         logger.error(
-                            stream._build_log_message(
-                                f"{exc.__class__.__name__}: {exc}"
-                            )
+                            stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                         )
                     else:
                         logger.error(f"{exc.__class__.__name__}: {exc}")
@@ -1990,7 +1986,9 @@ class RivenVFS(pyfuse3.Operations):
         """Sync file data (no-op for read-only filesystem)."""
         return None
 
-    async def access(self, inode: pyfuse3.InodeT, mode: int, ctx=None) -> bool:
+    async def access(
+        self, inode: pyfuse3.InodeT, mode: int, ctx: pyfuse3.RequestContext
+    ) -> bool:
         """Check file access permissions.
         Be permissive for write checks to avoid client false negatives; actual writes still fail with EROFS.
         """
@@ -2008,7 +2006,7 @@ class RivenVFS(pyfuse3.Operations):
             logger.exception(f"access error inode={inode} mode={mode}")
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def unlink(self, parent_inode: int, name: bytes, ctx):
+    async def unlink(self, parent_inode: int, name: bytes, ctx: pyfuse3.RequestContext):
         """Remove a file."""
         try:
             # Deny user-initiated deletes; managed via provider interfaces only
@@ -2022,7 +2020,7 @@ class RivenVFS(pyfuse3.Operations):
             logger.exception(f"unlink error: parent={parent_inode} name={name}")
             raise pyfuse3.FUSEError(errno.EIO)
 
-    async def rmdir(self, parent_inode: int, name: bytes, ctx):
+    async def rmdir(self, parent_inode: int, name: bytes, ctx: pyfuse3.RequestContext):
         """Remove a directory."""
         try:
             # Deny user-initiated directory deletes; managed via provider interfaces only
@@ -2043,7 +2041,7 @@ class RivenVFS(pyfuse3.Operations):
         parent_inode_new: int,
         name_new: str,
         flags: int,
-        ctx,
+        ctx: pyfuse3.RequestContext,
     ):
         """Rename/move a file or directory."""
         try:
@@ -2091,11 +2089,7 @@ class RivenVFS(pyfuse3.Operations):
                     )
                 )
 
-                if (
-                    not entry_info
-                    or not entry_info["url"]
-                    or not entry_info["provider"]
-                ):
+                if not entry_info or not entry_info.url or not entry_info.provider:
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
                 self._active_streams[stream_key] = MediaStream(
@@ -2103,8 +2097,8 @@ class RivenVFS(pyfuse3.Operations):
                     file_size=file_size,
                     path=path,
                     original_filename=original_filename,
-                    provider=entry_info["provider"],
-                    initial_url=entry_info["url"],
+                    provider=entry_info.provider,
+                    initial_url=entry_info.url,
                     nursery=self.stream_nursery,
                 )
 

@@ -29,7 +29,7 @@ class VFSNode:
         if self.parent is None:
             return "/"
 
-        parts = []
+        parts = list[str]([])
         current = self
 
         while current.parent is not None:
@@ -58,7 +58,7 @@ class VFSDirectory(VFSNode):
         """Get children dict."""
 
         if not hasattr(self, "_children"):
-            self._children: dict[str, VFSNode] = {}
+            self._children = dict[str, VFSNode]()
 
         return self._children
 
