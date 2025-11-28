@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -110,11 +110,11 @@ class ScrapingSession:
     def __init__(
         self,
         id: str,
-        item_id: int,
-        media_type: Literal["movie", "tv"] | None = None,
-        imdb_id: str | None = None,
-        tmdb_id: str | None = None,
-        tvdb_id: str | None = None,
+        item_id: Optional[str] = None,
+        media_type: Optional[Literal["movie", "tv"]] = None,
+        imdb_id: Optional[str] = None,
+        tmdb_id: Optional[str] = None,
+        tvdb_id: Optional[str] = None,
         magnet: str | None = None,
     ):
         self.id = id
@@ -143,12 +143,12 @@ class ScrapingSessionManager:
 
     def create_session(
         self,
-        item_id: int,
         magnet: str,
-        media_type: Literal["movie", "tv"] | None = None,
-        imdb_id: str | None = None,
-        tmdb_id: str | None = None,
-        tvdb_id: str | None = None,
+        item_id: Optional[str] = None,
+        media_type: Optional[Literal["movie", "tv"]] = None,
+        imdb_id: Optional[str] = None,
+        tmdb_id: Optional[str] = None,
+        tvdb_id: Optional[str] = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
@@ -405,8 +405,8 @@ async def start_manual_session(
         )
 
     session = scraping_session_manager.create_session(
-        item.id,
-        info_hash,
+        magnet,
+        item_id=str(item.id) if item.id else None,
         media_type=media_type,
         imdb_id=imdb_id,
         tmdb_id=tmdb_id,
@@ -516,9 +516,8 @@ async def manual_update_attributes(
     if not scraping_session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
-    if not scraping_session.item_id:
-        scraping_session_manager.abort_session(session_id)
-        raise HTTPException(status_code=500, detail="No item ID found")
+    # Note: We removed the strict check for item_id here to allow for items that haven't been persisted yet.
+    # The item lookup logic below handles cases where item_id is missing.
 
     item = None
     item_ids_to_submit = None
