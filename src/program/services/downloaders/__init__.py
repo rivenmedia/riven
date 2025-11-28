@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from loguru import logger
-from RTN import ParsedData, Torrent
+from RTN import ParsedData
 
 from program.media.item import (
     Episode,
@@ -13,7 +13,7 @@ from program.media.item import (
 from program.media.state import States
 from program.media.stream import Stream
 from program.media.media_entry import MediaEntry
-from program.media.models import MediaMetadata
+from program.media.models import ActiveStream, MediaMetadata
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
@@ -324,6 +324,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 except Exception as e:
                     pass
 
+            found = False
             files = download_result.container.files
 
             # Track episodes we've already processed to avoid duplicates
@@ -355,9 +356,9 @@ class Downloader(Runner[None, DownloaderBase]):
                     processed_episode_ids,
                     service,
                 ):
-                    return True
+                    found = True
 
-            return False
+            return found
         except Exception as e:
             logger.debug(f"update_item_attributes: exception for item {item.id}: {e}")
             raise
@@ -477,12 +478,9 @@ class Downloader(Runner[None, DownloaderBase]):
                     found = True
 
         if found and isinstance(item, (Show, Season)):
-            item.active_stream = Stream(
-                torrent=Torrent(
-                    raw_title=file_data.raw_title,
-                    infohash=download_result.infohash,
-                    data=file_data,
-                ),
+            item.active_stream = ActiveStream(
+                infohash=download_result.infohash,
+                id=download_result.info.id,
             )
 
         return found
@@ -570,12 +568,9 @@ class Downloader(Runner[None, DownloaderBase]):
             service = self.service
 
         if file_data:
-            item.active_stream = Stream(
-                Torrent(
-                    raw_title=file_data.raw_title,
-                    infohash=download_result.infohash,
-                    data=file_data,
-                )
+            item.active_stream = ActiveStream(
+                infohash=download_result.infohash,
+                id=download_result.info.id,
             )
 
         # Create MediaEntry for virtual file if download URL is available

@@ -20,6 +20,7 @@ from program.db.db import db_session
 from program.db.base_model import Base
 from program.media.media_entry import MediaEntry
 from program.apis.tvdb_api import SeriesRelease
+from program.media.models import ActiveStream
 
 from .stream import Stream
 
@@ -32,6 +33,24 @@ TMediaItem = TypeVar("TMediaItem", bound="MediaItem")
 
 class MediaItem(Base):
     """MediaItem class"""
+
+    class ActiveStreamDecorator(TypeDecorator[ActiveStream]):
+        """Custom SQLAlchemy type decorator for ActiveStream JSON serialization"""
+
+        impl = sqlalchemy.JSON
+        cache_ok = True
+
+        def process_bind_param(self, value: ActiveStream | None, dialect: Dialect):
+            if value is None:
+                return None
+
+            return value.model_dump()
+
+        def process_result_value(self, value: dict[str, Any] | None, dialect: Dialect):
+            if value is None:
+                return None
+
+            return ActiveStream.model_validate(value)
 
     __tablename__ = "MediaItem"
 
@@ -52,12 +71,7 @@ class MediaItem(Base):
     indexed_at: Mapped[datetime | None]
     scraped_at: Mapped[datetime | None]
     scraped_times: Mapped[int] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[Stream | None] = relationship(
-        secondary="ActiveStreamRelation",
-        back_populates="active_parents",
-        lazy="selectin",
-        cascade="all",
-    )
+    active_stream: Mapped[ActiveStream | None] = mapped_column(ActiveStreamDecorator)
     streams: Mapped[list[Stream]] = relationship(
         secondary="StreamRelation",
         back_populates="parents",
@@ -182,7 +196,7 @@ class MediaItem(Base):
         """Store the state of the item and notify about state changes."""
 
         previous_state = self.last_state
-        new_state = given_state or self._determine_state()
+        new_state = given_state or self.state
         self.last_state = new_state
 
         # Notify about state change via NotificationService
@@ -526,7 +540,8 @@ class MediaItem(Base):
 
         _set_nested_attr(self, key, value)
 
-    def get_top_title(self) -> str:
+    @property
+    def top_title(self) -> str:
         """
         Return the top-level title for this media item.
 
@@ -1067,7 +1082,8 @@ class Season(MediaItem):
     def log_string(self):
         return self.parent.log_string + " S" + str(self.number).zfill(2)
 
-    def get_top_title(self) -> str:
+    @property
+    def top_title(self) -> str:
         """Get the top title of the season."""
 
         session = object_session(self)
@@ -1160,7 +1176,8 @@ class Episode(MediaItem):
     def log_string(self):
         return f"{self.parent.log_string}E{self.number:02}"
 
-    def get_top_title(self) -> str:
+    @property
+    def top_title(self) -> str:
         return self.top_parent.title
 
 

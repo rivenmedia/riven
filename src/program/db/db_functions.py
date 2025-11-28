@@ -296,7 +296,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
     calendar: dict[int, dict[str, Any]] = {}
 
     for item in result.scalars().yield_per(500):
-        title = item.get_top_title()
+        title = item.top_title
         calendar[item.id] = {
             "item_id": item.id,
             "tvdb_id": item.tvdb_id,

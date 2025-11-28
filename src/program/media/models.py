@@ -348,3 +348,8 @@ class MediaMetadata(BaseModel):
             pass  # Already probed
 
         self.probed_at = datetime.now(timezone.utc).isoformat()
+
+
+class ActiveStream(BaseModel):
+    infohash: str
+    id: int | str

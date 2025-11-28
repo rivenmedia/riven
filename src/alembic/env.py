@@ -13,7 +13,6 @@ from program.media import (
     MediaItem,
     FilesystemEntry,
     StreamRelation,
-    ActiveStreamRelation,
     StreamBlacklistRelation,
     Stream,
 )

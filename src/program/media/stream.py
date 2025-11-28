@@ -29,23 +29,6 @@ class StreamRelation(Base):
     )
 
 
-class ActiveStreamRelation(Base):
-    __tablename__ = "ActiveStreamRelation"
-
-    id: Mapped[int] = mapped_column(sqlalchemy.Integer, primary_key=True)
-    parent_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE")
-    )
-    child_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("Stream.id", ondelete="CASCADE")
-    )
-
-    __table_args__ = (
-        Index("ix_activestreamrelation_parent_id", "parent_id"),
-        Index("ix_activestreamrelation_child_id", "child_id"),
-    )
-
-
 class StreamBlacklistRelation(Base):
     __tablename__ = "StreamBlacklistRelation"
 
@@ -75,11 +58,6 @@ class Stream(Base):
     resolution: Mapped[str | None]
     parents: Mapped[list["MediaItem"]] = relationship(
         secondary="StreamRelation", back_populates="streams", lazy="selectin"
-    )
-    active_parents: Mapped[list["MediaItem"]] = relationship(
-        secondary="ActiveStreamRelation",
-        back_populates="active_stream",
-        lazy="selectin",
     )
     blacklisted_parents: Mapped[list["MediaItem"]] = relationship(
         secondary="StreamBlacklistRelation",

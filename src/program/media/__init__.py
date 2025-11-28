@@ -4,7 +4,6 @@ from .filesystem_entry import FilesystemEntry
 from .media_entry import MediaEntry
 from .subtitle_entry import SubtitleEntry
 from .stream import (
-    ActiveStreamRelation,
     StreamBlacklistRelation,
     Stream,
     StreamRelation,
@@ -20,7 +19,6 @@ __all__ = [
     "FilesystemEntry",
     "MediaEntry",
     "SubtitleEntry",
-    "ActiveStreamRelation",
     "StreamRelation",
     "Stream",
     "StreamBlacklistRelation",

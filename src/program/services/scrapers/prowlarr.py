@@ -362,7 +362,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
         params = {}
 
-        item_title = item.get_top_title()
+        item_title = item.top_title
 
         search_params = indexer.capabilities.search_params
 

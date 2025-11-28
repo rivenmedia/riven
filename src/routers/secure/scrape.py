@@ -25,6 +25,7 @@ from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
+from program.media.models import ActiveStream
 from ..models.shared import MessageResponse
 
 
@@ -600,6 +601,11 @@ async def manual_update_attributes(
             assert scraping_session.magnet
             assert scraping_session.torrent_info
 
+            item.active_stream = ActiveStream(
+                infohash=scraping_session.magnet,
+                id=scraping_session.torrent_info.id,
+            )
+
             torrent = rtn.rank(
                 scraping_session.torrent_info.name,
                 scraping_session.magnet,
@@ -610,10 +616,7 @@ async def manual_update_attributes(
             if object_session(item) is not session:
                 item = session.merge(item)
 
-            active_stream = ItemStream(torrent=torrent)
-
-            item.active_stream = active_stream
-            item.streams.append(active_stream)
+            item.streams.append(ItemStream(torrent=torrent))
             item_ids_to_submit.add(item.id)
 
         if isinstance(data, DebridFile):

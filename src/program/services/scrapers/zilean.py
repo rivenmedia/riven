@@ -92,7 +92,7 @@ class Zilean(ScraperService[ZileanConfig]):
     def _build_query_params(self, item: MediaItem) -> Params:
         """Build the query params for the Zilean API"""
 
-        query = item.get_top_title()
+        query = item.top_title
         season = None
         episode = None
 
