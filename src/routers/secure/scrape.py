@@ -600,6 +600,7 @@ async def manual_update_attributes(
                 file_size=data.filesize or 0,
             )
 
+
             session.add(fs_entry)
             session.flush()
             
