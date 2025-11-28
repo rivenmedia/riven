@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Literal, TypeAlias, Optional
+from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -116,11 +116,11 @@ class ScrapingSession:
     def __init__(
         self,
         id: str,
-        item_id: Optional[str] = None,
-        media_type: Optional[Literal["movie", "tv"]] = None,
-        imdb_id: Optional[str] = None,
-        tmdb_id: Optional[str] = None,
-        tvdb_id: Optional[str] = None,
+        item_id: str | None = None,
+        media_type: Literal["movie", "tv"] | None = None,
+        imdb_id: str | None = None,
+        tmdb_id: str | None = None,
+        tvdb_id: str | None = None,
         magnet: str | None = None,
     ):
         self.id = id
@@ -150,11 +150,11 @@ class ScrapingSessionManager:
     def create_session(
         self,
         magnet: str,
-        item_id: Optional[str] = None,
-        media_type: Optional[Literal["movie", "tv"]] = None,
-        imdb_id: Optional[str] = None,
-        tmdb_id: Optional[str] = None,
-        tvdb_id: Optional[str] = None,
+        item_id: str | None = None,
+        media_type: Literal["movie", "tv"] | None = None,
+        imdb_id: str | None = None,
+        tmdb_id: str | None = None,
+        tvdb_id: str | None = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
