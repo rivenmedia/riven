@@ -577,8 +577,7 @@ async def manual_update_attributes(
                 file_size=(data.filesize or 0),
             )
             session.add(fs_entry)
-            session.commit()
-            session.refresh(fs_entry)
+            session.flush()
 
             # Link MediaItem to FilesystemEntry
             # Clear existing entries and add the new one
@@ -638,8 +637,7 @@ async def manual_update_attributes(
                     logger.error(f"Failed to find item type for {item.log_string}")
                     continue
 
-    # Force state to Scraped to prevent re-scraping and ensure Downloader picks our manual stream
-    item.store_state(given_state=States.Scraped)
+    item.store_state()
     log_string = item.log_string
     session.merge(item)
     session.commit()
