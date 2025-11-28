@@ -152,7 +152,6 @@ class ScrapingSessionManager:
         magnet: str,
         item_id: Optional[str] = None,
         media_type: Optional[Literal["movie", "tv"]] = None,
-        imdb_id: Optional[str] = None,
         tmdb_id: Optional[str] = None,
         tvdb_id: Optional[str] = None,
     ) -> ScrapingSession:
@@ -163,7 +162,6 @@ class ScrapingSessionManager:
             item_id,
             media_type,
             imdb_id,
-            tmdb_id,
             tvdb_id,
             magnet,
         )
@@ -405,6 +403,8 @@ async def start_manual_session(
 
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
 
     if item.type == "mediaitem":
         raise HTTPException(status_code=500, detail="Incorrect item type found")
@@ -558,6 +558,15 @@ async def manual_update_attributes(
                 "requested_at": datetime.now(),
             }.items() if v
         }
+        item_data = {
+            k: v for k, v in {
+                "imdb_id": scraping_session.imdb_id,
+                "tmdb_id": scraping_session.tmdb_id,
+                "tvdb_id": scraping_session.tvdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }.items() if v
+        }
 
         if item_data:
             result = next(IndexerService().run(MediaItem(item_data)), None)
@@ -670,6 +679,10 @@ async def manual_update_attributes(
             infohash,
         )
 
+        # Ensure the item is properly attached to the session before adding streams
+        # This prevents SQLAlchemy warnings about detached objects
+        if object_session(item) is not session:
+            item = session.merge(item)
         # Ensure the item is properly attached to the session before adding streams
         # This prevents SQLAlchemy warnings about detached objects
         if object_session(item) is not session:
