@@ -1,7 +1,5 @@
-from typing import Any
-
 from kink import di
-import pydantic
+from pydantic import BaseModel
 from fastapi import APIRouter, Request
 from loguru import logger
 
@@ -17,8 +15,13 @@ router = APIRouter(
 )
 
 
-@router.post("/overseerr")
-async def overseerr(request: Request) -> dict[str, Any]:
+class OverseerrWebhookResponse(BaseModel):
+    success: bool
+    message: str | None = None
+
+
+@router.post("/overseerr", response_model=OverseerrWebhookResponse)
+async def overseerr(request: Request) -> OverseerrWebhookResponse:
     """Webhook for Overseerr"""
 
     try:
@@ -29,67 +32,67 @@ async def overseerr(request: Request) -> dict[str, Any]:
                 "API", "Received test notification, Overseerr configured properly"
             )
 
-            return {
-                "success": True,
-            }
+            return OverseerrWebhookResponse(
+                success=True,
+            )
 
         req = OverseerrWebhook.model_validate(response)
-    except (Exception, pydantic.ValidationError) as e:
+
+        if services := di[Program].services:
+            overseerr = services.overseerr
+        else:
+            logger.error("Overseerr not initialized yet")
+            return OverseerrWebhookResponse(
+                success=False,
+                message="Overseerr not initialized",
+            )
+
+        if not overseerr.initialized:
+            logger.error("Overseerr not initialized")
+
+            return OverseerrWebhookResponse(
+                success=False,
+                message="Overseerr not initialized",
+            )
+
+        item_type = req.media.media_type
+
+        new_item = None
+
+        if item_type == "movie":
+            new_item = MediaItem(
+                {
+                    "tmdb_id": req.media.tmdbId,
+                    "requested_by": "overseerr",
+                    "overseerr_id": req.request.request_id if req.request else None,
+                }
+            )
+        elif item_type == "tv":
+            new_item = MediaItem(
+                {
+                    "tvdb_id": req.media.tvdbId,
+                    "requested_by": "overseerr",
+                    "overseerr_id": req.request.request_id if req.request else None,
+                }
+            )
+
+        if not new_item:
+            logger.error(
+                f"Failed to create new item: TMDB ID {req.media.tmdbId}, TVDB ID {req.media.tvdbId}"
+            )
+
+            return OverseerrWebhookResponse(
+                success=False,
+                message="Failed to create new item",
+            )
+
+        di[Program].em.add_item(
+            new_item,
+            service=Overseerr.__class__.__name__,
+        )
+
+        return OverseerrWebhookResponse(success=True)
+    except Exception as e:
         logger.error(f"Failed to process request: {e}")
 
-        return {
-            "success": False,
-            "message": str(e),
-        }
-
-    services = di[Program].services
-
-    assert services, "Services not initialized"
-
-    overseerr_service = services.overseerr
-
-    if not overseerr_service.initialized:
-        logger.error("Overseerr not initialized")
-
-        return {
-            "success": False,
-            "message": "Overseerr not initialized",
-        }
-
-    item_type = req.media.media_type
-
-    new_item = None
-
-    if item_type == "movie":
-        new_item = MediaItem(
-            {
-                "tmdb_id": req.media.tmdbId,
-                "requested_by": "overseerr",
-                "overseerr_id": req.request.request_id if req.request else None,
-            }
-        )
-    elif item_type == "tv":
-        new_item = MediaItem(
-            {
-                "tvdb_id": req.media.tvdbId,
-                "requested_by": "overseerr",
-                "overseerr_id": req.request.request_id if req.request else None,
-            }
-        )
-
-    if not new_item:
-        logger.error(
-            f"Failed to create new item: TMDB ID {req.media.tmdbId}, TVDB ID {req.media.tvdbId}"
-        )
-
-        return {
-            "success": False,
-            "message": "Failed to create new item",
-        }
-
-    di[Program].em.add_item(
-        new_item,
-        service=Overseerr.__class__.__name__,
-    )
-
-    return {"success": True}
+        return OverseerrWebhookResponse(success=False)

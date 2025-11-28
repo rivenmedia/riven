@@ -33,9 +33,7 @@ Usage:
 from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from http import HTTPStatus
 
-import httpx
 import pyfuse3
 import trio
 import os
@@ -63,7 +61,6 @@ from program.services.filesystem.vfs.vfs_node import (
     VFSRoot,
 )
 
-from program.utils.async_client import AsyncClient
 from program.utils.logging import logger
 from program.settings import settings_manager
 from program.services.filesystem.vfs.db import VFSDatabase
@@ -79,6 +76,7 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
+from program.utils.debrid_cdn_url import DebridCDNUrl
 from program.db.db import db_session
 
 from ...streaming import (
@@ -532,16 +530,9 @@ class RivenVFS(pyfuse3.Operations):
             True if successfully added, False otherwise
         """
 
-        from program.media.media_entry import MediaEntry
-
-        # Only process if this item has a filesystem entry
-        if not item.filesystem_entry:
-            logger.debug(f"Item {item.id} has no filesystem_entry, skipping VFS add")
-            return False
-
-        entry = item.filesystem_entry
-        if not isinstance(entry, MediaEntry):
-            logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
+        # Only process if this item has a media entry
+        if not (entry := item.media_entry):
+            logger.debug(f"Item {item.id} has no media entry, skipping VFS add")
             return False
 
         # Register the MediaEntry (video file)
@@ -755,8 +746,6 @@ class RivenVFS(pyfuse3.Operations):
         matcher = LibraryProfileMatcher()
 
         # Step 1: Re-match all entries against current library profiles and collect item IDs
-        from program.db.db import db as db_module
-
         item_ids = list[int]([])
         rematched_count = 0
 
@@ -789,10 +778,12 @@ class RivenVFS(pyfuse3.Operations):
                     item_ids.append(item.id)
 
             session.commit()
+
             logger.debug(f"Re-matched {rematched_count} entries with updated profiles")
 
         # Step 2: Clear VFS tree and rebuild from scratch
         logger.debug("Clearing VFS tree for rebuild")
+
         with self._tree_lock:
             # Create new root node
             self._root = VFSRoot()
@@ -803,9 +794,10 @@ class RivenVFS(pyfuse3.Operations):
 
         # Step 3: Re-register all items
         logger.debug(f"Re-registering {len(item_ids)} items")
+
         registered_count = 0
 
-        with db_module.Session() as session:
+        with db_session() as session:
             from program.media.item import MediaItem
 
             items = session.query(MediaItem).filter(MediaItem.id.in_(item_ids)).all()
@@ -814,6 +806,7 @@ class RivenVFS(pyfuse3.Operations):
             for item_id in item_ids:
                 try:
                     item = item_map.get(item_id)
+
                     if not item:
                         continue
 
@@ -1685,38 +1678,7 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
-                entry_info = await trio.to_thread.run_sync(
-                    lambda: self.vfs_db.get_entry_by_original_filename(
-                        original_filename=node.original_filename,
-                    )
-                )
-
-                if (
-                    not entry_info
-                    or not entry_info["url"]
-                    or not entry_info["provider"]
-                ):
-                    raise pyfuse3.FUSEError(errno.ENOENT)
-
-                try:
-                    # Test URL availability
-                    async with di[AsyncClient].stream(
-                        method="GET",
-                        url=entry_info["url"],
-                    ) as response:
-                        response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    status_code = e.response.status_code
-
-                    if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                        await trio.to_thread.run_sync(
-                            lambda: self.vfs_db.get_entry_by_original_filename(
-                                original_filename=node.original_filename,
-                                force_resolve=True,
-                            )
-                        )
-                except Exception:
-                    raise pyfuse3.FUSEError(errno.EIO) from None
+                DebridCDNUrl(filename=node.original_filename).validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."
@@ -2127,11 +2089,7 @@ class RivenVFS(pyfuse3.Operations):
                     )
                 )
 
-                if (
-                    not entry_info
-                    or not entry_info["url"]
-                    or not entry_info["provider"]
-                ):
+                if not entry_info or not entry_info.url or not entry_info.provider:
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
                 self._active_streams[stream_key] = MediaStream(
@@ -2139,8 +2097,8 @@ class RivenVFS(pyfuse3.Operations):
                     file_size=file_size,
                     path=path,
                     original_filename=original_filename,
-                    provider=entry_info["provider"],
-                    initial_url=entry_info["url"],
+                    provider=entry_info.provider,
+                    initial_url=entry_info.url,
                     nursery=self.stream_nursery,
                 )
 

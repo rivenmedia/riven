@@ -116,7 +116,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
         """Check if the subtitle service is enabled."""
         return self.settings.enabled and self.initialized
 
-    def run(self, item: MediaItem) -> None:
+    def run(self, item: MediaItem) -> bool:
         """
         Fetch and store subtitles for a media item.
 
@@ -126,15 +126,16 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
         Args:
             item: MediaItem to fetch subtitles for (must be movie or episode)
         """
+
         if not self.enabled:
             logger.debug(f"Subtitle service not enabled, skipping {item.log_string}")
-            return
+            return False
 
         if not item.filesystem_entry:
             logger.warning(
                 f"No filesystem entry for {item.log_string}, cannot fetch subtitles"
             )
-            return
+            return False
 
         try:
             logger.debug(f"Fetching subtitles for {item.log_string}")
@@ -149,7 +150,6 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
 
             # Get video file information
             # Get VFS paths (use base path for video_path)
-
             media_entry = item.media_entry
 
             assert media_entry
@@ -160,7 +160,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
                 logger.warning(
                     f"No VFS paths for {item.log_string}, cannot fetch subtitles"
                 )
-                return
+                return False
 
             video_path = vfs_paths[0]  # Use base path
             video_hash = self._calculate_video_hash(item)
@@ -216,8 +216,11 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
 
             logger.debug(f"Finished fetching subtitles for {item.log_string}")
 
+            return True
         except Exception as e:
             logger.error(f"Failed to fetch subtitles for {item.log_string}: {e}")
+
+        return False
 
     @classmethod
     def _get_embedded_subtitle_languages(cls, item: MediaItem) -> set[str]:
@@ -315,7 +318,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             if parsed.repack:
                 tags.append("Repack")
 
-            if getattr(parsed, "remux", False):
+            if quality and "remux" in quality.lower():
                 tags.append("Remux")
 
             if parsed.extended:
@@ -631,8 +634,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
 
         if not missing_languages:
             logger.debug(
-                f"All wanted subtitle languages already available for {item.log_string} "
-                f"(embedded: {embedded_languages}, downloaded: {downloaded_languages})"
+                f"All wanted subtitle languages already available for {item.log_string}"
             )
             return False
 
@@ -640,4 +642,5 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             f"Missing subtitle languages for {item.log_string}: {missing_languages} "
             f"(embedded: {embedded_languages}, downloaded: {downloaded_languages})"
         )
+
         return True

@@ -5,6 +5,8 @@ which library profiles a media item should be placed in.
 """
 
 from typing import Any
+
+from loguru import logger
 from program.media.item import Episode, MediaItem, Season
 from program.settings.models import LibraryProfileFilterRules
 from program.settings import settings_manager
@@ -84,7 +86,10 @@ class LibraryProfileMatcher:
         # Genre filters with exclusion support
         if rules.genres:
             if not self._matches_list_filter(
-                self._get_normalized_genres(item), rules.genres, "genres"
+                self._get_normalized_genres(item),
+                rules.genres,
+                "genres",
+                item.log_string,
             ):
                 return False
 
@@ -117,21 +122,30 @@ class LibraryProfileMatcher:
         # Network filter with exclusion support
         if rules.networks:
             if not self._matches_list_filter(
-                self._get_normalized_networks(item), rules.networks, "networks"
+                self._get_normalized_networks(item),
+                rules.networks,
+                "networks",
+                item.log_string,
             ):
                 return False
 
         # Country filter with exclusion support
         if rules.countries:
             if not self._matches_list_filter(
-                self._get_normalized_countries(item), rules.countries, "countries"
+                self._get_normalized_countries(item),
+                rules.countries,
+                "countries",
+                item.log_string,
             ):
                 return False
 
         # Language filter with exclusion support
         if rules.languages:
             if not self._matches_list_filter(
-                self._get_normalized_languages(item), rules.languages, "languages"
+                self._get_normalized_languages(item),
+                rules.languages,
+                "languages",
+                item.log_string,
             ):
                 return False
 
@@ -153,6 +167,7 @@ class LibraryProfileMatcher:
                 [item_rating.lower()] if item_rating else [],
                 rules.content_ratings,
                 "content_ratings",
+                item.log_string,
             ):
                 return False
 
@@ -160,7 +175,11 @@ class LibraryProfileMatcher:
         return True
 
     def _matches_list_filter(
-        self, item_values: list[str], filter_values: list[str], filter_name: str
+        self,
+        item_values: list[str],
+        filter_values: list[str],
+        filter_name: str,
+        log_string: str,
     ) -> bool:
         """
         Check if item values match filter with inclusion/exclusion support.
@@ -205,10 +224,11 @@ class LibraryProfileMatcher:
         if exclusions:
             for exclusion in exclusions:
                 if exclusion in item_values_lower:
-                    # logger.debug(
-                    #     f"Item excluded by {filter_name} filter: "
-                    #     f"item has '{exclusion}' which is in exclusion list"
-                    # )
+                    logger.trace(
+                        f"{log_string} excluded by {filter_name} filter: "
+                        f"'{exclusion}' found in exclusion list"
+                    )
+
                     return False
 
         # Check inclusions (must have at least one match if inclusions exist)

@@ -2,7 +2,6 @@ from loguru import logger
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
-from program.services.post_processing.media_analysis import MediaAnalysisService
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings import settings_manager
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
@@ -16,10 +15,8 @@ class PostProcessing(Runner[PostProcessingModel]):
         self.settings = settings_manager.settings.post_processing
 
         # Initialize services in order of execution
-        # MediaAnalysisService runs first to populate metadata
         # SubtitleService runs second and can use the metadata
         self.services = {
-            MediaAnalysisService: MediaAnalysisService(),
             SubtitleService: SubtitleService(),
         }
 
@@ -61,8 +58,7 @@ class PostProcessing(Runner[PostProcessingModel]):
         Run post-processing services on an item.
 
         Services are executed in order:
-        1. MediaAnalysisService - Analyzes media files (ffprobe + PTT parsing)
-        2. SubtitleService - Fetches subtitles using analysis metadata
+        1. SubtitleService - Fetches subtitles using analysis metadata
 
         Args:
             item: MediaItem to process (can be show, season, movie, or episode)
@@ -75,13 +71,8 @@ class PostProcessing(Runner[PostProcessingModel]):
             yield RunnerResult(media_items=[item])
             return
 
-        # Process each item through the service pipeline
+        # Handle subtitles
         for process_item in items_to_process:
-            # Run media analysis first (runs once per item)
-            if self.services[MediaAnalysisService].should_submit(process_item):
-                self.services[MediaAnalysisService].run(process_item)
-
-            # Run subtitle service second (uses metadata from analysis)
             if self.services[SubtitleService].should_submit(process_item):
                 self.services[SubtitleService].run(process_item)
 

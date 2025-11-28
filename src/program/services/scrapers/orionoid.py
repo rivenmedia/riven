@@ -6,7 +6,7 @@ from pydantic import BaseModel, ValidationError
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
-from program.utils.request import SmartSession
+from program.utils.request import CircuitBreakerOpen, SmartSession
 from program.settings.models import OrionoidConfig
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
@@ -224,12 +224,16 @@ class Orionoid(ScraperService[OrionoidConfig]):
 
         try:
             return self.scrape(item)
+        except CircuitBreakerOpen:
+            logger.debug(
+                f"Circuit breaker OPEN for Orionoid; skipping {item.log_string}"
+            )
         except Exception as e:
             if "rate limit" in str(e).lower() or "429" in str(e):
                 logger.debug(f"Orionoid ratelimit exceeded for item: {item.log_string}")
             else:
-                logger.exception(
-                    f"Orionoid exception for item: {item.log_string} - Exception: {e}"
+                logger.debug(
+                    f"Orionoid exception for item: {item.log_string} - Exception: {str(e)}"
                 )
 
         return {}

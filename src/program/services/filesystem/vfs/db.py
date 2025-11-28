@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 from kink import di
 from loguru import logger
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from program.db.db import db_session
 from program.media.media_entry import MediaEntry
@@ -12,7 +13,6 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
 )
 from program.media.item import MediaItem
-from program.program import Program
 from program.types import Event
 from routers.secure.items import apply_item_mutation
 
@@ -28,6 +28,19 @@ class VFSEntry(TypedDict):
     entry_type: str | None
     created: str | None
     modified: str | None
+
+
+class GetEntryByOriginalFilenameResult(BaseModel):
+    original_filename: str
+    download_url: str | None
+    unrestricted_url: str | None
+    provider: str | None
+    provider_download_id: str | None
+    size: int | None
+    created: str | None
+    modified: str | None
+    entry_type: Literal["media", "subtitle"]
+    url: str | None
 
 
 class VFSDatabase:
@@ -97,7 +110,7 @@ class VFSDatabase:
         self,
         original_filename: str,
         force_resolve: bool = False,
-    ):
+    ) -> GetEntryByOriginalFilenameResult | None:
         """
         Get entry metadata and download URL by original filename.
 
@@ -111,17 +124,7 @@ class VFSDatabase:
             Dictionary with entry metadata and URLs, or None if not found
         """
 
-        class GetEntryByOriginalFilenameResult(TypedDict):
-            original_filename: str
-            download_url: str | None
-            unrestricted_url: str | None
-            provider: str | None
-            provider_download_id: str | None
-            size: int | None
-            created: str | None
-            modified: str | None
-            entry_type: Literal["media", "subtitle"]
-            url: str | None
+        from program.program import Program
 
         try:
             with db_session() as s:

@@ -28,6 +28,9 @@ from program.services.downloaders.shared import (
     sort_streams_by_quality,
     parse_filename,
 )
+from RTN import ParsedData
+from program.services.downloaders.shared import parse_filename
+from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
@@ -58,7 +61,10 @@ class Downloader(Runner[None, DownloaderBase]):
         self.initialized = self.validate()
 
         # Track per-service cooldowns when circuit breaker is open
-        self._service_cooldowns: dict[str, datetime] = {}
+        self._service_cooldowns = dict[str, datetime]()
+        self.subtitles_enabled = (
+            settings_manager.settings.post_processing.subtitle.enabled
+        )
 
     def validate(self):
         if not self.initialized_services:
@@ -193,7 +199,24 @@ class Downloader(Runner[None, DownloaderBase]):
 
                 # If stream succeeded on any service, we're done
                 if download_success:
-                    break
+                    # add probed data
+                    if self.subtitles_enabled:
+                        from program.services.media_analysis import (
+                            media_analysis_service,
+                        )
+
+                        if media_analysis_service.should_submit(item):
+                            success = media_analysis_service.run(item)
+
+                            if success:
+                                logger.debug(
+                                    f"Media analysis completed for {item.log_string}"
+                                )
+                                break
+                            else:
+                                logger.error(
+                                    f"Failed to analyze media file for {item.log_string}"
+                                )
 
                 # Only blacklist if stream genuinely failed on ALL available services
                 # Don't blacklist if we hit circuit breaker in single-provider mode

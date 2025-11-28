@@ -64,16 +64,16 @@ class Updater(Runner[None, BaseUpdater]):
 
         for _item in items:
             # Get all VFS paths from the entry's helper method
-            fe = _item.media_entry
+            media_entry = _item.media_entry
 
-            if not fe:
+            if not media_entry:
                 logger.debug(
                     f"No filesystem entry for {_item.log_string}; skipping updater"
                 )
                 continue
 
             try:
-                all_vfs_paths = fe.get_all_vfs_paths()
+                all_vfs_paths = media_entry.get_all_vfs_paths()
             except Exception as e:
                 logger.error(f"Failed to get VFS paths for {_item.log_string}: {e}")
                 continue

@@ -277,6 +277,8 @@ class TVDBApi:
 
                     logger.debug("Refreshed TVDB token")
 
+                    self._save_token_to_file(token)
+
                     return token
 
             return None

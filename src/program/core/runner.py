@@ -25,7 +25,7 @@ type MediaItemGenerator[T: MediaItem = MediaItem] = Generator[
 
 TRunnerReturnType = TypeVar(
     "TRunnerReturnType",
-    bound=MediaItemGenerator | dict[str, str] | None,
+    bound=MediaItemGenerator | dict[str, str] | bool | None,
     default=MediaItemGenerator,
 )
 

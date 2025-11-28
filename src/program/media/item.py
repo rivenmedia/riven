@@ -613,6 +613,7 @@ class MediaItem(Base):
             return self.parent.imdb_id
         elif isinstance(self, Episode):
             return self.parent.parent.imdb_id
+
         return self.imdb_id
 
     def get_aliases(self) -> dict[str, list[str]] | None:
