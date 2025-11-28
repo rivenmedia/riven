@@ -1165,7 +1165,7 @@ class MediaStream:
         )
 
         if entry_info:
-            fresh_url = entry_info.get("url")
+            fresh_url = entry_info.url
 
             if fresh_url and fresh_url != self.target_url.value:
                 if self.enable_tracing:

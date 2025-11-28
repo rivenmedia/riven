@@ -334,9 +334,9 @@ class RealDebridDownloader(DownloaderBase):
                     )
 
                     # Download URL is already available from get_torrent_info()
-                    download_url = meta.download_url
-
-                    if download_url:  # Empty string is falsy, so this works
+                    if (
+                        download_url := meta.download_url
+                    ):  # Empty string is falsy, so this works
                         df.download_url = download_url
                         logger.debug(
                             f"Using correlated download URL for {meta.filename}"
