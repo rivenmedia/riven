@@ -1,7 +1,7 @@
 """Orionoid scraper module"""
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
@@ -286,6 +286,17 @@ class Orionoid(ScraperService[OrionoidConfig]):
             )
 
             return {}
+
+        try:
+            OrionoidErrorResponse.model_validate(response.json())
+
+            logger.error(
+                f"Orionoid scrape failed for {item.log_string}: {response.text}"
+            )
+
+            return {}
+        except ValidationError:
+            pass
 
         data = OrionoidScrapeResponse.model_validate(response.json())
 
