@@ -115,7 +115,7 @@ class ScrapingSession:
     def __init__(
         self,
         id: str,
-        item_id: str,
+        item_id: Optional[str] = None,
         media_type: Optional[Literal["movie", "tv"]] = None,
         imdb_id: Optional[str] = None,
         tmdb_id: Optional[str] = None,
@@ -148,8 +148,8 @@ class ScrapingSessionManager:
 
     def create_session(
         self,
-        item_id: str,
         magnet: str,
+        item_id: Optional[str] = None,
         media_type: Optional[Literal["movie", "tv"]] = None,
         imdb_id: Optional[str] = None,
         tmdb_id: Optional[str] = None,
@@ -332,11 +332,14 @@ async def start_manual_session(
     if item_id:
         item = db_functions.get_item_by_id(item_id)
     else:
-        item = db_functions.get_item_by_external_id(
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-            imdb_id=imdb_id
-        )
+        try:
+            item = db_functions.get_item_by_external_id(
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                imdb_id=imdb_id
+            )
+        except ValueError:
+            pass
 
     # 2. If not found, create/fetch it using indexer
     if not item:
@@ -373,31 +376,6 @@ async def start_manual_session(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        # 3. Persist the new item to DB (without triggering auto-scrape)
-        try:
-            with db.Session() as session:
-                # Check one last time to avoid race conditions
-                if item.tmdb_id:
-                    existing = db_functions.get_item_by_external_id(tmdb_id=item.tmdb_id, session=session)
-                elif item.tvdb_id:
-                    existing = db_functions.get_item_by_external_id(tvdb_id=item.tvdb_id, session=session)
-                elif item.imdb_id:
-                    existing = db_functions.get_item_by_external_id(imdb_id=item.imdb_id, session=session)
-                else:
-                    existing = None
-
-                if existing:
-                    item = existing
-                    logger.debug(f"Found existing item {item.log_string} (ID: {item.id}) during persistence check")
-                else:
-                    session.add(item)
-                    session.commit()
-                    session.refresh(item)
-                    logger.debug(f"Created and persisted item {item.log_string} (ID: {item.id}) for manual scrape session")
-        except Exception as e:
-            logger.error(f"Failed to persist item for manual scrape: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to create item: {e}")
-
     container = downloader.get_instant_availability(info_hash, item.type)
 
     if not container or not container.cached:
@@ -408,8 +386,8 @@ async def start_manual_session(
     logger.debug(f"Creating session for item ID: {item.id}")
 
     session = session_manager.create_session(
-        item.id,
         info_hash,
+        item_id=item.id,
         media_type=media_type,
         imdb_id=imdb_id,
         tmdb_id=tmdb_id,
@@ -472,7 +450,7 @@ def manual_select_files(
         raise HTTPException(status_code=500, detail=str(e))
 
     return {
-        "message": f"Selected files for {session.item_id}",
+        "message": f"Selected files for {session.item_id or 'unknown item'}",
         "download_type": download_type,
     }
 
@@ -507,34 +485,47 @@ async def manual_update_attributes(
     log_string = None
     if not scraping_session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
-    if not scraping_session.item_id:
-        session_manager.abort_session(session_id)
-        raise HTTPException(status_code=500, detail="No item ID found")
-
     item = None
-    if scraping_session.media_type == "tv" and scraping_session.tvdb_id:
-        item = db_functions.get_item_by_external_id(tvdb_id=str(scraping_session.tvdb_id))
-    elif scraping_session.media_type == "movie" and scraping_session.tmdb_id:
-        item = db_functions.get_item_by_external_id(tmdb_id=str(scraping_session.tmdb_id))
-    elif scraping_session.imdb_id:
-        item = db_functions.get_item_by_external_id(imdb_id=scraping_session.imdb_id)
+    if scraping_session.item_id:
+        item = db_functions.get_item_by_id(int(scraping_session.item_id))
 
     if not item:
-        item_data = {}
-        if scraping_session.imdb_id:
-            item_data["imdb_id"] = scraping_session.imdb_id
-        if scraping_session.tmdb_id:
-            item_data["tmdb_id"] = scraping_session.tmdb_id
-        if scraping_session.tvdb_id:
-            item_data["tvdb_id"] = scraping_session.tvdb_id
+        # Try to find by any external ID
+        try:
+            item = db_functions.get_item_by_external_id(
+                tmdb_id=str(scraping_session.tmdb_id) if scraping_session.tmdb_id else None,
+                tvdb_id=str(scraping_session.tvdb_id) if scraping_session.tvdb_id else None,
+                imdb_id=scraping_session.imdb_id
+            )
+        except ValueError:
+            pass
+
+    if not item:
+        item_data = {
+            k: v for k, v in {
+                "imdb_id": scraping_session.imdb_id,
+                "tmdb_id": scraping_session.tmdb_id,
+                "tvdb_id": scraping_session.tvdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }.items() if v
+        }
 
         if item_data:
-            item_data["requested_by"] = "riven"
-            item_data["requested_at"] = datetime.now()
-            prepared_item = MediaItem(item_data)
-            item = next(IndexerService().run(prepared_item), None)
-            if item:
-                session.merge(item)
+            if indexed := next(IndexerService().run(MediaItem(item_data)), None):
+                # Check if the indexed item actually exists (e.g. via a newly discovered ID)
+                try:
+                    if existing := db_functions.get_item_by_external_id(
+                        tmdb_id=str(indexed.tmdb_id) if indexed.tmdb_id else None,
+                        tvdb_id=str(indexed.tvdb_id) if indexed.tvdb_id else None,
+                        imdb_id=str(indexed.imdb_id) if indexed.imdb_id else None,
+                        session=session
+                    ):
+                        indexed.id = existing.id
+                except ValueError:
+                    pass
+                
+                item = session.merge(indexed)
                 session.commit()
 
         if not item:
