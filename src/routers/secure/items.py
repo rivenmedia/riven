@@ -401,6 +401,8 @@ async def get_item(
                 return item.to_dict()
             else:
                 raise HTTPException(status_code=404, detail="Item not found")
+        except HTTPException:
+            raise
         except Exception as e:
             # Handle multiple results
             if "Multiple rows were found when one or none was required" in str(e):
