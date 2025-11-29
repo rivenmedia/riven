@@ -24,7 +24,10 @@ rtn = RTN(ranking_settings, ranking_model)
 
 
 def _parse_results(
-    item: MediaItem, results: Dict[str, str], log_msg: bool = True
+    item: MediaItem,
+    results: Dict[str, str],
+    log_msg: bool = True,
+    ranking_overrides: Dict[str, list[str]] | None = None,
 ) -> Dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
     torrents: Set[Torrent] = set()
@@ -46,7 +49,46 @@ def _parse_results(
             continue
 
         try:
-            torrent: Torrent = rtn.rank(
+            # Use overrides if provided, otherwise use global settings
+            rtn_instance = rtn
+            if ranking_overrides:
+                # Create a copy of settings with overrides
+                overridden_settings = ranking_settings.model_copy(deep=True)
+                
+                # 1. Resolutions
+                if "resolutions" in ranking_overrides and ranking_overrides["resolutions"] is not None:
+                    resolutions_list = ranking_overrides["resolutions"]
+                    if resolutions_list:
+                        # Reset all to False
+                        for res_key in overridden_settings.resolutions.model_fields:
+                            setattr(overridden_settings.resolutions, res_key, False)
+                        # Enable selected
+                        for res_key in resolutions_list:
+                            if hasattr(overridden_settings.resolutions, res_key):
+                                setattr(overridden_settings.resolutions, res_key, True)
+                    
+                    enabled_res = [k for k, v in overridden_settings.resolutions.model_dump().items() if v is True]
+
+                # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
+                for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
+                    if category in ranking_overrides and ranking_overrides[category] is not None:
+                        selected_keys = ranking_overrides[category]
+                        if not selected_keys:
+                            continue
+                            
+                        category_settings = getattr(overridden_settings.custom_ranks, category)
+                        
+                        for key in category_settings.model_fields:
+                            rank_obj = getattr(category_settings, key)
+                            # Set fetch to False for all
+                            rank_obj.fetch = False
+                            # If key is in selected_keys, set fetch to True
+                            if key in selected_keys:
+                                rank_obj.fetch = True
+                
+                rtn_instance = RTN(overridden_settings, ranking_model)
+
+            torrent: Torrent = rtn_instance.rank(
                 raw_title=raw_title,
                 infohash=infohash,
                 correct_title=correct_title,
@@ -66,14 +108,15 @@ def _parse_results(
 
             if item.type == "show":
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
-                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                # Skip this check if using manual overrides (user intent)
+                if not ranking_overrides and torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
                     continue
 
                 # make sure all of the item seasons are present in the torrent
-                if not all(
+                if not ranking_overrides and not all(
                     season.number in torrent.data.seasons for season in item.seasons
                 ):
                     logger.trace(
@@ -103,7 +146,8 @@ def _parse_results(
                     continue
 
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
-                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                # Skip this check if using manual overrides (user intent)
+                if not ranking_overrides and torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
@@ -119,10 +163,12 @@ def _parse_results(
                 if torrent.data.episodes and not all(
                     episode.number in torrent.data.episodes for episode in item.episodes
                 ):
-                    logger.trace(
-                        f"Skipping incorrect season torrent for not having all episodes {item.log_string}: {raw_title}"
-                    )
-                    continue
+                    # Skip this check if using manual overrides (user intent)
+                    if not ranking_overrides:
+                        logger.trace(
+                            f"Skipping incorrect season torrent for not having all episodes {item.log_string}: {raw_title}"
+                        )
+                        continue
 
             if item.type == "episode":
                 # Disregard torrents with incorrect episode number logic:

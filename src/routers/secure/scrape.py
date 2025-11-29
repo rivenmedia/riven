@@ -725,3 +725,101 @@ async def overseerr_requests(
             request.app.program.em.add_item(persisted, service="Overseerr")
 
     return MessageResponse(message="Submitted overseerr requests to the queue")
+
+class AutoScrapeRequest(BaseModel):
+    item_id: str | None = None
+    tmdb_id: str | None = None
+    tvdb_id: str | None = None
+    imdb_id: str | None = None
+    media_type: Literal["movie", "tv"] | None = None
+    resolutions: list[str] | None = None
+    quality: list[str] | None = None
+    rips: list[str] | None = None
+    hdr: list[str] | None = None
+    audio: list[str] | None = None
+    extras: list[str] | None = None
+    trash: list[str] | None = None
+
+
+@router.post(
+    "/auto",
+    summary="Auto scrape an item with resolution overrides",
+    operation_id="auto_scrape_item",
+)
+async def auto_scrape_item(
+    request: Request,
+    body: AutoScrapeRequest,
+) -> MessageResponse:
+    """
+    Auto scrape an item with specific resolution overrides.
+    This performs a one-time scrape using the provided resolutions
+    and triggers the downloader if new streams are found.
+    """
+    if services := request.app.program.services:
+        scraper = services[Scraping]
+        indexer = services[IndexerService]
+    else:
+        raise HTTPException(status_code=412, detail="Services not initialized")
+
+    item = None
+    with db.Session() as db_session:
+        if body.item_id:
+            item = db_functions.get_item_by_id(body.item_id, session=db_session)
+        elif body.tmdb_id and body.media_type == "movie":
+            prepared_item = MediaItem(
+                {
+                    "tmdb_id": body.tmdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                }
+            )
+            item = next(indexer.run(prepared_item), None)
+        elif body.tvdb_id and body.media_type == "tv":
+            prepared_item = MediaItem(
+                {
+                    "tvdb_id": body.tvdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                }
+            )
+            item = next(indexer.run(prepared_item), None)
+        elif body.imdb_id:
+            prepared_item = MediaItem(
+                {
+                    "imdb_id": body.imdb_id,
+                    "tvdb_id": body.tvdb_id, # imdb_id alone is not enough for TV, needs tvdb_id
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                }
+            )
+            item = next(indexer.run(prepared_item), None)
+        
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        # Scrape with overrides
+        streams = scraper.scrape(item, ranking_overrides=body.model_dump(exclude_unset=True))
+        
+        # Filter out existing or blacklisted streams
+        new_streams = [
+            stream
+            for stream in streams.values()
+            if stream not in item.streams and stream not in item.blacklisted_streams
+        ]
+
+        if new_streams:
+            item.streams.extend(new_streams)
+            from program.media.state import States
+            item.store_state(States.Scraped) # Force state update to trigger downloader
+            logger.info(f"Auto scrape found {len(new_streams)} new streams for {item.log_string}")
+            
+            # Commit changes to DB
+            db_session.add(item)
+            db_session.commit()
+            
+            # Emit event to trigger downloader
+            request.app.program.em.add_event(Event("Scraping", item_id=item.id))
+            
+            return {"message": f"Auto scrape started. Found {len(new_streams)} new streams."}
+        else:
+            return {"message": "Auto scrape completed. No new streams found."}

@@ -89,7 +89,12 @@ class Scraping:
 
         yield item
 
-    def scrape(self, item: MediaItem, verbose_logging=True) -> Dict[str, Stream]:
+    def scrape(
+        self,
+        item: MediaItem,
+        verbose_logging=True,
+        ranking_overrides: Dict[str, list[str]] | None = None,
+    ) -> Dict[str, Stream]:
         """Scrape an item."""
 
         results: Dict[str, str] = {}
@@ -133,7 +138,7 @@ class Scraping:
             return {}
 
         sorted_streams: Dict[str, Stream] = _parse_results(
-            item, results, verbose_logging
+            item, results, verbose_logging, ranking_overrides
         )
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
             top_results: List[Stream] = list(sorted_streams.values())[:10]
