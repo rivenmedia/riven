@@ -186,13 +186,17 @@ class MediaItem(db.Model):
                 from program.program import riven
                 from program.services.notifications import NotificationService
 
-                notification_service = riven.all_services.get(NotificationService)
-                if notification_service:
-                    notification_service.run(
-                        self,
-                        previous_state=previous_state,
-                        new_state=new_state,
-                    )
+                if (
+                    hasattr(riven, "all_services")
+                    and NotificationService in riven.all_services
+                ):
+                    notification_service = riven.all_services.get(NotificationService)
+                    if notification_service:
+                        notification_service.run(
+                            self,
+                            previous_state=previous_state,
+                            new_state=new_state,
+                        )
             except Exception as e:
                 # Fallback: log error but don't break state storage
                 logger.debug(f"Failed to send state change notification: {e}")

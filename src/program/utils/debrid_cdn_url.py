@@ -47,8 +47,6 @@ class DebridCDNUrl:
 
                 raise
 
-        raise
-
     def _refresh(self) -> None:
         """Refresh the CDN URL."""
 

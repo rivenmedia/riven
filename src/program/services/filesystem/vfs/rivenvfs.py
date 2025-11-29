@@ -526,15 +526,15 @@ class RivenVFS(pyfuse3.Operations):
 
         entry = item.media_entry
 
-        entry.unrestricted_url = DebridCDNUrl(
-            filename=entry.original_filename
-        ).validate()
+        # entry.unrestricted_url = DebridCDNUrl(
+        #     filename=entry.original_filename
+        # ).validate()
 
-        if not entry.unrestricted_url:
-            logger.debug(
-                f"Item {item.id} filesystem_entry URL is invalid, skipping VFS add"
-            )
-            return False
+        # if not entry.unrestricted_url:
+        #     logger.debug(
+        #         f"Item {item.id} filesystem_entry URL is invalid, skipping VFS add"
+        #     )
+        #     return False
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)
@@ -546,9 +546,10 @@ class RivenVFS(pyfuse3.Operations):
         entry.available_in_vfs = True
 
         # Register all subtitles for this video
-        for subtitle in item.subtitles:
-            self._register_filesystem_entry(subtitle, video_paths=video_paths)
-            subtitle.available_in_vfs = True
+        if settings_manager.settings.post_processing.subtitle.enabled:
+            for subtitle in item.subtitles:
+                self._register_filesystem_entry(subtitle, video_paths=video_paths)
+                subtitle.available_in_vfs = True
 
         return True
 
@@ -809,7 +810,9 @@ class RivenVFS(pyfuse3.Operations):
                     if self.add(item):
                         registered_count += 1
                 except Exception as e:
-                    logger.exception(f"Failed to register item {item_id}: {e}")
+                    logger.error(f"Failed to register item {item_id}: {e}")
+                    continue
+
             if registered_count > 0:
                 session.commit()
 
