@@ -116,3 +116,71 @@ coverage: clean
 
 # Run the linter and tests
 pr-ready: clean lint test
+
+# OAPI generation
+
+generate-listrr-schema:
+	@echo "Generating Listrr schema from OpenAPI specification..."
+	@rm -rf src/schemas/listrr
+	@uv run openapi-generator-cli generate -g python -i https://listrr.pro/swagger/v1/swagger.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.listrr,lazyImports=true
+	@uv run black src/schemas/listrr
+	@echo "Listrr schema generated"
+
+generate-mdblist-schema:
+	@echo "Generating MDBList schema from API blueprint specification..."
+	@curl -s https://raw.githubusercontent.com/linaspurinis/api.mdblist.com/refs/heads/main/apiary.apib -o /tmp/mdblist.apib
+	@npx -y apib2openapi -i /tmp/mdblist.apib -o /tmp/mdblist_openapi.json
+	@rm -rf src/schemas/mdblist
+	@uv run openapi-generator-cli generate -g python -i /tmp/mdblist_openapi.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.mdblist,lazyImports=true
+	@uv run black src/schemas/mdblist
+	@echo "MDBList schema generated"
+
+generate-overseerr-schema:
+	@echo "Generating Overseerr schema from OpenAPI specification..."
+	@rm -rf src/schemas/overseerr
+	@uv run openapi-generator-cli generate -g python -i https://api-docs.overseerr.dev/overseerr-api.yml -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.overseerr,lazyImports=true
+	@uv run black src/schemas/overseerr
+	@echo "MDBList schema generated"
+
+generate-tmdb-schema:
+	@echo "Generating TMDB schema from OpenAPI specification..."
+	@rm -rf src/schemas/tmdb
+	@uv run openapi-generator-cli generate -g python -i https://developer.themoviedb.org/openapi/tmdb-api.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.tmdb,lazyImports=true
+	@uv run black src/schemas/tmdb
+	@echo "TMDB schema generated"
+
+generate-trakt-schema:
+	@echo "Generating Trakt schema from API blueprint specification..."
+	@curl -s -L https://trakt.docs.apiary.io/api-description-document -o /tmp/trakt.apib
+	@npx -y apib2openapi -i /tmp/trakt.apib -o /tmp/trakt_openapi.json
+	@rm -rf src/schemas/trakt
+	@uv run openapi-generator-cli generate -g python -i /tmp/trakt_openapi.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.trakt,lazyImports=true
+	@uv run black src/schemas/trakt
+	@echo "Trakt schema generated"
+
+generate-tvdb-schema:
+	@echo "Generating TVDB schema from OpenAPI specification..."
+	@rm -rf src/schemas/tvdb
+	@uv run openapi-generator-cli generate -g python -i https://thetvdb.github.io/v4-api/swagger.yml -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.tvdb,lazyImports=true
+	@uv run black src/schemas/tvdb
+	@echo "TVDB schema generated"
+
+generate-prowlarr-schema:
+	@echo "Generating Prowlarr schema from OpenAPI specification..."
+	@rm -rf src/schemas/prowlarr
+	@uv run openapi-generator-cli generate -g python -i https://raw.githubusercontent.com/Prowlarr/Prowlarr/develop/src/Prowlarr.Api.V1/openapi.json -o src --skip-validate-spec --additional-properties=generateSourceCodeOnly=true,packageName=schemas.prowlarr,lazyImports=true
+	@uv run black src/schemas/prowlarr
+	@echo "Prowlarr schema generated"
+
+generate-schemas:
+	@echo "Generating all schemas..."
+
+	@make generate-listrr-schema
+	@make generate-mdblist-schema
+	@make generate-overseerr-schema
+	@make generate-tmdb-schema
+	@make generate-trakt-schema
+	@make generate-tvdb-schema
+	@make generate-prowlarr-schema
+
+	@echo "All schemas generated"

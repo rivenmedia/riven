@@ -6,54 +6,270 @@ Supports flexible naming templates configured in settings.
 """
 
 import os
-from string import Formatter
-from typing import Optional
+from re import Match
+from typing import Any, Generic, TypeVar, cast
 from loguru import logger
+from pydantic import BaseModel, computed_field
 
 from program.media.item import MediaItem, Movie, Show, Season, Episode
-from program.media.models import VideoMetadata
-from program.settings.manager import settings_manager
-from PTT import parse_title
+from program.settings import settings_manager
+from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
+
+from program.media.media_entry import MediaEntry
+from program.utils.safe_formatter import SafeFormatter
 
 
-class SafeFormatter(Formatter):
+T = TypeVar("T", bound=MediaItem)
+
+
+class NameBuilder(BaseModel, Generic[T]):
     """
-    Custom string formatter that handles missing keys gracefully.
+    Context data for naming templates.
 
-    Supports:
-    - Simple variables: {title}
-    - Nested access: {show[title]}
-    - List indexing: {list[0]}, {list[-1]}
-    - Format specs: {season:02d}
-    - Missing values render as empty string (no KeyError)
+    Holds all relevant metadata for rendering naming templates.
     """
 
-    def get_value(self, key, args, kwargs):
-        if isinstance(key, str):
-            # Handle nested access: show[title]
-            if "[" in key and "]" in key:
-                parts = key.replace("]", "").split("[")
-                value = kwargs.get(parts[0], {})
-                for part in parts[1:]:
-                    if isinstance(value, dict):
-                        value = value.get(part, "")
-                    elif isinstance(value, list):
-                        try:
-                            # Handle negative indices like [-1]
-                            value = value[int(part)]
-                        except (ValueError, IndexError):
-                            value = ""
-                    else:
-                        value = ""
-                return value or ""
-            # Simple key access
-            return kwargs.get(key, "")
-        return super().get_value(key, args, kwargs)
+    class ShowData(BaseModel):
+        title: str
+        year: int | None
+        tvdb_id: str | None
+        imdb_id: str | None
 
-    def format_field(self, value, format_spec):
-        if value is None or value == "":
-            return ""
-        return super().format_field(value, format_spec)
+    def __init__(self, item: T):
+        self._item = item
+
+        if (
+            self._item.filesystem_entry
+            and isinstance(self._item.filesystem_entry, MediaEntry)
+            and self._item.filesystem_entry.media_metadata
+        ):
+            self._metadata = self._item.filesystem_entry.media_metadata
+        else:
+            self._metadata = None
+
+    @computed_field
+    @property
+    def title(self) -> str:
+        """Get title from item"""
+
+        assert self._item.title is not None
+
+        return self._item.title
+
+    @computed_field
+    @property
+    def season(self) -> int | None:
+        """Get season number if applicable"""
+
+        if isinstance(self._item, Season):
+            return self._item.number or 1
+
+        if isinstance(self._item, Episode):
+            return self._item.parent.number or 1
+
+        return None
+
+    @computed_field
+    @property
+    def episode(self) -> int | None:
+        """Get episode number if applicable"""
+
+        if isinstance(self._item, Episode):
+            assert self._item.number is not None
+            return self._item.number
+
+        return None
+
+    @computed_field
+    @property
+    def show(self) -> ShowData | None:
+        """Get show-level data if applicable"""
+
+        if isinstance(self._item, Episode):
+            top_parent = self._item.top_parent
+
+            return self.ShowData.model_validate(
+                {
+                    "title": top_parent.title,
+                    "year": top_parent.year,
+                    "tvdb_id": top_parent.tvdb_id,
+                    "imdb_id": top_parent.imdb_id,
+                }
+            )
+
+        return None
+
+    @computed_field
+    @property
+    def type(self) -> str:
+        """Get type of item (movie, show, season, episode)"""
+
+        return self._item.type
+
+    @computed_field
+    @property
+    def year(self) -> int | None:
+        """Get year from item if applicable"""
+
+        return self._item.year
+
+    @computed_field
+    @property
+    def imdb_id(self) -> str | None:
+        """Get IMDb ID from item if applicable"""
+
+        return self._item.imdb_id
+
+    @computed_field
+    @property
+    def tmdb_id(self) -> str | None:
+        """Get TMDB ID from item if applicable"""
+
+        return self._item.tmdb_id
+
+    @computed_field
+    @property
+    def tvdb_id(self) -> str | None:
+        """Get TVDB ID from item if applicable"""
+
+        return self._item.tvdb_id
+
+    @computed_field
+    @property
+    def resolution(self) -> str | None:
+        """Get resolution label from media metadata (e.g., "1080p", "4K")"""
+
+        if not self._metadata or not self._metadata.video:
+            return None
+
+        return self._metadata.video.resolution_label
+
+    @computed_field
+    @property
+    def codec(self) -> str | None:
+        """Get video codec from media metadata (e.g., "H.264", "HEVC")"""
+
+        if not self._metadata or not self._metadata.video:
+            return None
+
+        return self._metadata.video.codec
+
+    @computed_field
+    @property
+    def audio(self) -> str | None:
+        """Get primary audio codec from media metadata (e.g., "DTS", "AAC")"""
+
+        if not self._metadata or not self._metadata.audio_tracks:
+            return None
+
+        return self._metadata.audio_tracks[0].codec
+
+    @computed_field
+    @property
+    def hdr(self) -> list[str] | None:
+        """Get HDR types from media metadata (e.g., ["HDR10", "Dolby Vision"])"""
+
+        if (
+            not self._metadata
+            or not self._metadata.video
+            or not self._metadata.video.hdr_type
+        ):
+            return None
+
+        return [self._metadata.video.hdr_type]
+
+    @computed_field
+    @property
+    def quality(self) -> str | None:
+        """Get quality source from media metadata (e.g., "BluRay", "WEB-DL")"""
+
+        if not self._metadata:
+            return None
+
+        return self._metadata.quality_source
+
+    @computed_field
+    @property
+    def container(self) -> str | None:
+        """Get container format from media metadata (e.g., "matroska", "mp4")"""
+
+        if not self._metadata or not self._metadata.container_formats:
+            return None
+
+        return self._metadata.container_formats[0]
+
+    @computed_field
+    @property
+    def is_remux(self) -> str | None:
+        """String flag for remux status ("REMUX" or "")"""
+
+        if not self._metadata:
+            return None
+
+        return "REMUX" if self._metadata.is_remux else None
+
+    @computed_field
+    @property
+    def is_proper(self) -> str | None:
+        """String flag for proper status ("PROPER" or "")"""
+
+        if not self._metadata:
+            return None
+
+        return "PROPER" if self._metadata.is_proper else None
+
+    @computed_field
+    @property
+    def repack(self) -> str | None:
+        """String flag for repack status ("REPACK" or "")"""
+
+        if not self._metadata:
+            return None
+
+        return "REPACK" if self._metadata.is_repack else None
+
+    @computed_field
+    @property
+    def extended(self) -> str | None:
+        """String flag for extended status ("Extended" or "")"""
+
+        if not self._metadata:
+            return None
+
+        return "Extended" if self._metadata.is_extended else None
+
+    @computed_field
+    @property
+    def directors_cut(self) -> str | None:
+        """String flag for director's cut status ("Director's Cut" or "")"""
+
+        if not self._metadata:
+            return None
+
+        return "Director's Cut" if self._metadata.is_directors_cut else None
+
+    @computed_field
+    @property
+    def edition(self) -> str | None:
+        """Combined edition string (e.g., "Extended Director's Cut")"""
+
+        if not self._metadata:
+            return None
+
+        edition_parts = set[str]()
+
+        if self._metadata.is_extended:
+            edition_parts.add("Extended")
+
+        if self._metadata.is_directors_cut:
+            edition_parts.add("Director's Cut")
+
+        return " ".join(edition_parts)
+
+    def to_format(self, format: str) -> str:
+        """Format the NameBuilder using a custom format string"""
+
+        return SafeFormatter().format(format, **self.model_dump())
 
 
 class NamingService:
@@ -75,8 +291,6 @@ class NamingService:
         self,
         item: MediaItem,
         original_filename: str,
-        file_size: int = 0,
-        media_metadata: Optional[dict] = None,
     ) -> str:
         """
         Generate clean VFS path from original filename and item metadata.
@@ -100,15 +314,6 @@ class NamingService:
             ... )
             "/movies/Movie (2024) {tmdb-12345}/Movie (2024).mkv"
         """
-        # Use cached media metadata if available, otherwise parse the filename
-        if media_metadata:
-            parsed = media_metadata
-        else:
-            try:
-                parsed = parse_title(original_filename)
-            except Exception as e:
-                logger.warning(f"Failed to parse filename '{original_filename}': {e}")
-                parsed = None
 
         # Get extension from original filename
         extension = os.path.splitext(original_filename)[1][1:] or "mkv"
@@ -120,7 +325,7 @@ class NamingService:
         folder_path = self._create_folder_structure(item, base_path)
 
         # Generate clean filename
-        filename = self._generate_clean_filename(item, parsed)
+        filename = self._generate_clean_filename(item)
 
         # Combine into full path
         full_path = f"{folder_path}/{filename}.{extension}"
@@ -140,17 +345,11 @@ class NamingService:
         Returns:
             Base path string ("/movies" or "/shows")
         """
-        # Check by type attribute first (for compatibility with mock objects)
-        item_type = getattr(item, "type", None)
 
-        if item_type == "movie" or isinstance(item, Movie):
-            return "/movies"
-        elif item_type in ["show", "season", "episode"] or isinstance(
-            item, (Show, Season, Episode)
-        ):
+        if isinstance(item, (Show, Season, Episode)):
             return "/shows"
-        else:
-            return "/movies"  # Fallback
+
+        return "/movies"
 
     def _create_folder_structure(self, item: MediaItem, base_path: str) -> str:
         """
@@ -167,14 +366,13 @@ class NamingService:
             Movie: "/movies/Title (Year) {tmdb-id}"
             Episode: "/shows/Title (Year) {tvdb-id}/Season XX"
         """
+
         if isinstance(item, Movie):
             return self._create_movie_folder(item, base_path)
         elif isinstance(item, (Show, Season, Episode)):
             return self._create_show_folder(item, base_path)
         else:
-            # Fallback to something stable using the item's own title
-            safe_title = self._sanitize_name(self._extract_title(item) or "Unknown")
-            return f"{base_path}/{safe_title}"
+            raise ValueError(f"Unknown item type: {type(item)}")
 
     def _create_movie_folder(self, item: Movie, base_path: str) -> str:
         """
@@ -183,27 +381,22 @@ class NamingService:
         Template: settings.filesystem.movie_dir_template
         Default: "{title} ({year}) {{tmdb-{tmdb_id}}}"
         """
+
         # Build context for template
-        context = {
-            "title": getattr(item, "title", None) or "",
-            "year": getattr(item, "year", None),
-            "tmdb_id": getattr(item, "tmdb_id", None),
-            "imdb_id": getattr(item, "imdb_id", None),
-            "type": "movie",
-        }
+        context = NameBuilder(item=item)
 
         # Get template from settings
         template = settings_manager.settings.filesystem.movie_dir_template
 
         # Render template
         try:
-            segment = self.formatter.format(template, **context)
+            segment = context.to_format(template)
             segment = self._sanitize_name(segment)
         except Exception as e:
             logger.warning(
                 f"Failed to render movie_dir_template: {e}, falling back to title"
             )
-            segment = self._sanitize_name(context["title"])
+            segment = self._sanitize_name(context.title)
 
         return f"{base_path}/{segment}" if segment else base_path
 
@@ -215,39 +408,21 @@ class NamingService:
         - Show dir: settings.filesystem.show_dir_template
         - Season dir: settings.filesystem.season_dir_template
         """
-        # Determine the top-most parent (Show-level for seasons/episodes)
-        top_parent = item._get_top_parent()
-
-        # Year: from top parent aired_at or year
-        year = None
-        if getattr(top_parent, "aired_at", None):
-            year = getattr(top_parent, "aired_at").year
-        elif getattr(top_parent, "year", None):
-            year = getattr(top_parent, "year")
-
-        # TVDB ID: strictly from show-level (top parent) when present
-        tvdb_id = getattr(top_parent, "tvdb_id", None)
-        imdb_id = getattr(top_parent, "imdb_id", None)
 
         # Build show directory context
-        show_context = {
-            "title": top_parent.title,
-            "year": year,
-            "tvdb_id": tvdb_id,
-            "imdb_id": imdb_id,
-            "type": "show",
-        }
+        show_context = NameBuilder(item=item.top_parent)
 
         # Render show directory template
-        show_template = settings_manager.settings.filesystem.show_dir_template
+        show_dir_template = settings_manager.settings.filesystem.show_dir_template
+
         try:
-            segment = self.formatter.format(show_template, **show_context)
+            segment = show_context.to_format(show_dir_template)
             segment = self._sanitize_name(segment)
         except Exception as e:
             logger.warning(
                 f"Failed to render show_dir_template: {e}, falling back to title"
             )
-            segment = self._sanitize_name(top_parent.title)
+            segment = self._sanitize_name(show_context.title)
 
         folder = f"{base_path}/{segment}" if segment else base_path
 
@@ -255,37 +430,28 @@ class NamingService:
         if isinstance(item, (Season, Episode)):
             # Derive season number from the Season itself or parent of Episode
             if isinstance(item, Season):
-                season_num = getattr(item, "number", 1) or 1
-            else:  # Episode
-                season_num = getattr(getattr(item, "parent", None), "number", 1) or 1
-
-            # Build season directory context
-            season_context = {
-                "season": season_num,
-                "show": show_context,  # Nested show data
-                "type": "season",
-            }
+                season_context = NameBuilder(item=item)
+            else:
+                season_context = NameBuilder(item=item.parent)
 
             # Render season directory template
             season_template = settings_manager.settings.filesystem.season_dir_template
+
             try:
-                season_segment = self.formatter.format(
-                    season_template, **season_context
+                season_segment = self._sanitize_name(
+                    season_context.to_format(season_template)
                 )
-                season_segment = self._sanitize_name(season_segment)
             except Exception as e:
                 logger.warning(
                     f"Failed to render season_dir_template: {e}, falling back to default"
                 )
-                season_segment = f"Season {str(season_num).zfill(2)}"
+                season_segment = f"Season {str(season_context.season).zfill(2)}"
 
             folder += f"/{season_segment}"
 
         return folder
 
-    def _generate_clean_filename(
-        self, item: MediaItem, parsed: Optional[dict] = None
-    ) -> str:
+    def _generate_clean_filename(self, item: MediaItem) -> str:
         """
         Generate clean filename from item metadata.
 
@@ -300,10 +466,11 @@ class NamingService:
             Movie: "Movie (2024)"
             Episode: "Show - s01e01"
         """
+
         if isinstance(item, Movie):
             return self._generate_movie_filename(item)
         elif isinstance(item, Episode):
-            return self._generate_episode_filename(item, parsed)
+            return self._generate_episode_filename(item)
         else:
             # Fallback
             return self._sanitize_name(item.title or "Unknown")
@@ -317,34 +484,23 @@ class NamingService:
 
         Includes media metadata from MediaEntry if available.
         """
-        # Build base context
-        context = {
-            "title": getattr(item, "title", None) or "",
-            "year": getattr(item, "year", None),
-            "tmdb_id": getattr(item, "tmdb_id", None),
-            "imdb_id": getattr(item, "imdb_id", None),
-            "type": "movie",
-        }
 
-        # Add media metadata from MediaEntry if available
-        context.update(self._extract_media_metadata(item))
+        # Build base context
+        context = NameBuilder(item=item)
 
         # Get template from settings
         template = settings_manager.settings.filesystem.movie_file_template
 
         # Render template
         try:
-            filename = self.formatter.format(template, **context)
-            return self._sanitize_name(filename)
+            return self._sanitize_name(context.to_format(template))
         except Exception as e:
             logger.warning(
                 f"Failed to render movie_file_template: {e}, falling back to title"
             )
-            return self._sanitize_name(context["title"])
+            return self._sanitize_name(context.title)
 
-    def _generate_episode_filename(
-        self, item: Episode, parsed: Optional[dict] = None
-    ) -> str:
+    def _generate_episode_filename(self, item: Episode) -> str:
         """
         Generate clean filename for episode using template from settings.
 
@@ -356,47 +512,35 @@ class NamingService:
 
         Includes media metadata from MediaEntry if available.
         """
-        # Use show-level (top parent) for title/year
-        top_parent = item._get_top_parent()
-
-        year = None
-        if getattr(top_parent, "aired_at", None):
-            year = getattr(top_parent, "aired_at").year
-        elif getattr(top_parent, "year", None):
-            year = getattr(top_parent, "year")
-
-        season_num = item.parent.number if item.parent else 1
-        episode_num = item.number
-
-        # Check for multi-episode file from metadata
-        episodes = [episode_num]  # Default to single episode
-        if parsed:
-            # MediaMetadata has 'episodes' as a list
-            if isinstance(parsed, dict):
-                parsed_episodes = parsed.get("episodes")
-                if parsed_episodes and len(parsed_episodes) > 1:
-                    episodes = sorted(parsed_episodes)
-            elif hasattr(parsed, "episodes"):
-                parsed_episodes = getattr(parsed, "episodes")
-                if parsed_episodes and len(parsed_episodes) > 1:
-                    episodes = sorted(parsed_episodes)
 
         # Build context for template
-        context = {
-            "title": getattr(item, "title", None) or "",
-            "season": season_num,
-            "episode": episode_num,
-            "show": {  # Nested show data
-                "title": top_parent.title,
-                "year": year,
-                "tvdb_id": getattr(top_parent, "tvdb_id", None),
-                "imdb_id": getattr(top_parent, "imdb_id", None),
-            },
-            "type": "episode",
-        }
+        episode_context = NameBuilder(item=item)
 
-        # Add media metadata from MediaEntry if available
-        context.update(self._extract_media_metadata(item))
+        # Use show-level (top parent) for title/year
+        season_context = NameBuilder(item=item.top_parent)
+
+        # Check for multi-episode file from metadata
+        # Default to single episode
+        episodes = list[int](
+            [episode_context.episode] if episode_context.episode is not None else []
+        )
+
+        parsed: dict[str, Any] | None = None
+
+        if (
+            isinstance(item.filesystem_entry, MediaEntry)
+            and not item.filesystem_entry.media_metadata
+        ):
+            original_filename = item.filesystem_entry.original_filename
+
+            try:
+                parsed = cast(dict[str, Any], parse_title(original_filename))
+
+                if parsed.get("episodes") and len(parsed["episodes"]) > 1:
+                    episodes = list[int](sorted(parsed["episodes"]))
+            except Exception as e:
+                logger.warning(f"Failed to parse filename '{original_filename}': {e}")
+                parsed = None
 
         # Get template from settings
         template = settings_manager.settings.filesystem.episode_file_template
@@ -407,22 +551,27 @@ class NamingService:
 
         # Render template
         try:
-            filename = self.formatter.format(template, **context)
-            return self._sanitize_name(filename)
+            return self._sanitize_name(episode_context.to_format(template))
         except Exception as e:
             logger.warning(
                 f"Failed to render episode_file_template: {e}, falling back to default"
             )
+
             # Fallback to default format
             if len(episodes) > 1:
                 episode_string = f"e{episodes[0]:02d}-{episodes[-1]:02d}"
             else:
-                episode_string = f"e{episode_num:02d}"
+                episode_string = f"e{item.number:02d}"
+
             return self._sanitize_name(
-                f"{top_parent.title} - s{season_num:02d}{episode_string}"
+                f"{season_context.title} - s{episode_context.season:02d}{episode_string}"
             )
 
-    def _adapt_template_for_multi_episode(self, template: str, episodes: list) -> str:
+    def _adapt_template_for_multi_episode(
+        self,
+        template: str,
+        episodes: list[int],
+    ) -> str:
         """
         Adapt episode template for multi-episode files.
 
@@ -446,7 +595,7 @@ class NamingService:
         # Match patterns like {episode}, {episode:02d}, {episode:d}, etc.
         pattern = r"\{episode(?::([^}]+))?\}"
 
-        def replace_episode(match):
+        def replace_episode(match: Match[str]):
             format_spec = match.group(1) or ""  # Get format spec (e.g., "02d")
             first_ep = episodes[0]
             last_ep = episodes[-1]
@@ -467,84 +616,6 @@ class NamingService:
 
         return adapted
 
-    def _extract_media_metadata(self, item: MediaItem) -> dict:
-        """
-        Extract media metadata from MediaEntry for use in templates.
-
-        Returns dict with keys: resolution, codec, hdr, audio, quality, container,
-        remux, proper, repack, extended, directors_cut, edition
-        """
-        metadata = {}
-
-        # Get MediaEntry from item
-        media_entry = None
-        if hasattr(item, "filesystem_entries") and item.filesystem_entries:
-            # Get first MediaEntry (there should only be one for movies/episodes)
-            media_entry = item.filesystem_entries[0]
-
-        if not media_entry or not hasattr(media_entry, "media_metadata"):
-            return metadata
-
-        media_metadata = getattr(media_entry, "media_metadata", {})
-        if not media_metadata:
-            return metadata
-
-        # Extract video metadata
-        video = media_metadata.get("video", {})
-        if video:
-            # Get resolution using VideoMetadata.resolution_label property
-            # This handles ultrawide content correctly (e.g., 3840×1600 → "4K")
-            resolution = video.get("resolution")
-            if not resolution:
-                # Instantiate VideoMetadata to use its resolution_label property
-                try:
-                    video_obj = VideoMetadata(**video)
-                    resolution = video_obj.resolution_label
-                except Exception:
-                    # Fallback if VideoMetadata instantiation fails
-                    resolution = None
-            metadata["resolution"] = resolution
-            metadata["codec"] = video.get("codec")
-
-            # HDR - handle both hdr_type (single string) and hdr (list)
-            hdr = video.get("hdr", [])
-            if not hdr and video.get("hdr_type"):
-                hdr = [video.get("hdr_type")]
-            metadata["hdr"] = hdr
-
-        # Extract audio metadata (first track)
-        audio_tracks = media_metadata.get("audio_tracks", [])
-        if audio_tracks:
-            metadata["audio"] = audio_tracks[0].get("codec")
-
-        # Extract quality/release metadata
-        metadata["quality"] = media_metadata.get("quality_source")
-
-        # Container - get first format from list (e.g., "matroska" from ["matroska", "webm"])
-        container_formats = media_metadata.get("container_format", [])
-        metadata["container"] = container_formats[0] if container_formats else None
-
-        # String versions for template use (empty string if False)
-        metadata["remux"] = "REMUX" if media_metadata.get("is_remux", False) else ""
-        metadata["proper"] = "PROPER" if media_metadata.get("is_proper", False) else ""
-        metadata["repack"] = "REPACK" if media_metadata.get("is_repack", False) else ""
-        metadata["extended"] = (
-            "Extended" if media_metadata.get("is_extended", False) else ""
-        )
-        metadata["directors_cut"] = (
-            "Director's Cut" if media_metadata.get("is_directors_cut", False) else ""
-        )
-
-        # Combined edition string (for convenience)
-        edition_parts = []
-        if media_metadata.get("is_extended", False):
-            edition_parts.append("Extended")
-        if media_metadata.get("is_directors_cut", False):
-            edition_parts.append("Director's Cut")
-        metadata["edition"] = " ".join(edition_parts)
-
-        return metadata
-
     def _sanitize_name(self, name: str) -> str:
         """
         Sanitize name for use in filesystem paths.
@@ -559,18 +630,6 @@ class NamingService:
         Returns:
             Sanitized name
         """
-        # Coerce to string safely
-        try:
-            if name is None:
-                name = ""
-            # Avoid accidentally using a built-in method object as the value
-            if hasattr(name, "__call__") and not isinstance(name, str):
-                # Do not call it; just stringify
-                name = str(name)
-            else:
-                name = str(name)
-        except Exception:
-            name = ""
 
         # Replace problematic characters
         replacements = {
@@ -584,6 +643,7 @@ class NamingService:
             ">": "",
             "|": "-",
         }
+
         for old, new in replacements.items():
             name = name.replace(old, new)
 
@@ -616,14 +676,14 @@ naming_service = NamingService()
 def generate_clean_path(
     item: MediaItem,
     original_filename: str,
-    file_size: int = 0,
-    media_metadata: Optional[dict] = None,
 ) -> str:
     """
     Convenience function for generating clean VFS paths.
 
     This is the main entry point for path generation.
     """
+
     return naming_service.generate_clean_path(
-        item, original_filename, file_size, media_metadata
+        item=item,
+        original_filename=original_filename,
     )

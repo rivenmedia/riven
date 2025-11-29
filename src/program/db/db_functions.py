@@ -1,101 +1,96 @@
-# program/services/db_functions.py
 from __future__ import annotations
 
+import threading
 import os
+
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from threading import Event
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
-from kink import di
 from program.utils.logging import logger
 from sqlalchemy import delete, func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-import alembic
-from program.apis.tvdb_api import TVDBApi
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
+from program.core.runner import MediaItemGenerator
 
-from .db import db
+from .db import db, db_session
 
 if TYPE_CHECKING:
-    from program.media.item import MediaItem
+    from program.types import Service
+    from program.program import Program
+    from program.types import Event
+    from program.media.item import MediaItem, Episode
 
 
 @contextmanager
-def _maybe_session(session: Optional[Session]) -> Iterator[Tuple[Session, bool]]:
+def _maybe_session(session: Session | None) -> Iterator[tuple[Session, bool]]:
     """
     Yield a (session, owns_session) pair.
 
     If `session` is None, create a new db.Session() and close it on exit.
     Otherwise, yield the caller-provided session and do not close it.
     """
-    if session is not None:
+
+    if session:
         yield session, False
         return
-    _s = db.Session()
-    try:
-        yield _s, True
-    finally:
-        _s.close()
+
+    with db_session() as s:
+        yield s, True
 
 
 def get_item_by_id(
     item_id: int,
-    item_types: Optional[List[str]] = None,
-    session: Optional[Session] = None,
-    *,
-    load_tree: bool = False,
-) -> "MediaItem" | None:
+    item_types: list[str] | None = None,
+    session: Session | None = None,
+) -> "MediaItem | None":
     """
     Retrieve a MediaItem by its database ID.
 
     Parameters:
         item_id (int): The numeric primary key of the MediaItem to retrieve.
-        item_types (Optional[List[str]]): If provided, restricts the lookup to items whose `type` is one of these values (e.g., "movie", "show").
-        session (Optional[Session]): Database session to use; if omitted, a new session will be created for the query.
-        load_tree (bool): If True, include related seasons and episodes when the item is a show.
+        item_types (list[str] | None): If provided, restricts the lookup to items whose `type` is one of these values (e.g., "movie", "show").
+        session (Session | None): Database session to use; if omitted, a new session will be created for the query.
 
     Returns:
         MediaItem | None: The matching MediaItem detached from the session, or `None` if no matching item exists.
     """
-    if not item_id:
-        return None
 
-    from program.media.item import MediaItem, Season, Show
+    from program.media.item import MediaItem
 
-    with _maybe_session(session) as (_s, _owns):
+    with _maybe_session(session) as (_s, _):
         query = select(MediaItem).where(MediaItem.id == item_id)
-        if load_tree:
-            query = query.options(
-                selectinload(Show.seasons).selectinload(Season.episodes)
-            )
+
         if item_types:
             query = query.where(MediaItem.type.in_(item_types))
 
         item = _s.execute(query).unique().scalar_one_or_none()
+
         if item:
             _s.expunge(item)
+
         return item
 
 
 def get_item_by_external_id(
-    imdb_id: Optional[str] = None,
-    tvdb_id: Optional[str] = None,
-    tmdb_id: Optional[str] = None,
-    session: Optional[Session] = None,
-) -> "MediaItem" | None:
+    imdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    tmdb_id: str | None = None,
+    session: Session | None = None,
+) -> "MediaItem | None":
     """
     Retrieve a movie or show by one of its external identifiers.
 
     If a matching show is returned, its seasons and episodes are also loaded. At least one of `imdb_id`, `tvdb_id`, or `tmdb_id` must be provided.
 
     Parameters:
-        imdb_id (Optional[str]): IMDb identifier to match.
-        tvdb_id (Optional[str]): TVDB identifier to match.
-        tmdb_id (Optional[str]): TMDB identifier to match.
+        imdb_id (str | None): IMDb identifier to match.
+        tvdb_id (str | None): TVDB identifier to match.
+        tmdb_id (str | None): TMDB identifier to match.
 
     Returns:
         MediaItem: The matched movie or show, or `None` if no match is found.
@@ -105,11 +100,14 @@ def get_item_by_external_id(
     """
     from program.media.item import MediaItem, Season, Show
 
-    conditions: List[Any] = []
+    conditions: list[Any] = []
+
     if imdb_id:
         conditions.append(MediaItem.imdb_id == imdb_id)
+
     if tvdb_id:
         conditions.append(MediaItem.tvdb_id == tvdb_id)
+
     if tmdb_id:
         conditions.append(MediaItem.tmdb_id == tmdb_id)
 
@@ -130,11 +128,11 @@ def get_item_by_external_id(
 
 
 def item_exists_by_any_id(
-    item_id: Optional[int] = None,
-    tvdb_id: Optional[str] = None,
-    tmdb_id: Optional[str] = None,
-    imdb_id: Optional[str] = None,
-    session: Optional[Session] = None,
+    item_id: int | None = None,
+    tvdb_id: str | None = None,
+    tmdb_id: str | None = None,
+    imdb_id: str | None = None,
+    session: Session | None = None,
 ) -> bool:
     """
     Check whether any provided identifier corresponds to an existing MediaItem.
@@ -147,18 +145,23 @@ def item_exists_by_any_id(
     Raises:
         ValueError: If no identifier is provided.
     """
+
     from program.media.item import MediaItem
 
     if not any([item_id, tvdb_id, tmdb_id, imdb_id]):
         raise ValueError("At least one ID must be provided")
 
-    clauses: List[Any] = []
+    clauses: list[Any] = []
+
     if item_id is not None:
         clauses.append(MediaItem.id == item_id)
+
     if tvdb_id is not None:
         clauses.append(MediaItem.tvdb_id == str(tvdb_id))
+
     if tmdb_id is not None:
         clauses.append(MediaItem.tmdb_id == str(tmdb_id))
+
     if imdb_id is not None:
         clauses.append(MediaItem.imdb_id == str(imdb_id))
 
@@ -172,7 +175,7 @@ def item_exists_by_any_id(
 def clear_streams(
     *,
     media_item_id: int,
-    session: Optional[Session] = None,
+    session: Session | None = None,
 ) -> None:
     """
     Remove all stream relations and blacklist entries for a media item in a single transaction.
@@ -192,7 +195,7 @@ def clear_streams(
         _s.commit()
 
 
-def get_item_ids(session: Session, item_id: int) -> Tuple[int, List[int]]:
+def get_item_ids(session: Session, item_id: int) -> tuple[int, list[int]]:
     """
     Return the root media item ID and a list of its descendant item IDs.
 
@@ -209,7 +212,7 @@ def get_item_ids(session: Session, item_id: int) -> Tuple[int, List[int]]:
         select(MediaItem.type).where(MediaItem.id == item_id)
     ).scalar_one_or_none()
 
-    related_ids: List[int] = []
+    related_ids: list[int] = []
     if item_type == "show":
         season_ids = (
             session.execute(select(Season.id).where(Season.parent_id == item_id))
@@ -243,13 +246,13 @@ def get_item_ids(session: Session, item_id: int) -> Tuple[int, List[int]]:
 # --------------------------------------------------------------------------- #
 
 
-def retry_library(session: Optional[Session] = None) -> List[int]:
+def retry_library(session: Session | None = None) -> Sequence[int]:
     """
     Return IDs of items that should be retried. Single query, no pre-count.
     """
     from program.media.item import MediaItem
 
-    with _maybe_session(session) as (s, owns):
+    with _maybe_session(session) as (s, _owns):
         ids = (
             s.execute(
                 select(MediaItem.id)
@@ -269,29 +272,31 @@ def retry_library(session: Optional[Session] = None) -> List[int]:
             .scalars()
             .all()
         )
+
         return ids
 
 
-def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, Any]]:
+def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]:
     """
     Create a calendar of all upcoming/ongoing items in the library.
     Returns a dict keyed by item.id with minimal metadata for scheduling.
     """
+
     from program.media.item import MediaItem, Season, Show
 
-    session = session if session else db.Session()
+    with _maybe_session(session) as (s, _owns):
+        result = s.execute(
+            select(MediaItem)
+            .options(selectinload(Show.seasons).selectinload(Season.episodes))
+            .where(MediaItem.aired_at.is_not(None))
+            .where(MediaItem.aired_at >= datetime.now() - timedelta(days=30))
+            .execution_options(stream_results=True)
+        ).unique()
 
-    result = session.execute(
-        select(MediaItem)
-        .options(selectinload(Show.seasons).selectinload(Season.episodes))
-        .where(MediaItem.aired_at.is_not(None))
-        .where(MediaItem.aired_at >= datetime.now() - timedelta(days=30))
-        .execution_options(stream_results=True)
-    ).unique()
+    calendar: dict[int, dict[str, Any]] = {}
 
-    calendar: Dict[str, Dict[str, Any]] = {}
     for item in result.scalars().yield_per(500):
-        title = item.get_top_title()
+        title = item.top_title
         calendar[item.id] = {
             "item_id": item.id,
             "tvdb_id": item.tvdb_id,
@@ -302,13 +307,13 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
             "last_state": item.last_state,
         }
 
-        if item.type == "show":
+        if isinstance(item, Show):
             calendar[item.id]["release_data"] = item.release_data
 
-        if item.type == "season":
+        if isinstance(item, Season):
             calendar[item.id]["season"] = item.number
 
-        if item.type == "episode":
+        if isinstance(item, Episode):
             calendar[item.id]["season"] = item.parent.number
             calendar[item.id]["episode"] = item.number
 
@@ -316,8 +321,12 @@ def create_calendar(session: Optional[Session] = None) -> Dict[str, Dict[str, An
 
 
 def run_thread_with_db_item(
-    fn, service, program, event: Event, cancellation_event: Event
-) -> Optional[str]:
+    fn: Callable[..., MediaItemGenerator],
+    service: "Service",
+    program: "Program",
+    event: Event | None,
+    cancellation_event: threading.Event,
+) -> int | tuple[int, datetime] | None:
     """
     Run a worker function against a database-backed MediaItem or enqueue items produced by a content service.
 
@@ -336,67 +345,78 @@ def run_thread_with_db_item(
     Returns:
         The produced item identifier as a string, a tuple `(item_id, run_at)` when the worker returned scheduling info, or `None` when no item was produced or processing was skipped.
     """
-    from program.media.item import MediaItem
+
+    from program.media.item import Episode, Season
 
     if event:
-        with db.Session() as session:
+        with db_session() as session:
             if event.item_id:
                 input_item = get_item_by_id(event.item_id, session=session)
+
                 if input_item:
                     input_item = session.merge(input_item)
-                    res = next(fn(input_item), None)
-                    if res:
-                        if isinstance(res, tuple):
-                            item, run_at = res
-                            res = (item.id, run_at)
-                        else:
-                            item = res
-                            res = item.id
+                    runner_result = next(fn(input_item), None)
 
-                        if not isinstance(item, MediaItem):
-                            logger.log(
-                                "PROGRAM",
-                                f"Service {service.__name__} emitted {item} from input item {input_item} of type {type(item).__name__}, backing off.",
+                    if runner_result:
+                        if len(runner_result.media_items) > 1:
+                            logger.warning(
+                                f"Service {service.__class__.__name__} emitted multiple items for input item {input_item}, only the first will be processed."
                             )
-                            program.em.remove_id_from_queues(input_item.id)
+
+                        item = runner_result.media_items[0]
+                        run_at = runner_result.run_at
 
                         if not cancellation_event.is_set():
                             # Update parent item based on type
-                            if input_item.type == "episode":
+                            if isinstance(input_item, Episode):
                                 input_item.parent.parent.store_state()
-                            elif input_item.type == "season":
+                            elif isinstance(input_item, Season):
                                 input_item.parent.store_state()
                             else:
                                 item.store_state()
+
                             session.commit()
-                        return res
+
+                        if run_at:
+                            return (item.id, run_at)
+
+                        return item.id
 
             if event.content_item:
-                indexed_item = next(fn(event.content_item), None)
-                if indexed_item is None:
-                    msg = (
-                        event.content_item.log_string
-                        if getattr(event.content_item, "log_string", None) is not None
-                        else event.content_item.imdb_id
-                    )
+                runner_result = next(fn(event.content_item), None)
+
+                if runner_result is None:
+                    msg = event.content_item.log_string or event.content_item.imdb_id
+
                     logger.debug(f"Unable to index {msg}")
+
                     return None
+
+                if len(runner_result.media_items) > 1:
+                    logger.warning(
+                        f"Service {service.__class__.__name__} emitted multiple items for input item {event.content_item}, only the first will be processed."
+                    )
+
+                indexed_item = runner_result.media_items[0]
 
                 # Idempotent insert: skip if any known ID already exists
                 if item_exists_by_any_id(
-                    indexed_item.id,
-                    indexed_item.tvdb_id,
-                    indexed_item.tmdb_id,
-                    indexed_item.imdb_id,
-                    session,
+                    item_id=indexed_item.id,
+                    tvdb_id=indexed_item.tvdb_id,
+                    tmdb_id=indexed_item.tmdb_id,
+                    imdb_id=indexed_item.imdb_id,
+                    session=session,
                 ):
                     logger.debug(
                         f"Item with ID {indexed_item.id} already exists, skipping save"
                     )
+
                     return indexed_item.id
 
                 indexed_item.store_state()
+
                 session.add(indexed_item)
+
                 if not cancellation_event.is_set():
                     try:
                         session.commit()
@@ -405,19 +425,22 @@ def run_thread_with_db_item(
                             logger.debug(
                                 f"Item with ID {event.item_id} was added by another process, skipping"
                             )
+
                             session.rollback()
+
                             return None
+
                         raise
+
                 return indexed_item.id
     else:
         # Content services dont pass events
-        for i in fn():
-            if isinstance(i, MediaItem):
-                i = [i]
-            if isinstance(i, list):
-                for item in i:
-                    if isinstance(item, MediaItem):
-                        program.em.add_item(item, service)
+        runner_result = next(fn(None), None)
+
+        if runner_result:
+            for item in runner_result.media_items:
+                program.em.add_item(item, service=service.__class__.__name__)
+
     return None
 
 
@@ -497,9 +520,12 @@ def hard_reset_database() -> None:
             else:
                 # Stamp with head version if no previous version
                 from program.utils import root_dir
+                import alembic.config
+                import alembic.command
 
                 alembic_cfg = alembic.config.Config(root_dir / "src" / "alembic.ini")
                 alembic.command.stamp(alembic_cfg, "head")
+
                 logger.log("DATABASE", "Database stamped with head revision")
 
         except Exception as e:
@@ -526,6 +552,7 @@ def hard_reset_database() -> None:
 
 # Hard Reset Database
 reset = os.getenv("HARD_RESET", None)
+
 if reset is not None and reset.lower() in ["true", "1"]:
     hard_reset_database()
     exit(0)

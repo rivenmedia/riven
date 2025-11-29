@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING
 import sqlalchemy
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from program.db.db import db
+from program.db.base_model import Base
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
 
 
-class FilesystemEntry(db.Model):
+class FilesystemEntry(Base):
     """Base model for all virtual filesystem entries in RivenVFS"""
 
     __tablename__ = "FilesystemEntry"
@@ -23,7 +23,7 @@ class FilesystemEntry(db.Model):
     )
 
     # Discriminator for polymorphic identity (media, subtitle, etc.)
-    entry_type: Mapped[str] = mapped_column(sqlalchemy.String, nullable=False)
+    entry_type: Mapped[str]
 
     # File size in bytes (for media files, this is the video size; for subtitles, this is the subtitle file size)
     file_size: Mapped[int] = mapped_column(
@@ -38,6 +38,7 @@ class FilesystemEntry(db.Model):
     created_at: Mapped[datetime] = mapped_column(
         sqlalchemy.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
+
     updated_at: Mapped[datetime] = mapped_column(
         sqlalchemy.DateTime,
         default=lambda: datetime.now(timezone.utc),
@@ -76,13 +77,14 @@ class FilesystemEntry(db.Model):
     def __repr__(self):
         return f"<FilesystemEntry(id={self.id}, type='{self.entry_type}')>"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, int | str | bool | None]:
         """
         Provide a dictionary representation of the FilesystemEntry.
 
         Returns:
             dict: Base fields common to all entry types.
         """
+
         return {
             "id": self.id,
             "entry_type": self.entry_type,

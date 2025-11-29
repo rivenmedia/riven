@@ -1,12 +1,19 @@
-from typing import Annotated, Optional
+from typing import Annotated, Any
 
 from fastapi import HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
-def header_auth(header=Security(APIKeyHeader(name="x-api-key", auto_error=False))):
+def header_auth(
+    header: Any = Security(
+        APIKeyHeader(
+            name="x-api-key",
+            auto_error=False,
+        ),
+    ),
+):
     return header == settings_manager.settings.api_key
 
 
@@ -17,8 +24,8 @@ def bearer_auth(
 
 
 def resolve_api_key(
-    header: Optional[str] = Security(header_auth),
-    bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_auth),
+    header: str | None = Security(header_auth),
+    bearer: HTTPAuthorizationCredentials | None = Security(bearer_auth),
 ):
     if not (header or bearer):
         raise HTTPException(

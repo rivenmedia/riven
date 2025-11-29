@@ -1,6 +1,8 @@
 import asyncio
-from datetime import datetime
-from typing import Any, Dict, List
+
+from datetime import datetime, timezone
+
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -8,22 +10,28 @@ from fastapi import WebSocket, WebSocketDisconnect
 class ConnectionManager:
     def __init__(self):
         # Store active connections by topic
-        self.active_connections: Dict[str, List[WebSocket]] = {}
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
         # Message queue for each topic
-        self.message_queues: Dict[str, asyncio.Queue] = {}
+        self.message_queues: dict[str, asyncio.Queue[Any]] = {}
+
         # Background tasks
-        self.background_tasks: List[asyncio.Task] = []
+        self.background_tasks: list[asyncio.Task[Any]] = []
 
     async def connect(self, websocket: WebSocket, topic: str):
         await websocket.accept()
+
         if topic not in self.active_connections:
             self.active_connections[topic] = []
+
         self.active_connections[topic].append(websocket)
 
         if topic not in self.message_queues:
             self.message_queues[topic] = asyncio.Queue()
+
             # Start broadcast task for this topic
             task = asyncio.create_task(self._broadcast_messages(topic))
+
             self.background_tasks.append(task)
 
     async def disconnect(self, websocket: WebSocket, topic: str):
@@ -34,22 +42,25 @@ class ConnectionManager:
             # Clean up if no more connections for this topic
             if not self.active_connections[topic]:
                 del self.active_connections[topic]
+
                 # Cancel broadcast task for this topic
                 for task in self.background_tasks:
                     if task.get_name() == f"broadcast_{topic}":
                         task.cancel()
                         self.background_tasks.remove(task)
+
                         break
 
     def publish(self, topic: str, message: Any):
         """Publish a message to a specific topic"""
+
         if topic not in self.message_queues:
-            return  # There are no connections for this topic
-            # self.message_queues[topic] = asyncio.Queue()
+            # There are no connections for this topic
+            return
 
         # Format the message with timestamp
         formatted_message = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "data": message,
         }
 
@@ -60,13 +71,15 @@ class ConnectionManager:
 
     async def _broadcast_messages(self, topic: str):
         """Background task to broadcast messages for a specific topic"""
+
         try:
             while True:
                 if topic in self.message_queues:
                     message = await self.message_queues[topic].get()
 
                     if topic in self.active_connections:
-                        dead_connections = []
+                        dead_connections: list[WebSocket] = []
+
                         for connection in self.active_connections[topic]:
                             try:
                                 await connection.send_json(message)

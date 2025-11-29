@@ -1,15 +1,14 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, Generator, List
 
 from loguru import logger
 
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
-from program.services.scrapers.shared import _parse_results
-from program.settings.manager import settings_manager
+from program.services.scrapers.shared import parse_results
+from program.settings import settings_manager
 
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
@@ -19,38 +18,46 @@ from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.settings.models import Observable, ScraperModel
+from program.services.scrapers.base import ScraperService
 
 
-class Scraping:
+class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     def __init__(self):
-        self.key = "scraping"
+        super().__init__()
+
         self.initialized = False
         self.settings = settings_manager.settings.scraping
         self.max_failed_attempts = (
             settings_manager.settings.scraping.max_failed_attempts
         )
-        self.services = [
-            Comet(),
-            Jackett(),
-            Mediafusion(),
-            Orionoid(),
-            Prowlarr(),
-            Rarbg(),
-            Torrentio(),
-            Zilean(),
-        ]
+
+        self.services = {
+            Comet: Comet(),
+            Jackett: Jackett(),
+            Mediafusion: Mediafusion(),
+            Orionoid: Orionoid(),
+            Prowlarr: Prowlarr(),
+            Rarbg: Rarbg(),
+            Torrentio: Torrentio(),
+            Zilean: Zilean(),
+        }
+
         self.initialized_services = [
-            service for service in self.services if service.initialized
+            service for service in self.services.values() if service.initialized
         ]
         self.initialized = self.validate()
+
         if not self.initialized:
             return
 
     def validate(self) -> bool:
         """Validate that at least one scraper service is initialized."""
+
         return len(self.initialized_services) > 0
 
-    def run(self, item: MediaItem) -> Generator[MediaItem, None, None]:
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Scrape an item."""
 
         sorted_streams = self.scrape(item)
@@ -62,15 +69,18 @@ class Scraping:
 
         if new_streams:
             item.streams.extend(new_streams)
+
             if item.failed_attempts > 0:
                 item.failed_attempts = 0  # Reset failed attempts on success
+
             logger.log(
                 "SCRAPER", f"Added {len(new_streams)} new streams to {item.log_string}"
             )
         else:
             logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
-            item.failed_attempts = getattr(item, "failed_attempts", 0) + 1
+            item.failed_attempts = item.failed_attempts + 1
+
             if (
                 self.max_failed_attempts > 0
                 and item.failed_attempts >= self.max_failed_attempts
@@ -85,9 +95,9 @@ class Scraping:
                 )
 
         item.set("scraped_at", datetime.now())
-        item.set("scraped_times", item.scraped_times + 1)
+        item.set("scraped_times", (item.scraped_times or 0) + 1)
 
-        yield item
+        yield RunnerResult(media_items=[item])
 
     def scrape(
         self,
@@ -97,17 +107,13 @@ class Scraping:
     ) -> Dict[str, Stream]:
         """Scrape an item."""
 
-        results: Dict[str, str] = {}
+        results: dict[str, str] = {}
         results_lock = threading.RLock()
 
-        def run_service(svc, it) -> None:
+        def run_service(svc: "ScraperService[Observable]", item: MediaItem) -> None:
             """Run a single service and update the results."""
-            service_results = svc.run(it)
-            if not isinstance(service_results, dict):
-                logger.error(
-                    f"Service {svc.__class__.__name__} returned invalid results: {service_results}"
-                )
-                return
+
+            service_results = svc.run(item)
 
             with results_lock:
                 try:
@@ -125,6 +131,7 @@ class Scraping:
                 executor.submit(run_service, service, item): service.key
                 for service in self.initialized_services
             }
+
             for future in as_completed(futures):
                 try:
                     future.result()
@@ -141,10 +148,12 @@ class Scraping:
             item, results, verbose_logging, ranking_overrides
         )
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
-            top_results: List[Stream] = list(sorted_streams.values())[:10]
+            top_results = list(sorted_streams.values())[:10]
+
             logger.debug(
                 f"Displaying top {len(top_results)} results for {item.log_string}"
             )
+
             for stream in top_results:
                 logger.debug(
                     f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})"
@@ -152,9 +161,9 @@ class Scraping:
 
         return sorted_streams
 
-    @staticmethod
-    def should_submit(item: MediaItem) -> bool:
+    def should_submit(self, item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
+
         settings = settings_manager.settings.scraping
         scrape_time = 30 * 60  # 30 minutes by default
 
@@ -169,6 +178,7 @@ class Scraping:
             not item.scraped_at
             or (datetime.now() - item.scraped_at).total_seconds() > scrape_time
         )
+
         if not is_scrapeable:
             return False
 

@@ -1,10 +1,11 @@
+from collections.abc import Awaitable, Callable
 import contextlib
 import signal
 import sys
 import threading
 import time
+from types import FrameType
 
-import httpx
 from kink import di
 import uvicorn
 from dotenv import load_dotenv
@@ -14,36 +15,43 @@ from program.utils.async_client import AsyncClient
 
 load_dotenv()  # import required here to support SETTINGS_FILENAME
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
-from scalar_fastapi import get_scalar_api_reference
+from scalar_fastapi import (
+    get_scalar_api_reference,  # pyright: ignore[reportUnknownVariableType]
+)
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from program.program import Program, riven
 from program.settings.models import get_version
-from program.settings.manager import settings_manager
-from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
+from program.settings import settings_manager
 from program.utils.cli import handle_args
 from routers import app_router
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         start_time = time.time()
+        response = None
+
         try:
             response = await call_next(request)
+
+            return response
         except Exception as e:
             logger.exception(f"Exception during request processing: {e}")
             raise
         finally:
             process_time = time.time() - start_time
+
             logger.log(
                 "API",
-                f"{request.method} {request.url.path} - {response.status_code if 'response' in locals() else '500'} - {process_time:.2f}s",
+                f"{request.method} {request.url.path} - {response.status_code if response else '500'} - {process_time:.2f}s",
             )
-        return response
 
 
 args = handle_args()
@@ -89,7 +97,6 @@ async def scalar_html():
 
 di[Program] = riven
 
-app.program = riven
 app.add_middleware(LoguruMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -110,6 +117,7 @@ class Server(uvicorn.Server):
     def run_in_thread(self):
         thread = threading.Thread(target=self.run, name="Riven")
         thread.start()
+
         try:
             while not self.started:
                 time.sleep(1e-3)
@@ -122,9 +130,9 @@ class Server(uvicorn.Server):
             sys.exit(0)
 
 
-def signal_handler(signum, frame):
+def signal_handler(signum: int, frame: FrameType | None):
     logger.log("PROGRAM", "Exiting Gracefully.")
-    app.program.stop()
+    di[Program].stop()
     sys.exit(0)
 
 
@@ -137,8 +145,8 @@ server = Server(config=config)
 
 with server.run_in_thread():
     try:
-        app.program.start()
-        app.program.run()
+        di[Program].start()
+        di[Program].run()
     except Exception:
         logger.exception("Error in main thread")
     finally:
