@@ -317,9 +317,7 @@ class TVDBApi:
 
         from schemas.tvdb import LoginPost200ResponseData
 
-        data = LoginPost200ResponseData.from_dict(response.json())
-
-        assert data
+        data = LoginPost200ResponseData.model_validate(response.json()["data"])
 
         if not data.token:
             logger.error(f"Failed to obtain TVDB token: No token in response")

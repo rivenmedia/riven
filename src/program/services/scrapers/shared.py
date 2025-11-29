@@ -35,6 +35,10 @@ def parse_results(
     processed_infohashes = set[str]()
     correct_title = item.top_title
 
+    torrents = set[Torrent]()
+    processed_infohashes = set[str]()
+    correct_title = item.top_title
+
     aliases = (
         {k: v for k, v in a.items() if k not in ranking_settings.languages.exclude}
         if scraping_settings.enable_aliases and (a := item.get_aliases())

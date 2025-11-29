@@ -659,6 +659,9 @@ async def remove_item(
     overseerr = services.overseerr
     updater = services.updater
     removed_ids = list[int]()
+    overseerr = services.overseerr
+    updater = services.updater
+    removed_ids = list[int]()
 
     for item_id in parsed_ids:
         # Load item using ORM
@@ -669,8 +672,7 @@ async def remove_item(
             continue
 
         # Only allow movies and shows to be removed
-        if not isinstance(item, (Movie, Show)):
-            raise HTTPException(
+        if not isinstance(item, (Movie, Show)):            raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
             )
@@ -685,7 +687,9 @@ async def remove_item(
 
         media_entry = item.media_entry
 
-        if media_entry and updater and item.filesystem_entry:
+        if not media_entry:
+            logger.warning(f"Media entry not found for item {item.id}, skipping refresh path calculation")
+        elif updater and item.filesystem_entry:
             vfs_paths = media_entry.get_all_vfs_paths()
 
             for vfs_path in vfs_paths:
@@ -772,6 +776,11 @@ async def get_item_streams(_: Request, item_id: int, db: Session = Depends(db_se
             status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
         )
 
+    return StreamsResponse(
+        message=f"Retrieved streams for item {item_id}",
+        streams=[stream.to_dict() for stream in item.streams],
+        blacklisted_streams=[stream.to_dict() for stream in item.blacklisted_streams],
+    )
     return StreamsResponse(
         message=f"Retrieved streams for item {item_id}",
         streams=[stream.to_dict() for stream in item.streams],

@@ -1,16 +1,22 @@
 from datetime import datetime, timedelta
 from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from kink import di
+from kink import di
 from loguru import logger
+from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 from sqla_wrapper import Session
 from sqlalchemy.orm import object_session
 
 from program.db import db_functions
+from program.db.db import db_session
+from program.media.item import Episode, MediaItem, Season, Show
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Season, Show
 from program.media.stream import Stream as ItemStream
@@ -24,6 +30,8 @@ from program.services.indexers import IndexerService
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
+from program.program import Program
+from program.media.models import ActiveStream
 from program.program import Program
 from program.media.models import ActiveStream
 from ..models.shared import MessageResponse
@@ -43,13 +51,16 @@ class Stream(BaseModel):
 class ScrapeItemResponse(BaseModel):
     message: str
     streams: dict[str, Stream]
+    streams: dict[str, Stream]
 
 
 class StartSessionResponse(BaseModel):
     message: str
     session_id: str
     torrent_id: str | int
+    torrent_id: str | int
     torrent_info: TorrentInfo
+    containers: TorrentContainer | None
     containers: TorrentContainer | None
     expires_at: str
 
@@ -67,6 +78,7 @@ class SessionResponse(BaseModel):
     message: str
 
 
+ContainerMap: TypeAlias = dict[str, DebridFile]
 ContainerMap: TypeAlias = dict[str, DebridFile]
 
 
@@ -90,6 +102,7 @@ class Container(RootModel[ContainerMap]):
     root: ContainerMap
 
 
+SeasonEpisodeMap: TypeAlias = dict[int, dict[int, DebridFile]]
 SeasonEpisodeMap: TypeAlias = dict[int, dict[int, DebridFile]]
 
 
@@ -134,12 +147,18 @@ class ScrapingSession:
         self.torrent_info: TorrentInfo | None = None
         self.containers: TorrentContainer | None = None
         self.selected_files: dict[str, dict[str, str | int]] | None = None
+        self.torrent_id: int | str | None = None
+        self.torrent_info: TorrentInfo | None = None
+        self.containers: TorrentContainer | None = None
+        self.selected_files: dict[str, dict[str, str | int]] | None = None
         self.created_at: datetime = datetime.now()
         self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
 
 
 class ScrapingSessionManager:
     def __init__(self):
+        self.sessions: dict[str, ScrapingSession] = {}
+        self.downloader: Downloader | None = None
         self.sessions: dict[str, ScrapingSession] = {}
         self.downloader: Downloader | None = None
 
@@ -173,7 +192,9 @@ class ScrapingSessionManager:
     def get_session(self, session_id: str) -> ScrapingSession | None:
         """Get a scraping session by ID"""
 
+
         session = self.sessions.get(session_id)
+
 
         if not session:
             return None
@@ -187,7 +208,9 @@ class ScrapingSessionManager:
     def update_session(self, session_id: str, **kwargs: Any) -> ScrapingSession | None:
         """Update a scraping session"""
 
+
         session = self.get_session(session_id)
+
 
         if not session:
             return None
@@ -201,7 +224,9 @@ class ScrapingSessionManager:
     def abort_session(self, session_id: str):
         """Abort a scraping session"""
 
+
         session = self.sessions.pop(session_id, None)
+
 
         if session and session.torrent_id and self.downloader:
             try:
@@ -210,11 +235,13 @@ class ScrapingSessionManager:
             except Exception as e:
                 logger.error(f"Failed to delete torrent for session {session_id}: {e}")
 
+
         if session:
             logger.debug(f"Aborted session {session_id} for item {session.item_id}")
 
     def complete_session(self, session_id: str):
         """Complete a scraping session"""
+
 
         session = self.get_session(session_id)
         if not session:
@@ -225,6 +252,7 @@ class ScrapingSessionManager:
 
     def cleanup_expired(self, background_tasks: BackgroundTasks):
         """Cleanup expired scraping sessions"""
+
 
         current_time = datetime.now()
         expired = [
@@ -245,7 +273,6 @@ def initialize_downloader(downloader: Downloader):
     """Initialize downloader if not already set"""
     if not scraping_session_manager.downloader:
         scraping_session_manager.set_downloader(downloader)
-
 
 @router.get("/scrape", summary="Get streams for an item", operation_id="scrape_item")
 def scrape_item(
@@ -288,7 +315,6 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            indexer_result = next(indexer.run(prepared_item), None)
         elif imdb_id:
             prepared_item = MediaItem(
                 {
@@ -318,6 +344,13 @@ def scrape_item(
             for stream in streams.values()
         },
     )
+    return ScrapeItemResponse(
+        message=f"Manually scraped streams for item {log_string}",
+        streams={
+            stream.infohash: Stream.model_validate(stream)
+            for stream in streams.values()
+        },
+    )
 
 
 @router.post(
@@ -339,9 +372,13 @@ async def start_manual_session(
 
     info_hash = extract_infohash(magnet)
 
+
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
+    if services := di[Program].services:
+        indexer = services.indexer
+        downloader = services.downloader
     if services := di[Program].services:
         indexer = services.indexer
         downloader = services.downloader
@@ -403,8 +440,6 @@ async def start_manual_session(
         else:
             raise HTTPException(status_code=400, detail="No valid ID provided")
 
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
@@ -472,12 +507,14 @@ def manual_select_files(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
+
     if not session.torrent_id:
         scraping_session_manager.abort_session(session_id)
 
         raise HTTPException(status_code=500, detail="No torrent ID found")
 
     download_type = "uncached"
+
 
     if files.model_dump() in session.containers:
         download_type = "cached"
@@ -486,6 +523,7 @@ def manual_select_files(
         downloader.select_files(
             session.torrent_id, [int(file_id) for file_id in files.root.keys()]
         )
+
 
         session.selected_files = files.model_dump()
     except Exception as e:
@@ -525,6 +563,7 @@ async def manual_update_attributes(
     """
 
     scraping_session = scraping_session_manager.get_session(session_id)
+
     log_string = None
 
     if not scraping_session:
@@ -551,15 +590,6 @@ async def manual_update_attributes(
             pass
 
     if not item:
-        item_data = {
-            k: v for k, v in {
-                "imdb_id": scraping_session.imdb_id,
-                "tmdb_id": scraping_session.tmdb_id,
-                "tvdb_id": scraping_session.tvdb_id,
-                "requested_by": "riven",
-                "requested_at": datetime.now(),
-            }.items() if v
-        }
         item_data = {
             k: v for k, v in {
                 "imdb_id": scraping_session.imdb_id,
@@ -773,6 +803,7 @@ async def abort_manual_session(
 )
 async def complete_manual_session(_: Request, session_id: str) -> SessionResponse:
     session = scraping_session_manager.get_session(session_id)
+    session = scraping_session_manager.get_session(session_id)
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -955,6 +986,104 @@ async def auto_scrape_item(
             
             # Emit event to trigger downloader
             di[Program].em.add_event(Event("Scraping", item_id=item.id))
+            
+            return {"message": f"Auto scrape started. Found {len(new_streams)} new streams."}
+        else:
+            return {"message": "Auto scrape completed. No new streams found."}
+
+class AutoScrapeRequest(BaseModel):
+    item_id: str | None = None
+    tmdb_id: str | None = None
+    tvdb_id: str | None = None
+    imdb_id: str | None = None
+    media_type: Literal["movie", "tv"] | None = None
+    resolutions: list[str] | None = None
+    quality: list[str] | None = None
+    rips: list[str] | None = None
+    hdr: list[str] | None = None
+    audio: list[str] | None = None
+    extras: list[str] | None = None
+    trash: list[str] | None = None
+
+
+@router.post(
+    "/auto",
+    summary="Auto scrape an item with resolution overrides",
+    operation_id="auto_scrape_item",
+)
+async def auto_scrape_item(
+    request: Request,
+    body: AutoScrapeRequest,
+) -> MessageResponse:
+    """
+    Auto scrape an item with specific resolution overrides.
+    This performs a one-time scrape using the provided resolutions
+    and triggers the downloader if new streams are found.
+    """
+    if services := request.app.program.services:
+        scraper = services[Scraping]
+        indexer = services[IndexerService]
+    else:
+        raise HTTPException(status_code=412, detail="Services not initialized")
+
+    item = None
+    with db.Session() as db_session:
+        if body.item_id:
+            item = db_functions.get_item_by_id(body.item_id, session=db_session)
+        elif body.tmdb_id and body.media_type == "movie":
+            prepared_item = MediaItem(
+                {
+                    "tmdb_id": body.tmdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                }
+            )
+            item = next(indexer.run(prepared_item), None)
+        elif body.tvdb_id and body.media_type == "tv":
+            prepared_item = MediaItem(
+                {
+                    "tvdb_id": body.tvdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                }
+            )
+            item = next(indexer.run(prepared_item), None)
+        elif body.imdb_id:
+            prepared_item = MediaItem(
+                {
+                    "imdb_id": body.imdb_id,
+                    "tvdb_id": body.tvdb_id, # imdb_id alone is not enough for TV, needs tvdb_id
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                }
+            )
+            item = next(indexer.run(prepared_item), None)
+        
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        # Scrape with overrides
+        streams = scraper.scrape(item, ranking_overrides=body.model_dump(exclude_unset=True))
+        
+        # Filter out existing or blacklisted streams
+        new_streams = [
+            stream
+            for stream in streams.values()
+            if stream not in item.streams and stream not in item.blacklisted_streams
+        ]
+
+        if new_streams:
+            item.streams.extend(new_streams)
+            from program.media.state import States
+            item.store_state(States.Scraped) # Force state update to trigger downloader
+            logger.info(f"Auto scrape found {len(new_streams)} new streams for {item.log_string}")
+            
+            # Commit changes to DB
+            db_session.add(item)
+            db_session.commit()
+            
+            # Emit event to trigger downloader
+            request.app.program.em.add_event(Event("Scraping", item_id=item.id))
             
             return {"message": f"Auto scrape started. Found {len(new_streams)} new streams."}
         else:
