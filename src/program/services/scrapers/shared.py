@@ -113,7 +113,7 @@ def parse_results(
 
             if isinstance(item, Show):
                 # make sure the torrent has at least 2 episodes (should weed out most junk), skip if manual
-                if not ranking_overrides and torrent.data.episodes and len(torrent.data.episodes):
+                if not ranking_overrides and torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
