@@ -103,7 +103,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         self,
         item: MediaItem,
         verbose_logging: bool = True,
-        manual: bool = False,
+        ranking_overrides: dict[str, list[str]] | None = None,
     ) -> dict[str, Stream]:
         """Scrape an item."""
 
@@ -144,7 +144,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams = parse_results(item, results, verbose_logging, manual)
+        sorted_streams = parse_results(item, results, verbose_logging, ranking_overrides)
 
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
             top_results = list(sorted_streams.values())[:10]
