@@ -1,22 +1,16 @@
 from datetime import datetime, timedelta
 from typing import Any, Literal, TypeAlias
-from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from kink import di
-from kink import di
 from loguru import logger
-from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
-from pydantic import BaseModel, ConfigDict, Field, RootModel
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 from sqla_wrapper import Session
 from sqlalchemy.orm import object_session
 
 from program.db import db_functions
-from program.db.db import db_session
-from program.media.item import Episode, MediaItem, Season, Show
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Season, Show
 from program.media.stream import Stream as ItemStream
@@ -51,16 +45,13 @@ class Stream(BaseModel):
 class ScrapeItemResponse(BaseModel):
     message: str
     streams: dict[str, Stream]
-    streams: dict[str, Stream]
 
 
 class StartSessionResponse(BaseModel):
     message: str
     session_id: str
     torrent_id: str | int
-    torrent_id: str | int
     torrent_info: TorrentInfo
-    containers: TorrentContainer | None
     containers: TorrentContainer | None
     expires_at: str
 
@@ -78,7 +69,6 @@ class SessionResponse(BaseModel):
     message: str
 
 
-ContainerMap: TypeAlias = dict[str, DebridFile]
 ContainerMap: TypeAlias = dict[str, DebridFile]
 
 
@@ -102,7 +92,6 @@ class Container(RootModel[ContainerMap]):
     root: ContainerMap
 
 
-SeasonEpisodeMap: TypeAlias = dict[int, dict[int, DebridFile]]
 SeasonEpisodeMap: TypeAlias = dict[int, dict[int, DebridFile]]
 
 
@@ -147,18 +136,12 @@ class ScrapingSession:
         self.torrent_info: TorrentInfo | None = None
         self.containers: TorrentContainer | None = None
         self.selected_files: dict[str, dict[str, str | int]] | None = None
-        self.torrent_id: int | str | None = None
-        self.torrent_info: TorrentInfo | None = None
-        self.containers: TorrentContainer | None = None
-        self.selected_files: dict[str, dict[str, str | int]] | None = None
         self.created_at: datetime = datetime.now()
         self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
 
 
 class ScrapingSessionManager:
     def __init__(self):
-        self.sessions: dict[str, ScrapingSession] = {}
-        self.downloader: Downloader | None = None
         self.sessions: dict[str, ScrapingSession] = {}
         self.downloader: Downloader | None = None
 
@@ -208,9 +191,7 @@ class ScrapingSessionManager:
     def update_session(self, session_id: str, **kwargs: Any) -> ScrapingSession | None:
         """Update a scraping session"""
 
-
         session = self.get_session(session_id)
-
 
         if not session:
             return None
@@ -224,9 +205,7 @@ class ScrapingSessionManager:
     def abort_session(self, session_id: str):
         """Abort a scraping session"""
 
-
         session = self.sessions.pop(session_id, None)
-
 
         if session and session.torrent_id and self.downloader:
             try:
@@ -234,7 +213,6 @@ class ScrapingSessionManager:
                 logger.debug(f"Deleted torrent for aborted session {session_id}")
             except Exception as e:
                 logger.error(f"Failed to delete torrent for session {session_id}: {e}")
-
 
         if session:
             logger.debug(f"Aborted session {session_id} for item {session.item_id}")
@@ -253,7 +231,6 @@ class ScrapingSessionManager:
     def cleanup_expired(self, background_tasks: BackgroundTasks):
         """Cleanup expired scraping sessions"""
 
-
         current_time = datetime.now()
         expired = [
             session_id
@@ -262,7 +239,6 @@ class ScrapingSessionManager:
         ]
         for session_id in expired:
             background_tasks.add_task(self.abort_session, session_id)
-
 
 scraping_session_manager = ScrapingSessionManager()
 
@@ -372,13 +348,9 @@ async def start_manual_session(
 
     info_hash = extract_infohash(magnet)
 
-
     if not info_hash:
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
-    if services := di[Program].services:
-        indexer = services.indexer
-        downloader = services.downloader
     if services := di[Program].services:
         indexer = services.indexer
         downloader = services.downloader
@@ -507,14 +479,12 @@ def manual_select_files(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
-
     if not session.torrent_id:
         scraping_session_manager.abort_session(session_id)
 
         raise HTTPException(status_code=500, detail="No torrent ID found")
 
     download_type = "uncached"
-
 
     if files.model_dump() in session.containers:
         download_type = "cached"
@@ -523,7 +493,6 @@ def manual_select_files(
         downloader.select_files(
             session.torrent_id, [int(file_id) for file_id in files.root.keys()]
         )
-
 
         session.selected_files = files.model_dump()
     except Exception as e:
@@ -802,7 +771,6 @@ async def abort_manual_session(
     operation_id="complete_manual_session",
 )
 async def complete_manual_session(_: Request, session_id: str) -> SessionResponse:
-    session = scraping_session_manager.get_session(session_id)
     session = scraping_session_manager.get_session(session_id)
 
     if not session:

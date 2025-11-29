@@ -659,9 +659,6 @@ async def remove_item(
     overseerr = services.overseerr
     updater = services.updater
     removed_ids = list[int]()
-    overseerr = services.overseerr
-    updater = services.updater
-    removed_ids = list[int]()
 
     for item_id in parsed_ids:
         # Load item using ORM
