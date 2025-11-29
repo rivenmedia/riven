@@ -888,16 +888,16 @@ async def auto_scrape_item(
     This performs a one-time scrape using the provided resolutions
     and triggers the downloader if new streams are found.
     """
-    if services := request.app.program.services:
-        scraper = services[Scraping]
-        indexer = services[IndexerService]
+    if services := di[Program].services:
+        scraper = services.scraping
+        indexer = services.indexer
     else:
         raise HTTPException(status_code=412, detail="Services not initialized")
 
     item = None
-    with db.Session() as db_session:
+    with db_session() as session:
         if body.item_id:
-            item = db_functions.get_item_by_id(body.item_id, session=db_session)
+            item = db_functions.get_item_by_id(int(body.item_id), session=session)
         elif body.tmdb_id and body.media_type == "movie":
             prepared_item = MediaItem(
                 {
@@ -906,7 +906,8 @@ async def auto_scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            if result := next(indexer.run(prepared_item), None):
+                item = result.media_items[0] if result.media_items else None
         elif body.tvdb_id and body.media_type == "tv":
             prepared_item = MediaItem(
                 {
@@ -915,7 +916,8 @@ async def auto_scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            if result := next(indexer.run(prepared_item), None):
+                item = result.media_items[0] if result.media_items else None
         elif body.imdb_id:
             prepared_item = MediaItem(
                 {
@@ -925,7 +927,8 @@ async def auto_scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            item = next(indexer.run(prepared_item), None)
+            if result := next(indexer.run(prepared_item), None):
+                item = result.media_items[0] if result.media_items else None
         
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -947,11 +950,11 @@ async def auto_scrape_item(
             logger.info(f"Auto scrape found {len(new_streams)} new streams for {item.log_string}")
             
             # Commit changes to DB
-            db_session.add(item)
-            db_session.commit()
+            session.add(item)
+            session.commit()
             
             # Emit event to trigger downloader
-            request.app.program.em.add_event(Event("Scraping", item_id=item.id))
+            di[Program].em.add_event(Event("Scraping", item_id=item.id))
             
             return {"message": f"Auto scrape started. Found {len(new_streams)} new streams."}
         else:

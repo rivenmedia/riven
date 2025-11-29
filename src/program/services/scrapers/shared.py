@@ -27,6 +27,7 @@ def parse_results(
     results: dict[str, str],
     log_msg: bool = True,
     ranking_overrides: dict[str, list[str]] | None = None,
+    manual: bool = False,
 ) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
 
