@@ -341,7 +341,7 @@ class TraktAPI:
             response = self.session.get(url, timeout=30)
 
             if response.ok and response.data:
-                aliases = dict[str, list[str]]({})
+                aliases = dict[str, list[str]]()
 
                 from schemas.trakt import GetAllMovieAliases200ResponseInner
 

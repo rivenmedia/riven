@@ -6,13 +6,12 @@ from loguru import logger
 from program.apis.overseerr_api import OverseerrAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.settings import settings_manager
-from program.core.content_service import ContentService
 from program.settings.models import OverseerrModel
-from program.core.runner import MediaItemGenerator, RunnerResult
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.media.item import MediaItem
 
 
-class Overseerr(ContentService[OverseerrModel]):
+class Overseerr(Runner[OverseerrModel]):
     """Content class for overseerr"""
 
     def __init__(self):
