@@ -8,20 +8,20 @@ from program.settings.models import Observable
 from program.media.item import MediaItem
 
 
+type MediaItemGenerator[T: MediaItem = MediaItem] = Generator[
+    RunnerResult[T], None, RunnerResult[T] | None
+]
+
 TSettings = TypeVar(
     "TSettings",
     bound=Observable | None,
     default=Observable,
     covariant=True,
 )
+
 TService = TypeVar("TService", bound=Any | None, default="Runner")
 
-
 TItemType = TypeVar("TItemType", bound=MediaItem, default=MediaItem, covariant=True)
-
-type MediaItemGenerator[T: MediaItem = MediaItem] = Generator[
-    RunnerResult[T], None, RunnerResult[T] | None
-]
 
 TRunnerReturnType = TypeVar(
     "TRunnerReturnType",

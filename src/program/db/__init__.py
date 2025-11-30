@@ -1,12 +1,5 @@
 from sqla_wrapper import SQLAlchemy
-
-
-def _get_db_host() -> str:
-    """Lazy load settings to avoid circular import"""
-
-    from program.settings import settings_manager
-
-    return str(settings_manager.settings.database.host)
+from program.settings import settings_manager
 
 
 engine_options = {
@@ -17,5 +10,5 @@ engine_options = {
     "echo": False,  # Prom: Set to true when debugging sql queries
 }
 
-db_host = _get_db_host()
+db_host = str(settings_manager.settings.database.host)
 db = SQLAlchemy(db_host, engine_options=engine_options)
