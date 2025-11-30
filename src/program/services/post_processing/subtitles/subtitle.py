@@ -26,6 +26,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
     """Service for fetching and managing subtitles."""
 
     def __init__(self):
+        super().__init__()
         self.settings = settings_manager.settings.post_processing.subtitle
         self.initialized = False
 

@@ -41,6 +41,7 @@ from .alldebrid import AllDebridDownloader
 
 class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
+        super().__init__()
         self.initialized = False
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),

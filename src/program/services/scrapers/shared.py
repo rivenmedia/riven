@@ -113,14 +113,14 @@ def parse_results(
 
             if isinstance(item, Show):
                 # make sure the torrent has at least 2 episodes (should weed out most junk), skip if manual
-                if not ranking_overrides and torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                if not ranking_overrides and not manual and torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
                     continue
 
                 # make sure all of the item seasons are present in the torrent
-                if not ranking_overrides and not all(
+                if not ranking_overrides and not manual and not all(
                     season.number in torrent.data.seasons for season in item.seasons
                 ):
                     logger.trace(
@@ -150,7 +150,7 @@ def parse_results(
                     continue
 
                 # make sure the torrent has at least 2 episodes (should weed out most junk), skip if manual
-                if not ranking_overrides and torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                if not ranking_overrides and not manual and torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
@@ -167,7 +167,7 @@ def parse_results(
                     episode.number in torrent.data.episodes for episode in item.episodes
                 ):
                     # Skip this check if using manual overrides (user intent)
-                    if not ranking_overrides:
+                    if not ranking_overrides and not manual:
                         logger.trace(
                             f"Skipping incorrect season torrent for not having all episodes {item.log_string}: {raw_title}"
                         )
@@ -243,7 +243,7 @@ def parse_results(
         logger.debug(f"Found {len(torrents)} streams for {item.log_string}")
 
         sorted_torrents = sort_torrents(
-            torrents, bucket_limit=scraping_settings.bucket_limit
+            torrents, bucket_limit=scraping_settings.bucket_limit if not manual else 1000
         )
 
         torrent_stream_map = {
