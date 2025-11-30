@@ -285,9 +285,11 @@ class ProgramScheduler:
         indexer_service = self.program.services.indexer
 
         updated = next(indexer_service.run(item, log_msg=False), None)
+
         if updated:
-            session.merge(updated)
+            session.merge(updated.media_items[0])
             session.commit()
+
             logger.info(f"Reindexed {item.log_string} from scheduler")
 
     def _enqueue_item_if_needed(self, session: Session, item: MediaItem) -> None:
