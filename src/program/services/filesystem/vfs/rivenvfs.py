@@ -206,6 +206,7 @@ class RivenVFS(pyfuse3.Operations):
         self.opener_stats = dict[str, dict[str, Any]]()
 
         # Mount management
+        self.mounted = False
         self._mountpoint = os.path.abspath(mountpoint)
         self._thread = None
         self._unmount_requested = trio_util.AsyncBool(False)
