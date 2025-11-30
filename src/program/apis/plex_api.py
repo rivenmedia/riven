@@ -126,7 +126,7 @@ class PlexAPI:
     def get_items_from_rss(self) -> list[tuple[str, str]]:
         """Fetch media from Plex RSS Feeds."""
 
-        rss_items: list[tuple[str, str]] = []
+        rss_items = list[tuple[str, str]]()
 
         assert self.rss_urls
 

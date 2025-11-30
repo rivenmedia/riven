@@ -50,7 +50,7 @@ class Mdblist(ContentService[MdblistModel]):
     def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch media from mdblist and add them to media_items attribute"""
 
-        items_to_yield: list[MediaItem] = []
+        items_to_yield = list[MediaItem]()
 
         try:
             for list_id in self.settings.lists:

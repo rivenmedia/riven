@@ -114,7 +114,7 @@ class TraktAPI:
     ) -> list[DataModel]:
         """Fetch paginated data from Trakt API with rate limiting."""
 
-        all_data: list[DataModel] = []
+        all_data = list[DataModel]()
 
         def _request_page(requested_page: int):
             response = self.session.get(

@@ -341,7 +341,7 @@ class DebridLinkDownloader(DownloaderBase):
         # Status "downloaded" means completed/cached
         # Also check if downloadPercent == 100
         if info.status == "downloaded" or (info.progress and info.progress >= 100):
-            files: list[DebridFile] = []
+            files = list[DebridFile]()
 
             for file_id, file in info.files.items():
                 # Debrid-Link doesn't have a "selected" field, all files are available

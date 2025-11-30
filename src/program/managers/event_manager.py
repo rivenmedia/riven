@@ -57,10 +57,10 @@ class EventManager:
     """
 
     def __init__(self):
-        self._executors: list[ServiceExecutor] = []
-        self._futures: list[FutureWithEvent] = []
-        self._queued_events: list[Event] = []
-        self._running_events: list[Event] = []
+        self._executors = list[ServiceExecutor]()
+        self._futures = list[FutureWithEvent]()
+        self._queued_events = list[Event]()
+        self._running_events = list[Event]()
         self.mutex = Lock()
 
     def _find_or_create_executor(self, service_cls: Service) -> ThreadPoolExecutor:
@@ -583,7 +583,7 @@ class EventManager:
             "PostProcessing",
         ]
 
-        updates: dict[str, list[int]] = {event_type: [] for event_type in event_types}
+        updates = {event_type: list[int]() for event_type in event_types}
 
         for event in events:
             if isinstance(event.emitted_by, str):

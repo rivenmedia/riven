@@ -806,10 +806,12 @@ async def overseerr_requests(
 
     if overseerr_items:
         # Persist first, then enqueue
-        persisted_items: list[MediaItem] = []
+        persisted_items = list[MediaItem]()
+
         for item in overseerr_items:
             persisted = db.merge(item)
             persisted_items.append(persisted)
+
         db.commit()
 
         from program.services.content.overseerr import Overseerr

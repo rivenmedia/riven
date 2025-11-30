@@ -40,7 +40,7 @@ class ListrrAPI:
             ListrrContractsModelsAPIPagedResponse1ListrrContractsModelsAPIShowDto as APIResponse,
         )
 
-        unique_ids: set[tuple[str | None, str | None]] = set()
+        unique_ids = set[tuple[str | None, str | None]]()
 
         if not content_lists:
             return list(unique_ids)
@@ -82,7 +82,7 @@ class ListrrAPI:
             ListrrContractsModelsAPIPagedResponse1ListrrContractsModelsAPIMovieDto as APIResponse,
         )
 
-        unique_ids: set[tuple[str | None, str | None]] = set()
+        unique_ids = set[tuple[str | None, str | None]]()
 
         if not content_lists:
             return list(unique_ids)

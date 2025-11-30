@@ -293,7 +293,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
             .execution_options(stream_results=True)
         ).unique()
 
-    calendar: dict[int, dict[str, Any]] = {}
+    calendar = dict[int, dict[str, Any]]()
 
     for item in result.scalars().yield_per(500):
         title = item.top_title

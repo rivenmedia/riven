@@ -196,7 +196,7 @@ async def get_items(
         )
 
     if type:
-        media_types: set[str] = {t.value for t in type}
+        media_types = {t.value for t in type}
 
         if MediaTypeEnum.ANIME in type:
             media_types.remove(MediaTypeEnum.ANIME.value)
@@ -222,11 +222,13 @@ async def get_items(
 
         for sort_criterion in sort:
             sort_type = sort_criterion.sort_type
+
             if sort_type in sort_types:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Multiple {sort_type} sort criteria provided. Only one sort per type is allowed.",
                 )
+
             sort_types.add(sort_type)
 
         for sort_criterion in sort:

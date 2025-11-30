@@ -33,7 +33,9 @@ from routers import app_router
 
 class LoguruMiddleware(BaseHTTPMiddleware):
     async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         start_time = time.time()
         response = None

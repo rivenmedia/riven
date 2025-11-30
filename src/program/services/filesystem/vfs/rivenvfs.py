@@ -187,7 +187,7 @@ class RivenVFS(pyfuse3.Operations):
         self._tree_lock = threading.RLock()
 
         # Pending invalidations for batching (optimization: collect during sync, invalidate at end)
-        self._pending_invalidations: set[pyfuse3.InodeT] = set()
+        self._pending_invalidations = set[pyfuse3.InodeT]()
 
         # Profile hash for detecting changes (optimization: skip re-matching if unchanged)
         self._last_profile_hash: int | None = None
