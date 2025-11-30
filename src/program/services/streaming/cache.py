@@ -84,8 +84,8 @@ class Cache:
 
     def __init__(self, cfg: CacheConfig) -> None:
         self.cfg = cfg
-        self._index: "OrderedDict[str, CacheEntry]" = OrderedDict()
-        self._by_path: dict[str, list[int]] = {}
+        self._index = OrderedDict[str, CacheEntry]()
+        self._by_path = dict[str, list[int]]()
         self._total_bytes = 0
         self._lock = trio.Lock()
         # Thread lock for synchronizing _index/_by_path access

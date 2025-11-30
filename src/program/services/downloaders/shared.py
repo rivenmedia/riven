@@ -158,17 +158,19 @@ class Resolution(Enum):
     UNKNOWN = 1
 
 
-RESOLUTION_MAP: dict[str, Resolution] = {
-    "4k": Resolution.UHD_2160P,
-    "2160p": Resolution.UHD_2160P,
-    "1440p": Resolution.UHD_1440P,
-    "1080p": Resolution.FHD_1080P,
-    "720p": Resolution.HD_720P,
-    "576p": Resolution.SD_576P,
-    "480p": Resolution.SD_480P,
-    "360p": Resolution.SD_360P,
-    "unknown": Resolution.UNKNOWN,
-}
+RESOLUTION_MAP = dict[str, Resolution](
+    {
+        "4k": Resolution.UHD_2160P,
+        "2160p": Resolution.UHD_2160P,
+        "1440p": Resolution.UHD_1440P,
+        "1080p": Resolution.FHD_1080P,
+        "720p": Resolution.HD_720P,
+        "576p": Resolution.SD_576P,
+        "480p": Resolution.SD_480P,
+        "360p": Resolution.SD_360P,
+        "unknown": Resolution.UNKNOWN,
+    }
+)
 
 
 def get_resolution(torrent: Stream) -> Resolution:

@@ -345,14 +345,14 @@ class SmartSession:
         )
 
         self.base_url = base_url.rstrip("/") if base_url else None
-        self.limiters: dict[str, TokenBucket] = {}
-        self.breakers: dict[str, CircuitBreaker] = {}
+        self.limiters = dict[str, TokenBucket]()
+        self.breakers = dict[str, CircuitBreaker]()
         self.retries = int(retries)
         self.backoff_factor = float(backoff_factor)
 
         # requests-compatible attributes that callers may set
         self.proxies = proxies or {}
-        self.headers: dict[str, str] = {}
+        self.headers = dict[str, str]()
         self.auth = None
         self.cookies = None
 

@@ -65,9 +65,11 @@ class ProgramScheduler:
 
         assert self.scheduler is not None
 
-        scheduled_functions: dict[Callable[..., None], ScheduledFunctionConfig] = {
-            vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
-        }
+        scheduled_functions = dict[Callable[..., None], ScheduledFunctionConfig](
+            {
+                vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
+            }
+        )
 
         # Add retry_library if enabled (interval > 0)
         retry_interval = settings_manager.settings.retry_interval

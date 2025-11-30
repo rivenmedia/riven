@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
 from program.core.runner import MediaItemGenerator
+from program.db.base_model import get_base_metadata
 
 from .db import db, db_session
 
@@ -100,7 +101,7 @@ def get_item_by_external_id(
     """
     from program.media.item import MediaItem, Season, Show
 
-    conditions: list[Any] = []
+    conditions = list[Any]()
 
     if imdb_id:
         conditions.append(MediaItem.imdb_id == imdb_id)
@@ -121,9 +122,12 @@ def get_item_by_external_id(
             .where(MediaItem.type.in_(["movie", "show"]))
             .where(or_(*conditions))
         )
+
         item = _s.execute(query).unique().scalar_one_or_none()
+
         if item:
             _s.expunge(item)
+
         return item
 
 
@@ -151,7 +155,7 @@ def item_exists_by_any_id(
     if not any([item_id, tvdb_id, tmdb_id, imdb_id]):
         raise ValueError("At least one ID must be provided")
 
-    clauses: list[Any] = []
+    clauses = list[Any]()
 
     if item_id is not None:
         clauses.append(MediaItem.id == item_id)
@@ -169,6 +173,7 @@ def item_exists_by_any_id(
         count = _s.execute(
             select(func.count()).select_from(MediaItem).where(or_(*clauses)).limit(1)
         ).scalar_one()
+
         return count > 0
 
 
@@ -183,6 +188,7 @@ def clear_streams(
     Parameters:
         media_item_id (int): ID of the media item whose stream relations and blacklist entries will be removed.
     """
+
     with _maybe_session(session) as (_s, _owns):
         _s.execute(
             delete(StreamRelation).where(StreamRelation.parent_id == media_item_id)
@@ -206,19 +212,22 @@ def get_item_ids(session: Session, item_id: int) -> tuple[int, list[int]]:
     Returns:
         tuple: `(root_id, related_ids)` where `related_ids` is a list of descendant media item IDs.
     """
+
     from program.media.item import Episode, MediaItem, Season
 
     item_type = session.execute(
         select(MediaItem.type).where(MediaItem.id == item_id)
     ).scalar_one_or_none()
 
-    related_ids: list[int] = []
+    related_ids = list[int]()
+
     if item_type == "show":
         season_ids = (
             session.execute(select(Season.id).where(Season.parent_id == item_id))
             .scalars()
             .all()
         )
+
         if season_ids:
             episode_ids = (
                 session.execute(
@@ -227,9 +236,10 @@ def get_item_ids(session: Session, item_id: int) -> tuple[int, list[int]]:
                 .scalars()
                 .all()
             )
-            related_ids.extend(episode_ids)
-        related_ids.extend(season_ids)
 
+            related_ids.extend(episode_ids)
+
+        related_ids.extend(season_ids)
     elif item_type == "season":
         episode_ids = (
             session.execute(select(Episode.id).where(Episode.parent_id == item_id))
@@ -250,6 +260,7 @@ def retry_library(session: Session | None = None) -> Sequence[int]:
     """
     Return IDs of items that should be retried. Single query, no pre-count.
     """
+
     from program.media.item import MediaItem
 
     with _maybe_session(session) as (s, _owns):
@@ -446,10 +457,12 @@ def run_thread_with_db_item(
 
 def hard_reset_database() -> None:
     """Resets the database to a fresh state while maintaining migration capability."""
+
     logger.log("DATABASE", "Starting Hard Reset of Database")
 
     # Store current alembic version before reset
     current_version = None
+
     try:
         with db.engine.connect() as connection:
             result = connection.execute(text("SELECT version_num FROM alembic_version"))
@@ -467,10 +480,10 @@ def hard_reset_database() -> None:
                 connection.execute(
                     text(
                         """
-                        SELECT pg_terminate_backend(pid)
-                        FROM pg_stat_activity
-                        WHERE datname = current_database()
-                        AND pid <> pg_backend_pid()
+                            SELECT pg_terminate_backend(pid)
+                            FROM pg_stat_activity
+                            WHERE datname = current_database()
+                            AND pid <> pg_backend_pid()
                         """
                     )
                 )
@@ -500,7 +513,8 @@ def hard_reset_database() -> None:
                 logger.log("DATABASE", "All tables dropped")
 
             # Recreate all tables
-            db.Model.metadata.create_all(connection)
+            get_base_metadata().create_all(connection)
+
             logger.log("DATABASE", "All tables recreated")
 
             # If we had a previous version, restore it

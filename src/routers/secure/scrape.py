@@ -134,7 +134,7 @@ class ScrapingSession:
 
 class ScrapingSessionManager:
     def __init__(self):
-        self.sessions: dict[str, ScrapingSession] = {}
+        self.sessions = dict[str, ScrapingSession]()
         self.downloader: Downloader | None = None
 
     def set_downloader(self, downloader: Downloader):
@@ -584,7 +584,7 @@ async def manual_update_attributes(
                     download_url=data.download_url,
                     provider=None,
                     provider_download_id=None,
-                    file_size=data.filesize or 0,
+                    file_size=data.filesize,
                 )
 
                 session.add(fs_entry)

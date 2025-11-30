@@ -296,11 +296,13 @@ class RealDebridDownloader(DownloaderBase):
 
         if info.status == "waiting_files_selection":
             video_exts = tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS)
-            video_ids: list[int] = [
-                file_id
-                for file_id, meta in info.files.items()
-                if meta.filename.lower().endswith(video_exts)
-            ]
+            video_ids = list[int](
+                [
+                    file_id
+                    for file_id, meta in info.files.items()
+                    if meta.filename.lower().endswith(video_exts)
+                ]
+            )
 
             if not video_ids:
                 return None, "no video files found to select", None
@@ -316,7 +318,7 @@ class RealDebridDownloader(DownloaderBase):
                 return None, "failed to refresh torrent info after selection", None
 
         if info.status == "downloaded":
-            files: list[DebridFile] = []
+            files = list[DebridFile]()
 
             for file_id, meta in info.files.items():
                 if meta.selected != 1:

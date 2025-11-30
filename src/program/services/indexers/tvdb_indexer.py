@@ -61,19 +61,7 @@ class TVDBIndexer(BaseIndexer):
 
         # Scenario 2: Re-indexing existing Show/Season/Episode - update in-place
         elif isinstance(item, (Show, Season, Episode)):
-            show: Show | None = None
-
-            # Get the root Show object
-            if isinstance(item, Show):
-                show = item
-            elif isinstance(item, Season):
-                show = item.parent
-            else:
-                show = item.parent.parent if item.parent else None
-
-            if not show:
-                logger.error(f"Could not find parent Show for {item.log_string}")
-                return
+            show = item.top_parent
 
             # Fetch fresh metadata from TVDB API
             if self._update_show_metadata(show):
@@ -81,7 +69,7 @@ class TVDBIndexer(BaseIndexer):
 
                 if log_msg:
                     logger.debug(
-                        f"Reindexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})"
+                        f"Re-indexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})"
                     )
 
                 yield RunnerResult(media_items=[show])
@@ -191,8 +179,7 @@ class TVDBIndexer(BaseIndexer):
             )
 
             # Clean up title
-            if title:
-                title = regex.sub(r"\s*\(.*\)\s*$", "", title)
+            title = regex.sub(r"\s*\(.*\)\s*$", "", title)
 
             # Extract content rating
             content_rating = None
@@ -205,8 +192,6 @@ class TVDBIndexer(BaseIndexer):
                             break
 
             # Extract TVDB status
-            tvdb_status = None
-
             tvdb_status = show_data.release_status
 
             # Update the Show object's attributes
@@ -378,10 +363,11 @@ class TVDBIndexer(BaseIndexer):
                             break
 
             # Extract TVDB status (Continuing, Ended, Upcoming)
-            tvdb_status = None
-            if show_data.status:
-                if show_data.status.name:
-                    tvdb_status = show_data.status.name
+            tvdb_status = (
+                show_data.status.name
+                if show_data.status and show_data.status.name
+                else None
+            )
 
             show_item = {
                 "title": title,
@@ -462,9 +448,9 @@ class TVDBIndexer(BaseIndexer):
                     # Handle episodes for this season
                     if episodes := extended_data.episodes:
                         # Build a map of existing episodes by number
-                        existing_episodes: dict[int, Episode] = {
-                            e.number: e for e in season_item.episodes
-                        }
+                        existing_episodes = dict[int, Episode](
+                            {e.number: e for e in season_item.episodes}
+                        )
 
                         for episode_data in episodes:
                             episode_number = episode_data.number
@@ -596,10 +582,7 @@ class TVDBIndexer(BaseIndexer):
                     pass
 
             # Extract year
-            year = None
-
-            if episode_data.year:
-                year = int(episode_data.year)
+            year = int(episode_data.year) if episode_data.year else None
 
             # Update episode attributes
             episode.tvdb_id = str(episode_data.id)

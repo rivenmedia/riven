@@ -895,7 +895,7 @@ class Show(MediaItem):
         if season.number not in [s.number for s in self.seasons]:
             self.seasons.append(season)
             season.parent = self
-            self.seasons = sorted(self.seasons, key=lambda s: s.number or 0)
+            self.seasons = sorted(self.seasons, key=lambda s: s.number)
 
     def get_absolute_episode(
         self,
@@ -1077,7 +1077,7 @@ class Season(MediaItem):
 
         self.episodes.append(episode)
         episode.parent = self
-        self.episodes = sorted(self.episodes, key=lambda e: e.number or 0)
+        self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
     @property
     def log_string(self):

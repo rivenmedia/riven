@@ -79,7 +79,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         else:
             logger.log("SCRAPER", f"No new streams added for {item.log_string}")
 
-            item.failed_attempts = item.failed_attempts + 1
+            item.failed_attempts += 1
 
             if (
                 self.max_failed_attempts > 0
@@ -95,7 +95,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                 )
 
         item.set("scraped_at", datetime.now())
-        item.set("scraped_times", (item.scraped_times or 0) + 1)
+        item.set("scraped_times", item.scraped_times + 1)
 
         yield RunnerResult(media_items=[item])
 
@@ -106,7 +106,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     ) -> dict[str, Stream]:
         """Scrape an item."""
 
-        results: dict[str, str] = {}
+        results = dict[str, str]()
         results_lock = threading.RLock()
 
         def run_service(svc: "ScraperService[Observable]", item: MediaItem) -> None:

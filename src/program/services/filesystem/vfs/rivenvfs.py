@@ -193,22 +193,22 @@ class RivenVFS(pyfuse3.Operations):
         self._last_profile_hash: int | None = None
 
         # Set of paths currently being streamed
-        self._active_streams: dict[str, MediaStream] = {}
+        self._active_streams = dict[str, MediaStream]()
 
         # Lock for managing active streams dict
         self._active_streams_lock = trio.Lock()
 
         # Open file handles: fh -> handle info
-        self._file_handles: dict[pyfuse3.FileHandleT, FileHandle] = {}
+        self._file_handles = dict[pyfuse3.FileHandleT, FileHandle]()
         self._next_fh = pyfuse3.FileHandleT(1)
 
         # Opener statistics
-        self.opener_stats: dict[str, dict[str, Any]] = {}
+        self.opener_stats = dict[str, dict[str, Any]]()
 
         # Mount management
         self._mountpoint = os.path.abspath(mountpoint)
         self._thread = None
-        self._unmount_requested: trio_util.AsyncBool = trio_util.AsyncBool(False)
+        self._unmount_requested = trio_util.AsyncBool(False)
         self.stream_nursery: trio.Nursery
 
         def _fuse_runner():
@@ -1524,9 +1524,11 @@ class RivenVFS(pyfuse3.Operations):
             # We already know it's a file from the VFSDirectory check above
             attrs.st_mode = pyfuse3.ModeT(stat.S_IFREG | 0o644)
             attrs.st_nlink = 1
-            size = int(node.file_size or 0)
+            size = node.file_size
+
             if size == 0:
                 size = 1337 * 1024 * 1024  # Default size when unknown
+
             attrs.st_size = size
 
             return attrs

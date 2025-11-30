@@ -133,7 +133,7 @@ class Zilean(ScraperService[ZileanConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents: dict[str, str] = {}
+        torrents = dict[str, str]()
 
         for result in data:
             if not result.raw_title or not result.info_hash:

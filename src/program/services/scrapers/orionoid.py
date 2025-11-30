@@ -241,15 +241,17 @@ class Orionoid(ScraperService[OrionoidConfig]):
 
         media_type = "movie" if isinstance(item, Movie) else "show"
 
-        raw_params: dict[str, str | int | None] = {
-            "keyapp": KEY_APP,
-            "keyuser": self.settings.api_key,
-            "mode": "stream",
-            "action": "retrieve",
-            "type": media_type,
-            "streamtype": "torrent",
-            "protocoltorrent": "magnet",
-        }
+        raw_params = dict[str, str | int | None](
+            {
+                "keyapp": KEY_APP,
+                "keyuser": self.settings.api_key,
+                "mode": "stream",
+                "action": "retrieve",
+                "type": media_type,
+                "streamtype": "torrent",
+                "protocoltorrent": "magnet",
+            }
+        )
 
         if isinstance(item, Season):
             raw_params["numberseason"] = item.number

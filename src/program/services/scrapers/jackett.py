@@ -109,7 +109,7 @@ class Jackett(ScraperService[JackettConfig]):
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Scrape the given media item"""
 
-        torrents: dict[str, str] = {}
+        torrents = dict[str, str]()
         query = item.log_string
 
         if isinstance(item, Movie) and item.aired_at:

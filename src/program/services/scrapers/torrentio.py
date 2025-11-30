@@ -136,7 +136,7 @@ class Torrentio(ScraperService[TorrentioConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
             return {}
 
-        torrents: dict[str, str] = {}
+        torrents = dict[str, str]()
 
         for stream in data.streams:
             if not stream.info_hash:

@@ -98,7 +98,7 @@ class Rarbg(ScraperService[RarbgConfig]):
 
         url = f"/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
 
-        torrents: dict[str, str] = {}
+        torrents = dict[str, str]()
         current_url = url
         page = 1
 
