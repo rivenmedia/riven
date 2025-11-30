@@ -219,6 +219,7 @@ async def get_items(
         elif media_types:
             query = query.where(MediaItem.type.in_(media_types))
 
+    # Validation moved, sorting logic delayed
     if sort:
         # Verify we don't have multiple sorts of the same type
         sort_types = set[str]()
@@ -232,19 +233,6 @@ async def get_items(
                 )
             sort_types.add(sort_type)
 
-        for sort_criterion in sort:
-            if sort_criterion == SortOrderEnum.TITLE_ASC:
-                query = query.order_by(MediaItem.title.asc())
-            elif sort_criterion == SortOrderEnum.TITLE_DESC:
-                query = query.order_by(MediaItem.title.desc())
-            elif sort_criterion == SortOrderEnum.DATE_ASC:
-                query = query.order_by(MediaItem.requested_at.asc())
-            elif sort_criterion == SortOrderEnum.DATE_DESC:
-                query = query.order_by(MediaItem.requested_at.desc())
-
-    else:
-        query = query.order_by(MediaItem.requested_at.desc())
-
     with db_session() as session:
         total_items = session.execute(
             select(func.count()).select_from(query.subquery())
@@ -253,6 +241,19 @@ async def get_items(
         if count_only:
             items = []
         else:
+            if sort:
+                for sort_criterion in sort:
+                    if sort_criterion == SortOrderEnum.TITLE_ASC:
+                        query = query.order_by(MediaItem.title.asc())
+                    elif sort_criterion == SortOrderEnum.TITLE_DESC:
+                        query = query.order_by(MediaItem.title.desc())
+                    elif sort_criterion == SortOrderEnum.DATE_ASC:
+                        query = query.order_by(MediaItem.requested_at.asc())
+                    elif sort_criterion == SortOrderEnum.DATE_DESC:
+                        query = query.order_by(MediaItem.requested_at.desc())
+            else:
+                query = query.order_by(MediaItem.requested_at.desc())
+
             items = (
                 session.execute(query.offset((page - 1) * limit).limit(limit))
                 .unique()

@@ -399,13 +399,9 @@ class MediaItem(Base):
         session = object_session(self)
 
         if session and session.is_active:
-            try:
-                session.refresh(self, attribute_names=["blacklisted_streams"])
-                return len(self.streams) > 0 and any(
-                    stream not in self.blacklisted_streams for stream in self.streams
-                )
-            except:
-                pass
+            return len(self.streams) > 0 and any(
+                stream not in self.blacklisted_streams for stream in self.streams
+            )
 
         return False
 
