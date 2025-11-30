@@ -35,18 +35,17 @@ class Zilean(ScraperService[ZileanConfig]):
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
 
-        if self.settings.ratelimit:
-            rate_limits = {
-                get_hostname_from_url(self.settings.url): {
-                    "rate": 500 / 60,
-                    "capacity": 500,
-                }
-            }
-        else:
-            rate_limits = None
-
         self.session = SmartSession(
-            rate_limits=rate_limits,
+            rate_limits=(
+                {
+                    get_hostname_from_url(self.settings.url): {
+                        "rate": 500 / 60,
+                        "capacity": 500,
+                    }
+                }
+                if self.settings.ratelimit
+                else None
+            ),
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

@@ -97,17 +97,15 @@ class TVDBApi:
         self.token = None
         self.last_new_release_check: datetime | None = None
 
-        rate_limits = {
-            # 25 requests per second
-            "api4.thetvdb.com": {
-                "rate": 25.0,
-                "capacity": 1000.0,
-            }
-        }
-
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits=rate_limits,
+            rate_limits={
+                # 25 requests per second
+                "api4.thetvdb.com": {
+                    "rate": 25,
+                    "capacity": 1000,
+                }
+            },
             retries=2,
             backoff_factor=0.3,
         )

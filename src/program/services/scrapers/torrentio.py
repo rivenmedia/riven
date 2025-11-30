@@ -32,19 +32,19 @@ class Torrentio(ScraperService[TorrentioConfig]):
         self.settings = settings_manager.settings.scraping.torrentio
         self.timeout = self.settings.timeout or 15
 
-        rate_limits = (
-            {
-                "torrentio.strem.fun": {
-                    "rate": 150 / 60,
-                    "capacity": 150,
-                }  # 150 calls per minute
-            }
-            if self.settings.ratelimit
-            else {}
-        )
-
         self.session = SmartSession(
-            rate_limits=rate_limits, retries=self.settings.retries, backoff_factor=0.3
+            rate_limits=(
+                {
+                    "torrentio.strem.fun": {
+                        "rate": 150 / 60,
+                        "capacity": 150,
+                    }  # 150 calls per minute
+                }
+                if self.settings.ratelimit
+                else None
+            ),
+            retries=self.settings.retries,
+            backoff_factor=0.3,
         )
         self.headers = {"User-Agent": "Mozilla/5.0"}
         self.proxies = (

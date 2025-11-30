@@ -31,20 +31,18 @@ class Rarbg(ScraperService[RarbgConfig]):
         self.settings = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout
 
-        rate_limits = (
-            {
-                get_hostname_from_url(self.settings.url): {
-                    "rate": 350 / 60,
-                    "capacity": 350,
-                }  # 350 calls per minute
-            }
-            if self.settings.ratelimit
-            else {}
-        )
-
         self.session = SmartSession(
             base_url=self.settings.url,
-            rate_limits=rate_limits,
+            rate_limits=(
+                {
+                    get_hostname_from_url(self.settings.url): {
+                        "rate": 350 / 60,
+                        "capacity": 350,
+                    }  # 350 calls per minute
+                }
+                if self.settings.ratelimit
+                else None
+            ),
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

@@ -74,7 +74,7 @@ class TraktAPI:
             rate_limits={
                 # 1000 calls per 5 minutes
                 "api.trakt.tv": {
-                    "rate": 1000 // 300,
+                    "rate": 1000 / 300,
                     "capacity": 1000,
                 }
             },

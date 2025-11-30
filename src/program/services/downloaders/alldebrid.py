@@ -144,20 +144,16 @@ class AllDebridAPI:
 
         # AllDebrid rate limits: 12 req/sec and 600 req/min
         # Using conservative 10 req/sec (600 capacity)
-        rate_limits = {
-            "api.alldebrid.com": {
-                "rate": 10,
-                "capacity": 600.0,
-            },
-        }
-        proxies = None
-
-        if proxy_url:
-            proxies = {"http": proxy_url, "https": proxy_url}
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits=rate_limits,
+            rate_limits={
+                "api.alldebrid.com": {
+                    "rate": 10,
+                    "capacity": 600,
+                },
+            },
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,

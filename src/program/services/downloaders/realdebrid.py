@@ -88,19 +88,17 @@ class RealDebridAPI:
         self.api_key = api_key
         self.proxy_url = proxy_url
 
-        rate_limits = {
-            # 250 req/min ~= 4.17 rps with capacity 250
-            "api.real-debrid.com": {
-                "rate": 250 / 60,
-                "capacity": 250,
-            },
-        }
-
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits=rate_limits,
+            rate_limits={
+                # 250 req/min ~= 4.17 rps with capacity 250
+                "api.real-debrid.com": {
+                    "rate": 250 / 60,
+                    "capacity": 250,
+                },
+            },
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,

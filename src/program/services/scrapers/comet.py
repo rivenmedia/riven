@@ -54,19 +54,19 @@ class Comet(ScraperService[CometConfig]):
             ).encode("utf-8")
         ).decode("utf-8")
 
-        if self.settings.ratelimit:
-            rate_limits = {
-                get_hostname_from_url(self.settings.url): {
-                    "rate": 300 / 60,
-                    "capacity": 300,
-                }  # 300 calls per minute
-            }
-        else:
-            rate_limits = None
-
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
-            rate_limits=rate_limits,
+            rate_limits=(
+                {
+                    # 300 calls per minute
+                    get_hostname_from_url(self.settings.url): {
+                        "rate": 300 / 60,
+                        "capacity": 300,
+                    }
+                }
+                if self.settings.ratelimit
+                else None
+            ),
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

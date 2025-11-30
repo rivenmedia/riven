@@ -119,21 +119,19 @@ class Orionoid(ScraperService[OrionoidConfig]):
         self.is_unlimited = False
         self.initialized = False
 
-        rate_limits = (
-            {
-                # 50 calls per minute
-                "api.orionoid.com": {
-                    "rate": 50 / 60,
-                    "capacity": 50,
-                }
-            }
-            if self.settings.ratelimit
-            else {}
-        )
-
         self.session = SmartSession(
             base_url=self.base_url,
-            rate_limits=rate_limits,
+            rate_limits=(
+                {
+                    # 50 calls per minute
+                    "api.orionoid.com": {
+                        "rate": 50 / 60,
+                        "capacity": 50,
+                    }
+                }
+                if self.settings.ratelimit
+                else None
+            ),
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

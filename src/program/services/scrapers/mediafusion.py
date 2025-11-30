@@ -40,21 +40,19 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         self.timeout = self.settings.timeout
         self.encrypted_string = None
 
-        rate_limits = (
-            {
-                # 1000 calls per minute
-                get_hostname_from_url(self.settings.url): {
-                    "rate": 1000 / 60,
-                    "capacity": 1000,
-                }
-            }
-            if self.settings.ratelimit
-            else {}
-        )
-
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
-            rate_limits=rate_limits,
+            rate_limits=(
+                {
+                    # 1000 calls per minute
+                    get_hostname_from_url(self.settings.url): {
+                        "rate": 1000 / 60,
+                        "capacity": 1000,
+                    }
+                }
+                if self.settings.ratelimit
+                else None
+            ),
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

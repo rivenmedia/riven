@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from datetime import datetime
 import json
 import random
@@ -284,7 +284,7 @@ class SmartSession:
     def __init__(
         self,
         base_url: str | None = None,
-        rate_limits: dict[str, dict[str, float | int]] | None = None,
+        rate_limits: Mapping[str, Mapping[str, float | int]] | None = None,
         proxies: dict[str, str] | None = None,
         retries: int = 3,
         backoff_factor: float = 0.3,
