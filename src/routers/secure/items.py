@@ -174,6 +174,9 @@ async def get_items(
     extended: Annotated[
         bool, Query(description="Include extended item details")
     ] = False,
+    count_only: Annotated[
+        bool, Query(description="Only return the count of items")
+    ] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
 
@@ -247,12 +250,15 @@ async def get_items(
             select(func.count()).select_from(query.subquery())
         ).scalar_one()
 
-        items = (
-            session.execute(query.offset((page - 1) * limit).limit(limit))
-            .unique()
-            .scalars()
-            .all()
-        )
+        if count_only:
+            items = []
+        else:
+            items = (
+                session.execute(query.offset((page - 1) * limit).limit(limit))
+                .unique()
+                .scalars()
+                .all()
+            )
 
         total_pages = (total_items + limit - 1) // limit
 
