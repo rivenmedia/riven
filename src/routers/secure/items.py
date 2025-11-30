@@ -911,7 +911,7 @@ class PauseResponse(BaseModel):
 async def pause_items(request: Request, ids: str) -> PauseResponse:
     """Pause items and their children from being processed"""
 
-    parsed_ids: list[int] = handle_ids(ids)
+    parsed_ids = handle_ids(ids)
 
     try:
         with db_session() as session:

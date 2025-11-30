@@ -106,16 +106,18 @@ def setup_logger(
     )
     compression_value = log_settings.compression
 
-    handlers: list[HandlerConfig] = [
-        {
-            "sink": sys.stderr,
-            "level": level.upper() or "INFO",
-            "format": log_format,
-            "backtrace": False,
-            "diagnose": False,
-            "enqueue": True,
-        }
-    ]
+    handlers = list[HandlerConfig](
+        [
+            {
+                "sink": sys.stderr,
+                "level": level.upper() or "INFO",
+                "format": log_format,
+                "backtrace": False,
+                "diagnose": False,
+                "enqueue": True,
+            }
+        ]
+    )
 
     if log_settings.enabled:
         logs_dir_path = data_dir_path / "logs"

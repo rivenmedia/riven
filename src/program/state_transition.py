@@ -16,8 +16,7 @@ def process_event(
 
     from program.program import Program
 
-    program = di[Program]
-    services = program.services
+    services = di[Program].services
 
     assert services
 

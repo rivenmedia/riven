@@ -149,22 +149,22 @@ class Program(threading.Thread):
                 "No content services initialized, items need to be added manually."
             )
 
-        if not self.services.scraping or not self.services.scraping.initialized:
+        if not self.services.scraping.initialized:
             logger.error(
                 "No Scraping service initialized, you must enable at least one."
             )
 
-        if not self.services.downloader or not self.services.downloader.initialized:
+        if not self.services.downloader.initialized:
             logger.error(
                 "No Downloader service initialized, you must enable at least one."
             )
 
-        if not self.services.filesystem or not self.services.filesystem.initialized:
+        if not self.services.filesystem.initialized:
             logger.error(
                 "Filesystem service failed to initialize, check your settings."
             )
 
-        if not self.services.updater or not self.services.updater.initialized:
+        if not self.services.updater.initialized:
             logger.error(
                 "No Updater service initialized, you must enable at least one."
             )
