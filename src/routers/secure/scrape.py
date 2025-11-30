@@ -871,6 +871,8 @@ class AutoScrapeRequest(BaseModel):
     audio: list[str] | None = None
     extras: list[str] | None = None
     trash: list[str] | None = None
+    require: list[str] | None = None
+    exclude: list[str] | None = None
 
 
 @router.post(
