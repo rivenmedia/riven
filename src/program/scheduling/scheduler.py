@@ -110,6 +110,10 @@ class ProgramScheduler:
         assert self.scheduler
         assert self.program.services
 
+        logger.debug(
+            f"Scheduling content services...: {self.program.services.content_services}"
+        )
+
         for service_instance in self.program.services.content_services:
             service_name = service_instance.__class__.__name__
 

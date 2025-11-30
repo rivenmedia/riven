@@ -32,6 +32,8 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 class TraktContent(Runner[TraktModel]):
     """Content class for Trakt"""
 
+    is_content_service = True
+
     def __init__(self):
         super().__init__()
 

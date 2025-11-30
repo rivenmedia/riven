@@ -14,6 +14,8 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 class Mdblist(Runner[MdblistModel]):
     """Content class for mdblist"""
 
+    is_content_service = True
+
     def __init__(self):
         super().__init__()
 

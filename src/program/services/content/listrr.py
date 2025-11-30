@@ -14,6 +14,8 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 class Listrr(Runner[ListrrModel]):
     """Content class for Listrr"""
 
+    is_content_service = True
+
     def __init__(self):
         super().__init__()
 

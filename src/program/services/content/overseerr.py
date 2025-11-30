@@ -14,6 +14,8 @@ from program.media.item import MediaItem
 class Overseerr(Runner[OverseerrModel]):
     """Content class for overseerr"""
 
+    is_content_service = True
+
     def __init__(self):
         super().__init__()
 

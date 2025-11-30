@@ -15,6 +15,8 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 class PlexWatchlist(Runner[PlexWatchlistModel]):
     """Class for managing Plex Watchlists"""
 
+    is_content_service = True
+
     def __init__(self):
         super().__init__()
 
