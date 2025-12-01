@@ -466,12 +466,14 @@ class TVDBIndexer(BaseIndexer):
                                 episode_item = existing_episodes[episode_number]
 
                                 self._update_episode_metadata(
-                                    episode_item, episode_data
+                                    episode_item,
+                                    episode_data,
                                 )
                             else:
                                 # Create new episode
                                 episode_item = self._create_episode_from_data(
-                                    episode_data, season_item
+                                    episode_data,
+                                    season_item,
                                 )
 
                                 if episode_item:
