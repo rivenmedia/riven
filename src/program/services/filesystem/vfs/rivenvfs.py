@@ -529,17 +529,30 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully added, False otherwise
         """
+        from program.media.item import Season, Show
+
+        added_any = False
+
+        if isinstance(item, Show):
+            for season in item.seasons:
+                if self.add(season):
+                    added_any = True
+
+        if isinstance(item, Season):
+            for episode in item.episodes:
+                if self.add(episode):
+                    added_any = True
 
         # Only process if this item has a media entry
         if not (entry := item.media_entry):
             logger.debug(f"Item {item.id} has no media entry, skipping VFS add")
-            return False
+            return added_any
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)
 
         if not video_paths:
-            return False
+            return added_any
 
         # Mark as available in VFS
         entry.available_in_vfs = True
