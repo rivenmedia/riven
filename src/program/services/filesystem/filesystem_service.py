@@ -5,12 +5,14 @@ using the RivenVFS implementation.
 """
 
 from typing import TYPE_CHECKING
+from kink import di
 from loguru import logger
 
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import FilesystemModel
+from program.utils.nursery import Nursery
 
 if TYPE_CHECKING:
     from program.media.item import MediaItem
@@ -28,14 +30,20 @@ class FilesystemService(Runner[FilesystemModel]):
         self.settings = settings_manager.settings.filesystem
         self.riven_vfs = None
         self.downloader = downloader  # Store for potential reinit
-        self._initialize_rivenvfs(downloader)
+
+        di[Nursery].nursery.start_soon(
+            lambda: self._initialize_rivenvfs(
+                downloader,
+            ),
+        )
 
     @classmethod
     def get_key(cls) -> str:
         return "filesystem"
 
-    def _initialize_rivenvfs(self, downloader: Downloader):
+    async def _initialize_rivenvfs(self, downloader: Downloader):
         """Initialize or synchronize RivenVFS"""
+
         try:
             from .vfs import RivenVFS
 
@@ -47,10 +55,13 @@ class FilesystemService(Runner[FilesystemModel]):
 
             # Create new VFS instance
             logger.info("Initializing RivenVFS")
+
             self.riven_vfs = RivenVFS(
                 mountpoint=str(self.settings.mount_path),
                 downloader=downloader,
             )
+
+            await self.riven_vfs.run()
 
         except ImportError as e:
             logger.error(f"Failed to import RivenVFS: {e}")

@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+import threading
 
 import pyfuse3
 import trio
@@ -44,10 +45,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
-    NoReturn,
     TypedDict,
 )
-import threading
 import trio_util
 
 from kink import di
@@ -78,6 +77,7 @@ from program.services.streaming.exceptions import (
 )
 from program.utils.debrid_cdn_url import DebridCDNUrl
 from program.db.db import db_session
+from program.utils.nursery import Nursery
 
 from ...streaming import (
     Cache,
@@ -208,36 +208,33 @@ class RivenVFS(pyfuse3.Operations):
         # Mount management
         self.mounted = False
         self._mountpoint = os.path.abspath(mountpoint)
-        self._thread = None
         self._unmount_requested = trio_util.AsyncBool(False)
         self.stream_nursery: trio.Nursery
 
-        def _fuse_runner():
-            async def _async_main() -> NoReturn:
-                async with self.mountpoint_lifecycle():
-                    async with trio_util.move_on_when(
-                        lambda: self._unmount_requested.wait_value(True)
-                    ):
-                        await trio.sleep_forever()
-
+    async def run(self) -> None:
+        async def _fuse_runner(*, task_status: trio.TaskStatus[None]) -> None:
             while not self._unmount_requested.value:
                 logger.trace("Starting FUSE main loop")
 
                 try:
-                    # pyfuse3.main is a coroutine that needs to run in its own trio event loop
-                    trio.run(_async_main)
+                    async with self.mountpoint_lifecycle():
+                        async with trio_util.move_on_when(
+                            lambda: self._unmount_requested.wait_value(True)
+                        ):
+                            task_status.started()
+
+                            await trio.sleep_forever()
                 except Exception:
                     logger.exception("FUSE main loop error, restarting")
 
             logger.trace(f"FUSE main loop exited")
 
-        self._thread = threading.Thread(target=_fuse_runner, daemon=True)
-        self._thread.start()
+        await di[Nursery].nursery.start(_fuse_runner)
 
         logger.log("VFS", f"RivenVFS mounted at {self._mountpoint}")
 
         # Synchronize library profiles with VFS structure
-        self.sync()
+        await trio.to_thread.run_sync(self.sync)
 
     @asynccontextmanager
     async def mountpoint_lifecycle(self) -> AsyncGenerator[None]:
@@ -618,10 +615,7 @@ class RivenVFS(pyfuse3.Operations):
 
             self._unmount_requested.value = True
 
-        trio.from_thread.run(
-            _request_unmount,
-            trio_token=pyfuse3.trio_token,
-        )
+        trio.from_thread.run(_request_unmount)
 
     # Helper methods
 
@@ -830,6 +824,7 @@ class RivenVFS(pyfuse3.Operations):
         # This is critical: reduces syscalls from O(n) to O(1)
         if self._pending_invalidations:
             invalidated_count = 0
+
             try:
                 for inode in self._pending_invalidations:
                     try:
@@ -867,6 +862,7 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             item: MediaItem to re-sync
         """
+
         from sqlalchemy.orm import object_session
         from program.db.db import db_session
 
@@ -923,6 +919,7 @@ class RivenVFS(pyfuse3.Operations):
 
         These directories are never pruned, even when empty.
         """
+
         with self._tree_lock:
             # Always create base /movies and /shows directories
             for base_dir in ["/movies", "/shows"]:
@@ -1105,6 +1102,7 @@ class RivenVFS(pyfuse3.Operations):
         Note: Invalidations are collected in _pending_invalidations and batched
         at the end of _sync_full() for better performance with large libraries.
         """
+
         clean_path = self._normalize_path(clean_path)
 
         with self._tree_lock:
@@ -1151,6 +1149,7 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if this is a persistent directory that should never be removed
         """
+
         # Base directories are always persistent
         if path in ["/movies", "/shows"]:
             return True
@@ -1161,8 +1160,8 @@ class RivenVFS(pyfuse3.Operations):
 
         if len(parts) == 2:
             # Could be /{profile}/movies or /{profile}/shows
-            profile_name = parts[0]
-            content_type = parts[1]
+
+            (profile_name, content_type) = parts
 
             if content_type in ["movies", "shows"]:
                 # Check if this profile exists and is enabled
@@ -1253,6 +1252,7 @@ class RivenVFS(pyfuse3.Operations):
             # Walk up and remove empty parent directories
             # Skip persistent library profile directories (/movies, /shows, /{profile}/movies, /{profile}/shows)
             current = parent
+
             while current and current.parent:  # Don't remove root
                 # Get the full path for this directory
                 current_path = current.path
@@ -1261,6 +1261,7 @@ class RivenVFS(pyfuse3.Operations):
                 if self._is_persistent_directory(current_path):
                     # This is a persistent directory - don't remove it, but invalidate cache
                     inodes_to_invalidate.add(current.inode)
+
                     break
 
                 # Check if directory is now empty
@@ -1269,6 +1270,7 @@ class RivenVFS(pyfuse3.Operations):
                     grandparent = current.parent
                     inodes_to_invalidate.add(current.inode)
                     grandparent.remove_child(current.name)
+
                     if current.inode in self._inode_to_node:
                         del self._inode_to_node[current.inode]
 
@@ -1278,6 +1280,7 @@ class RivenVFS(pyfuse3.Operations):
                     # Directory not empty, stop walking up
                     # But still invalidate this directory's cache
                     inodes_to_invalidate.add(current.inode)
+
                     break
 
         # Invalidate directory caches
@@ -1291,18 +1294,24 @@ class RivenVFS(pyfuse3.Operations):
 
     def _normalize_path(self, path: str) -> str:
         """Normalize a virtual path to canonical form."""
+
         path = (path or "/").strip()
+
         if not path.startswith("/"):
             path = "/" + path
+
         # Remove trailing slashes except for root
         if len(path) > 1 and path.endswith("/"):
             path = path.rstrip("/")
+
         return path
 
     def _get_parent_path(self, path: str) -> str:
         """Get the parent directory path."""
+
         if path == "/":
             return "/"
+
         return "/".join(path.rstrip("/").split("/")[:-1]) or "/"
 
     def _list_directory_cached(self, path: str) -> list["CachedDirectoryEntry"] | None:
@@ -1651,7 +1660,10 @@ class RivenVFS(pyfuse3.Operations):
                     attrs = pyfuse3.EntryAttributes()
 
                 if not pyfuse3.readdir_reply(
-                    token, pyfuse3.FileNameT(name_bytes), attrs, idx + 1
+                    token,
+                    pyfuse3.FileNameT(name_bytes),
+                    attrs,
+                    idx + 1,
                 ):
                     break
         except pyfuse3.FUSEError:

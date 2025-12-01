@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 import linecache
 import os
-import threading
 import time
 from queue import Empty
 from tracemalloc import Snapshot
+
+import trio
+import trio_util
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -91,13 +93,11 @@ class Services:
         return getattr(self, key)
 
 
-class Program(threading.Thread):
+class Program:
     """Program class"""
 
     def __init__(self):
-        super().__init__(name="Riven")
-
-        self.initialized = False
+        self.initialized = trio_util.AsyncBool(False)
         self.running = False
         self.services = None
         self.enable_trace = settings_manager.settings.tracemalloc
@@ -114,7 +114,7 @@ class Program(threading.Thread):
     def initialize_apis(self):
         bootstrap_apis()
 
-    def initialize_services(self):
+    async def initialize_services(self):
         """Initialize all services."""
 
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
@@ -134,6 +134,13 @@ class Program(threading.Thread):
             post_processing=PostProcessing(),
             notifications=NotificationService(),
         )
+
+        with trio.move_on_after(5):
+            while True:
+                if all(s.initialized for s in self.services.to_dict().values()):
+                    break
+
+                await trio.sleep(0.5)
 
         if (
             len(
@@ -194,7 +201,7 @@ class Program(threading.Thread):
             logger.error("Database connection failed. Is the database running?")
             return False
 
-    def start(self):
+    async def start(self):
         """
         Start the Riven program: ensure configuration and database readiness, initialize APIs and services, schedule background jobs, and start the main thread and scheduler.
 
@@ -226,7 +233,7 @@ class Program(threading.Thread):
 
         run_migrations()
 
-        self.initialize_services()
+        await self.initialize_services()
 
         with db_session() as session:
             from sqlalchemy import exists
@@ -265,9 +272,9 @@ class Program(threading.Thread):
 
         self.scheduler_manager.start()
 
-        super().start()
         logger.success("Riven is running!")
-        self.initialized = True
+
+        self.initialized.value = True
 
     def display_top_allocators(
         self,
@@ -318,10 +325,10 @@ class Program(threading.Thread):
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
 
-    def run(self):
-        while self.initialized:
+    async def run(self):
+        while self.initialized.value:
             if not self.is_valid:
-                time.sleep(1)
+                await trio.sleep(1)
                 continue
 
             try:
@@ -333,7 +340,8 @@ class Program(threading.Thread):
                 if self.enable_trace:
                     self.dump_tracemalloc()
 
-                time.sleep(0.1)
+                await trio.sleep(0.1)
+
                 continue
 
             if event.item_id:
@@ -359,11 +367,11 @@ class Program(threading.Thread):
                             )
                         )
                     else:
-                        # We are in the database, pass on id.
                         if item_to_submit.id:
+                            # We are in the database, pass on id.
                             event = Event(next_service, item_id=item_to_submit.id)
-                        # We are not, lets pass the MediaItem
                         else:
+                            # We are not, lets pass the MediaItem
                             event = Event(next_service, content_item=item_to_submit)
 
                         # Event will be added to running when job actually starts in submit_job

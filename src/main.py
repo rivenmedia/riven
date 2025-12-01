@@ -2,17 +2,18 @@ from collections.abc import Awaitable, Callable
 import contextlib
 import signal
 import sys
-import threading
 import time
 from types import FrameType
 
 from kink import di
 import trio
+import trio_util
 import uvicorn
 from dotenv import load_dotenv
 
 from program.utils.proxy_client import ProxyClient
 from program.utils.async_client import AsyncClient
+from program.utils.nursery import Nursery
 
 load_dotenv()  # import required here to support SETTINGS_FILENAME
 
@@ -112,27 +113,6 @@ app.add_middleware(
 app.include_router(app_router)
 
 
-class Server(uvicorn.Server):
-    def install_signal_handlers(self):
-        pass
-
-    @contextlib.contextmanager
-    def run_in_thread(self):
-        thread = threading.Thread(target=self.run, name="Riven")
-        thread.start()
-
-        try:
-            while not self.started:
-                time.sleep(1e-3)
-            yield
-        except Exception:
-            logger.exception("Error in server thread")
-            raise
-        finally:
-            self.should_exit = True
-            sys.exit(0)
-
-
 def signal_handler(signum: int, frame: FrameType | None):
     logger.log("PROGRAM", "Exiting Gracefully.")
     di[Program].stop()
@@ -143,19 +123,38 @@ signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
 config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_config=None)
-server = Server(config=config)
+server = uvicorn.Server(config=config)
+
+
+@contextlib.asynccontextmanager
+async def server_lifecycle():
+    async def _start_server():
+        await trio.to_thread.run_sync(server.run)
+
+    try:
+        async with trio_util.run_and_cancelling(_start_server):
+            await di[Program].start()
+
+            yield
+    except Exception:
+        logger.exception("Error in server lifecycle")
+    finally:
+        logger.critical("Server is shutting down")
 
 
 async def main():
-    with server.run_in_thread():
-        try:
-            di[Program].start()
-            di[Program].run()
-        except Exception:
-            logger.exception("Error in main thread")
-        finally:
-            logger.critical("Server has been stopped")
-            sys.exit(0)
+    async with trio.open_nursery() as nursery:
+        di[Nursery] = Nursery(nursery=nursery)
+
+        async with server_lifecycle():
+            async with trio_util.move_on_when(
+                lambda: di[Program].initialized.wait_value(False)
+            ):
+                await di[Program].run()
+
+    logger.critical("Server has been stopped")
+
+    sys.exit(0)
 
 
 trio.run(main)
