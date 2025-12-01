@@ -280,6 +280,7 @@ class AllDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -294,7 +295,7 @@ class AllDebridDownloader(DownloaderBase):
         try:
             torrent_id = self.add_torrent(infohash)
             container, reason, info = self._process_torrent(
-                torrent_id, infohash, item_type
+                torrent_id, infohash, item_type, limit_filesize
             )
 
             if container is None and reason:
@@ -366,6 +367,7 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -394,7 +396,7 @@ class AllDebridDownloader(DownloaderBase):
 
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
-        self._extract_files_recursive(files_data, item_type, files, infohash)
+        self._extract_files_recursive(files_data, item_type, files, infohash, "", limit_filesize)
 
         if not files:
             return None, "no valid files after validation", None
@@ -444,6 +446,7 @@ class AllDebridDownloader(DownloaderBase):
         files: list[DebridFile],
         infohash: str,
         path_prefix: str = "",
+        limit_filesize: bool = True,
     ) -> None:
         """
         Recursively extract files from AllDebrid's nested file structure.
@@ -472,6 +475,7 @@ class AllDebridDownloader(DownloaderBase):
                     filesize_bytes=size,
                     filetype=item_type,
                     file_id=None,
+                    limit_filesize=limit_filesize,
                 )
 
                 df.download_url = link

@@ -344,6 +344,7 @@ async def start_manual_session(
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
     media_type: Literal["movie", "tv"] | None = None,
+    disable_filesize_check: bool = False,
 ) -> StartSessionResponse:
     scraping_session_manager.cleanup_expired(background_tasks)
 
@@ -419,7 +420,9 @@ async def start_manual_session(
     if item.type == "mediaitem":
         raise HTTPException(status_code=500, detail="Incorrect item type found")
 
-    container = downloader.get_instant_availability(info_hash, item.type)
+    container = downloader.get_instant_availability(
+        info_hash, item.type, limit_filesize=not disable_filesize_check
+    )
 
     if not container or not container.cached:
         raise HTTPException(

@@ -237,6 +237,7 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
@@ -255,6 +256,7 @@ class DebridLinkDownloader(DownloaderBase):
                 torrent_id,
                 infohash,
                 item_type,
+                limit_filesize,
             )
 
             if container is None and reason:
@@ -326,6 +328,7 @@ class DebridLinkDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -356,6 +359,7 @@ class DebridLinkDownloader(DownloaderBase):
                         filesize_bytes=file.bytes,
                         filetype=item_type,
                         file_id=file_id,
+                        limit_filesize=limit_filesize,
                     )
 
                     # Store download URL if available
