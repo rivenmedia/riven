@@ -32,10 +32,8 @@ Usage:
 
 from __future__ import annotations
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, contextmanager
-from http import HTTPStatus
+from contextlib import asynccontextmanager
 
-import httpx
 import pyfuse3
 import trio
 import os
@@ -62,7 +60,6 @@ from program.services.filesystem.vfs.vfs_node import (
     VFSRoot,
 )
 
-from program.utils.async_client import AsyncClient
 from program.utils.logging import logger
 from program.settings.manager import settings_manager
 from program.services.filesystem.vfs.db import VFSDatabase
@@ -78,6 +75,7 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
+from program.utils.debrid_cdn_url import DebridCDNUrl
 
 from ...streaming import (
     Cache,
@@ -520,17 +518,23 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully added, False otherwise
         """
-        from program.media.media_entry import MediaEntry
 
         # Only process if this item has a filesystem entry
         if not item.filesystem_entry:
             logger.debug(f"Item {item.id} has no filesystem_entry, skipping VFS add")
             return False
 
-        entry = item.filesystem_entry
-        if not isinstance(entry, MediaEntry):
-            logger.debug(f"Item {item.id} filesystem_entry is not a MediaEntry")
-            return False
+        entry = item.media_entry
+
+        # entry.unrestricted_url = DebridCDNUrl(
+        #     filename=entry.original_filename
+        # ).validate()
+
+        # if not entry.unrestricted_url:
+        #     logger.debug(
+        #         f"Item {item.id} filesystem_entry URL is invalid, skipping VFS add"
+        #     )
+        #     return False
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)
@@ -542,9 +546,10 @@ class RivenVFS(pyfuse3.Operations):
         entry.available_in_vfs = True
 
         # Register all subtitles for this video
-        for subtitle in item.subtitles:
-            self._register_filesystem_entry(subtitle, video_paths=video_paths)
-            subtitle.available_in_vfs = True
+        if settings_manager.settings.post_processing.subtitle.enabled:
+            for subtitle in item.subtitles:
+                self._register_filesystem_entry(subtitle, video_paths=video_paths)
+                subtitle.available_in_vfs = True
 
         return True
 
@@ -805,7 +810,9 @@ class RivenVFS(pyfuse3.Operations):
                     if self.add(item):
                         registered_count += 1
                 except Exception as e:
-                    logger.exception(f"Failed to register item {item_id}: {e}")
+                    logger.error(f"Failed to register item {item_id}: {e}")
+                    continue
+
             if registered_count > 0:
                 session.commit()
 
@@ -1651,36 +1658,7 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
-                entry_info = await trio.to_thread.run_sync(
-                    lambda: self.vfs_db.get_entry_by_original_filename(
-                        original_filename=node.original_filename,
-                    )
-                )
-
-                if (
-                    not entry_info
-                    or not entry_info["url"]
-                    or not entry_info["provider"]
-                ):
-                    raise pyfuse3.FUSEError(errno.ENOENT)
-
-                try:
-                    # Test URL availability
-                    async with di[AsyncClient].stream(
-                        method="GET",
-                        url=entry_info["url"],
-                    ) as response:
-                        response.raise_for_status()
-                except httpx.HTTPStatusError as e:
-                    status_code = e.response.status_code
-
-                    if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                        await trio.to_thread.run_sync(
-                            lambda: self.vfs_db.get_entry_by_original_filename(
-                                original_filename=node.original_filename,
-                                force_resolve=True,
-                            )
-                        )
+                DebridCDNUrl(filename=node.original_filename).validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."

@@ -10,6 +10,7 @@ from sqlalchemy import Index
 from sqlalchemy.orm import Mapped, mapped_column, object_session, relationship
 
 from program.db.db import db
+from program.media.media_entry import MediaEntry
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
 
@@ -185,13 +186,17 @@ class MediaItem(db.Model):
                 from program.program import riven
                 from program.services.notifications import NotificationService
 
-                notification_service = riven.all_services.get(NotificationService)
-                if notification_service:
-                    notification_service.run(
-                        self,
-                        previous_state=previous_state,
-                        new_state=new_state,
-                    )
+                if (
+                    hasattr(riven, "all_services")
+                    and NotificationService in riven.all_services
+                ):
+                    notification_service = riven.all_services.get(NotificationService)
+                    if notification_service:
+                        notification_service.run(
+                            self,
+                            previous_state=previous_state,
+                            new_state=new_state,
+                        )
             except Exception as e:
                 # Fallback: log error but don't break state storage
                 logger.debug(f"Failed to send state change notification: {e}")
@@ -598,6 +603,19 @@ class MediaItem(db.Model):
             if self.filesystem_entries
             else False
         )
+
+    @property
+    def media_entry(self) -> MediaEntry:
+        """Return the MediaEntry for this item"""
+        entries = [
+            entry for entry in self.filesystem_entries if isinstance(entry, MediaEntry)
+        ]
+
+        if not entries:
+            raise ValueError(f"No MediaEntry found for {self.log_string}")
+
+        # when we introduce multi profiles, this will need to be updated
+        return entries[0]
 
     def get_top_imdb_id(self) -> str:
         """
