@@ -446,7 +446,7 @@ class Cache:
 
         # Slow path: multi-chunk stitching for cross-chunk boundary requests
         # Plan the read operations while holding the lock, then release it for I/O
-        chunks_to_read = list[ChunkInfo]([])
+        chunks_to_read = list[ChunkInfo]()
 
         async with self.locks():
             s_list = self._by_path.get(cache_key)
@@ -496,7 +496,7 @@ class Cache:
         # Execute reads outside the lock to reduce contention
         if chunks_to_read:
             result_data = bytearray()
-            chunks_used = list[tuple[str, float]]([])
+            chunks_used = list[tuple[str, float]]()
 
             for chunk_info in chunks_to_read:
                 try:

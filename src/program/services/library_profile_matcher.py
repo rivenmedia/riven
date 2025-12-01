@@ -48,7 +48,7 @@ class LibraryProfileMatcher:
         """
         profiles = settings_manager.settings.filesystem.library_profiles or {}
 
-        matching_profiles = list[str]([])
+        matching_profiles = list[str]()
 
         for profile_key, profile in profiles.items():
             # Skip disabled profiles

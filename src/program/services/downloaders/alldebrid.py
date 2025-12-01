@@ -386,7 +386,7 @@ class AllDebridDownloader(DownloaderBase):
         if not files_data:
             return None, "no files present in the torrent", None
 
-        files = list[DebridFile]([])
+        files = list[DebridFile]()
 
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields

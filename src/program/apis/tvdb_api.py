@@ -238,7 +238,7 @@ class TVDBApi:
         if not series_data.aliases:
             return None
 
-        aliases_by_lang = dict[str, list[str]]({})
+        aliases_by_lang = dict[str, list[str]]()
 
         for alias in series_data.aliases:
             lang = alias.language

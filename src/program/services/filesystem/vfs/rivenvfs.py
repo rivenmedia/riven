@@ -482,7 +482,7 @@ class RivenVFS(pyfuse3.Operations):
             List of parent inodes (excluding root)
         """
 
-        inodes = list[pyfuse3.InodeT]([])
+        inodes = list[pyfuse3.InodeT]()
         current = node.parent
 
         while current and current != self._root:
@@ -747,7 +747,7 @@ class RivenVFS(pyfuse3.Operations):
         matcher = LibraryProfileMatcher()
 
         # Step 1: Re-match all entries against current library profiles and collect item IDs
-        item_ids = list[int]([])
+        item_ids = list[int]()
         rematched_count = 0
 
         with db_session() as session:
@@ -980,7 +980,7 @@ class RivenVFS(pyfuse3.Operations):
             # Register MediaEntry (video file)
 
             all_paths = entry.get_all_vfs_paths()
-            registered_paths = list[str]([])
+            registered_paths = list[str]()
 
             for path in all_paths:
                 if self._register_clean_path(
@@ -1003,7 +1003,7 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 return []
 
-            registered_paths = list[str]([])
+            registered_paths = list[str]()
             language = entry.language
 
             for video_path in video_paths:
@@ -1067,7 +1067,7 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 return []
 
-            unregistered_paths = list[str]([])
+            unregistered_paths = list[str]()
             language = entry.language
 
             for video_path in video_paths:
@@ -1208,7 +1208,7 @@ class RivenVFS(pyfuse3.Operations):
             List of unregistered VFS paths
         """
 
-        unregistered_paths = list[str]([])
+        unregistered_paths = list[str]()
 
         # Find all nodes with matching original_filename
         nodes_to_remove = self._get_nodes_by_original_filename(original_filename)
@@ -1324,7 +1324,7 @@ class RivenVFS(pyfuse3.Operations):
                 return None
 
             # Build result list from node's children - no database queries!
-            children = list[CachedDirectoryEntry]([])
+            children = list[CachedDirectoryEntry]()
 
             for name, child in node.children.items():
                 children.append(
