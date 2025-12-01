@@ -179,13 +179,11 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             episode = None
 
             if isinstance(item, Episode):
-                season = item.parent.number if item.parent else None
+                season = item.parent.number
                 episode = item.number
 
             # Get file size
-            file_size = (
-                item.filesystem_entry.file_size if item.filesystem_entry else None
-            )
+            file_size = item.filesystem_entry.file_size
 
             # Search for subtitles in each language
             for language in self.languages:

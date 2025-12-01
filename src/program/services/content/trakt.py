@@ -203,7 +203,7 @@ class TraktContent(Runner[TraktModel]):
         if not list_items or not any(list_items):
             return []
 
-        ids = list[tuple[str, str]]([])
+        ids = list[tuple[str, str]]()
 
         for url in list_items:
             user, list_name = self.api.extract_user_list_from_url(url)

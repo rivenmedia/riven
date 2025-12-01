@@ -633,6 +633,7 @@ async def manual_update_attributes(
                             logger.error(
                                 f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
                             )
+
                             continue
                     elif isinstance(item, Season):
                         if episode := item.parent.get_absolute_episode(
@@ -643,6 +644,7 @@ async def manual_update_attributes(
                             logger.error(
                                 f"Failed to find season {season_number} for {item.log_string}"
                             )
+
                             continue
                     elif isinstance(item, Episode):
                         if (
@@ -650,7 +652,9 @@ async def manual_update_attributes(
                             and episode_number != item.number
                         ):
                             continue
+
                         update_item(item, episode_data)
+
                         break
                     else:
                         logger.error(f"Failed to find item type for {item.log_string}")

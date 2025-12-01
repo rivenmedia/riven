@@ -229,6 +229,7 @@ class TVDBIndexer(BaseIndexer):
         self, imdb_id: str | None = None, tvdb_id: str | None = None
     ) -> Show | None:
         """Create a show item from TVDB using available IDs."""
+
         if not imdb_id and not tvdb_id:
             logger.error("No IMDB ID or TVDB ID provided")
             return None
@@ -243,6 +244,7 @@ class TVDBIndexer(BaseIndexer):
 
                     if show_item:
                         self._add_seasons_to_show(show_item, show_details)
+
                         return show_item
 
             # Lookup via IMDB ID
@@ -369,33 +371,33 @@ class TVDBIndexer(BaseIndexer):
                 else None
             )
 
-            show_item = {
-                "title": title,
-                "poster_path": poster_path,
-                "year": (
-                    int(show_data.first_aired.split("-")[0])
-                    if show_data.first_aired
-                    else None
-                ),
-                "tvdb_id": str(show_data.id),
-                "tmdb_id": None,
-                "imdb_id": imdb_id,
-                "aired_at": aired_at,
-                "genres": genres_lower,
-                "type": "show",
-                "requested_at": datetime.now(),
-                "network": network,
-                "country": show_data.original_country,
-                "language": show_data.original_language,
-                "is_anime": is_anime,
-                "aliases": aliases,
-                "release_data": show_data,
-                "rating": rating,
-                "content_rating": content_rating,
-                "tvdb_status": tvdb_status,
-            }
-
-            return Show(show_item)
+            return Show(
+                {
+                    "title": title,
+                    "poster_path": poster_path,
+                    "year": (
+                        int(show_data.first_aired.split("-")[0])
+                        if show_data.first_aired
+                        else None
+                    ),
+                    "tvdb_id": str(show_data.id),
+                    "tmdb_id": None,
+                    "imdb_id": imdb_id,
+                    "aired_at": aired_at,
+                    "genres": genres_lower,
+                    "type": "show",
+                    "requested_at": datetime.now(),
+                    "network": network,
+                    "country": show_data.original_country,
+                    "language": show_data.original_language,
+                    "is_anime": is_anime,
+                    "aliases": aliases,
+                    "release_data": show_data,
+                    "rating": rating,
+                    "content_rating": content_rating,
+                    "tvdb_status": tvdb_status,
+                }
+            )
         except Exception as e:
             logger.error(f"Error mapping show from TVDB data: {str(e)}")
 
@@ -464,12 +466,14 @@ class TVDBIndexer(BaseIndexer):
                                 episode_item = existing_episodes[episode_number]
 
                                 self._update_episode_metadata(
-                                    episode_item, episode_data
+                                    episode_item,
+                                    episode_data,
                                 )
                             else:
                                 # Create new episode
                                 episode_item = self._create_episode_from_data(
-                                    episode_data, season_item
+                                    episode_data,
+                                    season_item,
                                 )
 
                                 if episode_item:

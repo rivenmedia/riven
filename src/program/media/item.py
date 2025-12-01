@@ -903,6 +903,7 @@ class Show(MediaItem):
         season_number: int | None = None,
     ) -> "Episode | None":
         """Get the absolute episode number based on season and episode."""
+
         if not episode_number or episode_number == 0:
             return None
 
@@ -913,13 +914,16 @@ class Show(MediaItem):
                 episode = next(
                     (e for e in season.episodes if e.number == episode_number), None
                 )
+
                 if episode:
                     return episode
 
         episode_count = 0
+
         for season in self.seasons:
             for episode in season.episodes:
                 episode_count += 1
+
                 if episode_count == episode_number:
                     return episode
 
