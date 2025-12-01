@@ -250,7 +250,7 @@ def initialize_downloader(downloader: Downloader):
     if not scraping_session_manager.downloader:
         scraping_session_manager.set_downloader(downloader)
 
-@router.get("/scrape", summary="Get streams for an item", operation_id="scrape_item")
+@router.get("/", summary="Get streams for an item", operation_id="scrape_item")
 def scrape_item(
     request: Request,
     item_id: str | None = None,
@@ -291,6 +291,7 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
+            indexer_result = next(indexer.run(prepared_item), None)
         elif imdb_id:
             prepared_item = MediaItem(
                 {
@@ -330,7 +331,7 @@ def scrape_item(
 
 
 @router.post(
-    "/scrape/start_session",
+    "/start_session",
     summary="Start a manual scraping session",
     operation_id="start_manual_session",
 )
@@ -460,7 +461,7 @@ async def start_manual_session(
 
 
 @router.post(
-    "/scrape/select_files/{session_id}",
+    "/select_files/{session_id}",
     summary="Select files for torrent id, for this to be instant it requires files to be one of /manual/instant_availability response containers",
     operation_id="manual_select",
 )
@@ -505,7 +506,7 @@ def manual_select_files(
 
 
 @router.post(
-    "/scrape/update_attributes/{session_id}",
+    "/update_attributes/{session_id}",
     summary="Match container files to item",
     operation_id="manual_update_attributes",
 )
@@ -750,7 +751,7 @@ async def manual_update_attributes(
 
 
 @router.post(
-    "/scrape/abort_session/{session_id}",
+    "/abort_session/{session_id}",
     summary="Abort a manual scraping session",
     operation_id="abort_manual_session",
 )
@@ -766,7 +767,7 @@ async def abort_manual_session(
 
 
 @router.post(
-    "/scrape/complete_session/{session_id}",
+    "/complete_session/{session_id}",
     summary="Complete a manual scraping session",
     operation_id="complete_manual_session",
 )
