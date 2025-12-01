@@ -2,13 +2,11 @@
 Common utilities used by FilesystemService (VFS-only).
 """
 
-from typing import List
-
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 
 
-def get_items_to_update(item: MediaItem) -> List[MediaItem]:
+def get_items_to_update(item: MediaItem) -> list[MediaItem]:
     """Return leaf items to process (movies/episodes), expanding shows/seasons.
     Only include episodes that have reached Downloaded state for parent inputs.
     """

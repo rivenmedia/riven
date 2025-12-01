@@ -520,6 +520,14 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully added, False otherwise
         """
+
+        if item.is_excluded:
+            logger.info(
+                f"Excluding {item.log_string} from VFS add based on exclusion rules"
+            )
+
+            return False
+
         from program.media.media_entry import MediaEntry
 
         # Only process if this item has a filesystem entry
@@ -744,6 +752,7 @@ class RivenVFS(pyfuse3.Operations):
 
         item_ids = []
         rematched_count = 0
+        excluded_item_ids = set()
 
         with db_module.Session() as session:
             entries = (
@@ -757,6 +766,10 @@ class RivenVFS(pyfuse3.Operations):
                     logger.warning(
                         f"MediaEntry {entry.id} has no associated MediaItem, skipping"
                     )
+                    continue
+
+                if item.is_excluded:
+                    excluded_item_ids.add(item.id)
                     continue
 
                 # Re-match library profiles based on current settings
@@ -773,10 +786,14 @@ class RivenVFS(pyfuse3.Operations):
                     item_ids.append(item.id)
 
             session.commit()
-            logger.debug(f"Re-matched {rematched_count} entries with updated profiles")
+
+            logger.debug(
+                f"Re-matched {rematched_count} entries with updated profiles; excluded {len(excluded_item_ids)} items due to excluded_items settings."
+            )
 
         # Step 2: Clear VFS tree and rebuild from scratch
         logger.debug("Clearing VFS tree for rebuild")
+
         with self._tree_lock:
             # Create new root node
             self._root = VFSRoot()
@@ -857,6 +874,12 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             item: MediaItem to re-sync
         """
+
+        if item.is_excluded:
+            logger.debug(f"Item {item.id} is excluded, skipping individual sync")
+
+            return
+
         from sqlalchemy.orm import object_session
         from program.db.db import db as db_module
 

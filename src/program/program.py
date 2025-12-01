@@ -74,6 +74,7 @@ class Program(threading.Thread):
 
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
         _downloader = Downloader()
+
         self.services = {
             IndexerService: IndexerService(),
             Scraping: Scraping(),

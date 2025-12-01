@@ -43,6 +43,7 @@ class Scraping:
             service for service in self.services if service.initialized
         ]
         self.initialized = self.validate()
+
         if not self.initialized:
             return
 
