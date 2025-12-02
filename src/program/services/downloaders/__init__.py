@@ -508,17 +508,6 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return found
 
-    def download_cached_stream(
-        self,
-        stream: Stream,
-        container: TorrentContainer,
-    ) -> DownloadedTorrent:
-        """Download a cached stream using the primary service"""
-
-        assert self.service
-
-        return self.download_cached_stream_on_service(stream, container, self.service)
-
     def download_cached_stream_on_service(
         self,
         stream: Stream,
