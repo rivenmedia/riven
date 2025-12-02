@@ -678,6 +678,23 @@ class TorrentioConfig(Observable):
         default="", description="Proxy URL for Torrentio requests"
     )
 
+class PeerflixConfig(Observable):
+    enabled: bool = Field(default=False, description="Enable Peerflix scraper")
+    filter: str = Field(
+        default="sort=qualitysize%7Cqualityfilter=480p,scr,cam",
+        description="Peerflix filter parameters",
+    )
+    url: EmptyOrUrl = Field(
+        default="http://peerflix.strem.fun", description="Peerflix URL"
+    )
+    timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
+    retries: int = Field(
+        default=1, ge=0, description="Number of retries for failed requests"
+    )
+    ratelimit: bool = Field(default=True, description="Enable rate limiting")
+    proxy_url: EmptyOrUrl = Field(
+        default="", description="Proxy URL for Peerflix requests"
+    )
 
 class CometConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Comet scraper")

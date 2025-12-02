@@ -18,6 +18,7 @@ from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.torrentio import Torrentio
+from program.services.scrapers.peerflix import Peerflix
 from program.services.scrapers.zilean import Zilean
 
 
@@ -37,6 +38,7 @@ class Scraping:
             Prowlarr(),
             Rarbg(),
             Torrentio(),
+            Peerflix(),
             Zilean(),
         ]
         self.initialized_services = [
