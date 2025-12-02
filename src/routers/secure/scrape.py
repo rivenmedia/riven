@@ -459,7 +459,7 @@ async def start_manual_session(
         torrent_id=torrent_id,
         torrent_info=torrent_info,
         containers=container,
-        expires_at=session.expires_at.isoformat(),
+        expires_at=session.expires_at.isoformat() + "Z",
     )
 
 
