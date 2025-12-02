@@ -32,14 +32,16 @@ class DebridCDNUrl:
         """Get a validated CDN URL, refreshing if necessary."""
 
         try:
-            # Assert URL availability by opening a stream, using a proxy if needed
-            proxy = (
-                self.provider in PROXY_REQUIRED_PROVIDERS
-                and settings_manager.settings.downloaders.proxy_url
-                or None
-            )
+            # Assert URL availability by opening a stream
+            # Create client with proxy if needed
+            client_kwargs = {}
+            
+            if self.provider in PROXY_REQUIRED_PROVIDERS:
+                proxy_url = settings_manager.settings.downloaders.proxy_url
+                if proxy_url:
+                    client_kwargs["proxy"] = proxy_url
 
-            with httpx.Client(proxy=proxy) as client:
+            with httpx.Client(**client_kwargs) as client:
                 with client.stream(method="GET", url=self.url) as response:
                     response.raise_for_status()
 
@@ -53,9 +55,7 @@ class DebridCDNUrl:
 
             if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
                 self._refresh()
-
                 logger.debug(f"Refreshed CDN URL for {self.filename}")
-
                 return self.validate()
 
             raise
