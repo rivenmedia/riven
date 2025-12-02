@@ -479,7 +479,9 @@ async def start_manual_session(
 def manual_select_files(
     session_id: Annotated[
         str,
-        Path("Identifier of the scraping session containing item and torrent context."),
+        Path(
+            description="Identifier of the scraping session containing item and torrent context."
+        ),
     ],
     files: Annotated[
         Container,
@@ -530,7 +532,9 @@ def manual_select_files(
 async def manual_update_attributes(
     session_id: Annotated[
         str,
-        Path("Identifier of the scraping session containing item and torrent context."),
+        Path(
+            description="Identifier of the scraping session containing item and torrent context."
+        ),
     ],
     data: Annotated[
         DebridFile | ShowFileData,
@@ -754,7 +758,9 @@ async def abort_manual_session(
     background_tasks: BackgroundTasks,
     session_id: Annotated[
         str,
-        Path("Identifier of the scraping session containing item and torrent context."),
+        Path(
+            description="Identifier of the scraping session containing item and torrent context."
+        ),
     ],
 ) -> SessionResponse:
     session = scraping_session_manager.get_session(session_id)
@@ -776,7 +782,9 @@ async def abort_manual_session(
 async def complete_manual_session(
     session_id: Annotated[
         str,
-        Path("Identifier of the scraping session containing item and torrent context."),
+        Path(
+            description="Identifier of the scraping session containing item and torrent context."
+        ),
     ],
 ) -> SessionResponse:
     session = scraping_session_manager.get_session(session_id)
