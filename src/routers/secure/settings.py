@@ -1,7 +1,7 @@
 from copy import copy
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Path
 from pydantic import BaseModel, ValidationError
 
 from program.settings import settings_manager
@@ -72,7 +72,7 @@ async def get_all_settings() -> AppModel:
 async def get_settings(
     paths: Annotated[
         str,
-        Query(
+        Path(
             description="Comma-separated list of settings paths",
             min_length=1,
         ),
