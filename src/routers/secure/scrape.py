@@ -1,8 +1,16 @@
 from datetime import datetime, timedelta
-from typing import Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+)
 from kink import di
 from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
@@ -237,18 +245,38 @@ router = APIRouter(prefix="/scrape", tags=["scrape"])
 
 def initialize_downloader(downloader: Downloader):
     """Initialize downloader if not already set"""
+
     if not scraping_session_manager.downloader:
         scraping_session_manager.set_downloader(downloader)
 
 
-@router.get("/scrape", summary="Get streams for an item", operation_id="scrape_item")
+@router.get(
+    "/scrape",
+    summary="Get streams for an item",
+    operation_id="scrape_item",
+    response_model=ScrapeItemResponse,
+)
 def scrape_item(
-    request: Request,
-    item_id: str | None = None,
-    tmdb_id: str | None = None,
-    tvdb_id: str | None = None,
-    imdb_id: str | None = None,
-    media_type: Literal["movie", "tv"] | None = None,
+    item_id: Annotated[
+        str | None,
+        Query(description="The ID of the media item"),
+    ] = None,
+    tmdb_id: Annotated[
+        str | None,
+        Query(description="The TMDB ID of the media item"),
+    ] = None,
+    tvdb_id: Annotated[
+        str | None,
+        Query(description="The TVDB ID of the media item"),
+    ] = None,
+    imdb_id: Annotated[
+        str | None,
+        Query(description="The IMDB ID of the media item"),
+    ] = None,
+    media_type: Annotated[
+        Literal["movie", "tv"] | None,
+        Query(description="The media type"),
+    ] = None,
 ) -> ScrapeItemResponse:
     """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
@@ -318,16 +346,31 @@ def scrape_item(
     "/scrape/start_session",
     summary="Start a manual scraping session",
     operation_id="start_manual_session",
+    response_model=StartSessionResponse,
 )
 async def start_manual_session(
-    request: Request,
     background_tasks: BackgroundTasks,
     magnet: str,
-    item_id: str | None = None,
-    tmdb_id: str | None = None,
-    tvdb_id: str | None = None,
-    imdb_id: str | None = None,
-    media_type: Literal["movie", "tv"] | None = None,
+    item_id: Annotated[
+        str | None,
+        Body(description="The ID of the media item"),
+    ] = None,
+    tmdb_id: Annotated[
+        str | None,
+        Body(description="The TMDB ID of the media item"),
+    ] = None,
+    tvdb_id: Annotated[
+        str | None,
+        Body(description="The TVDB ID of the media item"),
+    ] = None,
+    imdb_id: Annotated[
+        str | None,
+        Body(description="The IMDB ID of the media item"),
+    ] = None,
+    media_type: Annotated[
+        Literal["movie", "tv"] | None,
+        Body(description="The media type"),
+    ] = None,
 ) -> StartSessionResponse:
     scraping_session_manager.cleanup_expired(background_tasks)
 
@@ -431,11 +474,17 @@ async def start_manual_session(
     "/scrape/select_files/{session_id}",
     summary="Select files for torrent id, for this to be instant it requires files to be one of /manual/instant_availability response containers",
     operation_id="manual_select",
+    response_model=SelectFilesResponse,
 )
 def manual_select_files(
-    request: Request,
-    session_id: str,
-    files: Container,
+    session_id: Annotated[
+        str,
+        Path("Identifier of the scraping session containing item and torrent context."),
+    ],
+    files: Annotated[
+        Container,
+        Body(description="The files to select"),
+    ],
 ) -> SelectFilesResponse:
     if services := di[Program].services:
         downloader = services.downloader
@@ -476,11 +525,19 @@ def manual_select_files(
     "/scrape/update_attributes/{session_id}",
     summary="Match container files to item",
     operation_id="manual_update_attributes",
+    response_model=UpdateAttributesResponse,
 )
 async def manual_update_attributes(
-    request: Request,
-    session_id: str,
-    data: DebridFile | ShowFileData,
+    session_id: Annotated[
+        str,
+        Path("Identifier of the scraping session containing item and torrent context."),
+    ],
+    data: Annotated[
+        DebridFile | ShowFileData,
+        Body(
+            description="File metadata for a single movie (`DebridFile`) or a mapping of seasons/episodes to file metadata (`ShowFileData`) for TV content."
+        ),
+    ],
     session: Session = Depends(db_session),
 ) -> UpdateAttributesResponse:
     """
@@ -691,9 +748,14 @@ async def manual_update_attributes(
     "/scrape/abort_session/{session_id}",
     summary="Abort a manual scraping session",
     operation_id="abort_manual_session",
+    response_model=SessionResponse,
 )
 async def abort_manual_session(
-    _: Request, background_tasks: BackgroundTasks, session_id: str
+    background_tasks: BackgroundTasks,
+    session_id: Annotated[
+        str,
+        Path("Identifier of the scraping session containing item and torrent context."),
+    ],
 ) -> SessionResponse:
     session = scraping_session_manager.get_session(session_id)
 
@@ -709,8 +771,14 @@ async def abort_manual_session(
     "/scrape/complete_session/{session_id}",
     summary="Complete a manual scraping session",
     operation_id="complete_manual_session",
+    response_model=SessionResponse,
 )
-async def complete_manual_session(_: Request, session_id: str) -> SessionResponse:
+async def complete_manual_session(
+    session_id: Annotated[
+        str,
+        Path("Identifier of the scraping session containing item and torrent context."),
+    ],
+) -> SessionResponse:
     session = scraping_session_manager.get_session(session_id)
 
     if not session:
@@ -733,10 +801,13 @@ class ParseTorrentTitleResponse(BaseModel):
     "/parse",
     summary="Parse an array of torrent titles",
     operation_id="parse_torrent_titles",
+    response_model=ParseTorrentTitleResponse,
 )
 async def parse_torrent_titles(
-    request: Request,
-    titles: list[str],
+    titles: Annotated[
+        list[str],
+        Body(description="List of torrent titles to parse"),
+    ],
 ) -> ParseTorrentTitleResponse:
     parsed_titles = list[dict[str, Any]]()
 
@@ -764,10 +835,10 @@ async def parse_torrent_titles(
     "/overseerr/requests",
     summary="Fetch Overseerr Requests",
     operation_id="fetch_overseerr_requests",
+    response_model=MessageResponse,
 )
 async def overseerr_requests(
-    request: Request,
-    filter: (
+    filter: Annotated[
         Literal[
             "all",
             "approved",
@@ -779,9 +850,13 @@ async def overseerr_requests(
             "deleted",
             "completed",
         ]
-        | None
-    ) = None,
-    take: int = 100000,
+        | None,
+        Query(description="Filter for Overseerr requests"),
+    ] = None,
+    take: Annotated[
+        int,
+        Query(description="Number of requests to fetch"),
+    ] = 100000,
     db: Session = Depends(db_session),
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""

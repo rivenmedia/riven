@@ -200,7 +200,7 @@ class ChunkRange:
             self.max_chunks + 1,
         )
 
-        chunks = OrderedSet[Chunk]()
+        chunks = OrderedSet[Chunk]([])
 
         # If the current request is within the header boundaries, include the header chunk.
         # This is sized differently to normal chunks, so handle it separately.
