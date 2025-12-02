@@ -1,8 +1,16 @@
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import regex
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer
+
+
+def serialize_datetime(dt: datetime | None) -> str | None:
+    """Serialize datetime to ISO format with Z suffix for UTC"""
+    if dt is None:
+        return None
+    # If the datetime is naive (no timezone), assume UTC
+    return dt.isoformat() + "Z" if dt.tzinfo is None else dt.isoformat()
 
 from program.settings import settings_manager
 from program.media.item import ProcessedItemType
@@ -176,9 +184,9 @@ class TorrentInfo(BaseModel):
     infohash: str | None = None
     progress: float | None = None
     bytes: int | None = None
-    created_at: datetime | None = None
-    expires_at: datetime | None = None
-    completed_at: datetime | None = None
+    created_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
+    expires_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
+    completed_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
     alternative_filename: str | None = None
 
     # Real-Debrid only
@@ -217,13 +225,13 @@ class UserInfo(BaseModel):
     email: str | None = None
     user_id: int | str
     premium_status: Literal["free", "premium"]
-    premium_expires_at: datetime | None = None
+    premium_expires_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
     premium_days_left: int | None = None
 
     # Service-specific fields (optional)
     points: int | None = None  # Real-Debrid
     total_downloaded_bytes: int | None = None
-    cooldown_until: datetime | None = None
+    cooldown_until: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
 
 
 class UnrestrictedLink(BaseModel):

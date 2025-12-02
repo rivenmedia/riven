@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Generic, Literal, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from program.services.downloaders.models import (
     DebridFile,
@@ -26,7 +26,7 @@ class AllDebridFile(BaseModel):
 
     n: str  # Name
     s: int  # Size in bytes
-    l: str  # Download link
+    l: str | None = None  # Download link
 
 
 class AllDebridDirectory(BaseModel):
@@ -104,6 +104,12 @@ class AllDebridLinkUnlockResponse(BaseModel):
 class AllDebridMagnetStatusResponse(BaseModel):
     """Represents magnet status information returned by AllDebrid."""
 
+    class MagnetLink(BaseModel):
+        filename: str
+        size: int
+        files: list[AllDebridFile | AllDebridDirectory]
+        link: str
+
     class MagnetInfo(BaseModel):
         id: int
         filename: str
@@ -112,13 +118,21 @@ class AllDebridMagnetStatusResponse(BaseModel):
         status_code: int = Field(alias="statusCode")
         upload_date: int = Field(alias="uploadDate")
         completion_date: int = Field(alias="completionDate")
-        files: list[AllDebridFile | AllDebridDirectory] | None
+        files: list[AllDebridFile | AllDebridDirectory] | None = None
+        links: list["AllDebridMagnetStatusResponse.MagnetLink"] | None = None
 
     class MagnetErrorInfo(BaseModel):
         id: str
         error: AllDebridErrorDetail
 
     magnets: list[MagnetInfo | MagnetErrorInfo]
+
+    @field_validator("magnets", mode="before")
+    @classmethod
+    def normalize_magnets(cls, v):
+        if isinstance(v, dict):
+            return [v]
+        return v
 
 
 class AllDebridError(Exception):
@@ -590,11 +604,18 @@ class AllDebridDownloader(DownloaderBase):
                 if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
                     continue  # Skip errored magnets
 
-                files = magnet.files
+                all_files = list[AllDebridFile]()
 
-                if files:
-                    all_files = list[AllDebridFile]()
+                # Handle links (new structure)
+                if magnet.links:
+                    for link_obj in magnet.links:
+                        self._add_link_to_files_recursive(
+                            link_obj.files, link_obj.link, all_files
+                        )
 
+                # Handle files (old structure or fallback)
+                elif magnet.files:
+                    files = magnet.files
                     for file_or_directory in files:
                         download_link = ""
 
@@ -606,8 +627,8 @@ class AllDebridDownloader(DownloaderBase):
                                 file_or_directory.e, download_link, all_files
                             )
 
-                    if all_files:
-                        return all_files
+                if all_files:
+                    return all_files
 
                 return None
 

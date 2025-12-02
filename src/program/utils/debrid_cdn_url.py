@@ -5,6 +5,8 @@ from http import HTTPStatus
 from kink import di
 
 from program.services.filesystem.vfs.db import VFSDatabase
+from program.settings import settings_manager
+from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
 
 
 class DebridCDNUrl:
@@ -24,16 +26,26 @@ class DebridCDNUrl:
             raise ValueError("Could not find URL in entry info for CDN URL validation")
 
         self.url = entry_info.url
+        self.provider = entry_info.provider
 
     def validate(self) -> str | None:
         """Get a validated CDN URL, refreshing if necessary."""
 
         try:
             # Assert URL availability by opening a stream
-            with httpx.stream(method="GET", url=self.url) as response:
-                response.raise_for_status()
+            # Create client with proxy if needed
+            client_kwargs = {}
+            
+            if self.provider in PROXY_REQUIRED_PROVIDERS:
+                proxy_url = settings_manager.settings.downloaders.proxy_url
+                if proxy_url:
+                    client_kwargs["proxy"] = proxy_url
 
-                return self.url
+            with httpx.Client(**client_kwargs) as client:
+                with client.stream(method="GET", url=self.url) as response:
+                    response.raise_for_status()
+
+                    return self.url
         except httpx.ConnectError as e:
             logger.error(f"Connection error while validating CDN URL {self.url}: {e}")
 
@@ -42,16 +54,11 @@ class DebridCDNUrl:
             status_code = e.response.status_code
 
             if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                refreshed_url = self._refresh()
+                self._refresh()
+                logger.debug(f"Refreshed CDN URL for {self.filename}")
+                return self.validate()
 
-                if refreshed_url:
-                    logger.debug(f"Refreshed CDN URL for {self.filename}")
-
-                    return self.validate()
-
-                raise
-
-        raise
+            raise
 
     def _refresh(self) -> None:
         """Refresh the CDN URL."""
