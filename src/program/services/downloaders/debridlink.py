@@ -104,22 +104,18 @@ class DebridLinkAPI:
         self.api_key = api_key
         self.proxy_url = proxy_url
 
-        # Conservative rate limiting - Debrid-Link doesn't specify exact limits
-        # Using 60 req/min as a safe default
-        rate_limits = {
-            "debrid-link.com": {
-                "rate": 1,
-                "capacity": 60.0,
-            },
-        }
-        proxies = None
-
-        if proxy_url:
-            proxies = {"http": proxy_url, "https": proxy_url}
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits=rate_limits,
+            rate_limits={
+                # Conservative rate limiting - Debrid-Link doesn't specify exact limits
+                # Using 60 req/min as a safe default
+                "debrid-link.com": {
+                    "rate": 1,
+                    "capacity": 60,
+                },
+            },
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,
@@ -348,7 +344,7 @@ class DebridLinkDownloader(DownloaderBase):
         # Status "downloaded" means completed/cached
         # Also check if downloadPercent == 100
         if info.status == "downloaded" or (info.progress and info.progress >= 100):
-            files: list[DebridFile] = []
+            files = list[DebridFile]()
 
             for file_id, file in info.files.items():
                 # Debrid-Link doesn't have a "selected" field, all files are available

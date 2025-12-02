@@ -88,19 +88,17 @@ class RealDebridAPI:
         self.api_key = api_key
         self.proxy_url = proxy_url
 
-        rate_limits = {
-            # 250 req/min ~= 4.17 rps with capacity 250
-            "api.real-debrid.com": {
-                "rate": 250 / 60,
-                "capacity": 250,
-            },
-        }
-
         proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits=rate_limits,
+            rate_limits={
+                # 250 req/min ~= 4.17 rps with capacity 250
+                "api.real-debrid.com": {
+                    "rate": 250 / 60,
+                    "capacity": 250,
+                },
+            },
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,
@@ -305,11 +303,13 @@ class RealDebridDownloader(DownloaderBase):
 
         if info.status == "waiting_files_selection":
             video_exts = tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS)
-            video_ids: list[int] = [
-                file_id
-                for file_id, meta in info.files.items()
-                if meta.filename.lower().endswith(video_exts)
-            ]
+            video_ids = list[int](
+                [
+                    file_id
+                    for file_id, meta in info.files.items()
+                    if meta.filename.lower().endswith(video_exts)
+                ]
+            )
 
             if not video_ids:
                 return None, "no video files found to select", None
@@ -325,7 +325,7 @@ class RealDebridDownloader(DownloaderBase):
                 return None, "failed to refresh torrent info after selection", None
 
         if info.status == "downloaded":
-            files: list[DebridFile] = []
+            files = list[DebridFile]()
 
             for file_id, meta in info.files.items():
                 if meta.selected != 1:

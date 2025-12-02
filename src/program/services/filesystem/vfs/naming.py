@@ -52,8 +52,6 @@ class NameBuilder(BaseModel, Generic[T]):
     def title(self) -> str:
         """Get title from item"""
 
-        assert self._item.title is not None
-
         return self._item.title
 
     @computed_field
@@ -62,10 +60,10 @@ class NameBuilder(BaseModel, Generic[T]):
         """Get season number if applicable"""
 
         if isinstance(self._item, Season):
-            return self._item.number or 1
+            return self._item.number
 
         if isinstance(self._item, Episode):
-            return self._item.parent.number or 1
+            return self._item.parent.number
 
         return None
 
@@ -75,7 +73,6 @@ class NameBuilder(BaseModel, Generic[T]):
         """Get episode number if applicable"""
 
         if isinstance(self._item, Episode):
-            assert self._item.number is not None
             return self._item.number
 
         return None

@@ -142,7 +142,7 @@ class ScrapingSession:
 
 class ScrapingSessionManager:
     def __init__(self):
-        self.sessions: dict[str, ScrapingSession] = {}
+        self.sessions = dict[str, ScrapingSession]()
         self.downloader: Downloader | None = None
 
     def set_downloader(self, downloader: Downloader):
@@ -614,6 +614,7 @@ async def manual_update_attributes(
         # Ensure a staging MediaEntry exists and is linked
         from program.media.media_entry import MediaEntry
 
+<<<<<<< HEAD
         if item.media_entry and data.filename:
             fs_entry = item.media_entry
             # Update source metadata on existing entry
@@ -706,6 +707,96 @@ async def manual_update_attributes(
                         episode_number, season_number
                     ):
                         update_item(episode, episode_data)
+=======
+            # Ensure a staging MediaEntry exists and is linked
+            from program.media.media_entry import MediaEntry
+
+            fs_entry = None
+
+            if item.media_entry and data.filename:
+                fs_entry = item.media_entry
+                # Update source metadata on existing entry
+                fs_entry.original_filename = data.filename
+            else:
+                # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+                fs_entry = MediaEntry.create_placeholder_entry(
+                    original_filename=data.filename,
+                    download_url=data.download_url,
+                    provider=None,
+                    provider_download_id=None,
+                    file_size=data.filesize,
+                )
+
+                session.add(fs_entry)
+                session.commit()
+                session.refresh(fs_entry)
+
+                # Link MediaItem to FilesystemEntry
+                # Clear existing entries and add the new one
+                item.filesystem_entries.clear()
+                item.filesystem_entries.append(fs_entry)
+                item = session.merge(item)
+
+            assert scraping_session
+            assert scraping_session.magnet
+            assert scraping_session.torrent_info
+
+            item.active_stream = ActiveStream(
+                infohash=scraping_session.magnet,
+                id=scraping_session.torrent_info.id,
+            )
+
+            torrent = rtn.rank(
+                scraping_session.torrent_info.name,
+                scraping_session.magnet,
+            )
+
+            # Ensure the item is properly attached to the session before adding streams
+            # This prevents SQLAlchemy warnings about detached objects
+            if object_session(item) is not session:
+                item = session.merge(item)
+
+            item.streams.append(ItemStream(torrent=torrent))
+            item_ids_to_submit.add(item.id)
+
+        if isinstance(data, DebridFile):
+            update_item(item, data)
+        else:
+            for season_number, episodes in data.root.items():
+                for episode_number, episode_data in episodes.items():
+                    if isinstance(item, Show):
+                        if episode := item.get_absolute_episode(
+                            episode_number, season_number
+                        ):
+                            update_item(episode, episode_data)
+                        else:
+                            logger.error(
+                                f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
+                            )
+
+                            continue
+                    elif isinstance(item, Season):
+                        if episode := item.parent.get_absolute_episode(
+                            episode_number, season_number
+                        ):
+                            update_item(episode, episode_data)
+                        else:
+                            logger.error(
+                                f"Failed to find season {season_number} for {item.log_string}"
+                            )
+
+                            continue
+                    elif isinstance(item, Episode):
+                        if (
+                            season_number != item.parent.number
+                            and episode_number != item.number
+                        ):
+                            continue
+
+                        update_item(item, episode_data)
+
+                        break
+>>>>>>> 34335ca5d75fe6915b85a3bd903f7264ff71734a
                     else:
                         logger.error(
                             f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
@@ -851,10 +942,12 @@ async def overseerr_requests(
 
     if overseerr_items:
         # Persist first, then enqueue
-        persisted_items: list[MediaItem] = []
+        persisted_items = list[MediaItem]()
+
         for item in overseerr_items:
             persisted = db.merge(item)
             persisted_items.append(persisted)
+
         db.commit()
 
         for persisted in persisted_items:

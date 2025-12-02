@@ -119,21 +119,19 @@ class Orionoid(ScraperService[OrionoidConfig]):
         self.is_unlimited = False
         self.initialized = False
 
-        rate_limits = (
-            {
-                # 50 calls per minute
-                "api.orionoid.com": {
-                    "rate": 50 / 60,
-                    "capacity": 50,
-                }
-            }
-            if self.settings.ratelimit
-            else {}
-        )
-
         self.session = SmartSession(
             base_url=self.base_url,
-            rate_limits=rate_limits,
+            rate_limits=(
+                {
+                    # 50 calls per minute
+                    "api.orionoid.com": {
+                        "rate": 50 / 60,
+                        "capacity": 50,
+                    }
+                }
+                if self.settings.ratelimit
+                else None
+            ),
             retries=self.settings.retries,
             backoff_factor=0.3,
         )
@@ -243,15 +241,17 @@ class Orionoid(ScraperService[OrionoidConfig]):
 
         media_type = "movie" if isinstance(item, Movie) else "show"
 
-        raw_params: dict[str, str | int | None] = {
-            "keyapp": KEY_APP,
-            "keyuser": self.settings.api_key,
-            "mode": "stream",
-            "action": "retrieve",
-            "type": media_type,
-            "streamtype": "torrent",
-            "protocoltorrent": "magnet",
-        }
+        raw_params = dict[str, str | int | None](
+            {
+                "keyapp": KEY_APP,
+                "keyuser": self.settings.api_key,
+                "mode": "stream",
+                "action": "retrieve",
+                "type": media_type,
+                "streamtype": "torrent",
+                "protocoltorrent": "magnet",
+            }
+        )
 
         if isinstance(item, Season):
             raw_params["numberseason"] = item.number

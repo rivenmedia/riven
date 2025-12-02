@@ -62,20 +62,18 @@ class Jackett(ScraperService[JackettConfig]):
                     logger.error("Jackett timeout must be a positive integer")
                     return False
 
-                rate_limits = (
-                    {
-                        get_hostname_from_url(self.settings.url): {
-                            "rate": 300 / 60,
-                            "capacity": 300,
-                        }
-                    }
-                    if self.settings.ratelimit
-                    else {}
-                )
-
                 self.session = SmartSession(
                     base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
-                    rate_limits=rate_limits,
+                    rate_limits=(
+                        {
+                            get_hostname_from_url(self.settings.url): {
+                                "rate": 300 / 60,
+                                "capacity": 300,
+                            }
+                        }
+                        if self.settings.ratelimit
+                        else None
+                    ),
                     retries=self.settings.retries,
                     backoff_factor=0.3,
                 )
@@ -111,7 +109,7 @@ class Jackett(ScraperService[JackettConfig]):
     def scrape(self, item: MediaItem) -> dict[str, str]:
         """Scrape the given media item"""
 
-        torrents: dict[str, str] = {}
+        torrents = dict[str, str]()
         query = item.log_string
 
         if isinstance(item, Movie) and item.aired_at:

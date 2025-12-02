@@ -8,13 +8,14 @@ from program.apis.plex_api import PlexAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings import settings_manager
-from program.core.content_service import ContentService
 from program.settings.models import PlexWatchlistModel
-from program.core.runner import MediaItemGenerator, RunnerResult
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 
-class PlexWatchlist(ContentService[PlexWatchlistModel]):
+class PlexWatchlist(Runner[PlexWatchlistModel]):
     """Class for managing Plex Watchlists"""
+
+    is_content_service = True
 
     def __init__(self):
         super().__init__()

@@ -15,18 +15,16 @@ class TMDBApi:
     def __init__(self):
         self.BASE_URL = "https://api.themoviedb.org/3"
 
-        rate_limits = {
-            # 40 requests per second
-            # https://developer.themoviedb.org/docs/rate-limiting
-            "api.themoviedb.org": {
-                "rate": 40.0,
-                "capacity": 1000.0,
-            }
-        }
-
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits=rate_limits,
+            rate_limits={
+                # 40 requests per second
+                # https://developer.themoviedb.org/docs/rate-limiting
+                "api.themoviedb.org": {
+                    "rate": 40,
+                    "capacity": 1000,
+                }
+            },
             retries=2,
             backoff_factor=0.3,
         )

@@ -344,7 +344,7 @@ class Downloader(Runner[None, DownloaderBase]):
                         # happens if there's a new season with no episodes yet
                         method_2 = show.seasons[-2].episodes[-1].number
 
-                    episode_cap = max([method_1, method_2 or 0])
+                    episode_cap = max([method_1, method_2])
                 except Exception as e:
                     pass
 
@@ -509,17 +509,6 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return found
 
-    def download_cached_stream(
-        self,
-        stream: Stream,
-        container: TorrentContainer,
-    ) -> DownloadedTorrent:
-        """Download a cached stream using the primary service"""
-
-        assert self.service
-
-        return self.download_cached_stream_on_service(stream, container, self.service)
-
     def download_cached_stream_on_service(
         self,
         stream: Stream,
@@ -624,7 +613,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 download_url=debrid_file.download_url,
                 provider=service.key,
                 provider_download_id=str(download_result.info.id),
-                file_size=debrid_file.filesize or 0,
+                file_size=debrid_file.filesize,
                 media_metadata=media_metadata,
             )
 

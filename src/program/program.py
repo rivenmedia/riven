@@ -29,7 +29,6 @@ from program.utils import data_dir_path
 from program.utils.logging import logger
 from program.scheduling import ProgramScheduler
 from program.core.runner import Runner
-from program.core.content_service import ContentService
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
@@ -73,13 +72,13 @@ class Services:
         return [service for service in self.enabled_services if service.initialized]
 
     @property
-    def content_services(self) -> list[ContentService]:
+    def content_services(self) -> list[Runner]:
         """Get all services that are content services."""
 
         return [
             service
             for service in self.enabled_services
-            if service.initialized and isinstance(service, ContentService)
+            if service.initialized and service.is_content_service
         ]
 
     def to_dict(self) -> dict[str, Runner]:
@@ -150,22 +149,22 @@ class Program(threading.Thread):
                 "No content services initialized, items need to be added manually."
             )
 
-        if not self.services.scraping or not self.services.scraping.initialized:
+        if not self.services.scraping.initialized:
             logger.error(
                 "No Scraping service initialized, you must enable at least one."
             )
 
-        if not self.services.downloader or not self.services.downloader.initialized:
+        if not self.services.downloader.initialized:
             logger.error(
                 "No Downloader service initialized, you must enable at least one."
             )
 
-        if not self.services.filesystem or not self.services.filesystem.initialized:
+        if not self.services.filesystem.initialized:
             logger.error(
                 "Filesystem service failed to initialize, check your settings."
             )
 
-        if not self.services.updater or not self.services.updater.initialized:
+        if not self.services.updater.initialized:
             logger.error(
                 "No Updater service initialized, you must enable at least one."
             )

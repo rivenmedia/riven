@@ -74,7 +74,7 @@ class TraktAPI:
             rate_limits={
                 # 1000 calls per 5 minutes
                 "api.trakt.tv": {
-                    "rate": 1000 // 300,
+                    "rate": 1000 / 300,
                     "capacity": 1000,
                 }
             },
@@ -114,7 +114,7 @@ class TraktAPI:
     ) -> list[DataModel]:
         """Fetch paginated data from Trakt API with rate limiting."""
 
-        all_data: list[DataModel] = []
+        all_data = list[DataModel]()
 
         def _request_page(requested_page: int):
             response = self.session.get(
@@ -341,7 +341,7 @@ class TraktAPI:
             response = self.session.get(url, timeout=30)
 
             if response.ok and response.data:
-                aliases = dict[str, list[str]]({})
+                aliases = dict[str, list[str]]()
 
                 from schemas.trakt import GetAllMovieAliases200ResponseInner
 

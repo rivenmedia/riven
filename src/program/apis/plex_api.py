@@ -45,16 +45,16 @@ class PlexAPI:
         self.token = token
         self.BASE_URL = base_url
 
-        rate_limits = {
-            # 1 call per second, 60 calls per minute
-            "metadata.provider.plex.tv": {
-                "rate": 1.0,
-                "capacity": 60.0,
-            },
-        }
-
         self.session = SmartSession(
-            rate_limits=rate_limits, retries=3, backoff_factor=0.3
+            rate_limits={
+                # 1 call per second, 60 calls per minute
+                "metadata.provider.plex.tv": {
+                    "rate": 1,
+                    "capacity": 60,
+                },
+            },
+            retries=3,
+            backoff_factor=0.3,
         )
 
         self.account = None
@@ -126,7 +126,7 @@ class PlexAPI:
     def get_items_from_rss(self) -> list[tuple[str, str]]:
         """Fetch media from Plex RSS Feeds."""
 
-        rss_items: list[tuple[str, str]] = []
+        rss_items = list[tuple[str, str]]()
 
         assert self.rss_urls
 

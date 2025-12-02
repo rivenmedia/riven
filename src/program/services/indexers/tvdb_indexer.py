@@ -61,19 +61,7 @@ class TVDBIndexer(BaseIndexer):
 
         # Scenario 2: Re-indexing existing Show/Season/Episode - update in-place
         elif isinstance(item, (Show, Season, Episode)):
-            show: Show | None = None
-
-            # Get the root Show object
-            if isinstance(item, Show):
-                show = item
-            elif isinstance(item, Season):
-                show = item.parent
-            else:
-                show = item.parent.parent if item.parent else None
-
-            if not show:
-                logger.error(f"Could not find parent Show for {item.log_string}")
-                return
+            show = item.top_parent
 
             # Fetch fresh metadata from TVDB API
             if self._update_show_metadata(show):
@@ -81,7 +69,7 @@ class TVDBIndexer(BaseIndexer):
 
                 if log_msg:
                     logger.debug(
-                        f"Reindexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})"
+                        f"Re-indexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})"
                     )
 
                 yield RunnerResult(media_items=[show])
@@ -191,8 +179,7 @@ class TVDBIndexer(BaseIndexer):
             )
 
             # Clean up title
-            if title:
-                title = regex.sub(r"\s*\(.*\)\s*$", "", title)
+            title = regex.sub(r"\s*\(.*\)\s*$", "", title)
 
             # Extract content rating
             content_rating = None
@@ -205,8 +192,6 @@ class TVDBIndexer(BaseIndexer):
                             break
 
             # Extract TVDB status
-            tvdb_status = None
-
             tvdb_status = show_data.release_status
 
             # Update the Show object's attributes
@@ -244,6 +229,7 @@ class TVDBIndexer(BaseIndexer):
         self, imdb_id: str | None = None, tvdb_id: str | None = None
     ) -> Show | None:
         """Create a show item from TVDB using available IDs."""
+
         if not imdb_id and not tvdb_id:
             logger.error("No IMDB ID or TVDB ID provided")
             return None
@@ -258,6 +244,7 @@ class TVDBIndexer(BaseIndexer):
 
                     if show_item:
                         self._add_seasons_to_show(show_item, show_details)
+
                         return show_item
 
             # Lookup via IMDB ID
@@ -378,38 +365,39 @@ class TVDBIndexer(BaseIndexer):
                             break
 
             # Extract TVDB status (Continuing, Ended, Upcoming)
-            tvdb_status = None
-            if show_data.status:
-                if show_data.status.name:
-                    tvdb_status = show_data.status.name
+            tvdb_status = (
+                show_data.status.name
+                if show_data.status and show_data.status.name
+                else None
+            )
 
-            show_item = {
-                "title": title,
-                "poster_path": poster_path,
-                "year": (
-                    int(show_data.first_aired.split("-")[0])
-                    if show_data.first_aired
-                    else None
-                ),
-                "tvdb_id": str(show_data.id),
-                "tmdb_id": None,
-                "imdb_id": imdb_id,
-                "aired_at": aired_at,
-                "genres": genres_lower,
-                "type": "show",
-                "requested_at": datetime.now(),
-                "network": network,
-                "country": show_data.original_country,
-                "language": show_data.original_language,
-                "is_anime": is_anime,
-                "aliases": aliases,
-                "release_data": show_data,
-                "rating": rating,
-                "content_rating": content_rating,
-                "tvdb_status": tvdb_status,
-            }
-
-            return Show(show_item)
+            return Show(
+                {
+                    "title": title,
+                    "poster_path": poster_path,
+                    "year": (
+                        int(show_data.first_aired.split("-")[0])
+                        if show_data.first_aired
+                        else None
+                    ),
+                    "tvdb_id": str(show_data.id),
+                    "tmdb_id": None,
+                    "imdb_id": imdb_id,
+                    "aired_at": aired_at,
+                    "genres": genres_lower,
+                    "type": "show",
+                    "requested_at": datetime.now(),
+                    "network": network,
+                    "country": show_data.original_country,
+                    "language": show_data.original_language,
+                    "is_anime": is_anime,
+                    "aliases": aliases,
+                    "release_data": show_data,
+                    "rating": rating,
+                    "content_rating": content_rating,
+                    "tvdb_status": tvdb_status,
+                }
+            )
         except Exception as e:
             logger.error(f"Error mapping show from TVDB data: {str(e)}")
 
@@ -462,9 +450,9 @@ class TVDBIndexer(BaseIndexer):
                     # Handle episodes for this season
                     if episodes := extended_data.episodes:
                         # Build a map of existing episodes by number
-                        existing_episodes: dict[int, Episode] = {
-                            e.number: e for e in season_item.episodes
-                        }
+                        existing_episodes = dict[int, Episode](
+                            {e.number: e for e in season_item.episodes}
+                        )
 
                         for episode_data in episodes:
                             episode_number = episode_data.number
@@ -478,12 +466,14 @@ class TVDBIndexer(BaseIndexer):
                                 episode_item = existing_episodes[episode_number]
 
                                 self._update_episode_metadata(
-                                    episode_item, episode_data
+                                    episode_item,
+                                    episode_data,
                                 )
                             else:
                                 # Create new episode
                                 episode_item = self._create_episode_from_data(
-                                    episode_data, season_item
+                                    episode_data,
+                                    season_item,
                                 )
 
                                 if episode_item:
@@ -596,10 +586,7 @@ class TVDBIndexer(BaseIndexer):
                     pass
 
             # Extract year
-            year = None
-
-            if episode_data.year:
-                year = int(episode_data.year)
+            year = int(episode_data.year) if episode_data.year else None
 
             # Update episode attributes
             episode.tvdb_id = str(episode_data.id)

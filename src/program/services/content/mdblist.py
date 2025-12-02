@@ -7,13 +7,14 @@ from program.apis.mdblist_api import MdblistAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings import settings_manager
-from program.core.content_service import ContentService
 from program.settings.models import MdblistModel
-from program.core.runner import MediaItemGenerator, RunnerResult
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 
-class Mdblist(ContentService[MdblistModel]):
+class Mdblist(Runner[MdblistModel]):
     """Content class for mdblist"""
+
+    is_content_service = True
 
     def __init__(self):
         super().__init__()
@@ -50,7 +51,7 @@ class Mdblist(ContentService[MdblistModel]):
     def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch media from mdblist and add them to media_items attribute"""
 
-        items_to_yield: list[MediaItem] = []
+        items_to_yield = list[MediaItem]()
 
         try:
             for list_id in self.settings.lists:

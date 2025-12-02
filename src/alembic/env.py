@@ -6,17 +6,8 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from alembic import context
 from program.db.db import db
-from program.db.base_model import Base
+from program.db.base_model import Base, get_base_metadata
 from program.settings import settings_manager
-
-from program.media import (
-    MediaItem,
-    FilesystemEntry,
-    StreamRelation,
-    StreamBlacklistRelation,
-    Stream,
-)
-from program.scheduling import ScheduledTask
 
 
 # Loguru handler for alembic logs
@@ -44,7 +35,7 @@ config = context.config
 config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.host))
 
 # Set MetaData object for autogenerate support
-target_metadata = Base.metadata
+target_metadata = get_base_metadata()
 
 
 def reset_database(connection) -> bool:

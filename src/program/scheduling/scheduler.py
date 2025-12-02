@@ -65,9 +65,11 @@ class ProgramScheduler:
 
         assert self.scheduler is not None
 
-        scheduled_functions: dict[Callable[..., None], ScheduledFunctionConfig] = {
-            vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
-        }
+        scheduled_functions = dict[Callable[..., None], ScheduledFunctionConfig](
+            {
+                vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
+            }
+        )
 
         # Add retry_library if enabled (interval > 0)
         retry_interval = settings_manager.settings.retry_interval
@@ -107,6 +109,10 @@ class ProgramScheduler:
 
         assert self.scheduler
         assert self.program.services
+
+        logger.debug(
+            f"Scheduling content services...: {self.program.services.content_services}"
+        )
 
         for service_instance in self.program.services.content_services:
             service_name = service_instance.__class__.__name__
@@ -285,9 +291,11 @@ class ProgramScheduler:
         indexer_service = self.program.services.indexer
 
         updated = next(indexer_service.run(item, log_msg=False), None)
+
         if updated:
-            session.merge(updated)
+            session.merge(updated.media_items[0])
             session.commit()
+
             logger.info(f"Reindexed {item.log_string} from scheduler")
 
     def _enqueue_item_if_needed(self, session: Session, item: MediaItem) -> None:

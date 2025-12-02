@@ -187,28 +187,29 @@ class RivenVFS(pyfuse3.Operations):
         self._tree_lock = threading.RLock()
 
         # Pending invalidations for batching (optimization: collect during sync, invalidate at end)
-        self._pending_invalidations: set[pyfuse3.InodeT] = set()
+        self._pending_invalidations = set[pyfuse3.InodeT]()
 
         # Profile hash for detecting changes (optimization: skip re-matching if unchanged)
         self._last_profile_hash: int | None = None
 
         # Set of paths currently being streamed
-        self._active_streams: dict[str, MediaStream] = {}
+        self._active_streams = dict[str, MediaStream]()
 
         # Lock for managing active streams dict
         self._active_streams_lock = trio.Lock()
 
         # Open file handles: fh -> handle info
-        self._file_handles: dict[pyfuse3.FileHandleT, FileHandle] = {}
+        self._file_handles = dict[pyfuse3.FileHandleT, FileHandle]()
         self._next_fh = pyfuse3.FileHandleT(1)
 
         # Opener statistics
-        self.opener_stats: dict[str, dict[str, Any]] = {}
+        self.opener_stats = dict[str, dict[str, Any]]()
 
         # Mount management
+        self.mounted = False
         self._mountpoint = os.path.abspath(mountpoint)
         self._thread = None
-        self._unmount_requested: trio_util.AsyncBool = trio_util.AsyncBool(False)
+        self._unmount_requested = trio_util.AsyncBool(False)
         self.stream_nursery: trio.Nursery
 
         def _fuse_runner():
@@ -481,7 +482,7 @@ class RivenVFS(pyfuse3.Operations):
             List of parent inodes (excluding root)
         """
 
-        inodes = list[pyfuse3.InodeT]([])
+        inodes = list[pyfuse3.InodeT]()
         current = node.parent
 
         while current and current != self._root:
@@ -759,7 +760,7 @@ class RivenVFS(pyfuse3.Operations):
         matcher = LibraryProfileMatcher()
 
         # Step 1: Re-match all entries against current library profiles and collect item IDs
-        item_ids = list[int]([])
+        item_ids = list[int]()
         rematched_count = 0
 
         with db_session() as session:
@@ -992,7 +993,7 @@ class RivenVFS(pyfuse3.Operations):
             # Register MediaEntry (video file)
 
             all_paths = entry.get_all_vfs_paths()
-            registered_paths = list[str]([])
+            registered_paths = list[str]()
 
             for path in all_paths:
                 if self._register_clean_path(
@@ -1015,7 +1016,7 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 return []
 
-            registered_paths = list[str]([])
+            registered_paths = list[str]()
             language = entry.language
 
             for video_path in video_paths:
@@ -1079,7 +1080,7 @@ class RivenVFS(pyfuse3.Operations):
                 )
                 return []
 
-            unregistered_paths = list[str]([])
+            unregistered_paths = list[str]()
             language = entry.language
 
             for video_path in video_paths:
@@ -1220,7 +1221,7 @@ class RivenVFS(pyfuse3.Operations):
             List of unregistered VFS paths
         """
 
-        unregistered_paths = list[str]([])
+        unregistered_paths = list[str]()
 
         # Find all nodes with matching original_filename
         nodes_to_remove = self._get_nodes_by_original_filename(original_filename)
@@ -1336,7 +1337,7 @@ class RivenVFS(pyfuse3.Operations):
                 return None
 
             # Build result list from node's children - no database queries!
-            children = list[CachedDirectoryEntry]([])
+            children = list[CachedDirectoryEntry]()
 
             for name, child in node.children.items():
                 children.append(
@@ -1537,9 +1538,11 @@ class RivenVFS(pyfuse3.Operations):
             # We already know it's a file from the VFSDirectory check above
             attrs.st_mode = pyfuse3.ModeT(stat.S_IFREG | 0o644)
             attrs.st_nlink = 1
-            size = int(node.file_size or 0)
+            size = node.file_size
+
             if size == 0:
                 size = 1337 * 1024 * 1024  # Default size when unknown
+
             attrs.st_size = size
 
             return attrs

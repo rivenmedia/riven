@@ -61,19 +61,22 @@ class VideoMetadata(BaseModel):
 
         w = int(self.resolution_width or 0)
         h = int(self.resolution_height or 0)
+
         longest = max(w, h)
 
         if longest == 0:
             return None
 
-        thresholds: list[tuple[int, str] | tuple[Literal[0], None]] = [
-            (3840, "4K"),
-            (2560, "1440p"),
-            (1920, "1080p"),
-            (1280, "720p"),
-            (640, "480p"),
-            (0, None),
-        ]
+        thresholds = list[tuple[int, str] | tuple[Literal[0], None]](
+            [
+                (3840, "4K"),
+                (2560, "1440p"),
+                (1920, "1080p"),
+                (1280, "720p"),
+                (640, "480p"),
+                (0, None),
+            ]
+        )
 
         for cutoff, label in thresholds:
             if longest >= cutoff:
@@ -240,14 +243,14 @@ class MediaMetadata(BaseModel):
             )
 
         # Extract audio tracks from parsed data
-        audio_tracks: list[AudioMetadata] = []
+        audio_tracks = list[AudioMetadata]()
 
         if parsed_data.audio:
             for audio_codec in parsed_data.audio:
                 audio_tracks.append(AudioMetadata(codec=audio_codec))
 
         # Extract subtitle tracks from parsed data
-        subtitle_tracks: list[SubtitleMetadata] = []
+        subtitle_tracks = list[SubtitleMetadata]()
 
         if parsed_data.subbed:
             for lang in parsed_data.languages:

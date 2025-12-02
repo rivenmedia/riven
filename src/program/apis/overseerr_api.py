@@ -30,13 +30,17 @@ class OverseerrAPI:
             rate_limits={
                 # 1000 calls per 5 minutes, retries=3, backoff_factor=0.3
                 get_hostname_from_url(self.base_url): {
-                    "rate": 1000 // 300,
+                    "rate": 1000 / 300,
                     "capacity": 1000,
                 }
             },
         )
 
-        self.session.headers.update({"X-Api-Key": self.api_key})
+        self.session.headers.update(
+            {
+                "X-Api-Key": self.api_key,
+            }
+        )
 
     def validate(self):
         """Validate API connection"""
@@ -121,14 +125,24 @@ class OverseerrAPI:
 
             if tvdb_id is not None:
                 media_items.append(
-                    MediaItem({"tvdb_id": tvdb_id, "requested_by": service_key})
+                    MediaItem(
+                        {
+                            "tvdb_id": tvdb_id,
+                            "requested_by": service_key,
+                        }
+                    )
                 )
 
                 continue
 
             if tmdb_id is not None:
                 media_items.append(
-                    MediaItem({"tmdb_id": tmdb_id, "requested_by": service_key})
+                    MediaItem(
+                        {
+                            "tmdb_id": tmdb_id,
+                            "requested_by": service_key,
+                        }
+                    )
                 )
 
                 continue

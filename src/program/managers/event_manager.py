@@ -57,10 +57,10 @@ class EventManager:
     """
 
     def __init__(self):
-        self._executors: list[ServiceExecutor] = []
-        self._futures: list[FutureWithEvent] = []
-        self._queued_events: list[Event] = []
-        self._running_events: list[Event] = []
+        self._executors = list[ServiceExecutor]()
+        self._futures = list[FutureWithEvent]()
+        self._queued_events = list[Event]()
+        self._running_events = list[Event]()
         self.mutex = Lock()
 
     def _find_or_create_executor(self, service_cls: Service) -> ThreadPoolExecutor:
@@ -349,7 +349,7 @@ class EventManager:
             item_id, related_ids = db_functions.get_item_ids(session, item_id)
             ids_to_cancel = set([item_id] + related_ids)
 
-            future_map: dict[int, list[FutureWithEvent]] = {}
+            future_map = dict[int, list[FutureWithEvent]]()
 
             for future_with_event in self._futures:
                 if future_with_event.event and future_with_event.event.item_id:
@@ -416,14 +416,16 @@ class EventManager:
                         raise Empty
 
                     # Define state priority (lower number = higher priority)
-                    state_priority: dict[States, int] = {
-                        States.Completed: 0,
-                        States.PartiallyCompleted: 1,
-                        States.Symlinked: 2,
-                        States.Downloaded: 3,
-                        States.Scraped: 4,
-                        States.Indexed: 5,
-                    }
+                    state_priority = dict[States, int](
+                        {
+                            States.Completed: 0,
+                            States.PartiallyCompleted: 1,
+                            States.Symlinked: 2,
+                            States.Downloaded: 3,
+                            States.Scraped: 4,
+                            States.Indexed: 5,
+                        }
+                    )
 
                     def get_event_priority(event: Event) -> tuple[int, datetime]:
                         """
@@ -458,6 +460,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
+
         return any(event.item_id == _id for event in self._queued_events)
 
     def _id_in_running_events(self, _id: int) -> bool:
@@ -470,6 +473,7 @@ class EventManager:
         Returns:
             bool: True if the item is in the running events, False otherwise.
         """
+
         return any(event.item_id == _id for event in self._running_events)
 
     def add_event(self, event: Event) -> bool:
@@ -513,9 +517,7 @@ class EventManager:
                     return False
         else:
             # Content-only
-            content_item = event.content_item
-
-            if content_item is None:
+            if (content_item := event.content_item) is None:
                 logger.debug("Event has neither item_id nor content_item; skipping.")
                 return False
 
@@ -583,7 +585,7 @@ class EventManager:
             "PostProcessing",
         ]
 
-        updates: dict[str, list[int]] = {event_type: [] for event_type in event_types}
+        updates = {event_type: list[int]() for event_type in event_types}
 
         for event in events:
             if isinstance(event.emitted_by, str):
@@ -626,9 +628,7 @@ class EventManager:
             if item_id and ev.item_id == item_id:
                 return True
 
-            content_item = ev.content_item
-
-            if content_item is None:
+            if (content_item := ev.content_item) is None:
                 continue
 
             if tmdb_id and content_item.tmdb_id == tmdb_id:

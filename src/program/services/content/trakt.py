@@ -11,7 +11,6 @@ from program.apis.trakt_api import TraktAPI, Watchlist
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings import settings_manager
-from program.core.content_service import ContentService
 from program.settings.models import TraktModel
 
 from schemas.trakt import (
@@ -27,11 +26,13 @@ from schemas.trakt import (
     GetTrendingMovies200ResponseInner,
     GetTrendingShows200ResponseInner,
 )
-from program.core.runner import MediaItemGenerator, RunnerResult
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 
-class TraktContent(ContentService[TraktModel]):
+class TraktContent(Runner[TraktModel]):
     """Content class for Trakt"""
+
+    is_content_service = True
 
     def __init__(self):
         super().__init__()
@@ -202,7 +203,7 @@ class TraktContent(ContentService[TraktModel]):
         if not list_items or not any(list_items):
             return []
 
-        ids = list[tuple[str, str]]([])
+        ids = list[tuple[str, str]]()
 
         for url in list_items:
             user, list_name = self.api.extract_user_list_from_url(url)

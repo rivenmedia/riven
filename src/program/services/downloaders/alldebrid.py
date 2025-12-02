@@ -130,7 +130,7 @@ class AllDebridAPI:
     Minimal AllDebrid API client using SmartSession for retries, rate limits, and circuit breaker.
     """
 
-    BASE_URL = "https://api.alldebrid.com/v4"
+    BASE_URL = "https://api.alldebrid.com/"
 
     def __init__(self, api_key: str, proxy_url: str | None = None) -> None:
         """
@@ -144,20 +144,16 @@ class AllDebridAPI:
 
         # AllDebrid rate limits: 12 req/sec and 600 req/min
         # Using conservative 10 req/sec (600 capacity)
-        rate_limits = {
-            "api.alldebrid.com": {
-                "rate": 10,
-                "capacity": 600.0,
-            },
-        }
-        proxies = None
-
-        if proxy_url:
-            proxies = {"http": proxy_url, "https": proxy_url}
+        proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits=rate_limits,
+            rate_limits={
+                "api.alldebrid.com": {
+                    "rate": 10,
+                    "capacity": 600,
+                },
+            },
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,
@@ -189,11 +185,14 @@ class AllDebridDownloader(DownloaderBase):
         Returns:
             True if ready, else False.
         """
+
         if not self._validate_settings():
             return False
 
         proxy_url = self.PROXY_URL or None
+
         self.api = AllDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
+
         return self._validate_premium()
 
     def _validate_settings(self) -> bool:
@@ -392,7 +391,7 @@ class AllDebridDownloader(DownloaderBase):
         if not files_data:
             return None, "no files present in the torrent", None
 
-        files = list[DebridFile]([])
+        files = list[DebridFile]()
 
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
@@ -498,10 +497,14 @@ class AllDebridDownloader(DownloaderBase):
         assert self.api
 
         magnet_url = f"magnet:?xt=urn:btih:{infohash}"
+
         response = self.api.session.post(
-            "magnet/upload",
-            data={"magnets[]": magnet_url},
+            "v4/magnet/upload",
+            data={
+                "magnets[]": magnet_url,
+            },
         )
+
         self._maybe_backoff(response)
 
         if not response.ok:
@@ -560,8 +563,12 @@ class AllDebridDownloader(DownloaderBase):
 
             # Get the magnet status which includes links
             response = self.api.session.post(
-                "magnet/status", data={"id": str(magnet_id)}
+                "v4.1/magnet/status",
+                data={
+                    "id": str(magnet_id),
+                },
             )
+
             self._maybe_backoff(response)
 
             if not response.ok:
@@ -633,7 +640,13 @@ class AllDebridDownloader(DownloaderBase):
         assert self.api
 
         # AllDebrid API expects ID as string
-        response = self.api.session.post("magnet/status", data={"id": str(torrent_id)})
+        response = self.api.session.post(
+            "v4.1/magnet/status",
+            data={
+                "id": str(torrent_id),
+            },
+        )
+
         self._maybe_backoff(response)
 
         if not response.ok:
@@ -700,7 +713,13 @@ class AllDebridDownloader(DownloaderBase):
         assert self.api
 
         # AllDebrid API expects ID as string
-        response = self.api.session.post("magnet/delete", data={"id": str(torrent_id)})
+        response = self.api.session.post(
+            url="v4/magnet/delete",
+            data={
+                "id": str(torrent_id),
+            },
+        )
+
         self._maybe_backoff(response)
 
         if not response.ok:
@@ -720,7 +739,13 @@ class AllDebridDownloader(DownloaderBase):
         try:
             assert self.api
 
-            response = self.api.session.get("link/unlock", params={"link": link})
+            response = self.api.session.get(
+                "v4/link/unlock",
+                params={
+                    "link": link,
+                },
+            )
+
             self._maybe_backoff(response)
 
             if not response.ok:
@@ -761,7 +786,8 @@ class AllDebridDownloader(DownloaderBase):
         try:
             assert self.api
 
-            response = self.api.session.get("user")
+            response = self.api.session.get("v4/user")
+
             self._maybe_backoff(response)
 
             if not response.ok:

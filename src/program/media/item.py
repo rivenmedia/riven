@@ -891,7 +891,7 @@ class Show(MediaItem):
         if season.number not in [s.number for s in self.seasons]:
             self.seasons.append(season)
             season.parent = self
-            self.seasons = sorted(self.seasons, key=lambda s: s.number or 0)
+            self.seasons = sorted(self.seasons, key=lambda s: s.number)
 
     def get_absolute_episode(
         self,
@@ -899,6 +899,7 @@ class Show(MediaItem):
         season_number: int | None = None,
     ) -> "Episode | None":
         """Get the absolute episode number based on season and episode."""
+
         if not episode_number or episode_number == 0:
             return None
 
@@ -909,13 +910,16 @@ class Show(MediaItem):
                 episode = next(
                     (e for e in season.episodes if e.number == episode_number), None
                 )
+
                 if episode:
                     return episode
 
         episode_count = 0
+
         for season in self.seasons:
             for episode in season.episodes:
                 episode_count += 1
+
                 if episode_count == episode_number:
                     return episode
 
@@ -1073,7 +1077,7 @@ class Season(MediaItem):
 
         self.episodes.append(episode)
         episode.parent = self
-        self.episodes = sorted(self.episodes, key=lambda e: e.number or 0)
+        self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
     @property
     def log_string(self):

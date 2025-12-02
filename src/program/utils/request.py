@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from datetime import datetime
 import json
 import random
@@ -284,7 +284,7 @@ class SmartSession:
     def __init__(
         self,
         base_url: str | None = None,
-        rate_limits: dict[str, dict[str, float | int]] | None = None,
+        rate_limits: Mapping[str, Mapping[str, float | int]] | None = None,
         proxies: dict[str, str] | None = None,
         retries: int = 3,
         backoff_factor: float = 0.3,
@@ -345,14 +345,14 @@ class SmartSession:
         )
 
         self.base_url = base_url.rstrip("/") if base_url else None
-        self.limiters: dict[str, TokenBucket] = {}
-        self.breakers: dict[str, CircuitBreaker] = {}
+        self.limiters = dict[str, TokenBucket]()
+        self.breakers = dict[str, CircuitBreaker]()
         self.retries = int(retries)
         self.backoff_factor = float(backoff_factor)
 
         # requests-compatible attributes that callers may set
         self.proxies = proxies or {}
-        self.headers: dict[str, str] = {}
+        self.headers = dict[str, str]()
         self.auth = None
         self.cookies = None
 
