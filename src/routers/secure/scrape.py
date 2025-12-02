@@ -241,7 +241,12 @@ def initialize_downloader(downloader: Downloader):
         scraping_session_manager.set_downloader(downloader)
 
 
-@router.get("/scrape", summary="Get streams for an item", operation_id="scrape_item")
+@router.get(
+    "/scrape",
+    summary="Get streams for an item",
+    operation_id="scrape_item",
+    response_model=ScrapeItemResponse,
+)
 def scrape_item(
     request: Request,
     item_id: str | None = None,
@@ -318,6 +323,7 @@ def scrape_item(
     "/scrape/start_session",
     summary="Start a manual scraping session",
     operation_id="start_manual_session",
+    response_model=StartSessionResponse,
 )
 async def start_manual_session(
     request: Request,
@@ -431,6 +437,7 @@ async def start_manual_session(
     "/scrape/select_files/{session_id}",
     summary="Select files for torrent id, for this to be instant it requires files to be one of /manual/instant_availability response containers",
     operation_id="manual_select",
+    response_model=SelectFilesResponse,
 )
 def manual_select_files(
     request: Request,
@@ -476,6 +483,7 @@ def manual_select_files(
     "/scrape/update_attributes/{session_id}",
     summary="Match container files to item",
     operation_id="manual_update_attributes",
+    response_model=UpdateAttributesResponse,
 )
 async def manual_update_attributes(
     request: Request,
@@ -691,6 +699,7 @@ async def manual_update_attributes(
     "/scrape/abort_session/{session_id}",
     summary="Abort a manual scraping session",
     operation_id="abort_manual_session",
+    response_model=SessionResponse,
 )
 async def abort_manual_session(
     _: Request, background_tasks: BackgroundTasks, session_id: str
@@ -709,6 +718,7 @@ async def abort_manual_session(
     "/scrape/complete_session/{session_id}",
     summary="Complete a manual scraping session",
     operation_id="complete_manual_session",
+    response_model=SessionResponse,
 )
 async def complete_manual_session(_: Request, session_id: str) -> SessionResponse:
     session = scraping_session_manager.get_session(session_id)
@@ -733,6 +743,7 @@ class ParseTorrentTitleResponse(BaseModel):
     "/parse",
     summary="Parse an array of torrent titles",
     operation_id="parse_torrent_titles",
+    response_model=ParseTorrentTitleResponse,
 )
 async def parse_torrent_titles(
     request: Request,
@@ -764,6 +775,7 @@ async def parse_torrent_titles(
     "/overseerr/requests",
     summary="Fetch Overseerr Requests",
     operation_id="fetch_overseerr_requests",
+    response_model=MessageResponse,
 )
 async def overseerr_requests(
     request: Request,

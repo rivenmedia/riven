@@ -20,7 +20,10 @@ class OverseerrWebhookResponse(BaseModel):
     message: str | None = None
 
 
-@router.post("/overseerr", response_model=OverseerrWebhookResponse)
+@router.post(
+    "/overseerr",
+    response_model=OverseerrWebhookResponse,
+)
 async def overseerr(request: Request) -> OverseerrWebhookResponse:
     """Webhook for Overseerr"""
 

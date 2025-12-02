@@ -50,7 +50,11 @@ class DownloaderUserInfoResponse(BaseModel):
     services: list[DownloaderUserInfo]
 
 
-@router.get("/downloader_user_info", operation_id="download_user_info")
+@router.get(
+    "/downloader_user_info",
+    operation_id="download_user_info",
+    response_model=DownloaderUserInfoResponse,
+)
 async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
     """
     Get normalized user information from all initialized downloader services.
@@ -124,7 +128,11 @@ async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.post("/generateapikey", operation_id="generateapikey")
+@router.post(
+    "/generateapikey",
+    operation_id="generate_apikey",
+    response_model=MessageResponse,
+)
 async def generate_apikey() -> MessageResponse:
     new_key = generate_api_key()
     settings_manager.settings.api_key = new_key
@@ -159,7 +167,11 @@ class TraktOAuthInitiateResponse(BaseModel):
     auth_url: str
 
 
-@router.get("/trakt/oauth/initiate", operation_id="trakt_oauth_initiate")
+@router.get(
+    "/trakt/oauth/initiate",
+    operation_id="trakt_oauth_initiate",
+    response_model=TraktOAuthInitiateResponse,
+)
 async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
     try:
         trakt_api = di[TraktAPI]
@@ -171,7 +183,11 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
     return TraktOAuthInitiateResponse(auth_url=auth_url)
 
 
-@router.get("/trakt/oauth/callback", operation_id="trakt_oauth_callback")
+@router.get(
+    "/trakt/oauth/callback",
+    operation_id="trakt_oauth_callback",
+    response_model=MessageResponse,
+)
 async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
     try:
         trakt_api = di[TraktAPI]
@@ -210,7 +226,11 @@ class StatsResponse(BaseModel):
     )
 
 
-@router.get("/stats", operation_id="stats")
+@router.get(
+    "/stats",
+    operation_id="stats",
+    response_model=StatsResponse,
+)
 async def get_stats(_: Request) -> StatsResponse:
     """
     Produce aggregated statistics for the media library and its items.
@@ -319,7 +339,11 @@ class LogsResponse(BaseModel):
     logs: list[str]
 
 
-@router.get("/logs", operation_id="logs")
+@router.get(
+    "/logs",
+    operation_id="logs",
+    response_model=LogsResponse,
+)
 async def get_logs() -> LogsResponse:
     log_file_path: str | None = None
 
@@ -354,9 +378,14 @@ class EventResponse(BaseModel):
     events: dict[str, list[int]]
 
 
-@router.get("/events", operation_id="events")
+@router.get(
+    "/events",
+    operation_id="events",
+    response_model=EventResponse,
+)
 async def get_events(request: Request) -> EventResponse:
     events = di[Program].em.get_event_updates()
+
     return EventResponse(events=events)
 
 
@@ -364,9 +393,14 @@ class MountResponse(BaseModel):
     files: dict[str, str]
 
 
-@router.get("/mount", operation_id="mount")
+@router.get(
+    "/mount",
+    operation_id="mount",
+    response_model=MountResponse,
+)
 async def get_mount_files() -> MountResponse:
     """Get all files in the Riven VFS mount."""
+
     import os
 
     mount_dir = str(settings_manager.settings.filesystem.mount_path)
@@ -394,7 +428,11 @@ class UploadLogsResponse(BaseModel):
     )
 
 
-@router.post("/upload_logs", operation_id="upload_logs")
+@router.post(
+    "/upload_logs",
+    operation_id="upload_logs",
+    response_model=UploadLogsResponse,
+)
 async def upload_logs() -> UploadLogsResponse:
     """Upload the latest log file to paste.c-net.org"""
 
@@ -453,6 +491,7 @@ class CalendarResponse(BaseModel):
     summary="Fetch Calendar",
     description="Fetch the calendar of all the items in the library",
     operation_id="fetch_calendar",
+    response_model=CalendarResponse,
 )
 async def fetch_calendar(_: Request) -> CalendarResponse:
     """Fetch the calendar of all the items in the library"""
@@ -470,6 +509,7 @@ class VFSStatsResponse(BaseModel):
     summary="Get VFS Statistics",
     description="Get statistics about the VFS",
     operation_id="get_vfs_stats",
+    response_model=VFSStatsResponse,
 )
 async def get_vfs_stats(request: Request) -> VFSStatsResponse:
     """Get statistics about the VFS"""

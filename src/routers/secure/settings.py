@@ -22,7 +22,11 @@ router = APIRouter(
 )
 
 
-@router.get("/schema", operation_id="get_settings_schema")
+@router.get(
+    "/schema",
+    operation_id="get_settings_schema",
+    response_model=dict[str, Any],
+)
 async def get_settings_schema() -> dict[str, Any]:
     """
     Get the JSON schema for the settings.
@@ -30,26 +34,42 @@ async def get_settings_schema() -> dict[str, Any]:
     return settings_manager.settings.model_json_schema()
 
 
-@router.get("/load", operation_id="load_settings")
+@router.get(
+    "/load",
+    operation_id="load_settings",
+    response_model=MessageResponse,
+)
 async def load_settings() -> MessageResponse:
     settings_manager.load()
 
     return MessageResponse(message="Settings loaded!")
 
 
-@router.post("/save", operation_id="save_settings")
+@router.post(
+    "/save",
+    operation_id="save_settings",
+    response_model=MessageResponse,
+)
 async def save_settings() -> MessageResponse:
     settings_manager.save()
 
     return MessageResponse(message="Settings saved!")
 
 
-@router.get("/get/all", operation_id="get_all_settings")
+@router.get(
+    "/get/all",
+    operation_id="get_all_settings",
+    response_model=AppModel,
+)
 async def get_all_settings() -> AppModel:
     return copy(settings_manager.settings)
 
 
-@router.get("/get/{paths}", operation_id="get_settings")
+@router.get(
+    "/get/{paths}",
+    operation_id="get_settings",
+    response_model=dict[str, Any],
+)
 async def get_settings(paths: str) -> dict[str, Any]:
     current_settings = settings_manager.settings.model_dump()
     data = dict[str, Any]()
@@ -69,7 +89,11 @@ async def get_settings(paths: str) -> dict[str, Any]:
     return data
 
 
-@router.post("/set/all", operation_id="set_all_settings")
+@router.post(
+    "/set/all",
+    operation_id="set_all_settings",
+    response_model=MessageResponse,
+)
 async def set_all_settings(new_settings: dict[str, Any]) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
 
@@ -93,7 +117,11 @@ async def set_all_settings(new_settings: dict[str, Any]) -> MessageResponse:
     return MessageResponse(message="All settings updated successfully!")
 
 
-@router.post("/set", operation_id="set_settings")
+@router.post(
+    "/set",
+    operation_id="set_settings",
+    response_model=MessageResponse,
+)
 async def set_settings(settings: list[SetSettings]) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
 
