@@ -72,7 +72,10 @@ async def get_all_settings() -> AppModel:
 async def get_settings(
     paths: Annotated[
         str,
-        Query(description="Comma-separated list of settings paths"),
+        Query(
+            description="Comma-separated list of settings paths",
+            min_length=1,
+        ),
     ],
 ) -> dict[str, Any]:
     current_settings = settings_manager.settings.model_dump()

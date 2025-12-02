@@ -32,7 +32,10 @@ async def websocket_endpoint(
     websocket: WebSocket,
     topic: Annotated[
         str,
-        Path(description="The topic to subscribe to"),
+        Path(
+            description="The topic to subscribe to",
+            min_length=1,
+        ),
     ],
 ):
     await manager.connect(websocket, topic)

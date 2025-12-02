@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
-from fastapi import APIRouter, Depends, HTTPException, Path, status, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, status, Query
 from kink import di
 from loguru import logger
 from pydantic import BaseModel
@@ -48,12 +48,7 @@ router = APIRouter(
 )
 
 
-def handle_ids(
-    ids: Annotated[
-        str,
-        Query(description="Comma-separated list of item IDs"),
-    ],
-) -> list[int]:
+def handle_ids(ids: str) -> list[int]:
     try:
         id_list = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
         if not id_list:
@@ -316,15 +311,15 @@ async def get_items(
 async def add_items(
     tmdb_ids: Annotated[
         str | None,
-        Query(description="Comma-separated list of TMDB IDs"),
+        Body(description="Comma-separated list of TMDB IDs"),
     ] = None,
     tvdb_ids: Annotated[
         str | None,
-        Query(description="Comma-separated list of TVDB IDs"),
+        Body(description="Comma-separated list of TVDB IDs"),
     ] = None,
     media_type: Annotated[
         Literal["movie", "tv"] | None,
-        Query(description="Media type"),
+        Body(description="Media type"),
     ] = None,
 ) -> MessageResponse:
     if not tmdb_ids and not tvdb_ids:
@@ -404,14 +399,19 @@ async def add_items(
 @router.get(
     "/{id}",
     summary="Get Media Item by ID",
-    description="Fetch a single media item by TMDB ID, TVDB ID or item ID. TMDB and TVDB IDs are strings, item ID is an integer.",
+    description="Fetch a single media item by item ID",
     operation_id="get_item",
 )
 async def get_item(
     id: Annotated[
-        str | None,
-        Query(description="The ID of the media item"),
-    ] = None,
+        str,
+        Path(
+            description="""
+                The ID of the media item. For 'item' type, use the numeric item ID;
+                for 'movie' or 'tv' types, use the TMDB or TVDB ID respectively.
+            """,
+        ),
+    ],
     media_type: Annotated[
         Literal["movie", "tv", "item"] | None,
         Query(description="The type of media item"),
@@ -483,7 +483,10 @@ class ResetResponse(BaseModel):
 async def reset_items(
     ids: Annotated[
         str,
-        Query(description="Comma-separated list of item IDs to reset"),
+        Body(
+            description="Comma-separated list of item IDs to reset",
+            min_length=1,
+        ),
     ],
     session: Session = Depends(db_session),
 ) -> ResetResponse:
@@ -606,7 +609,10 @@ class RetryResponse(BaseModel):
 async def retry_items(
     ids: Annotated[
         str,
-        Query(description="Comma-separated list of item IDs to retry"),
+        Body(
+            description="Comma-separated list of item IDs to retry",
+            min_length=1,
+        ),
     ],
 ) -> RetryResponse:
     """Re-add items to the queue"""
@@ -686,7 +692,10 @@ class RemoveResponse(BaseModel):
 async def remove_item(
     ids: Annotated[
         str,
-        Query(description="Comma-separated list of item IDs to remove"),
+        Body(
+            description="Comma-separated list of item IDs to remove",
+            min_length=1,
+        ),
     ],
     session: Session = Depends(db_session),
 ) -> RemoveResponse:
@@ -833,7 +842,7 @@ class StreamsResponse(BaseModel):
 async def get_item_streams(
     item_id: Annotated[
         int,
-        Path(description="The ID of the media item"),
+        Path(description="The ID of the media item", min_length=1),
     ],
     db: Session = Depends(db_session),
 ) -> StreamsResponse:
@@ -865,11 +874,17 @@ async def get_item_streams(
 async def blacklist_stream(
     item_id: Annotated[
         int,
-        Path(description="The ID of the media item"),
+        Path(
+            description="The ID of the media item",
+            min_length=1,
+        ),
     ],
     stream_id: Annotated[
         int,
-        Path(description="The ID of the stream"),
+        Path(
+            description="The ID of the stream",
+            min_length=1,
+        ),
     ],
     db: Session = Depends(db_session),
 ):
@@ -915,11 +930,17 @@ async def blacklist_stream(
 async def unblacklist_stream(
     item_id: Annotated[
         int,
-        Path(description="The ID of the media item"),
+        Path(
+            description="The ID of the media item",
+            min_length=1,
+        ),
     ],
     stream_id: Annotated[
         int,
-        Path(description="The ID of the stream"),
+        Path(
+            description="The ID of the stream",
+            min_length=1,
+        ),
     ],
     db: Session = Depends(db_session),
 ):
@@ -965,7 +986,10 @@ async def unblacklist_stream(
 async def reset_item_streams(
     item_id: Annotated[
         int,
-        Path(description="The ID of the media item"),
+        Path(
+            description="The ID of the media item",
+            min_length=1,
+        ),
     ],
     db: Session = Depends(db_session),
 ):
@@ -1009,7 +1033,10 @@ class PauseResponse(BaseModel):
 async def pause_items(
     ids: Annotated[
         str,
-        Query(description="Comma-separated list of item IDs to pause"),
+        Body(
+            description="Comma-separated list of item IDs to pause",
+            min_length=1,
+        ),
     ],
 ) -> PauseResponse:
     """Pause items and their children from being processed"""
@@ -1078,7 +1105,10 @@ async def pause_items(
 async def unpause_items(
     ids: Annotated[
         str,
-        Query(description="Comma-separated list of item IDs to unpause"),
+        Body(
+            description="Comma-separated list of item IDs to unpause",
+            min_length=1,
+        ),
     ],
 ) -> PauseResponse:
     """Unpause items and their children to resume processing"""
@@ -1147,19 +1177,19 @@ class ReindexResponse(BaseModel):
 async def reindex_item(
     item_id: Annotated[
         int | None,
-        Query(description="The ID of the media item"),
+        Body(description="The ID of the media item"),
     ] = None,
     tvdb_id: Annotated[
         str | None,
-        Query(description="The TVDB ID of the media item"),
+        Body(description="The TVDB ID of the media item"),
     ] = None,
     tmdb_id: Annotated[
         str | None,
-        Query(description="The TMDB ID of the media item"),
+        Body(description="The TMDB ID of the media item"),
     ] = None,
     imdb_id: Annotated[
         str | None,
-        Query(description="The IMDB ID of the media item"),
+        Body(description="The IMDB ID of the media item"),
     ] = None,
 ) -> ReindexResponse:
     """Reindex item through Composite Indexer manually"""
@@ -1259,7 +1289,10 @@ class ItemAliasesResponse(BaseModel):
 async def get_item_aliases(
     item_id: Annotated[
         int,
-        Path(description="The ID of the media item"),
+        Path(
+            description="The ID of the media item",
+            min_length=1,
+        ),
     ],
     db: Session = Depends(db_session),
 ) -> ItemAliasesResponse:
@@ -1289,7 +1322,10 @@ async def get_item_aliases(
 async def get_item_metadata(
     item_id: Annotated[
         int,
-        Path(description="The ID of the media item"),
+        Path(
+            description="The ID of the media item",
+            min_length=1,
+        ),
     ],
     db: Session = Depends(db_session),
 ) -> MediaMetadata:

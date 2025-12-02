@@ -353,23 +353,23 @@ async def start_manual_session(
     magnet: str,
     item_id: Annotated[
         str | None,
-        Query(description="The ID of the media item"),
+        Body(description="The ID of the media item"),
     ] = None,
     tmdb_id: Annotated[
         str | None,
-        Query(description="The TMDB ID of the media item"),
+        Body(description="The TMDB ID of the media item"),
     ] = None,
     tvdb_id: Annotated[
         str | None,
-        Query(description="The TVDB ID of the media item"),
+        Body(description="The TVDB ID of the media item"),
     ] = None,
     imdb_id: Annotated[
         str | None,
-        Query(description="The IMDB ID of the media item"),
+        Body(description="The IMDB ID of the media item"),
     ] = None,
     media_type: Annotated[
         Literal["movie", "tv"] | None,
-        Query(description="The media type"),
+        Body(description="The media type"),
     ] = None,
 ) -> StartSessionResponse:
     scraping_session_manager.cleanup_expired(background_tasks)

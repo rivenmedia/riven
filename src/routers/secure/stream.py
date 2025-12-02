@@ -51,7 +51,10 @@ async def get_event_types():
 async def stream_events(
     event_type: Annotated[
         str,
-        Path(description="The type of event to stream"),
+        Path(
+            description="The type of event to stream",
+            min_length=1,
+        ),
     ],
 ) -> StreamingResponse:
     return StreamingResponse(
