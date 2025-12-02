@@ -1,7 +1,7 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import requests
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query
 from kink import di
 from kink.errors.service_error import ServiceError
 from loguru import logger
@@ -25,7 +25,7 @@ router = APIRouter(
 
 
 @router.get("/health", operation_id="health")
-async def health(request: Request) -> MessageResponse:
+async def health() -> MessageResponse:
     return MessageResponse(message=str(di[Program].initialized))
 
 
@@ -55,7 +55,7 @@ class DownloaderUserInfoResponse(BaseModel):
     operation_id="download_user_info",
     response_model=DownloaderUserInfoResponse,
 )
-async def download_user_info(request: Request) -> DownloaderUserInfoResponse:
+async def download_user_info() -> DownloaderUserInfoResponse:
     """
     Get normalized user information from all initialized downloader services.
 
@@ -142,7 +142,7 @@ async def generate_apikey() -> MessageResponse:
 
 
 @router.get("/services", operation_id="services")
-async def get_services(request: Request) -> dict[str, bool]:
+async def get_services() -> dict[str, bool]:
     data = dict[str, bool]()
 
     services = di[Program].services
@@ -172,7 +172,7 @@ class TraktOAuthInitiateResponse(BaseModel):
     operation_id="trakt_oauth_initiate",
     response_model=TraktOAuthInitiateResponse,
 )
-async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
+async def initiate_trakt_oauth() -> TraktOAuthInitiateResponse:
     try:
         trakt_api = di[TraktAPI]
     except ServiceError:
@@ -188,7 +188,12 @@ async def initiate_trakt_oauth(request: Request) -> TraktOAuthInitiateResponse:
     operation_id="trakt_oauth_callback",
     response_model=MessageResponse,
 )
-async def trakt_oauth_callback(code: str, request: Request) -> MessageResponse:
+async def trakt_oauth_callback(
+    code: Annotated[
+        str,
+        Query(description="The OAuth code returned by Trakt"),
+    ],
+) -> MessageResponse:
     try:
         trakt_api = di[TraktAPI]
     except ServiceError:
@@ -231,7 +236,7 @@ class StatsResponse(BaseModel):
     operation_id="stats",
     response_model=StatsResponse,
 )
-async def get_stats(_: Request) -> StatsResponse:
+async def get_stats() -> StatsResponse:
     """
     Produce aggregated statistics for the media library and its items.
 
@@ -383,7 +388,7 @@ class EventResponse(BaseModel):
     operation_id="events",
     response_model=EventResponse,
 )
-async def get_events(request: Request) -> EventResponse:
+async def get_events() -> EventResponse:
     events = di[Program].em.get_event_updates()
 
     return EventResponse(events=events)
@@ -493,7 +498,7 @@ class CalendarResponse(BaseModel):
     operation_id="fetch_calendar",
     response_model=CalendarResponse,
 )
-async def fetch_calendar(_: Request) -> CalendarResponse:
+async def fetch_calendar() -> CalendarResponse:
     """Fetch the calendar of all the items in the library"""
 
     with db_session() as session:
@@ -511,7 +516,7 @@ class VFSStatsResponse(BaseModel):
     operation_id="get_vfs_stats",
     response_model=VFSStatsResponse,
 )
-async def get_vfs_stats(request: Request) -> VFSStatsResponse:
+async def get_vfs_stats() -> VFSStatsResponse:
     """Get statistics about the VFS"""
 
     services = di[Program].services

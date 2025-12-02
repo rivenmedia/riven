@@ -1,8 +1,9 @@
 import json
 import logging
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Path
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
@@ -47,7 +48,12 @@ async def get_event_types():
     "/{event_type}",
     response_model=StreamingResponse,
 )
-async def stream_events(_: Request, event_type: str) -> StreamingResponse:
+async def stream_events(
+    event_type: Annotated[
+        str,
+        Path(description="The type of event to stream"),
+    ],
+) -> StreamingResponse:
     return StreamingResponse(
         sse_manager.subscribe(event_type),
         media_type="text/event-stream",

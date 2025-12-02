@@ -1,8 +1,9 @@
 import json
 import logging
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Path, WebSocket, WebSocketDisconnect
 from loguru import logger
 
 from program.managers.websocket_manager import manager
@@ -27,7 +28,13 @@ router = APIRouter(
 
 
 @router.websocket("/{topic}")
-async def websocket_endpoint(websocket: WebSocket, topic: str):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    topic: Annotated[
+        str,
+        Path(description="The topic to subscribe to"),
+    ],
+):
     await manager.connect(websocket, topic)
     logger.info(f"Client connected to topic: {topic}")
     try:

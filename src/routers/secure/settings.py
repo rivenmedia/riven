@@ -1,7 +1,7 @@
 from copy import copy
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, ValidationError
 
 from program.settings import settings_manager
@@ -28,9 +28,8 @@ router = APIRouter(
     response_model=dict[str, Any],
 )
 async def get_settings_schema() -> dict[str, Any]:
-    """
-    Get the JSON schema for the settings.
-    """
+    """Get the JSON schema for the settings."""
+
     return settings_manager.settings.model_json_schema()
 
 
@@ -70,7 +69,12 @@ async def get_all_settings() -> AppModel:
     operation_id="get_settings",
     response_model=dict[str, Any],
 )
-async def get_settings(paths: str) -> dict[str, Any]:
+async def get_settings(
+    paths: Annotated[
+        str,
+        Query(description="Comma-separated list of settings paths"),
+    ],
+) -> dict[str, Any]:
     current_settings = settings_manager.settings.model_dump()
     data = dict[str, Any]()
 
@@ -94,7 +98,12 @@ async def get_settings(paths: str) -> dict[str, Any]:
     operation_id="set_all_settings",
     response_model=MessageResponse,
 )
-async def set_all_settings(new_settings: dict[str, Any]) -> MessageResponse:
+async def set_all_settings(
+    new_settings: Annotated[
+        dict[str, Any],
+        Body(description="New settings to apply"),
+    ],
+) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
 
     def update_settings(current_obj: dict[str, Any], new_obj: dict[str, Any]):
@@ -122,7 +131,12 @@ async def set_all_settings(new_settings: dict[str, Any]) -> MessageResponse:
     operation_id="set_settings",
     response_model=MessageResponse,
 )
-async def set_settings(settings: list[SetSettings]) -> MessageResponse:
+async def set_settings(
+    settings: Annotated[
+        list[SetSettings],
+        Body(description="List of settings to update"),
+    ],
+) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
 
     for setting in settings:
