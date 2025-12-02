@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import regex
-from pydantic import BaseModel, Field, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
 
 def serialize_datetime(dt: datetime | None) -> str | None:
@@ -194,6 +194,20 @@ class TorrentInfo(BaseModel):
 
     # Real-Debrid download links
     links: list[str] = Field(default_factory=list)
+
+    @field_validator("created_at", "expires_at", "completed_at", mode="before")
+    @classmethod
+    def parse_dates(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v
+        if isinstance(v, str):
+            try:
+                return datetime.fromisoformat(v.replace("Z", "+00:00"))
+            except ValueError:
+                return v
+        return v
 
     @property
     def size_mb(self) -> float:
