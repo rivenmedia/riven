@@ -44,10 +44,7 @@ async def get_event_types():
     )
 
 
-@router.get(
-    "/{event_type}",
-    response_model=StreamingResponse,
-)
+@router.get("/{event_type}")
 async def stream_events(
     event_type: Annotated[
         str,
