@@ -13,6 +13,7 @@ from sqlalchemy.orm import object_session
 from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Season, Show
+from program.media.state import States
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
@@ -696,46 +697,69 @@ async def manual_update_attributes(
         item.streams.append(ItemStream(torrent=torrent))
         item_ids_to_submit.add(item.id)
 
-        if isinstance(data, DebridFile):
-            update_item(item, data)
-        else:
-            for season_number, episodes in data.root.items():
-                for episode_number, episode_data in episodes.items():
-                    if isinstance(item, Show):
-                        if episode := item.get_absolute_episode(
-                            episode_number, season_number
-                        ):
-                            update_item(episode, episode_data)
-                        else:
-                            logger.error(
-                                f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
-                            )
+    if isinstance(data, DebridFile):
+        update_item(item, data)
+    else:
+        updated_episode_ids = set[int]()
 
-                            continue
-                    elif isinstance(item, Season):
-                        if episode := item.parent.get_absolute_episode(
-                            episode_number, season_number
-                        ):
-                            update_item(episode, episode_data)
-                        else:
-                            logger.error(
-                                f"Failed to find season {season_number} for {item.log_string}"
-                            )
-
-                            continue
-                    elif isinstance(item, Episode):
-                        if (
-                            season_number != item.parent.number
-                            and episode_number != item.number
-                        ):
-                            continue
-
-                        update_item(item, episode_data)
-
-                        break
+        for season_number, episodes in data.root.items():
+            for episode_number, episode_data in episodes.items():
+                if isinstance(item, Show):
+                    if episode := item.get_absolute_episode(
+                        episode_number, season_number
+                    ):
+                        update_item(episode, episode_data)
+                        updated_episode_ids.add(episode.id)
                     else:
-                        logger.error(f"Failed to find item type for {item.log_string}")
+                        logger.error(
+                            f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
+                        )
+
                         continue
+                elif isinstance(item, Season):
+                    if episode := item.parent.get_absolute_episode(
+                        episode_number, season_number
+                    ):
+                        update_item(episode, episode_data)
+                        updated_episode_ids.add(episode.id)
+                    else:
+                        logger.error(
+                            f"Failed to find season {season_number} for {item.log_string}"
+                        )
+
+                        continue
+                elif isinstance(item, Episode):
+                    if (
+                        season_number != item.parent.number
+                        and episode_number != item.number
+                    ):
+                        continue
+
+                    update_item(item, episode_data)
+                    updated_episode_ids.add(item.id)
+
+                    break
+                else:
+                    logger.error(f"Failed to find item type for {item.log_string}")
+                    continue
+
+        # Set unselected episodes to paused
+        if isinstance(item, Show):
+            logger.debug(f"Checking {len(item.seasons)} seasons for unselected episodes to pause")
+            for season in item.seasons:
+                logger.debug(f"Season {season.number} has {len(season.episodes)} episodes")
+                for episode in season.episodes:
+                    if episode.id not in updated_episode_ids:
+                        episode.store_state(States.Paused)
+                        session.merge(episode)
+                        logger.debug(f"Paused episode {episode.log_string} (ID: {episode.id})")
+        elif isinstance(item, Season):
+            logger.debug(f"Checking {len(item.episodes)} episodes in season {item.number} to pause")
+            for episode in item.episodes:
+                if episode.id not in updated_episode_ids:
+                    episode.store_state(States.Paused)
+                    session.merge(episode)
+                    logger.debug(f"Paused episode {episode.log_string} (ID: {episode.id})")
 
     item.store_state()
 
