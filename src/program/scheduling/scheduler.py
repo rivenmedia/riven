@@ -288,7 +288,7 @@ class ProgramScheduler:
 
         indexer_service = self.program.services.indexer
 
-        updated = await anext(indexer_service.run(item, log_msg=False), None)
+        updated = await indexer_service.run(item, log_msg=False)
 
         if updated:
             session.merge(updated.media_items[0])

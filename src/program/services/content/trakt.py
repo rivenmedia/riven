@@ -1,6 +1,5 @@
 """Trakt content module"""
 
-from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from typing import Any, Literal, TypeIs
 
@@ -79,7 +78,7 @@ class TraktContent(Runner[TraktModel]):
 
         return False
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
 
         watchlist_ids = (
@@ -163,11 +162,13 @@ class TraktContent(Runner[TraktModel]):
                 )
 
         if not items_to_yield:
-            return
+            return RunnerResult(
+                media_items=[],
+            )
 
         logger.info(f"Fetched {len(items_to_yield)} new items from trakt")
 
-        yield RunnerResult(media_items=items_to_yield)
+        return RunnerResult(media_items=items_to_yield)
 
     def _get_watchlist(self, watchlist_users: list[str]) -> list[tuple[int, str]]:
         """Get IDs and types from Trakt watchlist"""

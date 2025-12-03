@@ -73,9 +73,10 @@ class FilesystemService(Runner[FilesystemModel]):
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
 
-    async def run(self, item: "MediaItem") -> AsyncGenerator[RunnerResult]:
+    async def run(self, item: "MediaItem") -> AsyncGenerator[RunnerResult, None]:
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
+
             yield RunnerResult(media_items=[item])
             return
 
@@ -84,8 +85,8 @@ class FilesystemService(Runner[FilesystemModel]):
 
         if not items_to_process:
             logger.debug(f"No items to process for {item.log_string}")
+
             yield RunnerResult(media_items=[item])
-            return
 
         # Process each episode/movie
         for episode_or_movie in items_to_process:

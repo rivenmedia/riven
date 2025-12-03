@@ -1,6 +1,5 @@
 """Overseerr content module"""
 
-from collections.abc import AsyncGenerator
 from kink import di
 from loguru import logger
 
@@ -51,11 +50,13 @@ class Overseerr(Runner[OverseerrModel]):
         except Exception:
             return False
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """Fetch new media from `Overseerr`"""
 
         if self.settings.use_webhook and self.run_once:
-            return
+            return RunnerResult(
+                media_items=[],
+            )
 
         overseerr_items = self.api.get_media_requests(
             self.key,
@@ -78,4 +79,4 @@ class Overseerr(Runner[OverseerrModel]):
 
         logger.info(f"Fetched {len(overseerr_items)} items from overseerr")
 
-        yield RunnerResult(media_items=overseerr_items)
+        return RunnerResult(media_items=overseerr_items)

@@ -1,4 +1,3 @@
-from collections.abc import AsyncGenerator
 from loguru import logger
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -54,7 +53,7 @@ class PostProcessing(Runner[PostProcessingModel]):
 
         return []
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """
         Run post-processing services on an item.
 
@@ -64,22 +63,23 @@ class PostProcessing(Runner[PostProcessingModel]):
         Args:
             item: MediaItem to process (can be show, season, movie, or episode)
         """
+
         # Get items to process (expand shows/seasons to episodes)
         items_to_process = self._get_items_to_process(item)
 
         if not items_to_process:
             logger.debug(f"No items to process for {item.log_string}")
-            yield RunnerResult(media_items=[item])
-            return
+            return RunnerResult(media_items=[item])
 
         # Handle subtitles
         for process_item in items_to_process:
             if self.services[SubtitleService].should_submit(process_item):
-                self.services[SubtitleService].run(process_item)
+                await self.services[SubtitleService].run(process_item)
 
             # Clean up streams when item is completed -- TODO: BLACKLISTING WONT WORK, WHY?
             # if process_item.last_state == States.Completed:
             #     process_item.streams.clear()
 
         logger.info(f"Post-processing complete for {item.log_string}")
-        yield RunnerResult(media_items=[item])
+
+        return RunnerResult(media_items=[item])

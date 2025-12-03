@@ -207,7 +207,7 @@ class Downloader(Runner[None, DownloaderBase]):
                         )
 
                         if media_analysis_service.should_submit(item):
-                            success = media_analysis_service.run(item)
+                            success = await media_analysis_service.run(item)
 
                             if success:
                                 logger.debug(

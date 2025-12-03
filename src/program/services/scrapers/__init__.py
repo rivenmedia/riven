@@ -1,4 +1,3 @@
-from collections.abc import AsyncGenerator
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -58,7 +57,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         return len(self.initialized_services) > 0
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """Scrape an item."""
 
         sorted_streams = await self.scrape(item)
@@ -98,7 +97,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         item.set("scraped_at", datetime.now())
         item.set("scraped_times", item.scraped_times + 1)
 
-        yield RunnerResult(media_items=[item])
+        return RunnerResult(media_items=[item])
 
     async def scrape(
         self,
@@ -115,7 +114,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         ) -> None:
             """Run a single service and update the results."""
 
-            service_results = await anext(svc.run(item))
+            service_results = await svc.run(item)
 
             with results_lock:
                 try:

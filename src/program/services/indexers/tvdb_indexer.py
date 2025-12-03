@@ -1,6 +1,5 @@
 """TVDB indexer module"""
 
-from collections.abc import AsyncGenerator
 from datetime import datetime
 
 import regex
@@ -28,7 +27,7 @@ class TVDBIndexer(BaseIndexer):
         self,
         item: MediaItem,
         log_msg: bool = True,
-    ) -> AsyncGenerator[RunnerResult[Show]]:
+    ) -> RunnerResult[Show]:
         """Run the TVDB indexer for the given item."""
 
         if item.type not in ["show", "mediaitem", "season", "episode"]:
@@ -36,17 +35,17 @@ class TVDBIndexer(BaseIndexer):
                 f"TVDB indexer skipping incorrect item type: {item.log_string}"
             )
 
-            return
+            return RunnerResult(media_items=[])
 
         if not (item.imdb_id or item.tvdb_id):
             logger.error(
                 f"Item {item.log_string} does not have an imdb_id or tvdb_id, cannot index it"
             )
 
-            return
+            return RunnerResult(media_items=[])
 
-        # Scenario 1: Fresh indexing - create new Show from API data
         if item.type == "mediaitem":
+            # Scenario 1: Fresh indexing - create new Show from API data
             if indexed_item := self._create_show_from_id(item.imdb_id, item.tvdb_id):
                 indexed_item = self.copy_items(item, indexed_item)
                 indexed_item.indexed_at = datetime.now()
@@ -56,12 +55,9 @@ class TVDBIndexer(BaseIndexer):
                         f"Indexed TV show {indexed_item.log_string} (IMDB: {indexed_item.imdb_id}, TVDB: {indexed_item.tvdb_id})"
                     )
 
-                yield RunnerResult(media_items=[indexed_item])
-
-                return
-
-        # Scenario 2: Re-indexing existing Show/Season/Episode - update in-place
+                return RunnerResult(media_items=[indexed_item])
         elif isinstance(item, (Show, Season, Episode)):
+            # Scenario 2: Re-indexing existing Show/Season/Episode - update in-place
             show = item.top_parent
 
             # Fetch fresh metadata from TVDB API
@@ -73,15 +69,13 @@ class TVDBIndexer(BaseIndexer):
                         f"Re-indexed TV show {show.log_string} (IMDB: {show.imdb_id}, TVDB: {show.tvdb_id})"
                     )
 
-                yield RunnerResult(media_items=[show])
-
-                return
+                return RunnerResult(media_items=[show])
 
         logger.error(
             f"Failed to index TV show with ids: imdb={item.imdb_id}, tvdb={item.tvdb_id}"
         )
 
-        return
+        return RunnerResult(media_items=[])
 
     def _update_show_metadata(self, show: Show) -> bool:
         """Update an existing Show object with fresh TVDB metadata.

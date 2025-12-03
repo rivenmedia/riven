@@ -315,6 +315,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 logger.error(f"Prowlarr request exception: {e}")
             else:
                 logger.exception(f"Prowlarr failed to scrape item with error: {e}")
+
         return {}
 
     def scrape(self, item: MediaItem) -> dict[str, str]:

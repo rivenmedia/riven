@@ -1,6 +1,5 @@
 """Updater module"""
 
-from collections.abc import AsyncGenerator
 import os
 
 from loguru import logger
@@ -40,7 +39,7 @@ class Updater(Runner[None, BaseUpdater]):
 
         return len(initialized_services) > 0
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """
         Update media servers for the given item.
 
@@ -102,7 +101,7 @@ class Updater(Runner[None, BaseUpdater]):
             f"Updated {item.log_string} ({len(refreshed_paths)} unique paths refreshed)"
         )
 
-        yield RunnerResult(media_items=[item])
+        return RunnerResult(media_items=[item])
 
     def refresh_path(self, path: str) -> bool:
         """

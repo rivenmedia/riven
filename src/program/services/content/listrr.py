@@ -1,6 +1,5 @@
 """Listrr content module"""
 
-from collections.abc import AsyncGenerator
 from kink import di
 from loguru import logger
 
@@ -75,7 +74,7 @@ class Listrr(Runner[ListrrModel]):
             logger.error(f"Listrr ping exception: {e}")
             return False
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """Fetch new media from `Listrr`"""
 
         try:
@@ -83,7 +82,10 @@ class Listrr(Runner[ListrrModel]):
             get_shows_response = self.api.get_shows(self.settings.show_lists)
         except Exception as e:
             logger.error(f"Failed to fetch items from Listrr: {e}")
-            return
+            return RunnerResult(
+                error=e,
+                media_items=[],
+            )
 
         tmdb_ids = [
             tmdb_id
@@ -122,4 +124,4 @@ class Listrr(Runner[ListrrModel]):
 
         logger.info(f"Fetched {len(listrr_items)} new items from Listrr")
 
-        yield RunnerResult(media_items=listrr_items)
+        return RunnerResult(media_items=listrr_items)

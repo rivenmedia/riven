@@ -1,6 +1,5 @@
 """TMDB indexer module"""
 
-from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from kink import di
@@ -26,20 +25,22 @@ class TMDBIndexer(BaseIndexer):
         self,
         item: MediaItem,
         log_msg: bool = True,
-    ) -> AsyncGenerator[RunnerResult[Movie], None]:
+    ) -> RunnerResult[Movie]:
         """Run the TMDB indexer for the given item."""
 
         if not (item.imdb_id or item.tmdb_id):
             logger.error(
                 f"Item {item.log_string} does not have an imdb_id or tmdb_id, cannot index it"
             )
-            return
+
+            return RunnerResult(media_items=[])
 
         if item.type not in ["movie", "mediaitem"]:
             logger.debug(
                 f"TMDB indexer skipping incorrect item type: {item.log_string}"
             )
-            return
+
+            return RunnerResult(media_items=[])
 
         # Scenario 1: Fresh indexing - create new Movie from API data
         if item.type == "mediaitem":
@@ -51,8 +52,7 @@ class TMDBIndexer(BaseIndexer):
                         f"Indexed Movie {indexed_item.log_string} (IMDB: {indexed_item.imdb_id}, TMDB: {indexed_item.tmdb_id})"
                     )
 
-                yield RunnerResult(media_items=[indexed_item])
-                return
+                return RunnerResult(media_items=[indexed_item])
 
         # Scenario 2: Re-indexing existing Movie - update in-place
         elif isinstance(item, Movie):
@@ -63,13 +63,13 @@ class TMDBIndexer(BaseIndexer):
                         f"Re-indexed Movie {item.log_string} (IMDB: {item.imdb_id}, TMDB: {item.tmdb_id})"
                     )
 
-                yield RunnerResult(media_items=[item])
-                return
+                return RunnerResult(media_items=[item])
 
         logger.error(
             f"Failed to index movie with ids: imdb={item.imdb_id}, tmdb={item.tmdb_id}"
         )
-        return
+
+        return RunnerResult(media_items=[])
 
     def _update_movie_metadata(self, movie: Movie) -> bool:
         """

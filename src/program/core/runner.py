@@ -23,6 +23,7 @@ TItemType = TypeVar("TItemType", bound=MediaItem, default=MediaItem, covariant=T
 @dataclass
 class RunnerResult(Generic[TItemType]):
     media_items: list[TItemType]
+    error: Exception | None = None
     run_at: datetime | None = None
 
 

@@ -1,6 +1,5 @@
 """Composite indexer that uses TMDB for movies and TVDB for TV shows"""
 
-from collections.abc import AsyncGenerator
 from loguru import logger
 from sqlalchemy import select
 
@@ -30,48 +29,40 @@ class IndexerService(BaseIndexer):
         self,
         item: MediaItem,
         log_msg: bool = True,
-    ) -> AsyncGenerator[RunnerResult, None]:
+    ) -> RunnerResult:
         """Run the appropriate indexer based on item type."""
 
         if isinstance(item, Movie) or (item.tmdb_id and not item.tvdb_id):
-            yield await anext(
-                self.tmdb_indexer.run(
-                    item=item,
-                    log_msg=log_msg,
-                )
+            return await self.tmdb_indexer.run(
+                item=item,
+                log_msg=log_msg,
             )
+
         elif isinstance(item, (Show, Season, Episode)) or (
             item.tvdb_id and not item.tmdb_id
         ):
-            yield await anext(
-                self.tvdb_indexer.run(
-                    item=item,
-                    log_msg=log_msg,
-                )
+            return await self.tvdb_indexer.run(
+                item=item,
+                log_msg=log_msg,
             )
         else:
-            movie_result = self.tmdb_indexer.run(
+            indexed_item = await self.tmdb_indexer.run(
                 item=item,
                 log_msg=False,
             )
 
-            indexed_item = await anext(movie_result, None)
-
             if not indexed_item:
-                show_result = self.tvdb_indexer.run(
+                indexed_item = await self.tvdb_indexer.run(
                     item=item,
                     log_msg=False,
                 )
 
-                indexed_item = await anext(show_result, None)
-
             if indexed_item:
-                yield indexed_item
-                return
+                return indexed_item
 
         logger.warning(f"Unknown item type, cannot index {item.log_string}.. skipping")
 
-        return
+        return RunnerResult(media_items=[])
 
     async def reindex_ongoing(self) -> int:
         """
@@ -124,7 +115,7 @@ class IndexerService(BaseIndexer):
 
                 for item in items:
                     try:
-                        updated = await anext(self.run(item, log_msg=False), None)
+                        updated = await self.run(item, log_msg=False)
 
                         if updated:
                             with session.no_autoflush:

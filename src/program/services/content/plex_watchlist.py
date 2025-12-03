@@ -1,6 +1,5 @@
 """Plex Watchlist Module"""
 
-from collections.abc import AsyncGenerator
 from kink import di
 from loguru import logger
 from requests import HTTPError
@@ -84,7 +83,7 @@ class PlexWatchlist(Runner[PlexWatchlistModel]):
 
         return True
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
 
         try:
@@ -92,18 +91,22 @@ class PlexWatchlist(Runner[PlexWatchlistModel]):
             rss_items = self.api.get_items_from_rss() if self.api.rss_enabled else []
         except Exception as e:
             logger.warning(f"Error fetching items: {e}")
-            return
 
-        items_to_yield = list[MediaItem]()
+            return RunnerResult(
+                error=e,
+                media_items=[],
+            )
+
+        media_items = list[MediaItem]()
 
         if watchlist_items:
             for d in watchlist_items:
                 if d["tvdb_id"] and not d["tmdb_id"]:  # show
-                    items_to_yield.append(
+                    media_items.append(
                         MediaItem({"tvdb_id": d["tvdb_id"], "requested_by": self.key})
                     )
                 elif d["tmdb_id"] and not d["tvdb_id"]:  # movie
-                    items_to_yield.append(
+                    media_items.append(
                         MediaItem({"tmdb_id": d["tmdb_id"], "requested_by": self.key})
                     )
 
@@ -111,23 +114,23 @@ class PlexWatchlist(Runner[PlexWatchlistModel]):
             for r in rss_items:
                 _type, _id = r
                 if _type == "show":
-                    items_to_yield.append(
+                    media_items.append(
                         MediaItem({"tvdb_id": _id, "requested_by": self.key})
                     )
                 elif _type == "movie":
-                    items_to_yield.append(
+                    media_items.append(
                         MediaItem({"tmdb_id": _id, "requested_by": self.key})
                     )
 
-        if items_to_yield:
-            items_to_yield = [
+        if media_items:
+            media_items = [
                 item
-                for item in items_to_yield
+                for item in media_items
                 if not item_exists_by_any_id(
                     imdb_id=item.imdb_id, tvdb_id=item.tvdb_id, tmdb_id=item.tmdb_id
                 )
             ]
 
-        logger.info(f"Fetched {len(items_to_yield)} new items from plex watchlist")
+        logger.info(f"Fetched {len(media_items)} new items from plex watchlist")
 
-        yield RunnerResult(media_items=items_to_yield)
+        return RunnerResult(media_items=media_items)

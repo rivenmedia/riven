@@ -85,6 +85,7 @@ class Rarbg(ScraperService[RarbgConfig]):
                 )
             else:
                 logger.exception(f"TheRARBG exception thrown: {str(e)}")
+
         return {}
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
