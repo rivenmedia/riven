@@ -67,6 +67,13 @@ class Downloader(Runner[None, DownloaderBase]):
             settings_manager.settings.post_processing.subtitle.enabled
         )
 
+    def get_service(self, key: str) -> DownloaderBase | None:
+        """Get a service by key"""
+        for service in self.initialized_services:
+            if service.key == key:
+                return service
+        return None
+
     def validate(self):
         if not self.initialized_services:
             logger.error(
@@ -647,39 +654,74 @@ class Downloader(Runner[None, DownloaderBase]):
             list[TorrentContainer]: A list of TorrentContainer objects representing available cached torrents; empty list if none are found.
         """
 
+        if limit_filesize:
+            # If limiting filesize, we want to check all services to find one that has the file
+            # This is used for manual scraping where we want to find ANY valid source
+            for service in self.initialized_services:
+                container = service.get_instant_availability(
+                    infohash, item_type, limit_filesize=limit_filesize
+                )
+                if container and container.cached:
+                    container.service = service.key
+                    return container
+            return None
+
         assert self.service
 
         return self.service.get_instant_availability(
             infohash, item_type, limit_filesize=limit_filesize
         )
 
-    def add_torrent(self, infohash: str) -> int | str:
+    def add_torrent(
+        self, infohash: str, service: DownloaderBase | None = None
+    ) -> int | str:
         """Add a torrent by infohash"""
 
-        assert self.service
+        if service is None:
+            service = self.service
 
-        return self.service.add_torrent(infohash)
+        assert service
 
-    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
+        return service.add_torrent(infohash)
+
+    def get_torrent_info(
+        self, torrent_id: int | str, service: DownloaderBase | None = None
+    ) -> TorrentInfo:
         """Get information about a torrent"""
 
-        assert self.service
+        if service is None:
+            service = self.service
 
-        return self.service.get_torrent_info(torrent_id)
+        assert service
 
-    def select_files(self, torrent_id: int | str, container: list[int]) -> None:
+        return service.get_torrent_info(torrent_id)
+
+    def select_files(
+        self,
+        torrent_id: int | str,
+        container: list[int],
+        service: DownloaderBase | None = None,
+    ) -> None:
         """Select files from a torrent"""
 
-        assert self.service
+        if service is None:
+            service = self.service
 
-        self.service.select_files(torrent_id, container)
+        assert service
 
-    def delete_torrent(self, torrent_id: int | str) -> None:
+        service.select_files(torrent_id, container)
+
+    def delete_torrent(
+        self, torrent_id: int | str, service: DownloaderBase | None = None
+    ) -> None:
         """Delete a torrent"""
 
-        assert self.service
+        if service is None:
+            service = self.service
 
-        self.service.delete_torrent(torrent_id)
+        assert service
+
+        service.delete_torrent(torrent_id)
 
     def get_user_info(self, service: "DownloaderBase") -> UserInfo | None:
         """Get user information"""

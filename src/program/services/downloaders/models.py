@@ -137,6 +137,7 @@ class TorrentContainer(BaseModel):
     files: list[DebridFile] = Field(default_factory=list[DebridFile])
     torrent_id: int | str | None = None  # Cached torrent_id to avoid re-adding
     torrent_info: "TorrentInfo | None" = None  # Cached info to avoid re-fetching
+    service: str | None = None  # The service key this container belongs to
 
     @property
     def cached(self) -> bool:

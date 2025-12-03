@@ -125,6 +125,7 @@ class ScrapingSession:
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
         magnet: str | None = None,
+        service: str | None = None,
     ):
         self.id = id
         self.item_id = item_id
@@ -133,6 +134,7 @@ class ScrapingSession:
         self.tmdb_id = tmdb_id
         self.tvdb_id = tvdb_id
         self.magnet = magnet
+        self.service = service
         self.torrent_id: int | str | None = None
         self.torrent_info: TorrentInfo | None = None
         self.containers: TorrentContainer | None = None
@@ -158,6 +160,7 @@ class ScrapingSessionManager:
         imdb_id: str | None = None,
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
+        service: str | None = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
@@ -169,6 +172,7 @@ class ScrapingSessionManager:
             tmdb_id,
             tvdb_id,
             magnet,
+            service,
         )
         self.sessions[session_id] = session
         return session
@@ -437,13 +441,15 @@ async def start_manual_session(
         imdb_id=imdb_id,
         tmdb_id=tmdb_id,
         tvdb_id=tvdb_id,
+        service=container.service,
     )
 
     logger.debug(f"Created session {session.id} with item ID: {session.item_id}")
 
     try:
-        torrent_id = downloader.add_torrent(info_hash)
-        torrent_info = downloader.get_torrent_info(torrent_id)
+        service_instance = downloader.get_service(container.service) if container.service else None
+        torrent_id = downloader.add_torrent(info_hash, service=service_instance)
+        torrent_info = downloader.get_torrent_info(torrent_id, service=service_instance)
         scraping_session_manager.update_session(
             session_id=session.id,
             torrent_id=torrent_id,
@@ -495,8 +501,9 @@ def manual_select_files(
         download_type = "cached"
 
     try:
+        service_instance = downloader.get_service(session.service) if session.service else None
         downloader.select_files(
-            session.torrent_id, [int(file_id) for file_id in files.root.keys()]
+            session.torrent_id, [int(file_id) for file_id in files.root.keys()], service=service_instance
         )
 
         session.selected_files = files.model_dump()
@@ -599,6 +606,13 @@ async def manual_update_attributes(
     item = session.merge(item)
     item_ids_to_submit = set[int]()
 
+    if services := di[Program].services:
+        downloader = services.downloader
+    else:
+        raise HTTPException(status_code=412, detail="Required services not initialized")
+
+    service_instance = downloader.get_service(scraping_session.service) if scraping_session.service else None
+
     def update_item(item: MediaItem, data: DebridFile):
         """
         Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
@@ -621,8 +635,7 @@ async def manual_update_attributes(
             fs_entry.original_filename = data.filename
         else:
             # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-            downloader = di[Program].services.downloader
-            provider = downloader.service.key if downloader and downloader.service else None
+            provider = service_instance.key if service_instance else None
 
             # Get torrent ID from scraping session
             torrent_id = (
@@ -632,10 +645,10 @@ async def manual_update_attributes(
             download_url = data.download_url
             
             # If download_url is missing, try to refresh torrent info to get it
-            if not download_url and torrent_id and downloader and downloader.service:
+            if not download_url and torrent_id and service_instance:
                 try:
                     logger.debug(f"Refreshing torrent info for {torrent_id} to resolve download_url")
-                    fresh_info = downloader.service.get_torrent_info(torrent_id)
+                    fresh_info = service_instance.get_torrent_info(torrent_id)
                     
                     # Find matching file
                     for file in fresh_info.files.values():
