@@ -119,7 +119,7 @@ class Mediafusion(ScraperService[MediafusionConfig]):
             logger.error(f"Mediafusion failed to initialize: {e}")
             return False
 
-    def run(self, item: MediaItem) -> dict[str, str]:
+    async def run(self, item: MediaItem) -> dict[str, str]:
         """
         Scrape the mediafusion site for the given media items
         and update the object with scraped streams

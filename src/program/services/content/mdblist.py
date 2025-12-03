@@ -1,5 +1,6 @@
 """Mdblist content module"""
 
+from collections.abc import AsyncGenerator
 from kink import di
 from loguru import logger
 
@@ -8,7 +9,7 @@ from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings import settings_manager
 from program.settings.models import MdblistModel
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 
 
 class Mdblist(Runner[MdblistModel]):
@@ -48,7 +49,7 @@ class Mdblist(Runner[MdblistModel]):
 
         return self.api.validate()
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         """Fetch media from mdblist and add them to media_items attribute"""
 
         items_to_yield = list[MediaItem]()

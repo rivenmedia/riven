@@ -128,11 +128,8 @@ server = uvicorn.Server(config=config)
 
 @contextlib.asynccontextmanager
 async def server_lifecycle():
-    async def _start_server():
-        await trio.to_thread.run_sync(server.run)
-
     try:
-        async with trio_util.run_and_cancelling(_start_server):
+        async with trio_util.run_and_cancelling(trio.to_thread.run_sync, server.run):
             await di[Program].start()
 
             yield
@@ -151,6 +148,8 @@ async def main():
                 lambda: di[Program].initialized.wait_value(False)
             ):
                 await di[Program].run()
+
+            logger.debug("Main server loop has ended")
 
     logger.critical("Server has been stopped")
 

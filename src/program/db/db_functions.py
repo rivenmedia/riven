@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import threading
 import os
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import AsyncGenerator, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -15,13 +14,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from program.media.state import States
 from program.media.stream import StreamBlacklistRelation, StreamRelation
-from program.core.runner import MediaItemGenerator
+from program.core.runner import Runner, RunnerResult
 from program.db.base_model import get_base_metadata
 
 from .db import db, db_session
 
 if TYPE_CHECKING:
-    from program.types import Service
     from program.program import Program
     from program.types import Event
     from program.media.item import MediaItem, Episode
@@ -331,12 +329,12 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
     return calendar
 
 
-def run_thread_with_db_item(
-    fn: Callable[..., MediaItemGenerator],
-    service: "Service",
+async def run_thread_with_db_item(
+    fn: Callable[..., AsyncGenerator[RunnerResult[MediaItem]]],
+    *,
+    service: "Runner",
     program: "Program",
     event: Event | None,
-    cancellation_event: threading.Event,
 ) -> int | tuple[int, datetime] | None:
     """
     Run a worker function against a database-backed MediaItem or enqueue items produced by a content service.
@@ -351,7 +349,6 @@ def run_thread_with_db_item(
         service: The calling service (used for logging/queueing context).
         program: The program runtime which exposes the event manager/queue (program.em).
         event: An Event object that may contain `item_id` or `content_item`, selecting the processing path.
-        cancellation_event: An Event used to short-circuit commits/updates if set.
 
     Returns:
         The produced item identifier as a string, a tuple `(item_id, run_at)` when the worker returned scheduling info, or `None` when no item was produced or processing was skipped.
@@ -366,7 +363,7 @@ def run_thread_with_db_item(
 
                 if input_item:
                     input_item = session.merge(input_item)
-                    runner_result = next(fn(input_item), None)
+                    runner_result = await anext(fn(input_item), None)
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:
@@ -377,16 +374,15 @@ def run_thread_with_db_item(
                         item = runner_result.media_items[0]
                         run_at = runner_result.run_at
 
-                        if not cancellation_event.is_set():
-                            # Update parent item based on type
-                            if isinstance(input_item, Episode):
-                                input_item.parent.parent.store_state()
-                            elif isinstance(input_item, Season):
-                                input_item.parent.store_state()
-                            else:
-                                item.store_state()
+                        # Update parent item based on type
+                        if isinstance(input_item, Episode):
+                            input_item.parent.parent.store_state()
+                        elif isinstance(input_item, Season):
+                            input_item.parent.store_state()
+                        else:
+                            item.store_state()
 
-                            session.commit()
+                        session.commit()
 
                         if run_at:
                             return (item.id, run_at)
@@ -394,7 +390,7 @@ def run_thread_with_db_item(
                         return item.id
 
             if event.content_item:
-                runner_result = next(fn(event.content_item), None)
+                runner_result = await anext(fn(event.content_item), None)
 
                 if runner_result is None:
                     msg = event.content_item.log_string or event.content_item.imdb_id
@@ -428,25 +424,24 @@ def run_thread_with_db_item(
 
                 session.add(indexed_item)
 
-                if not cancellation_event.is_set():
-                    try:
-                        session.commit()
-                    except IntegrityError as e:
-                        if "duplicate key value violates unique constraint" in str(e):
-                            logger.debug(
-                                f"Item with ID {event.item_id} was added by another process, skipping"
-                            )
+                try:
+                    session.commit()
+                except IntegrityError as e:
+                    if "duplicate key value violates unique constraint" in str(e):
+                        logger.debug(
+                            f"Item with ID {event.item_id} was added by another process, skipping"
+                        )
 
-                            session.rollback()
+                        session.rollback()
 
-                            return None
+                        return None
 
-                        raise
+                    raise
 
                 return indexed_item.id
     else:
         # Content services dont pass events
-        runner_result = next(fn(None), None)
+        runner_result = await anext(fn(None), None)
 
         if runner_result:
             for item in runner_result.media_items:

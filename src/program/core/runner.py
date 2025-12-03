@@ -1,16 +1,12 @@
 from abc import ABC, abstractmethod
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
+
 from program.settings.models import Observable
 from program.media.item import MediaItem
-
-
-type MediaItemGenerator[T: MediaItem = MediaItem] = Generator[
-    RunnerResult[T], None, RunnerResult[T] | None
-]
 
 TSettings = TypeVar(
     "TSettings",
@@ -23,17 +19,18 @@ TService = TypeVar("TService", bound=Any | None, default="Runner")
 
 TItemType = TypeVar("TItemType", bound=MediaItem, default=MediaItem, covariant=True)
 
-TRunnerReturnType = TypeVar(
-    "TRunnerReturnType",
-    bound=MediaItemGenerator | dict[str, str] | bool | None,
-    default=MediaItemGenerator,
-)
-
 
 @dataclass
 class RunnerResult(Generic[TItemType]):
     media_items: list[TItemType]
     run_at: datetime | None = None
+
+
+TRunnerReturnType = TypeVar(
+    "TRunnerReturnType",
+    bound=RunnerResult | dict[str, str] | bool | None,
+    default=RunnerResult,
+)
 
 
 class Runner(ABC, Generic[TSettings, TService, TRunnerReturnType]):
@@ -74,10 +71,12 @@ class Runner(ABC, Generic[TSettings, TService, TRunnerReturnType]):
         return True
 
     @abstractmethod
-    def run(self, item: MediaItem) -> TRunnerReturnType:
+    async def run(
+        self, item: MediaItem
+    ) -> AsyncGenerator[TRunnerReturnType] | TRunnerReturnType:
         """Run the base runner"""
 
-        raise NotImplementedError
+        yield  # type: ignore
 
     def should_submit(self, item: MediaItem) -> bool:
         """Determine if the runner should submit an item for processing."""

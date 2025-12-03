@@ -1,5 +1,6 @@
 """Plex Watchlist Module"""
 
+from collections.abc import AsyncGenerator
 from kink import di
 from loguru import logger
 from requests import HTTPError
@@ -9,7 +10,7 @@ from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings import settings_manager
 from program.settings.models import PlexWatchlistModel
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 
 
 class PlexWatchlist(Runner[PlexWatchlistModel]):
@@ -83,7 +84,7 @@ class PlexWatchlist(Runner[PlexWatchlistModel]):
 
         return True
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         """Fetch new media from `Plex Watchlist` and RSS feed if enabled."""
 
         try:

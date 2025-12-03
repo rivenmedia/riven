@@ -1,5 +1,6 @@
 """Updater module"""
 
+from collections.abc import AsyncGenerator
 import os
 
 from loguru import logger
@@ -9,7 +10,7 @@ from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
 from program.settings import settings_manager
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 from program.services.updaters.base import BaseUpdater
 
 
@@ -39,7 +40,7 @@ class Updater(Runner[None, BaseUpdater]):
 
         return len(initialized_services) > 0
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         """
         Update media servers for the given item.
 

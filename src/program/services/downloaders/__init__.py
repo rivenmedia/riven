@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
@@ -32,7 +33,7 @@ from RTN import ParsedData
 from program.services.downloaders.shared import parse_filename
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
@@ -79,7 +80,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return True
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         # Check if all services are in cooldown due to circuit breaker

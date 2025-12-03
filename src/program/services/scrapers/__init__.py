@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -18,7 +19,7 @@ from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 from program.settings.models import Observable, ScraperModel
 from program.services.scrapers.base import ScraperService
 
@@ -57,10 +58,10 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         return len(self.initialized_services) > 0
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         """Scrape an item."""
 
-        sorted_streams = self.scrape(item)
+        sorted_streams = await self.scrape(item)
         new_streams = [
             stream
             for stream in sorted_streams.values()
@@ -99,7 +100,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         yield RunnerResult(media_items=[item])
 
-    def scrape(
+    async def scrape(
         self,
         item: MediaItem,
         verbose_logging: bool = True,
@@ -109,10 +110,12 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         results = dict[str, str]()
         results_lock = threading.RLock()
 
-        def run_service(svc: "ScraperService[Observable]", item: MediaItem) -> None:
+        async def run_service(
+            svc: "ScraperService[Observable]", item: MediaItem
+        ) -> None:
             """Run a single service and update the results."""
 
-            service_results = svc.run(item)
+            service_results = await anext(svc.run(item))
 
             with results_lock:
                 try:
@@ -133,7 +136,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
             for future in as_completed(futures):
                 try:
-                    future.result()
+                    await future.result()
                 except Exception as e:
                     logger.error(
                         f"Exception occurred while running service {futures[future]}: {e}"

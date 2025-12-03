@@ -1,5 +1,6 @@
 """Listrr content module"""
 
+from collections.abc import AsyncGenerator
 from kink import di
 from loguru import logger
 
@@ -8,7 +9,7 @@ from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings import settings_manager
 from program.settings.models import ListrrModel
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 
 
 class Listrr(Runner[ListrrModel]):
@@ -74,7 +75,7 @@ class Listrr(Runner[ListrrModel]):
             logger.error(f"Listrr ping exception: {e}")
             return False
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         """Fetch new media from `Listrr`"""
 
         try:

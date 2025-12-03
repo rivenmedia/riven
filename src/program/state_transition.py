@@ -5,10 +5,11 @@ from loguru import logger
 from program.media import MediaItem, States
 from program.types import ProcessedEvent, Service
 from program.media.item import Season, Show
+from program.core.runner import Runner
 
 
 def process_event(
-    emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str,
+    emitted_by: Runner | Literal["StateTransition", "RetryLibrary"] | str,
     existing_item: MediaItem | None = None,
     content_item: MediaItem | None = None,
 ) -> ProcessedEvent:

@@ -1,5 +1,6 @@
 """Trakt content module"""
 
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from typing import Any, Literal, TypeIs
 
@@ -26,7 +27,7 @@ from schemas.trakt import (
     GetTrendingMovies200ResponseInner,
     GetTrendingShows200ResponseInner,
 )
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 
 
 class TraktContent(Runner[TraktModel]):
@@ -78,7 +79,7 @@ class TraktContent(Runner[TraktModel]):
 
         return False
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
 
         watchlist_ids = (

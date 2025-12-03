@@ -1,10 +1,11 @@
+from collections.abc import AsyncGenerator
 from loguru import logger
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.services.post_processing.subtitles.subtitle import SubtitleService
 from program.settings import settings_manager
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 from program.settings.models import PostProcessing as PostProcessingModel
 
 
@@ -53,7 +54,7 @@ class PostProcessing(Runner[PostProcessingModel]):
 
         return []
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
         """
         Run post-processing services on an item.
 

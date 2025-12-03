@@ -4,13 +4,14 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 from kink import di
 from loguru import logger
 
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 from program.settings.models import FilesystemModel
 from program.utils.nursery import Nursery
 
@@ -50,7 +51,9 @@ class FilesystemService(Runner[FilesystemModel]):
             # If VFS already exists and is mounted, synchronize it with current settings
             if self.riven_vfs and self.riven_vfs.mounted:
                 logger.info("Synchronizing existing RivenVFS with library profiles")
-                self.riven_vfs.sync()
+
+                await self.riven_vfs.sync()
+
                 return
 
             # Create new VFS instance
@@ -70,7 +73,7 @@ class FilesystemService(Runner[FilesystemModel]):
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
 
-    def run(self, item: "MediaItem") -> MediaItemGenerator:
+    async def run(self, item: "MediaItem") -> AsyncGenerator[RunnerResult]:
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
             yield RunnerResult(media_items=[item])
@@ -78,6 +81,7 @@ class FilesystemService(Runner[FilesystemModel]):
 
         # Expand parent items (show/season) to leaf items (episodes/movies)
         items_to_process = get_items_to_update(item)
+
         if not items_to_process:
             logger.debug(f"No items to process for {item.log_string}")
             yield RunnerResult(media_items=[item])
@@ -85,7 +89,7 @@ class FilesystemService(Runner[FilesystemModel]):
 
         # Process each episode/movie
         for episode_or_movie in items_to_process:
-            success = self.riven_vfs.add(episode_or_movie)
+            success = await self.riven_vfs.add(episode_or_movie)
 
             if not success:
                 logger.error(f"Failed to register {item.log_string} with RivenVFS")

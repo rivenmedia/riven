@@ -61,13 +61,13 @@ class NotificationService(Runner[NotificationsModel, None, None]):
 
         return True  # Service is always valid, even if no external services configured
 
-    def run(
+    async def run(
         self,
         item: MediaItem,
         *,
         previous_state: States | None = None,
         new_state: States | None = None,
-    ):
+    ) -> None:
         """
         Main entry point for sending notifications.
 

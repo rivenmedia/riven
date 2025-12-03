@@ -300,7 +300,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                     f"Next scan will be at {next_scan_time.strftime('%Y-%m-%d %H:%M')}"
                 )
 
-    def run(self, item: MediaItem) -> dict[str, str]:
+    async def run(self, item: MediaItem) -> dict[str, str]:
         """
         Scrape the Prowlarr site for the given media items
         and update the object with scraped streams

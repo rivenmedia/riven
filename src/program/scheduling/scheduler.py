@@ -7,11 +7,12 @@ for content services and item-specific schedules.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from kink import di
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from program.types import Event
 from program.utils.logging import log_cleaner, logger
 from program.apis.tvdb_api import SeriesRelease
 from schemas.tvdb.models.series_airs_days import SeriesAirsDays
+from program.utils.nursery import Nursery
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -45,7 +47,7 @@ class ProgramScheduler:
 
     def __init__(self, program: "Program") -> None:
         self.program = program
-        self.scheduler = BackgroundScheduler()
+        self.scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
         """Create and start the background scheduler with all jobs registered."""
@@ -65,7 +67,9 @@ class ProgramScheduler:
 
         assert self.scheduler is not None
 
-        scheduled_functions = dict[Callable[..., None], ScheduledFunctionConfig](
+        scheduled_functions = dict[
+            Callable[..., Awaitable[None] | None], ScheduledFunctionConfig
+        ](
             {
                 vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
             }
@@ -119,14 +123,10 @@ class ProgramScheduler:
             )
 
             if use_webhook:
-                self.scheduler.add_job(
+                di[Nursery].nursery.start_soon(
                     self.program.em.submit_job,
-                    "date",
-                    run_date=datetime.now(),
-                    args=[service_instance, self.program],
-                    id=f"{service_name}_update_once",
-                    replace_existing=True,
-                    misfire_grace_time=30,
+                    service_instance,
+                    self.program,
                 )
 
                 logger.debug(
@@ -193,7 +193,7 @@ class ProgramScheduler:
             logger.error(f"Scheduler DB error: {e}")
             return []
 
-    def _process_scheduled_tasks(self) -> None:
+    async def _process_scheduled_tasks(self) -> None:
         """
         Process due scheduled tasks by delegating to focused helpers.
 
@@ -203,19 +203,21 @@ class ProgramScheduler:
         - handling reindex vs. release tasks;
         - updating task status with consistent error handling.
         """
+
         try:
             with db_session() as session:
                 now = datetime.now()
                 due_tasks = self._get_pending_scheduled_tasks(session)
+
                 if not due_tasks:
                     return
 
                 for task in due_tasks:
-                    self._process_single_scheduled_task(session, task, now)
+                    await self._process_single_scheduled_task(session, task, now)
         except SQLAlchemyError as e:
             logger.error(f"Scheduler DB error: {e}")
 
-    def _process_single_scheduled_task(
+    async def _process_single_scheduled_task(
         self,
         session: Session,
         task: ScheduledTask,
@@ -247,7 +249,7 @@ class ProgramScheduler:
                 return
 
             if task.task_type in ("reindex_show", "reindex", "reindex_movie"):
-                self._run_reindex_for_item(session, item)
+                await self._run_reindex_for_item(session, item)
             else:
                 self._enqueue_item_if_needed(session, item)
 
@@ -279,14 +281,14 @@ class ProgramScheduler:
 
         return session.merge(item)
 
-    def _run_reindex_for_item(self, session: Session, item: MediaItem) -> None:
+    async def _run_reindex_for_item(self, session: Session, item: MediaItem) -> None:
         """Run indexer service for an item if available and persist updates."""
 
         assert self.program.services, "Services not initialized in Program"
 
         indexer_service = self.program.services.indexer
 
-        updated = next(indexer_service.run(item, log_msg=False), None)
+        updated = await anext(indexer_service.run(item, log_msg=False), None)
 
         if updated:
             session.merge(updated.media_items[0])

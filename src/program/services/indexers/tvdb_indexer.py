@@ -1,5 +1,6 @@
 """TVDB indexer module"""
 
+from collections.abc import AsyncGenerator
 from datetime import datetime
 
 import regex
@@ -10,7 +11,7 @@ from program.apis.tvdb_api import SeriesRelease, TVDBApi
 from program.apis.trakt_api import TraktAPI
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.indexers.base import BaseIndexer
-from program.core.runner import MediaItemGenerator, RunnerResult
+from program.core.runner import RunnerResult
 from schemas.tvdb import SeasonExtendedRecord, EpisodeBaseRecord
 
 
@@ -23,11 +24,11 @@ class TVDBIndexer(BaseIndexer):
         self.api = di[TVDBApi]
         self.trakt_api = di[TraktAPI]
 
-    def run(
+    async def run(
         self,
         item: MediaItem,
         log_msg: bool = True,
-    ) -> MediaItemGenerator[Show]:
+    ) -> AsyncGenerator[RunnerResult[Show]]:
         """Run the TVDB indexer for the given item."""
 
         if item.type not in ["show", "mediaitem", "season", "episode"]:

@@ -1,5 +1,6 @@
 """TMDB indexer module"""
 
+from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from kink import di
@@ -9,7 +10,7 @@ from program.apis.tmdb_api import TMDBApi
 from program.apis.trakt_api import TraktAPI
 from program.media.item import MediaItem, Movie
 from program.services.indexers.base import BaseIndexer
-from program.core.runner import MediaItemGenerator, RunnerResult
+from program.core.runner import RunnerResult
 
 
 class TMDBIndexer(BaseIndexer):
@@ -21,11 +22,11 @@ class TMDBIndexer(BaseIndexer):
         self.api = di[TMDBApi]
         self.trakt_api = di[TraktAPI]
 
-    def run(
+    async def run(
         self,
         item: MediaItem,
         log_msg: bool = True,
-    ) -> MediaItemGenerator[Movie]:
+    ) -> AsyncGenerator[RunnerResult[Movie], None]:
         """Run the TMDB indexer for the given item."""
 
         if not (item.imdb_id or item.tmdb_id):

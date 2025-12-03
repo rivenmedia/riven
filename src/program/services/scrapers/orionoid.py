@@ -210,7 +210,7 @@ class Orionoid(ScraperService[OrionoidConfig]):
 
         return False
 
-    def run(self, item: MediaItem) -> dict[str, str]:
+    async def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape the orionoid site for the given media items and update the object with scraped streams."""
 
         if not self.is_unlimited:

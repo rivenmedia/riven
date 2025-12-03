@@ -75,7 +75,7 @@ class Zilean(ScraperService[ZileanConfig]):
             logger.error(f"Zilean failed to initialize: {e}")
             return False
 
-    def run(self, item: MediaItem) -> dict[str, str]:
+    async def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape the Zilean site for the given media items and update the object with scraped items"""
 
         try:

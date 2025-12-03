@@ -1,5 +1,6 @@
 """Composite indexer that uses TMDB for movies and TVDB for TV shows"""
 
+from collections.abc import AsyncGenerator
 from loguru import logger
 from sqlalchemy import select
 
@@ -9,7 +10,7 @@ from program.media.state import States
 from program.services.indexers.base import BaseIndexer
 from program.services.indexers.tmdb_indexer import TMDBIndexer
 from program.services.indexers.tvdb_indexer import TVDBIndexer
-from program.core.runner import MediaItemGenerator
+from program.core.runner import RunnerResult
 
 
 class IndexerService(BaseIndexer):
@@ -25,24 +26,28 @@ class IndexerService(BaseIndexer):
     def get_key(cls) -> str:
         return "indexer"
 
-    def run(
+    async def run(
         self,
         item: MediaItem,
         log_msg: bool = True,
-    ) -> MediaItemGenerator:
+    ) -> AsyncGenerator[RunnerResult, None]:
         """Run the appropriate indexer based on item type."""
 
         if isinstance(item, Movie) or (item.tmdb_id and not item.tvdb_id):
-            yield from self.tmdb_indexer.run(
-                item=item,
-                log_msg=log_msg,
+            yield await anext(
+                self.tmdb_indexer.run(
+                    item=item,
+                    log_msg=log_msg,
+                )
             )
         elif isinstance(item, (Show, Season, Episode)) or (
             item.tvdb_id and not item.tmdb_id
         ):
-            yield from self.tvdb_indexer.run(
-                item=item,
-                log_msg=log_msg,
+            yield await anext(
+                self.tvdb_indexer.run(
+                    item=item,
+                    log_msg=log_msg,
+                )
             )
         else:
             movie_result = self.tmdb_indexer.run(
@@ -50,14 +55,15 @@ class IndexerService(BaseIndexer):
                 log_msg=False,
             )
 
-            indexed_item = next(movie_result, None)
+            indexed_item = await anext(movie_result, None)
 
             if not indexed_item:
                 show_result = self.tvdb_indexer.run(
                     item=item,
                     log_msg=False,
                 )
-                indexed_item = next(show_result, None)
+
+                indexed_item = await anext(show_result, None)
 
             if indexed_item:
                 yield indexed_item
@@ -67,7 +73,7 @@ class IndexerService(BaseIndexer):
 
         return
 
-    def reindex_ongoing(self) -> int:
+    async def reindex_ongoing(self) -> int:
         """
         Reindex all ongoing/unreleased movies and shows by updating them in-place.
 
@@ -118,7 +124,7 @@ class IndexerService(BaseIndexer):
 
                 for item in items:
                     try:
-                        updated = next(self.run(item, log_msg=False), None)
+                        updated = await anext(self.run(item, log_msg=False), None)
 
                         if updated:
                             with session.no_autoflush:

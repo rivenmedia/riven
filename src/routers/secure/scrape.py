@@ -256,7 +256,7 @@ def initialize_downloader(downloader: Downloader):
     operation_id="scrape_item",
     response_model=ScrapeItemResponse,
 )
-def scrape_item(
+async def scrape_item(
     item_id: Annotated[
         str | None,
         Query(description="The ID of the media item"),
@@ -301,7 +301,7 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            indexer_result = next(indexer.run(prepared_item), None)
+            indexer_result = await anext(indexer.run(prepared_item), None)
         elif tvdb_id and media_type == "tv":
             prepared_item = MediaItem(
                 {
@@ -310,7 +310,7 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            indexer_result = next(indexer.run(prepared_item), None)
+            indexer_result = await anext(indexer.run(prepared_item), None)
         elif imdb_id:
             prepared_item = MediaItem(
                 {
@@ -320,7 +320,7 @@ def scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
-            indexer_result = next(indexer.run(prepared_item), None)
+            indexer_result = await anext(indexer.run(prepared_item), None)
         else:
             raise HTTPException(status_code=400, detail="No valid ID provided")
 
@@ -400,7 +400,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        indexer_result = next(indexer.run(prepared_item), None)
+        indexer_result = await anext(indexer.run(prepared_item), None)
     elif tvdb_id and media_type == "tv":
         prepared_item = MediaItem(
             {
@@ -409,7 +409,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        indexer_result = next(indexer.run(prepared_item), None)
+        indexer_result = await anext(indexer.run(prepared_item), None)
     elif imdb_id:
         prepared_item = MediaItem(
             {
@@ -418,7 +418,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        indexer_result = next(indexer.run(prepared_item), None)
+        indexer_result = await anext(indexer.run(prepared_item), None)
     else:
         raise HTTPException(status_code=400, detail="No valid ID provided")
 
@@ -601,7 +601,7 @@ async def manual_update_attributes(
             item_data["requested_at"] = datetime.now()
             prepared_item = MediaItem(item_data)
 
-            indexer_result = next(IndexerService().run(prepared_item), None)
+            indexer_result = await anext(IndexerService().run(prepared_item), None)
 
             if indexer_result:
                 item = indexer_result.media_items[0]
@@ -738,7 +738,8 @@ async def manual_update_attributes(
         )
 
     if filesystem_service and filesystem_service.riven_vfs:
-        filesystem_service.riven_vfs.sync(item)
+        await filesystem_service.riven_vfs.sync(item)
+
         logger.debug("VFS synced after manual scraping update")
 
     if item_ids_to_submit:

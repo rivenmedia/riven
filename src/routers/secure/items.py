@@ -1,6 +1,6 @@
 import os
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
@@ -69,11 +69,11 @@ def handle_ids(ids: str) -> list[int]:
 
 
 # Convenience helper to mutate an item and update states consistently
-def apply_item_mutation(
+async def apply_item_mutation(
     program: Program,
     session: Session,
     item: MediaItem,
-    mutation_fn: "Callable[[MediaItem, Session], None]",
+    mutation_fn: "Callable[[MediaItem, Session], Awaitable[None]]",
     bubble_parents: bool = True,
 ) -> None:
     """Cancel jobs, apply mutation, then update item and ancestor states.
@@ -547,7 +547,7 @@ async def reset_items(
                         if refresh_path not in refresh_paths:
                             refresh_paths.append(refresh_path)
 
-                def mutation(i: MediaItem, s: Session):
+                async def mutation(i: MediaItem, s: Session):
                     """
                     Blacklist the MediaItem's currently active stream and reset the item's state.
 
@@ -559,7 +559,7 @@ async def reset_items(
                     i.blacklist_active_stream()
                     i.reset()
 
-                apply_item_mutation(
+                await apply_item_mutation(
                     di[Program],
                     session,
                     media_item,
@@ -627,11 +627,11 @@ async def retry_items(
 
                 if item:
 
-                    def mutation(i: MediaItem, s: Session):
+                    async def mutation(i: MediaItem, s: Session):
                         i.scraped_at = None
                         i.scraped_times = 1
 
-                    apply_item_mutation(
+                    await apply_item_mutation(
                         program=di[Program],
                         session=session,
                         item=item,
@@ -803,7 +803,7 @@ async def remove_item(
 
         # 4. Remove from VFS
         if services.filesystem.riven_vfs:
-            services.filesystem.riven_vfs.remove(item)
+            await services.filesystem.riven_vfs.remove(item)
 
         # 5. Delete from database using ORM
         session.delete(item)
@@ -908,10 +908,16 @@ async def blacklist_stream(
             detail="Stream not found",
         )
 
-    def mutation(i: MediaItem, s: Session):
+    async def mutation(i: MediaItem, s: Session):
         i.blacklist_stream(stream)
 
-    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
+    await apply_item_mutation(
+        di[Program],
+        db,
+        item,
+        mutation,
+        bubble_parents=True,
+    )
 
     db.commit()
 
@@ -964,10 +970,16 @@ async def unblacklist_stream(
             status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found"
         )
 
-    def mutation(i: MediaItem, s: Session):
+    async def mutation(i: MediaItem, s: Session):
         i.unblacklist_stream(stream)
 
-    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
+    await apply_item_mutation(
+        di[Program],
+        db,
+        item,
+        mutation,
+        bubble_parents=True,
+    )
 
     db.commit()
 
@@ -1004,12 +1016,18 @@ async def reset_item_streams(
             status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
         )
 
-    def mutation(i: MediaItem, s: Session):
+    async def mutation(i: MediaItem, s: Session):
         i.streams.clear()
         i.blacklisted_streams.clear()
         i.active_stream = None
 
-    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
+    await apply_item_mutation(
+        di[Program],
+        db,
+        item,
+        mutation,
+        bubble_parents=True,
+    )
 
     db.commit()
 
@@ -1070,10 +1088,10 @@ async def pause_items(
                         States.Completed,
                     ]:
 
-                        def mutation(i: MediaItem, s: Session):
+                        async def mutation(i: MediaItem, s: Session):
                             i.store_state(States.Paused)
 
-                        apply_item_mutation(
+                        await apply_item_mutation(
                             di[Program],
                             session,
                             media_item,
@@ -1128,10 +1146,10 @@ async def unpause_items(
                 try:
                     if media_item.last_state == States.Paused:
 
-                        def mutation(i: MediaItem, s: Session):
+                        async def mutation(i: MediaItem, s: Session):
                             i.store_state(States.Requested)
 
-                        apply_item_mutation(
+                        await apply_item_mutation(
                             di[Program],
                             session,
                             media_item,
@@ -1236,12 +1254,12 @@ async def reindex_item(
 
             indexer_service = services.indexer
 
-            def mutation(i: MediaItem, s: Session):
+            async def mutation(i: MediaItem, s: Session):
                 # Reset indexed_at to trigger reindexing
                 i.indexed_at = None
 
                 # Run the indexer within the session context
-                reindexed_item = next(indexer_service.run(i, log_msg=True))
+                reindexed_item = await anext(indexer_service.run(i, log_msg=True))
 
                 if not reindexed_item:
                     raise ValueError(
@@ -1254,7 +1272,7 @@ async def reindex_item(
                 with s.no_autoflush:
                     s.merge(reindexed_item)
 
-            apply_item_mutation(
+            await apply_item_mutation(
                 program=di[Program],
                 session=session,
                 item=item,
