@@ -624,6 +624,9 @@ async def manual_update_attributes(
 
         di[Program].em.cancel_job(item.id)
 
+        if item.last_state == States.Paused:
+            item.last_state = States.Unknown
+
         item.reset()
 
         # Ensure a staging MediaEntry exists and is linked
@@ -763,6 +766,13 @@ async def manual_update_attributes(
                 logger.debug(f"Season {season.number} has {len(season.episodes)} episodes")
                 for episode in season.episodes:
                     if episode.id not in updated_episode_ids:
+                        if episode.state in [
+                            States.Completed,
+                            States.Symlinked,
+                            States.Downloaded,
+                        ]:
+                            continue
+
                         episode.store_state(States.Paused)
                         session.merge(episode)
                         logger.debug(f"Paused episode {episode.log_string} (ID: {episode.id})")
@@ -770,6 +780,13 @@ async def manual_update_attributes(
             logger.debug(f"Checking {len(item.episodes)} episodes in season {item.number} to pause")
             for episode in item.episodes:
                 if episode.id not in updated_episode_ids:
+                    if episode.state in [
+                        States.Completed,
+                        States.Symlinked,
+                        States.Downloaded,
+                    ]:
+                        continue
+
                     episode.store_state(States.Paused)
                     session.merge(episode)
                     logger.debug(f"Paused episode {episode.log_string} (ID: {episode.id})")
