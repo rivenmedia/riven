@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
 import regex
@@ -10,7 +10,11 @@ def serialize_datetime(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     # If the datetime is naive (no timezone), assume UTC
-    return dt.isoformat() + "Z" if dt.tzinfo is None else dt.isoformat()
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    
+    # If it's aware, convert to UTC and format with Z
+    return dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + "Z"
 
 from program.settings import settings_manager
 from program.media.item import ProcessedItemType
