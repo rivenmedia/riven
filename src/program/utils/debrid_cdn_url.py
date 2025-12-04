@@ -12,10 +12,18 @@ from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
 class DebridCDNUrl:
     """DebridCDNUrl class"""
 
-    def __init__(self, filename: str) -> None:
+    filename: str
+    provider: str | None
+    url: str
+
+    @classmethod
+    async def from_filename(cls, filename: str) -> "DebridCDNUrl":
+        """Asynchronously create a DebridCDNUrl instance from a filename."""
+
+        self = cls.__new__(cls)
         self.filename = filename
 
-        entry_info = di[VFSDatabase].get_entry_by_original_filename(
+        entry_info = await di[VFSDatabase].get_entry_by_original_filename(
             original_filename=self.filename,
         )
 
@@ -28,7 +36,9 @@ class DebridCDNUrl:
         self.url = entry_info.url
         self.provider = entry_info.provider
 
-    def validate(self) -> str | None:
+        return self
+
+    async def validate(self) -> str | None:
         """Get a validated CDN URL, refreshing if necessary."""
 
         try:
@@ -52,18 +62,18 @@ class DebridCDNUrl:
             status_code = e.response.status_code
 
             if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                self._refresh()
+                await self._refresh()
 
                 logger.debug(f"Refreshed CDN URL for {self.filename}")
 
-                return self.validate()
+                return await self.validate()
 
             raise
 
-    def _refresh(self) -> None:
+    async def _refresh(self) -> None:
         """Refresh the CDN URL."""
 
-        entry = di[VFSDatabase].get_entry_by_original_filename(
+        entry = await di[VFSDatabase].get_entry_by_original_filename(
             original_filename=self.filename,
             force_resolve=True,
         )

@@ -4,7 +4,6 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
-from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 from kink import di
 from loguru import logger
@@ -73,12 +72,11 @@ class FilesystemService(Runner[FilesystemModel]):
             logger.error(f"Failed to initialize RivenVFS: {e}")
             logger.warning("RivenVFS initialization failed")
 
-    async def run(self, item: "MediaItem") -> AsyncGenerator[RunnerResult, None]:
+    async def run(self, item: "MediaItem") -> RunnerResult:
         if not self.riven_vfs:
             logger.error("RivenVFS not initialized")
 
-            yield RunnerResult(media_items=[item])
-            return
+            return RunnerResult(media_items=[item])
 
         # Expand parent items (show/season) to leaf items (episodes/movies)
         items_to_process = get_items_to_update(item)
@@ -86,7 +84,7 @@ class FilesystemService(Runner[FilesystemModel]):
         if not items_to_process:
             logger.debug(f"No items to process for {item.log_string}")
 
-            yield RunnerResult(media_items=[item])
+            return RunnerResult(media_items=[item])
 
         # Process each episode/movie
         for episode_or_movie in items_to_process:
@@ -101,7 +99,7 @@ class FilesystemService(Runner[FilesystemModel]):
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
         # Yield the original item for state transition
-        yield RunnerResult(media_items=[item])
+        return RunnerResult(media_items=[item])
 
     def close(self):
         """

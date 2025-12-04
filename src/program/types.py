@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from program.media.item import MediaItem
 from program.services.content import (
@@ -36,7 +36,7 @@ Service = (
 
 @dataclass
 class ProcessedEvent:
-    service: Runner | None
+    service: Runner[Any, Any] | None
     related_media_items: Sequence[MediaItem] | None
 
 

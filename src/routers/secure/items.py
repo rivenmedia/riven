@@ -94,7 +94,7 @@ async def apply_item_mutation(
 
     # Update self state (non-recursive)
     try:
-        MediaItem.store_state(item)
+        await MediaItem.store_state(item)
     except Exception as e:
         logger.warning(f"Failed to store state for {item.id}: {e}")
 
@@ -107,15 +107,17 @@ async def apply_item_mutation(
             season = session.get(Season, item.parent_id)
 
             if season:
-                MediaItem.store_state(season)
+                await MediaItem.store_state(season)
+
                 show = session.get(Show, season.parent_id)
+
                 if show:
-                    MediaItem.store_state(show)
+                    await MediaItem.store_state(show)
         elif isinstance(item, Season):
             show = session.get(Show, item.parent_id)
 
             if show:
-                MediaItem.store_state(show)
+                await MediaItem.store_state(show)
     except Exception as e:
         logger.warning(f"Failed to update parent state(s) for item {item.id}: {e}")
 
@@ -557,7 +559,7 @@ async def reset_items(
                     """
 
                     i.blacklist_active_stream()
-                    i.reset()
+                    await i.reset()
 
                 await apply_item_mutation(
                     di[Program],
@@ -1089,7 +1091,7 @@ async def pause_items(
                     ]:
 
                         async def mutation(i: MediaItem, s: Session):
-                            i.store_state(States.Paused)
+                            await i.store_state(States.Paused)
 
                         await apply_item_mutation(
                             di[Program],
@@ -1147,7 +1149,7 @@ async def unpause_items(
                     if media_item.last_state == States.Paused:
 
                         async def mutation(i: MediaItem, s: Session):
-                            i.store_state(States.Requested)
+                            await i.store_state(States.Requested)
 
                         await apply_item_mutation(
                             di[Program],
@@ -1259,7 +1261,7 @@ async def reindex_item(
                 i.indexed_at = None
 
                 # Run the indexer within the session context
-                reindexed_item = await anext(indexer_service.run(i, log_msg=True))
+                reindexed_item = await indexer_service.run(i, log_msg=True)
 
                 if not reindexed_item:
                     raise ValueError(

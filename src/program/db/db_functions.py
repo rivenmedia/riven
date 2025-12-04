@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from collections.abc import AsyncGenerator, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -330,7 +330,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
 
 
 async def run_thread_with_db_item(
-    fn: Callable[..., AsyncGenerator[RunnerResult[MediaItem]]],
+    fn: Callable[..., Awaitable[RunnerResult | None]],
     *,
     service: "Runner",
     program: "Program",
@@ -363,7 +363,7 @@ async def run_thread_with_db_item(
 
                 if input_item:
                     input_item = session.merge(input_item)
-                    runner_result = await anext(fn(input_item), None)
+                    runner_result = await fn(input_item)
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:
@@ -376,11 +376,11 @@ async def run_thread_with_db_item(
 
                         # Update parent item based on type
                         if isinstance(input_item, Episode):
-                            input_item.parent.parent.store_state()
+                            await input_item.parent.parent.store_state()
                         elif isinstance(input_item, Season):
-                            input_item.parent.store_state()
+                            await input_item.parent.store_state()
                         else:
-                            item.store_state()
+                            await item.store_state()
 
                         session.commit()
 
@@ -390,7 +390,7 @@ async def run_thread_with_db_item(
                         return item.id
 
             if event.content_item:
-                runner_result = await anext(fn(event.content_item), None)
+                runner_result = await fn(event.content_item)
 
                 if runner_result is None:
                     msg = event.content_item.log_string or event.content_item.imdb_id
@@ -420,7 +420,7 @@ async def run_thread_with_db_item(
 
                     return indexed_item.id
 
-                indexed_item.store_state()
+                await indexed_item.store_state()
 
                 session.add(indexed_item)
 
@@ -441,7 +441,7 @@ async def run_thread_with_db_item(
                 return indexed_item.id
     else:
         # Content services dont pass events
-        runner_result = await anext(fn(None), None)
+        runner_result = await fn(None)
 
         if runner_result:
             for item in runner_result.media_items:

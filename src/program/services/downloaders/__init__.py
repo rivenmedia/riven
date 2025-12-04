@@ -1,4 +1,3 @@
-from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
@@ -80,7 +79,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return True
 
-    async def run(self, item: MediaItem) -> AsyncGenerator[RunnerResult[MediaItem]]:
+    async def run(self, item: MediaItem) -> RunnerResult:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         # Check if all services are in cooldown due to circuit breaker
@@ -101,8 +100,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 f"All downloader services in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
             )
 
-            yield RunnerResult(media_items=[item], run_at=next_attempt)
-            return
+            return RunnerResult(media_items=[item], run_at=next_attempt)
 
         download_success = False
 
@@ -238,7 +236,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 tried_streams += 1
 
                 if tried_streams >= 3:
-                    yield RunnerResult(media_items=[item])
+                    return RunnerResult(media_items=[item])
 
         except Exception as e:
             logger.error(
@@ -255,9 +253,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     f"Single provider hit circuit breaker for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
                 )
 
-                yield RunnerResult(media_items=[item], run_at=next_attempt)
-
-                return
+                return RunnerResult(media_items=[item], run_at=next_attempt)
             else:
                 logger.debug(
                     f"Failed to download any streams for {item.log_string} ({item.id})"
@@ -266,7 +262,7 @@ class Downloader(Runner[None, DownloaderBase]):
             # Clear service cooldowns on successful download
             self._service_cooldowns.clear()
 
-        yield RunnerResult(media_items=[item])
+        return RunnerResult(media_items=[item])
 
     def validate_stream(
         self,

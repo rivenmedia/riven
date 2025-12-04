@@ -1700,7 +1700,9 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
-                DebridCDNUrl(filename=node.original_filename).validate()
+                cdn_url = await DebridCDNUrl.from_filename(node.original_filename)
+
+                await cdn_url.validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."
@@ -2107,10 +2109,8 @@ class RivenVFS(pyfuse3.Operations):
         if stream_key not in self._active_streams:
             async with self._active_streams_lock:
                 # Get provider info and URL from database
-                entry_info = await trio.to_thread.run_sync(
-                    lambda: self.vfs_db.get_entry_by_original_filename(
-                        original_filename=original_filename,
-                    )
+                entry_info = await self.vfs_db.get_entry_by_original_filename(
+                    original_filename=original_filename,
                 )
 
                 if not entry_info or not entry_info.url or not entry_info.provider:

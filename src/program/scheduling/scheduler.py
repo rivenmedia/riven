@@ -251,7 +251,7 @@ class ProgramScheduler:
             if task.task_type in ("reindex_show", "reindex", "reindex_movie"):
                 await self._run_reindex_for_item(session, item)
             else:
-                self._enqueue_item_if_needed(session, item)
+                await self._enqueue_item_if_needed(session, item)
 
             self._mark_task_status(
                 session,
@@ -296,11 +296,13 @@ class ProgramScheduler:
 
             logger.info(f"Reindexed {item.log_string} from scheduler")
 
-    def _enqueue_item_if_needed(self, session: Session, item: MediaItem) -> None:
+    async def _enqueue_item_if_needed(self, session: Session, item: MediaItem) -> None:
         """Refresh state and enqueue item to the event manager if not completed."""
 
         was_completed = item.last_state == States.Completed
-        item.store_state()
+
+        await item.store_state()
+
         session.commit()
 
         if not was_completed:

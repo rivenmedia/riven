@@ -85,7 +85,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                 self.max_failed_attempts > 0
                 and item.failed_attempts >= self.max_failed_attempts
             ):
-                item.store_state(States.Failed)
+                await item.store_state(States.Failed)
                 logger.debug(
                     f"Failed scraping after {item.failed_attempts}/{self.max_failed_attempts} tries. Marking as failed: {item.log_string}"
                 )

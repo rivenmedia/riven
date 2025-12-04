@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Generic, TypeVar
@@ -15,7 +14,7 @@ TSettings = TypeVar(
     covariant=True,
 )
 
-TService = TypeVar("TService", bound=Any | None, default="Runner")
+TService = TypeVar("TService", bound=Any | None, default="Runner", covariant=True)
 
 TItemType = TypeVar("TItemType", bound=MediaItem, default=MediaItem, covariant=True)
 
@@ -72,12 +71,10 @@ class Runner(ABC, Generic[TSettings, TService, TRunnerReturnType]):
         return True
 
     @abstractmethod
-    async def run(
-        self, item: MediaItem
-    ) -> AsyncGenerator[TRunnerReturnType] | TRunnerReturnType:
+    async def run(self, item: MediaItem) -> TRunnerReturnType:
         """Run the base runner"""
 
-        yield  # type: ignore
+        raise NotImplementedError
 
     def should_submit(self, item: MediaItem) -> bool:
         """Determine if the runner should submit an item for processing."""

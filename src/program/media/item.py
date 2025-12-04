@@ -189,7 +189,7 @@ class MediaItem(Base):
         # Post-processing
         self.subtitles = item.get("subtitles", [])
 
-    def store_state(
+    async def store_state(
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
@@ -208,7 +208,7 @@ class MediaItem(Base):
 
                 assert services
 
-                services.notifications.run(
+                await services.notifications.run(
                     item=self,
                     previous_state=previous_state,
                     new_state=new_state,
@@ -629,7 +629,7 @@ class MediaItem(Base):
     def __hash__(self):
         return hash(self.id)
 
-    def reset(self):
+    async def reset(self):
         """
         Reset this item's internal state and recursively reset child items when applicable.
 
@@ -639,17 +639,17 @@ class MediaItem(Base):
         if isinstance(self, Show):
             for season in self.seasons:
                 for episode in season.episodes:
-                    episode._reset()
+                    await episode._reset()
 
-                season._reset()
+                await season._reset()
         elif isinstance(self, Season):
             for episode in self.episodes:
-                episode._reset()
+                await episode._reset()
 
-        self._reset()
-        self.store_state()
+        await self._reset()
+        await self.store_state()
 
-    def _reset(self):
+    async def _reset(self):
         """
         Reset the media item and its related associations to prepare for rescraping.
 
@@ -672,7 +672,7 @@ class MediaItem(Base):
         filesystem_service = riven.services.filesystem
 
         if filesystem_service.riven_vfs:
-            filesystem_service.riven_vfs.remove(self)
+            await filesystem_service.riven_vfs.remove(self)
 
         # Clear filesystem entries - ORM automatically deletes orphaned entries
         self.filesystem_entries.clear()
@@ -862,14 +862,14 @@ class Show(MediaItem):
 
         return States.Unknown
 
-    def store_state(
+    async def store_state(
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
         for season in self.seasons:
-            season.store_state(given_state)
+            await season.store_state(given_state)
 
-        return super().store_state(given_state)
+        return await super().store_state(given_state)
 
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
@@ -965,14 +965,14 @@ class Season(MediaItem):
 
         return self.parent
 
-    def store_state(
+    async def store_state(
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
         for episode in self.episodes:
-            episode.store_state(given_state)
+            await episode.store_state(given_state)
 
-        return super().store_state(given_state)
+        return await super().store_state(given_state)
 
     def __init__(self, item: dict[str, Any]):
         self.type = "season"
