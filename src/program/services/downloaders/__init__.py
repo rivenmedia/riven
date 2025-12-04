@@ -216,6 +216,8 @@ class Downloader(Runner[None, DownloaderBase]):
                                 logger.error(
                                     f"Failed to analyze media file for {item.log_string}"
                                 )
+                    else:
+                        break
 
                 # Only blacklist if stream genuinely failed on ALL available services
                 # Don't blacklist if we hit circuit breaker in single-provider mode

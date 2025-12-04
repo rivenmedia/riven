@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import linecache
 import os
@@ -5,7 +6,6 @@ import time
 from queue import Empty
 from tracemalloc import Snapshot
 
-from kink import di
 import trio
 import trio_util
 
@@ -32,7 +32,6 @@ from program.utils import data_dir_path
 from program.utils.logging import logger
 from program.scheduling import ProgramScheduler
 from program.core.runner import Runner
-from program.utils.nursery import Nursery
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
@@ -203,6 +202,7 @@ class Program:
             logger.error("Database connection failed. Is the database running?")
             return False
 
+    @asynccontextmanager
     async def start(self):
         """
         Start the Riven program: ensure configuration and database readiness, initialize APIs and services, schedule background jobs, and start the main thread and scheduler.
@@ -228,9 +228,11 @@ class Program:
         if not self.validate_database():
             # TODO: We should really make this configurable via frontend...
             logger.log("PROGRAM", "Database not found, trying to create database")
+
             if not create_database_if_not_exists():
                 logger.error("Failed to create database, exiting")
                 return
+
             logger.success("Database created successfully")
 
         run_migrations()
@@ -274,14 +276,12 @@ class Program:
 
         logger.debug("Configuring executors and scheduler")
 
-        di[Nursery].nursery.start_soon(
-            trio.to_thread.run_sync,
-            self.scheduler_manager.start,
-        )
+        async with self.scheduler_manager.start():
+            logger.success("Riven is running!")
 
-        logger.success("Riven is running!")
+            self.initialized.value = True
 
-        self.initialized.value = True
+            yield
 
     def display_top_allocators(
         self,
@@ -333,16 +333,9 @@ class Program:
             self.display_top_allocators(snapshot)
 
     async def run(self):
-        logger.debug(f"Listening for events")
         async for _ in self.em.queued_events.change_event.events(repeat_last=True):
-            logger.debug(f"Event change detected")
-
-            logger.debug(f"em: {self.em.queued_events}")
-
             try:
                 event = self.em.next()
-
-                logger.debug(f"next event: {event}")
 
                 if self.enable_trace:
                     self.dump_tracemalloc()
@@ -387,14 +380,14 @@ class Program:
                         # Event will be added to running when job actually starts in submit_job
                         await self.em.submit_job(next_service, self, event)
 
-    def stop(self):
+    async def stop(self):
         if not self.initialized:
             return
 
-        self.scheduler_manager.stop()
+        await self.scheduler_manager.stop()
 
         if self.services:
-            self.services.filesystem.close()
+            await self.services.filesystem.close()
 
         logger.log("PROGRAM", "Riven has been stopped.")
 

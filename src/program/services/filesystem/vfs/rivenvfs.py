@@ -604,22 +604,19 @@ class RivenVFS(pyfuse3.Operations):
 
         return False
 
-    def close(self) -> None:
+    async def close(self) -> None:
         """Clean up and unmount the filesystem."""
 
-        async def _request_unmount():
-            logger.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
+        logger.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
 
-            self._unmount_requested.value = True
-
-        trio.from_thread.run(_request_unmount)
+        self._unmount_requested.value = True
 
     # Helper methods
 
     def __del__(self):
         """Ensure cleanup on garbage collection."""
         try:
-            self.close()
+            _ = self.close()
         except Exception:
             pass
 
@@ -826,7 +823,6 @@ class RivenVFS(pyfuse3.Operations):
             try:
                 for inode in self._pending_invalidations:
                     try:
-                        logger.debug(f"Invalidating inode {inode}")
                         pyfuse3.invalidate_inode(inode, attr_only=False)
                         invalidated_count += 1
                     except OSError as e:

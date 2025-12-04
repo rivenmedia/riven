@@ -7,15 +7,16 @@ for content services and item-specific schedules.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from kink import di
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+import trio
+import trio_util
 
 from program.db import db_functions
 from program.db.db import db_session, vacuum_and_analyze_index_maintenance
@@ -27,7 +28,6 @@ from program.types import Event
 from program.utils.logging import log_cleaner, logger
 from program.apis.tvdb_api import SeriesRelease
 from schemas.tvdb.models.series_airs_days import SeriesAirsDays
-from program.utils.nursery import Nursery
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -47,25 +47,48 @@ class ProgramScheduler:
 
     def __init__(self, program: "Program") -> None:
         self.program = program
-        self.scheduler = AsyncIOScheduler()
+        self.stop_requested = trio_util.AsyncBool(False)
 
-    def start(self) -> None:
+    @asynccontextmanager
+    async def start(self) -> AsyncGenerator[None]:
         """Create and start the background scheduler with all jobs registered."""
 
-        self._schedule_services()
-        self._schedule_functions()
-        self.scheduler.start()
+        async with trio_util.move_on_when(lambda: self.stop_requested.wait_value(True)):
+            async with trio.open_nursery() as nursery:
+                self._schedule_services(nursery)
+                self._schedule_functions(nursery)
 
-    def stop(self) -> None:
+                try:
+                    yield
+                finally:
+                    nursery.cancel_scope.cancel()
+
+    async def stop(self) -> None:
         """Stop the background scheduler if running."""
 
-        if self.scheduler and self.scheduler.running:
-            self.scheduler.shutdown(wait=False)
+        self.stop_requested.value = True
 
-    def _schedule_functions(self) -> None:
+    def _add_job(
+        self,
+        func: Callable[..., Awaitable[None] | None],
+        config: ScheduledFunctionConfig,
+        nursery: trio.Nursery,
+    ) -> None:
+        """Add a job to the scheduler."""
+
+        async def job_wrapper():
+            while True:
+                result = func()
+
+                if isinstance(result, Awaitable):
+                    await result
+
+                await trio.sleep_until(trio.current_time() + config["interval"])
+
+        nursery.start_soon(job_wrapper)
+
+    def _schedule_functions(self, nursery: trio.Nursery) -> None:
         """Register internal periodic functions and maintenance tasks."""
-
-        assert self.scheduler is not None
 
         scheduled_functions = dict[
             Callable[..., Awaitable[None] | None], ScheduledFunctionConfig
@@ -92,26 +115,15 @@ class ProgramScheduler:
         scheduled_functions[self._monitor_ongoing_schedules] = {"interval": 15 * 60}
 
         for func, config in scheduled_functions.items():
-            self.scheduler.add_job(
-                func,
-                "interval",
-                seconds=config["interval"],
-                args=config.get("args"),
-                id=f"{func.__name__}",
-                max_instances=config.get("max_instances", 1),
-                replace_existing=True,
-                next_run_time=datetime.now(),
-                misfire_grace_time=30,
-            )
+            self._add_job(func, config, nursery)
 
             logger.debug(
                 f"Scheduled {func.__name__} to run every {config['interval']} seconds."
             )
 
-    def _schedule_services(self) -> None:
+    def _schedule_services(self, nursery: trio.Nursery) -> None:
         """Schedule each content service based on its update interval or webhook mode."""
 
-        assert self.scheduler
         assert self.program.services
 
         for service_instance in self.program.services.content_services:
@@ -123,7 +135,7 @@ class ProgramScheduler:
             )
 
             if use_webhook:
-                di[Nursery].nursery.start_soon(
+                nursery.start_soon(
                     self.program.em.submit_job,
                     service_instance,
                     self.program,
@@ -142,16 +154,13 @@ class ProgramScheduler:
             if not update_interval:
                 continue
 
-            self.scheduler.add_job(
-                self.program.em.submit_job,
-                "interval",
-                seconds=update_interval,
-                args=[service_instance, self.program],
-                id=f"{service_name}_update",
-                max_instances=1,
-                replace_existing=True,
-                next_run_time=datetime.now(),
-                coalesce=False,
+            self._add_job(
+                func=lambda: self.program.em.submit_job(
+                    service_instance,
+                    self.program,
+                ),
+                config={"interval": update_interval},
+                nursery=nursery,
             )
 
             logger.debug(

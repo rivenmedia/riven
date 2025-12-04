@@ -4,6 +4,7 @@ import signal
 import sys
 import time
 from types import FrameType
+from typing import NoReturn
 
 from kink import di
 import trio
@@ -115,7 +116,9 @@ app.include_router(app_router)
 
 def signal_handler(signum: int, frame: FrameType | None):
     logger.log("PROGRAM", "Exiting Gracefully.")
-    di[Program].stop()
+
+    trio.run(di[Program].stop)
+
     sys.exit(0)
 
 
@@ -130,24 +133,23 @@ server = uvicorn.Server(config=config)
 async def server_lifecycle():
     try:
         async with trio_util.run_and_cancelling(trio.to_thread.run_sync, server.run):
-            await di[Program].start()
-
-            yield
+            async with di[Program].start():
+                yield
     except Exception:
         logger.exception("Error in server lifecycle")
     finally:
         logger.critical("Server is shutting down")
 
 
-async def main():
+async def main() -> NoReturn:
     async with trio.open_nursery() as nursery:
         di[Nursery] = Nursery(nursery=nursery)
 
         async with server_lifecycle():
             async with trio_util.move_on_when(
-                lambda: di[Program].initialized.wait_value(False)
+                lambda: riven.initialized.wait_value(False)
             ):
-                await di[Program].run()
+                await riven.run()
 
             logger.debug("Main server loop has ended")
 

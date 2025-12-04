@@ -101,15 +101,16 @@ class FilesystemService(Runner[FilesystemModel]):
         # Yield the original item for state transition
         return RunnerResult(media_items=[item])
 
-    def close(self):
+    async def close(self):
         """
         Close the underlying RivenVFS and release associated resources.
 
         If a RivenVFS instance is present, attempts to close it and always sets self.riven_vfs to None. Exceptions raised while closing are logged and not propagated.
         """
+
         try:
             if self.riven_vfs:
-                self.riven_vfs.close()
+                await self.riven_vfs.close()
         except Exception as e:
             logger.error(f"Error closing RivenVFS: {e}")
         finally:
