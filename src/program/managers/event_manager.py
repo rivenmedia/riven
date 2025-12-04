@@ -6,7 +6,6 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
-from threading import Lock
 from typing import TYPE_CHECKING
 from kink import di
 import trio
@@ -20,7 +19,7 @@ from program.db import db_functions
 from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
-from program.types import Event, Service
+from program.types import Event
 from program.media.state import States
 from program.utils.nursery import Nursery
 from program.core.runner import Runner
@@ -79,41 +78,9 @@ class EventManager:
         self.tasks = dict[int, Task]()
         self.queued_events = EventList()
         self._running_events = list[Event]()
-        self.mutex = Lock()
+        self.mutex = trio.Lock()
 
-    def _find_or_create_executor(self, service_cls: Service) -> ThreadPoolExecutor:
-        """
-        Finds or creates a ThreadPoolExecutor for the given service class.
-
-        Args:
-            service_cls (Service): The service class for which to find or create an executor.
-
-        Returns:
-            concurrent.futures.ThreadPoolExecutor: The executor for the service class.
-        """
-
-        service_name = service_cls.__class__.__name__
-
-        for service_executor in self._executors:
-            if service_executor.service_name == service_name:
-                logger.debug(f"Executor for {service_name} found.")
-
-                return service_executor.executor
-
-        _executor = ThreadPoolExecutor(
-            thread_name_prefix=service_name,
-            max_workers=1,
-        )
-
-        self._executors.append(
-            ServiceExecutor(service_name=service_name, executor=_executor)
-        )
-
-        logger.debug(f"Created executor for {service_name}")
-
-        return _executor
-
-    def _process_future(
+    async def _process_future(
         self,
         event: Event | None,
         result: int | tuple[int, datetime],
@@ -140,7 +107,7 @@ class EventManager:
             )
 
             if item_id:
-                self.add_event(
+                await self.add_event(
                     Event(
                         emitted_by=service,
                         item_id=item_id,
@@ -161,7 +128,7 @@ class EventManager:
 
         logger.debug(log_message)
 
-    def add_event_to_queue(self, event: Event, log_message: bool = True):
+    async def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
         Adds an event to the queue.
 
@@ -169,7 +136,7 @@ class EventManager:
             event (Event): The event to add to the queue.
         """
 
-        with self.mutex:
+        async with self.mutex:
             if event.item_id:
                 with db_session() as session:
                     try:
@@ -208,7 +175,7 @@ class EventManager:
             if log_message:
                 logger.debug(f"Added {event.log_message} to the queue.")
 
-    def remove_event_from_queue(self, event: Event):
+    async def remove_event_from_queue(self, event: Event):
         """
         Removes an event from the queue.
 
@@ -216,12 +183,12 @@ class EventManager:
             event (Event): The event to remove from the queue.
         """
 
-        with self.mutex:
+        async with self.mutex:
             self.queued_events.remove(event)
 
             logger.debug(f"Removed {event.log_message} from the queue.")
 
-    def remove_event_from_running(self, event: Event):
+    async def remove_event_from_running(self, event: Event):
         """
         Removes an event from the running events.
 
@@ -229,12 +196,12 @@ class EventManager:
             event (Event): The event to remove from the running events.
         """
 
-        with self.mutex:
+        async with self.mutex:
             if event in self._running_events:
                 self._running_events.remove(event)
                 logger.debug(f"Removed {event.log_message} from running events.")
 
-    def remove_id_from_queue(self, item_id: int):
+    async def remove_id_from_queue(self, item_id: int):
         """
         Removes an item from the queue.
 
@@ -244,9 +211,9 @@ class EventManager:
 
         for event in self.queued_events:
             if event.item_id == item_id:
-                self.remove_event_from_queue(event)
+                await self.remove_event_from_queue(event)
 
-    def add_event_to_running(self, event: Event):
+    async def add_event_to_running(self, event: Event):
         """
         Adds an event to the running events.
 
@@ -254,11 +221,11 @@ class EventManager:
             event (Event): The event to add to the running events.
         """
 
-        with self.mutex:
+        async with self.mutex:
             self._running_events.append(event)
             logger.debug(f"Added {event.log_message} to running events.")
 
-    def remove_id_from_running(self, item_id: int):
+    async def remove_id_from_running(self, item_id: int):
         """
         Removes an item from the running events.
 
@@ -268,9 +235,9 @@ class EventManager:
 
         for event in self._running_events:
             if event.item_id == item_id:
-                self.remove_event_from_running(event)
+                await self.remove_event_from_running(event)
 
-    def remove_id_from_queues(self, item_id: int):
+    async def remove_id_from_queues(self, item_id: int):
         """
         Removes an item from both the queue and the running events.
 
@@ -278,8 +245,8 @@ class EventManager:
             item_id: The event item to remove from both the queue and the running events.
         """
 
-        self.remove_id_from_queue(item_id)
-        self.remove_id_from_running(item_id)
+        await self.remove_id_from_queue(item_id)
+        await self.remove_id_from_running(item_id)
 
     async def submit_job(
         self,
@@ -341,7 +308,7 @@ class EventManager:
 
                         return
 
-                    self._process_future(
+                    await self._process_future(
                         event=event,
                         result=result,
                         service=service,
@@ -360,7 +327,7 @@ class EventManager:
             json.dumps(self.get_event_updates()),
         )
 
-    def cancel_job(self, item_id: int, suppress_logs: bool = False):
+    async def cancel_job(self, item_id: int, suppress_logs: bool = False):
         """
         Cancels a job associated with the given item.
 
@@ -377,7 +344,7 @@ class EventManager:
                 if id in self.tasks:
                     task = self.tasks[id]
 
-                    self.remove_id_from_queues(id)
+                    await self.remove_id_from_queues(id)
 
                     if not task.cancel_scope.cancel_called:
                         try:
@@ -390,9 +357,9 @@ class EventManager:
                                     f"Error cancelling future for {id}: {str(e)}"
                                 )
 
-                self.remove_id_from_queues(id)
+                await self.remove_id_from_queues(id)
 
-    def next(self) -> Event:
+    async def next(self) -> Event:
         """
         Get the next event in the queue, prioritizing items closest to completion.
 
@@ -417,7 +384,7 @@ class EventManager:
 
         while True:
             if self.queued_events:
-                with self.mutex:
+                async with self.mutex:
                     now = datetime.now()
 
                     # Filter events that are ready to run (run_at <= now)
@@ -490,7 +457,7 @@ class EventManager:
 
         return any(event.item_id == _id for event in self._running_events)
 
-    def add_event(self, event: Event) -> bool:
+    async def add_event(self, event: Event) -> bool:
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
@@ -549,11 +516,11 @@ class EventManager:
 
                 return False
 
-        self.add_event_to_queue(event)
+        await self.add_event_to_queue(event)
 
         return True
 
-    def add_item(
+    async def add_item(
         self,
         item: MediaItem,
         service: str | None = None,
@@ -571,7 +538,7 @@ class EventManager:
             item.tmdb_id,
             item.imdb_id,
         ):
-            if self.add_event(
+            if await self.add_event(
                 Event(
                     service or "Manual",
                     content_item=item,

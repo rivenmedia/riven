@@ -445,7 +445,10 @@ async def run_thread_with_db_item(
 
         if runner_result:
             for item in runner_result.media_items:
-                program.em.add_item(item, service=service.__class__.__name__)
+                await program.em.add_item(
+                    item,
+                    service=service.__class__.__name__,
+                )
 
     return None
 

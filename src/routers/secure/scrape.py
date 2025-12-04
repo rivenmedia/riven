@@ -625,7 +625,7 @@ async def manual_update_attributes(
                 data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
             """
 
-            di[Program].em.cancel_job(item.id)
+            await di[Program].em.cancel_job(item.id)
 
             await item.reset()
 
@@ -744,7 +744,12 @@ async def manual_update_attributes(
 
     if item_ids_to_submit:
         for item_id in item_ids_to_submit:
-            di[Program].em.add_event(Event("ManualAPI", item_id))
+            await di[Program].em.add_event(
+                Event(
+                    "ManualAPI",
+                    item_id,
+                )
+            )
 
     return UpdateAttributesResponse(message=f"Updated given data to {log_string}")
 
@@ -905,6 +910,8 @@ async def overseerr_requests(
         from program.services.content.overseerr import Overseerr
 
         for persisted in persisted_items:
-            di[Program].em.add_item(persisted, service=Overseerr.__class__.__name__)
+            await di[Program].em.add_item(
+                persisted, service=Overseerr.__class__.__name__
+            )
 
     return MessageResponse(message="Submitted overseerr requests to the queue")

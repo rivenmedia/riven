@@ -167,13 +167,18 @@ class ProgramScheduler:
                 f"Scheduled {service_name} to run every {update_interval} seconds."
             )
 
-    def _retry_library(self) -> None:
+    async def _retry_library(self) -> None:
         """Retry items that failed to download by emitting events into the EM."""
 
         item_ids = db_functions.retry_library()
 
         for item_id in item_ids:
-            self.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+            await self.program.em.add_event(
+                Event(
+                    emitted_by="RetryLibrary",
+                    item_id=item_id,
+                )
+            )
 
         if item_ids:
             logger.log(
@@ -315,7 +320,13 @@ class ProgramScheduler:
         session.commit()
 
         if not was_completed:
-            self.program.em.add_event(Event(emitted_by="Scheduler", item_id=item.id))
+            await self.program.em.add_event(
+                Event(
+                    emitted_by="Scheduler",
+                    item_id=item.id,
+                )
+            )
+
             logger.info(f"Enqueued {item.log_string} from scheduler")
 
     def _mark_task_status(
@@ -329,6 +340,7 @@ class ProgramScheduler:
 
         task.status = status
         task.executed_at = executed_at
+
         session.add(task)
         session.commit()
 

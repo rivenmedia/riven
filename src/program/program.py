@@ -335,7 +335,7 @@ class Program:
     async def run(self):
         async for _ in self.em.queued_events.change_event.events():
             try:
-                event = self.em.next()
+                event = await self.em.next()
 
                 if self.enable_trace:
                     self.dump_tracemalloc()
@@ -347,10 +347,9 @@ class Program:
 
                 continue
 
-            if event.item_id:
-                existing_item = db_functions.get_item_by_id(event.item_id)
-            else:
-                existing_item = None
+            existing_item = (
+                db_functions.get_item_by_id(event.item_id) if event.item_id else None
+            )
 
             processed_event = process_event(
                 event.emitted_by,
@@ -364,7 +363,7 @@ class Program:
             if items_to_submit:
                 for item_to_submit in items_to_submit:
                     if not next_service:
-                        self.em.add_event_to_queue(
+                        await self.em.add_event_to_queue(
                             Event(
                                 emitted_by="StateTransition", item_id=item_to_submit.id
                             )

@@ -193,7 +193,7 @@ class VFSDatabase:
 
                                 s.commit()
 
-                                di[Program].em.add_event(
+                                await di[Program].em.add_event(
                                     Event(
                                         "VFS",
                                         item_id,

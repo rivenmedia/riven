@@ -81,7 +81,7 @@ async def apply_item_mutation(
     - Caller is responsible for session.commit().
     """
     try:
-        program.em.cancel_job(item.id)
+        await program.em.cancel_job(item.id)
     except Exception:
         logger.debug(f"No active job to cancel for item {getattr(item, 'id', None)}")
 
@@ -392,7 +392,8 @@ async def add_items(
 
         if items:
             for item in items:
-                di[Program].em.add_item(item)
+                await di[Program].em.add_item(item)
+
                 added_count += 1
 
     return MessageResponse(message=f"Added {added_count} item(s) to the queue")
@@ -643,7 +644,12 @@ async def retry_items(
 
                     session.commit()
 
-                    di[Program].em.add_event(Event("RetryItem", id))
+                    await di[Program].em.add_event(
+                        Event(
+                            "RetryItem",
+                            id,
+                        ),
+                    )
             except ValueError as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
@@ -666,7 +672,7 @@ async def retry_library_items() -> RetryResponse:
     item_ids = db_functions.retry_library()
 
     for item_id in item_ids:
-        di[Program].em.add_event(
+        await di[Program].em.add_event(
             Event(
                 emitted_by="RetryLibrary",
                 item_id=item_id,
@@ -751,7 +757,7 @@ async def remove_item(
         logger.debug(f"Removing item with ID {item.id}")
 
         # 1. Cancel active jobs (EventManager cancels children too)
-        di[Program].em.cancel_job(item.id)
+        await di[Program].em.cancel_job(item.id)
 
         # 2. Gather all refresh paths before deletion (entry may appear at multiple VFS paths)
         refresh_paths = list[str]()
@@ -1081,8 +1087,8 @@ async def pause_items(
 
                     # Cancel all related jobs
                     for id in all_ids:
-                        di[Program].em.cancel_job(id)
-                        di[Program].em.remove_id_from_queues(id)
+                        await di[Program].em.cancel_job(id)
+                        await di[Program].em.remove_id_from_queues(id)
 
                     if media_item.last_state not in [
                         States.Paused,
@@ -1161,7 +1167,12 @@ async def unpause_items(
 
                         session.commit()
 
-                        di[Program].em.add_event(Event("RetryItem", media_item.id))
+                        await di[Program].em.add_event(
+                            Event(
+                                "RetryItem",
+                                media_item.id,
+                            )
+                        )
 
                         logger.info(f"Successfully unpaused {media_item.log_string}")
                     else:
@@ -1282,10 +1293,16 @@ async def reindex_item(
                 bubble_parents=True,
             )
 
-            logger.info(f"Successfully reindexed {item.log_string}")
-            di[Program].em.add_event(Event("RetryItem", item.id))
+            logger.info(f"Successfully re-indexed {item.log_string}")
 
-            return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
+            await di[Program].em.add_event(
+                Event(
+                    "RetryItem",
+                    item.id,
+                )
+            )
+
+            return ReindexResponse(message=f"Successfully re-indexed {item.log_string}")
         except Exception as e:
             logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
 
