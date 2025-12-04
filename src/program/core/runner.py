@@ -14,7 +14,7 @@ TSettings = TypeVar(
     covariant=True,
 )
 
-TService = TypeVar("TService", bound=Any | None, default="Runner", covariant=True)
+TService = TypeVar("TService", bound=Any | None, default="Runner")
 
 TItemType = TypeVar("TItemType", bound=MediaItem, default=MediaItem, covariant=True)
 
