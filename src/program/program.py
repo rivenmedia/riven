@@ -333,7 +333,7 @@ class Program:
             self.display_top_allocators(snapshot)
 
     async def run(self):
-        async for _ in self.em.queued_events.change_event.events(repeat_last=True):
+        async for _ in self.em.queued_events.change_event.events():
             try:
                 event = self.em.next()
 

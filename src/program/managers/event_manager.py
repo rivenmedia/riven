@@ -296,10 +296,6 @@ class EventManager:
             item (Event, optional): The event item to process. Defaults to None.
         """
 
-        logger.debug(
-            f"Preparing to submit job for service {service.__class__.__name__}"
-        )
-
         log_message = f"Submitting service {service.__class__.__name__} to be executed"
 
         # Content services dont provide an event.
