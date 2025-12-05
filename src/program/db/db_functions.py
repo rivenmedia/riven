@@ -371,6 +371,13 @@ async def run_thread_with_db_item(
                                 f"Service {service.__class__.__name__} emitted multiple items for input item {input_item}, only the first will be processed."
                             )
 
+                        if not runner_result.media_items:
+                            logger.warning(
+                                f"Service {service.__class__.__name__} did not emit any items for input item {input_item}"
+                            )
+
+                            return None
+
                         item = runner_result.media_items[0]
                         run_at = runner_result.run_at
 
@@ -403,6 +410,13 @@ async def run_thread_with_db_item(
                     logger.warning(
                         f"Service {service.__class__.__name__} emitted multiple items for input item {event.content_item}, only the first will be processed."
                     )
+
+                if not runner_result.media_items:
+                    logger.warning(
+                        f"Service {service.__class__.__name__} did not emit any items for input item {event.content_item}"
+                    )
+
+                    return None
 
                 indexed_item = runner_result.media_items[0]
 

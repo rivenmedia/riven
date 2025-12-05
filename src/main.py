@@ -146,12 +146,10 @@ async def main() -> NoReturn:
         di[Nursery] = Nursery(nursery=nursery)
 
         async with server_lifecycle():
-            async with trio_util.move_on_when(
-                lambda: riven.initialized.wait_value(False)
-            ):
-                await riven.run()
+            async with trio_util.run_and_cancelling(riven.run):
+                await riven.initialized.wait_value(False)
 
-            logger.debug("Main server loop has ended")
+            logger.debug(f"Riven has shut down")
 
     logger.critical("Server has been stopped")
 

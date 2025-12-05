@@ -7,8 +7,7 @@ for content services and item-specific schedules.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
@@ -28,6 +27,7 @@ from program.types import Event
 from program.utils.logging import log_cleaner, logger
 from program.apis.tvdb_api import SeriesRelease
 from schemas.tvdb.models.series_airs_days import SeriesAirsDays
+from program.core.runner import Runner
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -49,19 +49,24 @@ class ProgramScheduler:
         self.program = program
         self.stop_requested = trio_util.AsyncBool(False)
 
-    @asynccontextmanager
-    async def start(self) -> AsyncGenerator[None]:
+    async def start(
+        self,
+        *,
+        task_status: trio.TaskStatus = trio.TASK_STATUS_IGNORED,
+    ) -> None:
         """Create and start the background scheduler with all jobs registered."""
 
-        async with trio_util.move_on_when(lambda: self.stop_requested.wait_value(True)):
-            async with trio.open_nursery() as nursery:
-                self._schedule_services(nursery)
-                self._schedule_functions(nursery)
+        async with trio.open_nursery() as nursery:
+            self._schedule_services(nursery)
+            self._schedule_functions(nursery)
 
-                try:
-                    yield
-                finally:
-                    nursery.cancel_scope.cancel()
+            task_status.started()
+
+            await self.stop_requested.wait_value(True)
+
+            logger.debug(f"Shutting down ProgramScheduler")
+
+            nursery.cancel_scope.cancel()
 
     async def stop(self) -> None:
         """Stop the background scheduler if running."""
@@ -77,13 +82,13 @@ class ProgramScheduler:
         """Add a job to the scheduler."""
 
         async def job_wrapper():
-            while True:
+            async for _ in trio_util.periodic(config["interval"]):
                 result = func()
 
                 if isinstance(result, Awaitable):
                     await result
 
-                await trio.sleep_until(trio.current_time() + config["interval"])
+                logger.debug(f"Scheduled job {func.__name__} completed, sleeping")
 
         nursery.start_soon(job_wrapper)
 
@@ -154,11 +159,18 @@ class ProgramScheduler:
             if not update_interval:
                 continue
 
-            self._add_job(
-                func=lambda: self.program.em.submit_job(
+            async def run_task(
+                service_instance: Runner = service_instance,
+            ) -> None:
+                """Wrapper to submit the service job to the EM."""
+
+                await self.program.em.submit_job(
                     service_instance,
                     self.program,
-                ),
+                )
+
+            self._add_job(
+                func=run_task,
                 config={"interval": update_interval},
                 nursery=nursery,
             )

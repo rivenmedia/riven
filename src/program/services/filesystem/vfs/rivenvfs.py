@@ -327,6 +327,7 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             VFSNode if found, None otherwise
         """
+
         if path == "/":
             return self._root
 
@@ -364,6 +365,7 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             The VFSNode at the path
         """
+
         if path == "/":
             return self._root
 
@@ -425,6 +427,7 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if removed, False if not found
         """
+
         if path == "/":
             return False  # Can't remove root
 
@@ -458,6 +461,7 @@ class RivenVFS(pyfuse3.Operations):
 
     def _assign_inode(self) -> pyfuse3.InodeT:
         """Assign a new inode number."""
+
         inode = self._next_inode
         self._next_inode = pyfuse3.InodeT(inode + 1)
         return inode
@@ -542,6 +546,7 @@ class RivenVFS(pyfuse3.Operations):
         # Register all subtitles for this video
         for subtitle in item.subtitles:
             await self._register_filesystem_entry(subtitle, video_paths=video_paths)
+
             subtitle.available_in_vfs = True
 
         return True
@@ -746,12 +751,11 @@ class RivenVFS(pyfuse3.Operations):
 
             for entry in entries:
                 # Get the MediaItem for this entry to re-match profiles
-                item = entry.media_item
-
-                if not item:
+                if not (item := entry.media_item):
                     logger.warning(
                         f"MediaEntry {entry.id} has no associated MediaItem, skipping"
                     )
+
                     continue
 
                 # Re-match library profiles based on current settings
@@ -793,18 +797,24 @@ class RivenVFS(pyfuse3.Operations):
             items = session.query(MediaItem).filter(MediaItem.id.in_(item_ids)).all()
             item_map = {item.id: item for item in items}
 
-            for item_id in item_ids:
-                try:
-                    item = item_map.get(item_id)
+            async with trio.open_nursery() as nursery:
+                for item_id in item_ids:
+                    try:
+                        item = item_map.get(item_id)
 
-                    if not item:
-                        continue
+                        if not item:
+                            continue
 
-                    # Use add() to register the item (handles both media and subtitles)
-                    if await self.add(item):
-                        registered_count += 1
-                except Exception as e:
-                    logger.exception(f"Failed to register item {item_id}: {e}")
+                        # Use add() to register the item (handles both media and subtitles)
+                        async def _add_item(item: MediaItem) -> None:
+                            if await self.add(item):
+                                nonlocal registered_count
+                                registered_count += 1
+
+                        nursery.start_soon(_add_item, item)
+                    except Exception as e:
+                        logger.exception(f"Failed to register item {item_id}: {e}")
+
             if registered_count > 0:
                 session.commit()
 

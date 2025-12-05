@@ -3,9 +3,9 @@ from dataclasses import dataclass
 import linecache
 import os
 import time
-from queue import Empty
 from tracemalloc import Snapshot
 
+from kink import di
 import trio
 import trio_util
 
@@ -32,6 +32,7 @@ from program.utils import data_dir_path
 from program.utils.logging import logger
 from program.scheduling import ProgramScheduler
 from program.core.runner import Runner
+from program.utils.nursery import Nursery
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
@@ -276,12 +277,13 @@ class Program:
 
         logger.debug("Configuring executors and scheduler")
 
-        async with self.scheduler_manager.start():
-            logger.success("Riven is running!")
+        await di[Nursery].nursery.start(self.scheduler_manager.start)
 
-            self.initialized.value = True
+        logger.success("Riven is running!")
 
-            yield
+        self.initialized.value = True
+
+        yield
 
     def display_top_allocators(
         self,
@@ -333,55 +335,51 @@ class Program:
             self.display_top_allocators(snapshot)
 
     async def run(self):
-        async for _ in self.em.queued_events.change_event.events():
-            try:
-                event = await self.em.next()
-
-                if self.enable_trace:
-                    self.dump_tracemalloc()
-            except Empty:
+        async with (receive_channel := self.em.receive_channel):
+            async for event in receive_channel:
                 if self.enable_trace:
                     self.dump_tracemalloc()
 
-                await trio.sleep(0.1)
+                existing_item = (
+                    db_functions.get_item_by_id(event.item_id)
+                    if event.item_id
+                    else None
+                )
 
-                continue
+                processed_event = process_event(
+                    event.emitted_by,
+                    existing_item,
+                    event.content_item,
+                )
 
-            existing_item = (
-                db_functions.get_item_by_id(event.item_id) if event.item_id else None
-            )
+                next_service = processed_event.service
+                items_to_submit = processed_event.related_media_items
 
-            processed_event = process_event(
-                event.emitted_by,
-                existing_item,
-                event.content_item,
-            )
-
-            next_service = processed_event.service
-            items_to_submit = processed_event.related_media_items
-
-            if items_to_submit:
-                for item_to_submit in items_to_submit:
-                    if not next_service:
-                        await self.em.add_event_to_queue(
-                            Event(
-                                emitted_by="StateTransition", item_id=item_to_submit.id
+                if items_to_submit:
+                    for item_to_submit in items_to_submit:
+                        if not next_service:
+                            await self.em.add_event_to_queue(
+                                Event(
+                                    emitted_by="StateTransition",
+                                    item_id=item_to_submit.id,
+                                )
                             )
-                        )
-                    else:
-                        if item_to_submit.id:
-                            # We are in the database, pass on id.
-                            event = Event(next_service, item_id=item_to_submit.id)
                         else:
-                            # We are not, lets pass the MediaItem
-                            event = Event(next_service, content_item=item_to_submit)
+                            if item_to_submit.id:
+                                # We are in the database, pass on id.
+                                event = Event(next_service, item_id=item_to_submit.id)
+                            else:
+                                # We are not, lets pass the MediaItem
+                                event = Event(next_service, content_item=item_to_submit)
 
-                        # Event will be added to running when job actually starts in submit_job
-                        await self.em.submit_job(next_service, self, event)
+                            # Event will be added to running when job actually starts in submit_job
+                            await self.em.submit_job(next_service, self, event)
 
     async def stop(self):
-        if not self.initialized:
+        if not self.initialized.value:
             return
+
+        logger.debug("Stopping Riven...")
 
         await self.scheduler_manager.stop()
 

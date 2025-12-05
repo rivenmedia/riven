@@ -40,7 +40,7 @@ class ProcessedEvent:
     related_media_items: Sequence[MediaItem] | None
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Event:
     emitted_by: Runner | Literal["StateTransition", "RetryLibrary"] | str
     item_id: int | None = None

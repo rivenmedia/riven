@@ -5,11 +5,9 @@ import json
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from queue import Empty
 from typing import TYPE_CHECKING
 from kink import di
 import trio
-from trio_util import RepeatedEvent
 
 import sqlalchemy.orm
 from loguru import logger
@@ -20,7 +18,6 @@ from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.types import Event
-from program.media.state import States
 from program.utils.nursery import Nursery
 from program.core.runner import Runner
 
@@ -54,20 +51,6 @@ class Task:
     cancel_scope: trio.CancelScope
 
 
-class EventList(list[Event]):
-    change_event = RepeatedEvent()
-
-    def append(self, item: Event):
-        super().append(item)
-
-        self.change_event.set()
-
-    def remove(self, item: Event):
-        super().remove(item)
-
-        self.change_event.set()
-
-
 class EventManager:
     """
     Manages the execution of services and the handling of events.
@@ -76,8 +59,11 @@ class EventManager:
     def __init__(self):
         self._executors = list[ServiceExecutor]()
         self.tasks = dict[int, Task]()
-        self.queued_events = EventList()
-        self._running_events = list[Event]()
+        self.send_channel, self.receive_channel = trio.open_memory_channel[Event](
+            max_buffer_size=float("inf")
+        )
+        self._queued_events = set[Event]()
+        self._running_events = set[Event]()
         self.mutex = trio.Lock()
 
     async def _process_future(
@@ -170,7 +156,9 @@ class EventManager:
                         if item.last_state:
                             event.item_state = item.last_state
 
-            self.queued_events.append(event)
+            self._queued_events.add(event)
+
+            await self.send_channel.send(event)
 
             if log_message:
                 logger.debug(f"Added {event.log_message} to the queue.")
@@ -184,7 +172,7 @@ class EventManager:
         """
 
         async with self.mutex:
-            self.queued_events.remove(event)
+            # self.queued_events.remove(event)
 
             logger.debug(f"Removed {event.log_message} from the queue.")
 
@@ -209,9 +197,11 @@ class EventManager:
             item (MediaItem): The event item to remove from the queue.
         """
 
-        for event in self.queued_events:
-            if event.item_id == item_id:
-                await self.remove_event_from_queue(event)
+        pass
+
+        # for event in self.queued_events:
+        #     if event.item_id == item_id:
+        #         await self.remove_event_from_queue(event)
 
     async def add_event_to_running(self, event: Event):
         """
@@ -222,7 +212,7 @@ class EventManager:
         """
 
         async with self.mutex:
-            self._running_events.append(event)
+            self._running_events.add(event)
             logger.debug(f"Added {event.log_message} to running events.")
 
     async def remove_id_from_running(self, item_id: int):
@@ -273,8 +263,6 @@ class EventManager:
 
         assert program.services
 
-        runner = program.services[service.get_key()]
-
         @contextmanager
         def task_context(scope: trio.CancelScope):
             task_key = None
@@ -293,26 +281,32 @@ class EventManager:
                 if task_key:
                     del self.tasks[task_key]
 
-        async def run_task():
+        async def run_task(event: Event | None, service: Runner):
             with trio.CancelScope() as scope:
                 with task_context(scope):
-                    result = await db_functions.run_thread_with_db_item(
-                        fn=runner.run,
-                        service=service,
-                        program=program,
-                        event=event,
-                    )
+                    try:
+                        result = await db_functions.run_thread_with_db_item(
+                            fn=service.run,
+                            service=service,
+                            program=program,
+                            event=event,
+                        )
 
-                    if not result:
-                        logger.warning(f"No result found")
+                        if not result:
+                            logger.warning(f"No result found")
 
+                            return
+
+                        await self._process_future(
+                            event=event,
+                            result=result,
+                            service=service,
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            f"Error executing service {service.__class__.__name__}: {e}"
+                        )
                         return
-
-                    await self._process_future(
-                        event=event,
-                        result=result,
-                        service=service,
-                    )
 
             if scope.cancelled_caught:
                 if event:
@@ -320,7 +314,11 @@ class EventManager:
                 else:
                     logger.debug(f"Task was cancelled")
 
-        di[Nursery].nursery.start_soon(run_task)
+        di[Nursery].nursery.start_soon(
+            run_task,
+            event,
+            service,
+        )
 
         sse_manager.publish_event(
             "event_update",
@@ -359,103 +357,31 @@ class EventManager:
 
                 await self.remove_id_from_queues(id)
 
-    async def next(self) -> Event:
-        """
-        Get the next event in the queue, prioritizing items closest to completion.
-
-        Priority order (highest to lowest):
-        0. Items in Completed state (closest to completion)
-        1. Items in Symlinked state
-        2. Items in Downloaded state
-        3. Items in Scraped state
-        4. Items in Indexed state
-        5. All other states
-
-        Within each priority level, events are sorted by run_at timestamp.
-
-        Performance: Uses cached item_state from Event object to avoid database queries.
-
-        Raises:
-            Empty: If the queue is empty or no events are ready to run.
-
-        Returns:
-            Event: The next event in the queue.
-        """
-
-        while True:
-            if self.queued_events:
-                async with self.mutex:
-                    now = datetime.now()
-
-                    # Filter events that are ready to run (run_at <= now)
-                    ready_events = [
-                        event for event in self.queued_events if event.run_at <= now
-                    ]
-
-                    if not ready_events:
-                        raise Empty
-
-                    # Define state priority (lower number = higher priority)
-                    state_priority = dict[States, int](
-                        {
-                            States.Completed: 0,
-                            States.PartiallyCompleted: 1,
-                            States.Symlinked: 2,
-                            States.Downloaded: 3,
-                            States.Scraped: 4,
-                            States.Indexed: 5,
-                        }
-                    )
-
-                    def get_event_priority(event: Event) -> tuple[int, datetime]:
-                        """
-                        Returns a tuple for sorting: (state_priority, run_at)
-                        Items with higher priority states come first, then sorted by run_at.
-                        Uses cached item_state to avoid database queries.
-                        """
-                        if event.item_state:
-                            priority = state_priority.get(event.item_state, 999)
-                            return (priority, event.run_at)
-
-                        # Default priority for items without state or content-only events
-                        return (0, event.run_at)
-
-                    # Sort by priority (state first, then run_at)
-                    ready_events.sort(key=get_event_priority)
-
-                    # Get the highest priority event
-                    event = ready_events[0]
-
-                    self.queued_events.remove(event)
-
-                    return event
-            raise Empty
-
-    def _id_in_queue(self, _id: int) -> bool:
+    def _id_in_queue(self, id: int) -> bool:
         """
         Checks if an item with the given ID is in the queue.
 
         Args:
-            _id (int): The ID of the item to check.
+            id (int): The ID of the item to check.
 
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
 
-        return any(event.item_id == _id for event in self.queued_events)
+        return any(event.item_id == id for event in self._queued_events)
 
-    def _id_in_running_events(self, _id: int) -> bool:
+    def _id_in_running_events(self, id: int) -> bool:
         """
         Checks if an item with the given ID is in the running events.
 
         Args:
-            _id (int): The ID of the item to check.
+            id (int): The ID of the item to check.
 
         Returns:
             bool: True if the item is in the running events, False otherwise.
         """
 
-        return any(event.item_id == _id for event in self._running_events)
+        return any(event.item_id == id for event in self._running_events)
 
     async def add_event(self, event: Event) -> bool:
         """
@@ -505,7 +431,7 @@ class EventManager:
             # Single-pass checks: queued and running
             if self.item_exists_in_queue(
                 content_item,
-                self.queued_events,
+                self._queued_events,
             ) or self.item_exists_in_queue(
                 content_item,
                 self._running_events,
@@ -581,7 +507,7 @@ class EventManager:
 
         return updates
 
-    def item_exists_in_queue(self, item: MediaItem, queue: list[Event]) -> bool:
+    def item_exists_in_queue(self, item: MediaItem, queue: set[Event]) -> bool:
         """
         Check in a single pass whether any of the item's identifying ids (id, tmdb_id,
         tvdb_id, imdb_id) is already represented in the given event queue.
