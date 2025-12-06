@@ -13,6 +13,7 @@ from sqlalchemy.orm import (
     object_session,
     relationship,
     validates,
+    MappedAsDataclass,
 )
 
 from program.media.state import States
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 TMediaItem = TypeVar("TMediaItem", bound="MediaItem")
 
 
-class MediaItem(Base):
+class MediaItem(MappedAsDataclass, Base, kw_only=True):
     """MediaItem class"""
 
     class ActiveStreamDecorator(TypeDecorator[ActiveStream]):
@@ -798,11 +799,8 @@ class Show(MediaItem):
         cascade="all, delete-orphan",
         order_by="Season.number",
     )
-    release_data: Mapped[SeriesRelease] = mapped_column(
-        SeriesReleaseDecorator,
-        default_factory=dict,
-    )
     tvdb_status: Mapped[str | None]
+    release_data: Mapped[SeriesRelease | None] = mapped_column(SeriesReleaseDecorator)
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
