@@ -213,7 +213,9 @@ class TMDBIndexer(BaseIndexer):
             if imdb_id and not tmdb_id:
                 results = self.api.get_from_external_id("imdb_id", imdb_id)
 
-                assert results
+                if not results:
+                    logger.debug(f"Failed to resolve TMDB ID for IMDB ID {imdb_id}")
+                    return None
 
                 movie_results = results.movie_results
 
@@ -304,7 +306,7 @@ class TMDBIndexer(BaseIndexer):
                         else None
                     ),
                     "tvdb_id": None,
-                    "tmdb_id": str(object=movie_details.id),
+                    "tmdb_id": str(movie_details.id),
                     "imdb_id": movie_details.imdb_id,
                     "aired_at": release_date,
                     "genres": genres,

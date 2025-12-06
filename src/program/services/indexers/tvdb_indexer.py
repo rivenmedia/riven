@@ -365,11 +365,7 @@ class TVDBIndexer(BaseIndexer):
                             break
 
             # Extract TVDB status (Continuing, Ended, Upcoming)
-            tvdb_status = (
-                show_data.status.name
-                if show_data.status and show_data.status.name
-                else None
-            )
+            tvdb_status = show_data.release_status
 
             return Show(
                 {

@@ -284,7 +284,8 @@ class PlexAPI:
     def map_sections_with_paths(self) -> dict[LibrarySection, list[str]]:
         """Map Plex sections with their paths"""
 
-        assert self.plex_server
+        if not self.plex_server:
+            raise PlexAPIError("Plex server not initialized")
 
         # Skip sections without locations and non-movie/show sections
         sections = [

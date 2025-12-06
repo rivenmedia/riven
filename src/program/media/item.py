@@ -476,49 +476,54 @@ class MediaItem(Base):
     ) -> dict[str, Any]:
         """Convert item to extended dictionary (API response)"""
 
-        dict = self.to_dict()
+        extended_dict = self.to_dict()
 
         if isinstance(self, Show):
-            dict["seasons"] = [
+            extended_dict["seasons"] = [
                 season.to_extended_dict(with_streams=with_streams)
                 for season in self.seasons
             ]
         elif isinstance(self, Season):
-            dict["episodes"] = [
+            extended_dict["episodes"] = [
                 episode.to_extended_dict(with_streams=with_streams)
                 for episode in self.episodes
             ]
 
-        dict["language"] = self.language
-        dict["country"] = self.country
-        dict["network"] = self.network
+        extended_dict["language"] = self.language
+        extended_dict["country"] = self.country
+        extended_dict["network"] = self.network
 
         if with_streams:
-            dict["streams"] = [stream.to_dict() for stream in self.streams]
-            dict["blacklisted_streams"] = [
+            extended_dict["streams"] = [stream.to_dict() for stream in self.streams]
+            extended_dict["blacklisted_streams"] = [
                 stream.to_dict() for stream in self.blacklisted_streams
             ]
-            dict["active_stream"] = self.active_stream
-        dict["number"] = self.number if isinstance(self, Episode | Season) else None
-        dict["is_anime"] = bool(self.is_anime)
+            extended_dict["active_stream"] = self.active_stream
+        extended_dict["number"] = (
+            self.number if isinstance(self, Episode | Season) else None
+        )
+        extended_dict["is_anime"] = bool(self.is_anime)
 
-        dict["filesystem_entry"] = (
+        extended_dict["filesystem_entry"] = (
             self.filesystem_entry.to_dict() if self.filesystem_entry else None
         )
-        dict["media_metadata"] = (
+        extended_dict["media_metadata"] = (
             self.filesystem_entry.media_metadata
             if isinstance(self.filesystem_entry, MediaEntry)
             else None
         )
-        dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles]
+        extended_dict["subtitles"] = [subtitle.to_dict() for subtitle in self.subtitles]
+
         # Include embedded subtitles from media_metadata
         if self.media_entry and self.media_entry.media_metadata:
             embedded_subs = self.media_entry.media_metadata.subtitle_tracks
 
             if embedded_subs:
-                dict["subtitles"].extend([sub.model_dump() for sub in embedded_subs])
+                extended_dict["subtitles"].extend(
+                    [sub.model_dump() for sub in embedded_subs]
+                )
 
-        return dict
+        return extended_dict
 
     def __iter__(self):
         for attr, _ in vars(self).items():
@@ -720,7 +725,7 @@ class MediaItem(Base):
 
         session = object_session(self)
 
-        if session and isinstance(self, Season | Episode):
+        if session and session.is_active and isinstance(self, (Season, Episode)):
             session.refresh(self, ["parent"])
 
             if self.parent:
@@ -1115,7 +1120,7 @@ class Season(MediaItem):
 
         session = object_session(self)
 
-        if session:
+        if session and session.is_active:
             session.refresh(self, ["parent"])
 
         return self.parent.title
