@@ -12,6 +12,7 @@ from sqlalchemy.orm import (
     mapped_column,
     object_session,
     relationship,
+    validates,
 )
 
 from program.media.state import States
@@ -64,7 +65,8 @@ class MediaItem(Base):
         mapped_column(nullable=False)
     )
     requested_at: Mapped[datetime | None] = mapped_column(
-        sqlalchemy.DateTime, default=datetime.now()
+        sqlalchemy.DateTime,
+        default_factory=datetime.now,
     )
     requested_by: Mapped[str | None]
     requested_id: Mapped[int | None]
@@ -938,7 +940,9 @@ class Season(MediaItem):
     id: Mapped[int] = mapped_column(
         sqlalchemy.ForeignKey("MediaItem.id", ondelete="CASCADE"), primary_key=True
     )
-    number: Mapped[int]
+    number: Mapped[int] = mapped_column(
+        sqlalchemy.Integer,
+    )
     parent_id: Mapped[int] = mapped_column(
         sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
     )
@@ -976,7 +980,7 @@ class Season(MediaItem):
 
     def __init__(self, item: dict[str, Any]):
         self.type = "season"
-        self.number = item["number"]
+        self.number = item.get("number", 0)
         self.episodes = item.get("episodes", [])
 
         super().__init__(item)
@@ -1058,6 +1062,13 @@ class Season(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
+    @validates("number")
+    def validate_number(self, _: str, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Season number must be a positive integer")
+
+        return value
+
     def copy(self, other: "Self", copy_parent: bool = True) -> Self:
         super()._copy_common_attributes(other)
 
@@ -1122,6 +1133,13 @@ class Episode(MediaItem):
         "polymorphic_load": "selectin",
     }
 
+    @validates("number")
+    def validate_number(self, _: str, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Episode number must be a positive integer")
+
+        return value
+
     @property
     def top_parent(self) -> "Show":
         """Return the top-level parent"""
@@ -1130,7 +1148,7 @@ class Episode(MediaItem):
 
     def __init__(self, item: dict[str, Any]):
         self.type = "episode"
-        self.number = item["number"]
+        self.number = item.get("number", 0)
 
         super().__init__(item)
 
