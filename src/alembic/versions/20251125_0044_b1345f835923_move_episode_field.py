@@ -56,6 +56,19 @@ def upgrade() -> None:
         )
     )
 
+    # Delete invalid episodes/seasons
+    connection.execute(
+        sa.text(
+            "DELETE FROM Episode WHERE number IS NULL OR number <= 0",
+        )
+    )
+
+    connection.execute(
+        sa.text(
+            "DELETE FROM Season WHERE number IS NULL OR number <= 0",
+        )
+    )
+
     # Step 3: Alter columns to non-nullable
     with op.batch_alter_table("Episode", schema=None) as batch_op:
         batch_op.alter_column("number", nullable=False)
