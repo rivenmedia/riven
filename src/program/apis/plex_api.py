@@ -110,6 +110,10 @@ class PlexAPI:
         if response.ok:
             data = ResponseData.model_validate(response.json())
 
+            if not data.MediaContainer.Metadata:
+                logger.debug(f"No metadata found for rating key: {ratingKey}")
+                return None
+
             return next(
                 (
                     guid.id.split("//")[-1]

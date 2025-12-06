@@ -294,33 +294,33 @@ class TMDBIndexer(BaseIndexer):
                 else None
             )
 
-            movie_item = {
-                "title": movie_details.title,
-                "poster_path": full_poster_url,
-                "year": (
-                    int(movie_details.release_date[:4])
-                    if movie_details.release_date
-                    else None
-                ),
-                "tvdb_id": None,
-                "tmdb_id": str(object=movie_details.id),
-                "imdb_id": movie_details.imdb_id,
-                "aired_at": release_date,
-                "genres": genres,
-                "type": "movie",
-                "requested_at": datetime.now(),
-                "country": country,
-                "language": movie_details.original_language,
-                "is_anime": (
-                    any(g in ["animation", "anime"] for g in genres)
-                    and movie_details.original_language != "en"
-                ),
-                "aliases": aliases,
-                "rating": rating,
-                "content_rating": content_rating,
-            }
-
-            return Movie(movie_item)
+            return Movie(
+                {
+                    "title": movie_details.title,
+                    "poster_path": full_poster_url,
+                    "year": (
+                        int(movie_details.release_date[:4])
+                        if movie_details.release_date
+                        else None
+                    ),
+                    "tvdb_id": None,
+                    "tmdb_id": str(object=movie_details.id),
+                    "imdb_id": movie_details.imdb_id,
+                    "aired_at": release_date,
+                    "genres": genres,
+                    "type": "movie",
+                    "requested_at": datetime.now(),
+                    "country": country,
+                    "language": movie_details.original_language,
+                    "is_anime": (
+                        any(g in ["animation", "anime"] for g in genres)
+                        and movie_details.original_language != "en"
+                    ),
+                    "aliases": aliases,
+                    "rating": rating,
+                    "content_rating": content_rating,
+                }
+            )
         except Exception as e:
             logger.error(f"Error mapping TMDB movie data: {e}")
 

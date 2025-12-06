@@ -550,20 +550,22 @@ class TVDBIndexer(BaseIndexer):
             if season_data.year:
                 year = int(season_data.year)
 
-            season_item = {
-                "number": season_number,
-                "tvdb_id": str(season_data.id),
-                "title": f"Season {season_number}",
-                "poster_path": poster_path,
-                "aired_at": aired_at,
-                "year": year,
-                "type": "season",
-                "is_anime": show.is_anime,
-                "requested_at": datetime.now(),
-            }
+            season = Season(
+                {
+                    "number": season_number,
+                    "tvdb_id": str(season_data.id),
+                    "title": f"Season {season_number}",
+                    "poster_path": poster_path,
+                    "aired_at": aired_at,
+                    "year": year,
+                    "type": "season",
+                    "is_anime": show.is_anime,
+                    "requested_at": datetime.now(),
+                }
+            )
 
-            season = Season(season_item)
             season.parent = show
+
             return season
         except Exception as e:
             logger.error(f"Error creating season from TVDB data: {str(e)}")

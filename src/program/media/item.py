@@ -87,7 +87,10 @@ class MediaItem(Base):
         cascade="all",
     )
 
-    aliases: Mapped[dict[str, list[str]]] = mapped_column(sqlalchemy.JSON, default={})
+    aliases: Mapped[dict[str, list[str]]] = mapped_column(
+        sqlalchemy.JSON,
+        default_factory=dict,
+    )
     is_anime: Mapped[bool | None] = mapped_column(sqlalchemy.Boolean, default=False)
     network: Mapped[str | None]
     country: Mapped[str | None]
@@ -745,8 +748,9 @@ class Movie(MediaItem):
 
         return self
 
-    def __init__(self, item: dict[str, Any]):
+    def __init__(self, item: dict[str, Any] | None = None):
         self.type = "movie"
+
         super().__init__(item)
 
     def __repr__(self):
@@ -790,7 +794,8 @@ class Show(MediaItem):
         order_by="Season.number",
     )
     release_data: Mapped[SeriesRelease] = mapped_column(
-        SeriesReleaseDecorator, default={}
+        SeriesReleaseDecorator,
+        default_factory=dict,
     )
     tvdb_status: Mapped[str | None]
 
@@ -805,12 +810,14 @@ class Show(MediaItem):
 
         return self
 
-    def __init__(self, item: dict[str, Any]):
+    def __init__(self, item: dict[str, Any] | None = None):
         self.type = "show"
-        self.locations = item.get("locations", [])
-        self.seasons = item.get("seasons", [])
-        self.release_data = item.get("release_data", {})
-        self.tvdb_status = item.get("tvdb_status")
+
+        if item:
+            self.locations = item.get("locations", [])
+            self.seasons = item.get("seasons", [])
+            self.release_data = item.get("release_data", {})
+            self.tvdb_status = item.get("tvdb_status")
 
         super().__init__(item)
 
@@ -885,7 +892,7 @@ class Show(MediaItem):
         self.seasons = []
 
         for season in other.seasons:
-            new_season = Season(item={}).copy(season, False)
+            new_season = Season().copy(season, False)
             new_season.parent = self
             self.seasons.append(new_season)
 
@@ -947,7 +954,7 @@ class Season(MediaItem):
         sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
     )
     parent: Mapped["Show"] = relationship(
-        lazy=False,
+        lazy="joined",
         back_populates="seasons",
         foreign_keys="Season.parent_id",
     )
@@ -978,10 +985,14 @@ class Season(MediaItem):
 
         return super().store_state(given_state)
 
-    def __init__(self, item: dict[str, Any]):
+    def __init__(self, item: dict[str, Any] | None = None):
         self.type = "season"
-        self.number = item.get("number", 0)
-        self.episodes = item.get("episodes", [])
+
+        if item:
+            if number := item.get("number", None):
+                self.number = number
+
+            self.episodes = item.get("episodes", [])
 
         super().__init__(item)
 
@@ -1073,14 +1084,14 @@ class Season(MediaItem):
         super()._copy_common_attributes(other)
 
         for episode in other.episodes:
-            new_episode = Episode(item={}).copy(episode, False)
+            new_episode = Episode().copy(episode, False)
             new_episode.parent = self
             self.episodes.append(new_episode)
 
         self.number = other.number
 
         if copy_parent and other.parent:
-            self.parent = Show(item={}).copy(other.parent)
+            self.parent = Show().copy(other.parent)
 
         return self
 
@@ -1146,9 +1157,12 @@ class Episode(MediaItem):
 
         return self.parent.parent
 
-    def __init__(self, item: dict[str, Any]):
+    def __init__(self, item: dict[str, Any] | None = None):
         self.type = "episode"
-        self.number = item.get("number", 0)
+
+        if item:
+            if number := item.get("number", None):
+                self.number = number
 
         super().__init__(item)
 
@@ -1164,7 +1178,7 @@ class Episode(MediaItem):
         self.number = other.number
 
         if copy_parent and other.parent:
-            self.parent = Season(item={}).copy(other.parent)
+            self.parent = Season().copy(other.parent)
 
         return self
 
