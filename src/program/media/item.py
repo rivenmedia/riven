@@ -800,7 +800,7 @@ class Show(MediaItem):
         order_by="Season.number",
     )
     tvdb_status: Mapped[str | None]
-    release_data: Mapped[SeriesRelease | None] = mapped_column(SeriesReleaseDecorator)
+    release_data: Mapped[SeriesRelease] = mapped_column(SeriesReleaseDecorator)
 
     __mapper_args__ = {
         "polymorphic_identity": "show",
@@ -819,7 +819,12 @@ class Show(MediaItem):
         if item:
             self.locations = item.get("locations", [])
             self.seasons = item.get("seasons", [])
-            self.release_data = item.get("release_data", {})
+
+            release_data = item.get("release_data")
+
+            if release_data:
+                self.release_data = SeriesRelease.model_validate(release_data)
+
             self.tvdb_status = item.get("tvdb_status")
 
         super().__init__(item)
