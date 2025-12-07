@@ -448,7 +448,7 @@ class AllDebridDownloader(DownloaderBase):
                     AllDebridFile(
                         n=file_obj.n,
                         s=file_obj.s,
-                        l=download_link,
+                        l=download_link if download_link else file_obj.l,
                     )
                 )
 
@@ -627,7 +627,8 @@ class AllDebridDownloader(DownloaderBase):
                         download_link = ""
 
                         if isinstance(file_or_directory, AllDebridFile):
-                            download_link = file_or_directory.l
+                            if file_or_directory.l:
+                                all_files.append(file_or_directory)
                         else:
                             # Recursively process files/folders and add download link
                             self._add_link_to_files_recursive(
