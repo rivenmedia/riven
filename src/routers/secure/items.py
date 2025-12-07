@@ -1276,7 +1276,7 @@ async def reindex_item(
 
 
 class ItemAliasesResponse(BaseModel):
-    aliases: dict[str, list[str]]
+    aliases: dict[str, list[str]] | None
 
 
 @router.get(
