@@ -1,7 +1,8 @@
 """Riven settings models"""
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, List, Literal, Annotated
+from typing import Any, Literal, Annotated
 
 from pydantic import (
     BaseModel,
@@ -9,7 +10,6 @@ from pydantic import (
     field_validator,
     model_validator,
     BeforeValidator,
-    TypeAdapter,
 )
 from pydantic.networks import PostgresDsn
 from RTN.models import SettingsModel
@@ -39,28 +39,17 @@ class Observable(MigratableBaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    _notify_observers: Callable | None = None
+    _notify_observers: Callable[..., Any] | None = None
 
     @classmethod
-    def set_notify_observers(cls, notify_observers_callable):
+    def set_notify_observers(cls, notify_observers_callable: Callable[..., Any]):
         cls._notify_observers = notify_observers_callable
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: Any):
         super().__setattr__(name, value)
+
         if self.__class__._notify_observers:
-            with self._notify_observers_context():
-                self.__class__._notify_observers()
-
-    @staticmethod
-    def _notify_observers_context():
-        class NotifyContextManager:
-            def __enter__(self):
-                pass
-
-            def __exit__(self, exc_type, exc_value, traceback):
-                pass
-
-        return NotifyContextManager()
+            self.__class__._notify_observers()
 
 
 # Download Services
@@ -82,9 +71,9 @@ class AllDebridModel(Observable):
 
 
 class DownloadersModel(Observable):
-    video_extensions: List[str] = Field(
-        default_factory=lambda: ["mp4", "mkv", "avi"],
-        description="List of video file extensions to consider for downloads",
+    video_extensions: list[str] = Field(
+        default_factory=lambda: list[str](["mp4", "mkv", "avi"]),
+        description="list of video file extensions to consider for downloads",
     )
     movie_filesize_mb_min: int = Field(
         default=700, ge=1, description="Minimum file size in MB for movies"
@@ -125,18 +114,18 @@ class DownloadersModel(Observable):
 class LibraryProfileFilterRules(BaseModel):
     """Filter rules for library profile matching (metadata-only)"""
 
-    content_types: List[str] | None = Field(
+    content_types: list[str] | None = Field(
         default=None,
         description="Media types to include (movie, show). None/omit = all types",
     )
-    genres: List[str] | None = Field(
+    genres: list[str] | None = Field(
         default=None,
         description="Genres to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['action', 'adventure'] = include these genres, "
         "['action', '!horror'] = include action but exclude horror. "
         "None/omit = no genre filter",
     )
-    exclude_genres: List[str] | None = Field(
+    exclude_genres: list[str] | None = Field(
         default=None,
         description="DEPRECATED: Use genres with '!' prefix instead. "
         "This field is kept for backward compatibility and will be auto-migrated.",
@@ -154,17 +143,17 @@ class LibraryProfileFilterRules(BaseModel):
     is_anime: bool | None = Field(
         default=None, description="Filter by anime flag. None/omit = no anime filter"
     )
-    networks: List[str] | None = Field(
+    networks: list[str] | None = Field(
         default=None,
         description="TV networks to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['HBO', 'Netflix'], ['HBO', '!Fox']. None/omit = no network filter",
     )
-    countries: List[str] | None = Field(
+    countries: list[str] | None = Field(
         default=None,
         description="Countries to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['US', 'GB'], ['US', '!CN']. None/omit = no country filter",
     )
-    languages: List[str] | None = Field(
+    languages: list[str] | None = Field(
         default=None,
         description="Languages to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['en', 'es'], ['en', '!zh']. None/omit = no language filter",
@@ -181,7 +170,7 @@ class LibraryProfileFilterRules(BaseModel):
         le=10.0,
         description="Maximum rating (0-10 scale). None/omit = no maximum",
     )
-    content_ratings: List[str] | None = Field(
+    content_ratings: list[str] | None = Field(
         default=None,
         description="Content ratings to include/exclude. Prefix with '!' to exclude. "
         "Examples: ['PG', 'PG-13'], ['PG', '!R']. "
@@ -218,7 +207,7 @@ class LibraryProfile(BaseModel):
     )
 
     @field_validator("library_path")
-    def validate_library_path(cls, v):
+    def validate_library_path(cls, v: str):
         """Validate library_path format"""
         if not v:
             raise ValueError("library_path cannot be empty")
@@ -346,7 +335,7 @@ class FilesystemModel(Observable):
     )
 
     @field_validator("library_profiles")
-    def validate_library_profiles(cls, v):
+    def validate_library_profiles(cls, v: dict[str, LibraryProfile]):
         """Validate library profile keys and paths"""
         import re
 
@@ -356,15 +345,18 @@ class FilesystemModel(Observable):
                 raise ValueError(
                     f"Profile key '{key}' must be lowercase alphanumeric with underscores only"
                 )
+
             if key == "default":
                 raise ValueError("Profile key 'default' is reserved")
 
         # Check for duplicate library_path values among enabled profiles
         # Disabled profiles are allowed to have duplicate paths since they're not active
         enabled_paths = {}
+
         for key, profile in v.items():
             if profile.enabled:
                 # Normalize path for comparison (strip trailing slashes, ensure leading slash)
+
                 normalized_path = profile.library_path.rstrip("/")
                 if not normalized_path.startswith("/"):
                     normalized_path = f"/{normalized_path}"
@@ -395,39 +387,10 @@ class FilesystemModel(Observable):
         "season_dir_template",
         "episode_file_template",
     )
-    def validate_naming_template(cls, v: str, info) -> str:
+    def validate_naming_template(cls, v: str) -> str:
         """Validate that naming template string is syntactically valid."""
-        from string import Formatter
 
-        class SafeFormatter(Formatter):
-            """Formatter that handles missing keys gracefully for validation."""
-
-            def get_value(self, key, args, kwargs):
-                if isinstance(key, str):
-                    # Handle nested access: show[title]
-                    if "[" in key and "]" in key:
-                        parts = key.replace("]", "").split("[")
-                        value = kwargs.get(parts[0], {})
-                        for part in parts[1:]:
-                            if isinstance(value, dict):
-                                value = value.get(part, "")
-                            elif isinstance(value, list):
-                                try:
-                                    # Handle negative indices like [-1]
-                                    value = value[int(part)]
-                                except (ValueError, IndexError):
-                                    value = ""
-                            else:
-                                value = ""
-                        return value or ""
-                    # Simple key access
-                    return kwargs.get(key, "")
-                return super().get_value(key, args, kwargs)
-
-            def format_field(self, value, format_spec):
-                if value is None or value == "":
-                    return ""
-                return super().format_field(value, format_spec)
+        from program.utils.safe_formatter import SafeFormatter
 
         try:
             # Test template with comprehensive dummy data
@@ -460,7 +423,9 @@ class FilesystemModel(Observable):
                 "directors_cut": "Director's Cut",
                 "edition": "Extended Director's Cut",
             }
+
             formatter.format(v, **test_data)
+
             return v
         except Exception as e:
             raise ValueError(f"Invalid naming template syntax: {e}")
@@ -473,9 +438,10 @@ class Updatable(Observable):
     update_interval: int = Field(default=80, description="Update interval in seconds")
 
     @field_validator("update_interval")
-    def check_update_interval(cls, v):
+    def check_update_interval(cls, v: int):
         if v < (limit := 5):
             raise ValueError(f"update_interval must be at least {limit} seconds")
+
         return v
 
 
@@ -515,15 +481,15 @@ class UpdatersModel(Observable):
         description="Path to which your media library mount point",
     )
     plex: PlexLibraryModel = Field(
-        default_factory=lambda: PlexLibraryModel(),
+        default_factory=PlexLibraryModel,
         description="Plex library configuration",
     )
     jellyfin: JellyfinLibraryModel = Field(
-        default_factory=lambda: JellyfinLibraryModel(),
+        default_factory=JellyfinLibraryModel,
         description="Jellyfin library configuration",
     )
     emby: EmbyLibraryModel = Field(
-        default_factory=lambda: EmbyLibraryModel(),
+        default_factory=EmbyLibraryModel,
         description="Emby library configuration",
     )
 
@@ -533,10 +499,10 @@ class UpdatersModel(Observable):
 
 class ListrrModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Listrr integration")
-    movie_lists: List[str] = Field(
+    movie_lists: list[str] = Field(
         default_factory=list, description="Listrr movie list IDs"
     )
-    show_lists: List[str] = Field(
+    show_lists: list[str] = Field(
         default_factory=list, description="Listrr TV show list IDs"
     )
     api_key: str = Field(default="", description="Listrr API key")
@@ -548,8 +514,8 @@ class ListrrModel(Updatable):
 class MdblistModel(Updatable):
     enabled: bool = Field(default=False, description="Enable MDBList integration")
     api_key: str = Field(default="", description="MDBList API key")
-    lists: List[int | str] = Field(
-        default_factory=list, description="MDBList list IDs to monitor"
+    lists: list[int | str] = Field(
+        default_factory=list[int | str], description="MDBList list IDs to monitor"
     )
     update_interval: int = Field(
         default=86400, ge=1, description="Update interval in seconds (24 hours default)"
@@ -574,7 +540,7 @@ class PlexWatchlistModel(Updatable):
     enabled: bool = Field(
         default=False, description="Enable Plex Watchlist integration"
     )
-    rss: List[EmptyOrUrl] = Field(
+    rss: list[EmptyOrUrl] = Field(
         default_factory=list, description="Plex Watchlist RSS feed URLs"
     )
     update_interval: int = Field(
@@ -595,14 +561,17 @@ class TraktOauthModel(BaseModel):
 class TraktModel(Updatable):
     enabled: bool = Field(default=False, description="Enable Trakt integration")
     api_key: str = Field(default="", description="Trakt API key")
-    watchlist: List[str] = Field(
-        default_factory=list, description="Trakt usernames for watchlist monitoring"
+    watchlist: list[str] = Field(
+        default_factory=list[str],
+        description="Trakt usernames for watchlist monitoring",
     )
-    user_lists: List[str] = Field(
-        default_factory=list, description="Trakt user list URLs to monitor"
+    user_lists: list[str] = Field(
+        default_factory=list[str],
+        description="Trakt user list URLs to monitor",
     )
-    collection: List[str] = Field(
-        default_factory=list, description="Trakt usernames for collection monitoring"
+    collection: list[str] = Field(
+        default_factory=list[str],
+        description="Trakt usernames for collection monitoring",
     )
     fetch_trending: bool = Field(
         default=False, description="Fetch trending content from Trakt"
@@ -859,11 +828,11 @@ class DatabaseModel(Observable):
 
 class NotificationsModel(Observable):
     enabled: bool = Field(default=False, description="Enable notifications")
-    on_item_type: List[str] = Field(
+    on_item_type: list[str] = Field(
         default_factory=lambda: ["movie", "show", "season", "episode"],
         description="Item types to send notifications for",
     )
-    service_urls: List[str] = Field(
+    service_urls: list[str] = Field(
         default_factory=list,
         description="Notification service URLs (e.g., Discord webhooks)",
     )
@@ -882,7 +851,7 @@ class SubtitleProvidersDict(Observable):
 
 class SubtitleConfig(Observable):
     enabled: bool = Field(default=False, description="Enable subtitle downloading")
-    languages: List[str] = Field(
+    languages: list[str] = Field(
         default_factory=lambda: ["eng"],
         description="Subtitle languages to download (ISO 639-2 codes)",
     )
@@ -914,9 +883,10 @@ class LoggingModel(Observable):
     )
 
     @field_validator("compression", mode="before")
-    def check_compression(cls, v):
+    def check_compression(cls, v: str | None):
         if v == "" or not v:
             return "disabled"
+
         return v
 
 
@@ -952,6 +922,10 @@ class AppModel(Observable):
     enable_network_tracing: bool = Field(
         default=False,
         description="Enable detailed network request/response logging",
+    )
+    enable_stream_tracing: bool = Field(
+        default=False,
+        description="Enable detailed stream request/response logging",
     )
     retry_interval: int = Field(
         default=60 * 60 * 24,
@@ -1006,11 +980,12 @@ class AppModel(Observable):
     )
 
     @field_validator("log_level", mode="before")
-    def check_debug(cls, v):
+    def check_debug(cls, v: str | bool):
         if v == True:
             return "DEBUG"
         elif v == False:
             return "INFO"
+
         return v.upper()
 
     def __init__(self, **data: Any):

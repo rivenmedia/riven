@@ -1,14 +1,14 @@
 from kink import di
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
-from .listrr_api import ListrrAPI, ListrrAPIError
-from .mdblist_api import MdblistAPI, MdblistAPIError
-from .overseerr_api import OverseerrAPI, OverseerrAPIError
-from .plex_api import PlexAPI, PlexAPIError
-from .tmdb_api import TMDBApi, TMDBApiError
-from .trakt_api import TraktAPI, TraktAPIError
-from .tvdb_api import TVDBApi, TVDBApiError
+from .listrr_api import ListrrAPI
+from .mdblist_api import MdblistAPI
+from .overseerr_api import OverseerrAPI
+from .plex_api import PlexAPI
+from .tmdb_api import TMDBApi
+from .trakt_api import TraktAPI
+from .tvdb_api import TVDBApi
 
 
 def bootstrap_apis():
@@ -22,49 +22,46 @@ def bootstrap_apis():
 
 
 def __setup_trakt():
-    traktApi = TraktAPI(settings_manager.settings.content.trakt)
-    di[TraktAPI] = traktApi
+    di[TraktAPI] = TraktAPI(settings_manager.settings.content.trakt)
 
 
 def __setup_tmdb():
-    tmdbApi = TMDBApi()
-    di[TMDBApi] = tmdbApi
+    di[TMDBApi] = TMDBApi()
 
 
 def __setup_tvdb():
-    tvdbApi = TVDBApi()
-    di[TVDBApi] = tvdbApi
+    di[TVDBApi] = TVDBApi()
 
 
 def __setup_plex():
     if not settings_manager.settings.updaters.plex.enabled:
         return
-    plexApi = PlexAPI(
+
+    di[PlexAPI] = PlexAPI(
         settings_manager.settings.updaters.plex.token,
         settings_manager.settings.updaters.plex.url,
     )
-    di[PlexAPI] = plexApi
 
 
 def __setup_overseerr():
     if not settings_manager.settings.content.overseerr.enabled:
         return
-    overseerrApi = OverseerrAPI(
+
+    di[OverseerrAPI] = OverseerrAPI(
         settings_manager.settings.content.overseerr.api_key,
         settings_manager.settings.content.overseerr.url,
     )
-    di[OverseerrAPI] = overseerrApi
 
 
 def __setup_mdblist():
     if not settings_manager.settings.content.mdblist.enabled:
         return
-    mdblistApi = MdblistAPI(settings_manager.settings.content.mdblist.api_key)
-    di[MdblistAPI] = mdblistApi
+
+    di[MdblistAPI] = MdblistAPI(settings_manager.settings.content.mdblist.api_key)
 
 
 def __setup_listrr():
     if not settings_manager.settings.content.listrr.enabled:
         return
-    listrrApi = ListrrAPI(settings_manager.settings.content.listrr.api_key)
-    di[ListrrAPI] = listrrApi
+
+    di[ListrrAPI] = ListrrAPI(settings_manager.settings.content.listrr.api_key)

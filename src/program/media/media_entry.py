@@ -1,8 +1,31 @@
 import sqlalchemy
+
+from typing import Any
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column
-from typing import Optional
+from sqlalchemy.engine import Dialect
 
 from program.media.filesystem_entry import FilesystemEntry
+from program.media.models import MediaMetadata
+
+
+class MediaMetadataDecorator(TypeDecorator[MediaMetadata]):
+    """Custom SQLAlchemy type decorator for MediaMetadata JSON serialization"""
+
+    impl = sqlalchemy.JSON
+    cache_ok = True
+
+    def process_bind_param(self, value: MediaMetadata | None, dialect: Dialect):
+        if value is None:
+            return None
+
+        return value.model_dump()
+
+    def process_result_value(self, value: dict[str, Any] | None, dialect: Dialect):
+        if value is None:
+            return None
+
+        return MediaMetadata.model_validate(value)
 
 
 class MediaEntry(FilesystemEntry):
@@ -24,14 +47,10 @@ class MediaEntry(FilesystemEntry):
     )
 
     # Debrid service fields
-    download_url: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
-    unrestricted_url: Mapped[str | None] = mapped_column(
-        sqlalchemy.String, nullable=True
-    )
-    provider: Mapped[str | None] = mapped_column(sqlalchemy.String, nullable=True)
-    provider_download_id: Mapped[str | None] = mapped_column(
-        sqlalchemy.String, nullable=True
-    )
+    download_url: Mapped[str | None]
+    unrestricted_url: Mapped[str | None]
+    provider: Mapped[str | None]
+    provider_download_id: Mapped[str | None]
 
     # Library Profile References (list of profile keys from settings.json)
     library_profiles: Mapped[list[str] | None] = mapped_column(
@@ -43,8 +62,8 @@ class MediaEntry(FilesystemEntry):
 
     # Unified media metadata (combines parsed and probed data)
     # Stores MediaMetadata model: {video, audio_tracks, subtitle_tracks, quality_source, etc.}
-    media_metadata: Mapped[dict | None] = mapped_column(
-        sqlalchemy.JSON,
+    media_metadata: Mapped[MediaMetadata | None] = mapped_column(
+        MediaMetadataDecorator,
         nullable=True,
         comment="Unified media metadata combining parsed (RTN) and probed (ffprobe) data",
     )
@@ -85,10 +104,11 @@ class MediaEntry(FilesystemEntry):
             Always includes at least the base path.
         """
         from program.services.filesystem.vfs.naming import generate_clean_path
-        from program.settings.manager import settings_manager
+        from program.settings import settings_manager
 
         # Get the associated MediaItem
         item = self.media_item
+
         if not item:
             return []
 
@@ -98,8 +118,6 @@ class MediaEntry(FilesystemEntry):
         canonical_path = generate_clean_path(
             item=item,
             original_filename=self.original_filename,
-            file_size=self.file_size or 0,
-            media_metadata=self.media_metadata,
         )
 
         # ALWAYS include the base path (/movies or /shows)
@@ -133,7 +151,7 @@ class MediaEntry(FilesystemEntry):
         provider: str,
         provider_download_id: str,
         file_size: int = 0,
-        media_metadata: Optional[dict] = None,
+        media_metadata: MediaMetadata | None = None,
     ) -> "MediaEntry":
         """
         Create a MediaEntry representing a virtual (RivenVFS) media file.
@@ -158,7 +176,40 @@ class MediaEntry(FilesystemEntry):
             media_metadata=media_metadata,
         )
 
-    def to_dict(self) -> dict:
+    @classmethod
+    def create_placeholder_entry(
+        cls,
+        original_filename: str,
+        download_url: str | None,
+        provider: str | None = None,
+        provider_download_id: str | None = None,
+        file_size: int = 0,
+        media_metadata: MediaMetadata | None = None,
+    ) -> "MediaEntry":
+        """
+        Create a MediaEntry representing a virtual (RivenVFS) media file.
+
+        Parameters:
+            original_filename (str): Original filename from debrid provider (source of truth).
+            download_url (str): Provider-restricted URL used to fetch the file.
+            provider (str): Identifier of the provider that supplies the file.
+            provider_download_id (str): Provider-specific download identifier.
+            file_size (int): Size of the file in bytes; defaults to 0.
+            media_metadata (dict, optional): Cached media metadata to avoid re-parsing/probing.
+
+        Returns:
+            MediaEntry: A new MediaEntry instance populated with the provided values.
+        """
+        return cls(
+            original_filename=original_filename,
+            download_url=download_url,
+            provider=provider,
+            provider_download_id=provider_download_id,
+            file_size=file_size,
+            media_metadata=media_metadata,
+        )
+
+    def to_dict(self) -> dict[str, int | str | bool | None]:
         """
         Provide a dictionary representation of the MediaEntry.
 
@@ -183,6 +234,7 @@ class MediaEntry(FilesystemEntry):
                 "media_item_id": associated MediaItem ID or None
             }
         """
+
         base_dict = super().to_dict()
         base_dict.update(
             {
@@ -195,6 +247,7 @@ class MediaEntry(FilesystemEntry):
                 "provider_download_id": self.provider_download_id,
             }
         )
+
         return base_dict
 
 

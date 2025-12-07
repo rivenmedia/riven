@@ -2,7 +2,7 @@ import random
 
 
 class UserAgentFactory:
-    def __init__(self, user_agents: list):
+    def __init__(self, user_agents: list[str]):
         self.user_agents = user_agents
 
     def get_random_user_agent(self):
@@ -51,4 +51,5 @@ user_agents_pool = [
     "curl/7.67.0",
     "curl/7.63.0",
 ]
+
 user_agent_factory = UserAgentFactory(user_agents_pool)

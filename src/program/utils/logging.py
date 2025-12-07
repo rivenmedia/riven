@@ -3,22 +3,36 @@
 import os
 import sys
 from datetime import datetime
+from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils import data_dir_path
 
-LAST_LOGS_CLEANED: datetime | None = None
+if TYPE_CHECKING:
+    from loguru import HandlerConfig
+
+last_logs_cleaned_time: datetime | None = None
 
 
-def setup_logger(level):
+def setup_logger(
+    level: Literal[
+        "TRACE",
+        "DEBUG",
+        "INFO",
+        "WARNING",
+        "ERROR",
+        "CRITICAL",
+    ],
+):
     """Setup the logger"""
 
     # Helper function to get log settings from environment or use default
-    def get_log_settings(name, default_color, default_icon):
+    def get_log_settings(name: str, default_color: str, default_icon: str):
         color = os.getenv(f"RIVEN_LOGGER_{name}_FG", default_color)
         icon = os.getenv(f"RIVEN_LOGGER_{name}_ICON", default_icon)
+
         return f"<fg #{color if color != '' else default_color}>", (
             icon if icon != "" else default_icon
         )
@@ -88,13 +102,11 @@ def setup_logger(level):
         f"{log_settings.retention_hours} hours" if log_settings.enabled else None
     )
     rotation_value = (
-        f"{getattr(log_settings, 'rotation_mb', 10)} MB"
-        if getattr(log_settings, "rotation_mb", 10) > 0
-        else None
+        f"{log_settings.rotation_mb} MB" if log_settings.rotation_mb > 0 else None
     )
-    compression_value = getattr(log_settings, "compression", "disabled")
+    compression_value = log_settings.compression
 
-    handlers = [
+    handlers: list[HandlerConfig] = [
         {
             "sink": sys.stderr,
             "level": level.upper() or "INFO",
@@ -136,10 +148,10 @@ def log_cleaner():
     if not log_settings.enabled:
         return
 
-    global LAST_LOGS_CLEANED
+    global last_logs_cleaned_time
     if (
-        LAST_LOGS_CLEANED
-        and (datetime.now() - LAST_LOGS_CLEANED).total_seconds() < 3600
+        last_logs_cleaned_time
+        and (datetime.now() - last_logs_cleaned_time).total_seconds() < 3600
     ):
         return
 
@@ -165,7 +177,7 @@ def log_cleaner():
                 cleaned = True
 
         if cleaned:
-            LAST_LOGS_CLEANED = datetime.now()
+            last_logs_cleaned_time = datetime.now()
             logger.debug(f"Cleaned up old logs older than {retention_hours} hours.")
     except Exception as e:
         logger.error(f"Failed to clean old logs: {e}")

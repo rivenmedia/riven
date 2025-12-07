@@ -4,12 +4,12 @@ Evaluates MediaItem metadata against library profile filter rules to determine
 which library profiles a media item should be placed in.
 """
 
-from typing import List, Optional
-from loguru import logger
+from typing import Any
 
-from program.media.item import MediaItem
+from loguru import logger
+from program.media.item import Episode, MediaItem, Season
 from program.settings.models import LibraryProfileFilterRules
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
 class LibraryProfileMatcher:
@@ -26,7 +26,7 @@ class LibraryProfileMatcher:
     def __init__(self):
         self.key = "library_profile_matcher"
 
-    def get_matching_profiles(self, item: MediaItem) -> List[str]:
+    def get_matching_profiles(self, item: MediaItem) -> list[str]:
         """
         Get list of library profile keys that match the given MediaItem.
 
@@ -38,7 +38,7 @@ class LibraryProfileMatcher:
             item: MediaItem to evaluate
 
         Returns:
-            List of profile keys (e.g., ['kids', 'anime']) in settings order.
+            list of profile keys (e.g., ['kids', 'anime']) in settings order.
             Empty list if no profiles match.
 
         Example:
@@ -48,7 +48,7 @@ class LibraryProfileMatcher:
         """
         profiles = settings_manager.settings.filesystem.library_profiles or {}
 
-        matching_profiles = []
+        matching_profiles = list[str]()
 
         for profile_key, profile in profiles.items():
             # Skip disabled profiles
@@ -86,7 +86,10 @@ class LibraryProfileMatcher:
         # Genre filters with exclusion support
         if rules.genres:
             if not self._matches_list_filter(
-                self._get_normalized_genres(item), rules.genres, "genres"
+                self._get_normalized_genres(item),
+                rules.genres,
+                "genres",
+                item.log_string,
             ):
                 return False
 
@@ -119,21 +122,30 @@ class LibraryProfileMatcher:
         # Network filter with exclusion support
         if rules.networks:
             if not self._matches_list_filter(
-                self._get_normalized_networks(item), rules.networks, "networks"
+                self._get_normalized_networks(item),
+                rules.networks,
+                "networks",
+                item.log_string,
             ):
                 return False
 
         # Country filter with exclusion support
         if rules.countries:
             if not self._matches_list_filter(
-                self._get_normalized_countries(item), rules.countries, "countries"
+                self._get_normalized_countries(item),
+                rules.countries,
+                "countries",
+                item.log_string,
             ):
                 return False
 
         # Language filter with exclusion support
         if rules.languages:
             if not self._matches_list_filter(
-                self._get_normalized_languages(item), rules.languages, "languages"
+                self._get_normalized_languages(item),
+                rules.languages,
+                "languages",
+                item.log_string,
             ):
                 return False
 
@@ -155,6 +167,7 @@ class LibraryProfileMatcher:
                 [item_rating.lower()] if item_rating else [],
                 rules.content_ratings,
                 "content_ratings",
+                item.log_string,
             ):
                 return False
 
@@ -162,7 +175,11 @@ class LibraryProfileMatcher:
         return True
 
     def _matches_list_filter(
-        self, item_values: List[str], filter_values: List[str], filter_name: str
+        self,
+        item_values: list[str],
+        filter_values: list[str],
+        filter_name: str,
+        log_string: str,
     ) -> bool:
         """
         Check if item values match filter with inclusion/exclusion support.
@@ -181,6 +198,7 @@ class LibraryProfileMatcher:
             3. If inclusions exist and none match item_values, return False
             4. Otherwise return True
         """
+
         if not item_values:
             # Item has no values for this filter
             # Only fail if there are inclusion rules (item must have at least one)
@@ -191,8 +209,8 @@ class LibraryProfileMatcher:
         item_values_lower = [v.lower() for v in item_values]
 
         # Split into inclusions and exclusions
-        inclusions = []
-        exclusions = []
+        inclusions = list[str]()
+        exclusions = list[str]()
 
         for value in filter_values:
             if value.startswith("!"):
@@ -206,21 +224,23 @@ class LibraryProfileMatcher:
         if exclusions:
             for exclusion in exclusions:
                 if exclusion in item_values_lower:
-                    logger.debug(
-                        f"Item excluded by {filter_name} filter: "
-                        f"item has '{exclusion}' which is in exclusion list"
+                    logger.trace(
+                        f"{log_string} excluded by {filter_name} filter: "
+                        f"'{exclusion}' found in exclusion list"
                     )
+
                     return False
 
         # Check inclusions (must have at least one match if inclusions exist)
         if inclusions:
             has_match = any(inc in item_values_lower for inc in inclusions)
+
             if not has_match:
                 return False
 
         return True
 
-    def _matches_content_type(self, item_type: str, allowed_types: List[str]) -> bool:
+    def _matches_content_type(self, item_type: str, allowed_types: list[str]) -> bool:
         """
         Check if item type matches allowed content types with hierarchical matching.
 
@@ -230,7 +250,7 @@ class LibraryProfileMatcher:
 
         Args:
             item_type: The type of the MediaItem (movie, show, season, episode)
-            allowed_types: List of allowed content types from filter rules
+            allowed_types: list of allowed content types from filter rules
 
         Returns:
             True if item type matches any allowed type (with hierarchy), False otherwise
@@ -245,78 +265,95 @@ class LibraryProfileMatcher:
 
         return False
 
-    def _get_normalized_genres(self, item: MediaItem) -> List[str]:
+    def _get_normalized_genres(self, item: MediaItem) -> list[str]:
         """Get normalized genre list (lowercase) from MediaItem."""
+
         if not item.genres:
             return []
+
         return [g.lower() for g in item.genres if g]
 
-    def _get_normalized_networks(self, item: MediaItem) -> List[str]:
-        """Get normalized network list (lowercase) from MediaItem.
+    def _get_normalized_networks(self, item: MediaItem) -> list[str]:
+        """
+        Get normalized network list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "HBO Max") or a list of strings.
         """
-        v = getattr(item, "network", None)
-        return self._normalize_str_list(v)
 
-    def _get_normalized_countries(self, item: MediaItem) -> List[str]:
-        """Get normalized country list (lowercase) from MediaItem.
+        return self._normalize_str_list(item.network)
+
+    def _get_normalized_countries(self, item: MediaItem) -> list[str]:
+        """
+        Get normalized country list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "USA") or a list of strings/codes.
         """
-        v = getattr(item, "country", None)
-        return self._normalize_str_list(v)
 
-    def _get_normalized_languages(self, item: MediaItem) -> List[str]:
-        """Get normalized language list (lowercase) from MediaItem.
+        return self._normalize_str_list(item.country)
+
+    def _get_normalized_languages(self, item: MediaItem) -> list[str]:
+        """
+        Get normalized language list (lowercase) from MediaItem.
         Accepts either a single string (e.g., "eng") or a list of ISO 639-3 codes.
         """
-        v = getattr(item, "language", None)
-        return self._normalize_str_list(v)
 
-    def _normalize_str_list(self, value) -> List[str]:
+        return self._normalize_str_list(item.language)
+
+    def _normalize_str_list(self, value: Any) -> list[str]:
         """Normalize a string or iterable of strings into a lowercase list.
         - None -> []
         - "HBO Max" -> ["hbo max"]
         - ["USA", "UK"] -> ["usa", "uk"]
         - Filters out empty strings and trims whitespace
         """
+
         if not value:
             return []
+
         if isinstance(value, str):
             v = value.strip()
             return [v.lower()] if v else []
+
         # Try to iterate (handles lists/tuples/sets)
         try:
-            result = []
+            result = list[str]()
+
             for x in value:
                 if x is None:
                     continue
+
                 s = str(x).strip()
+
                 if s:
                     result.append(s.lower())
+
             return result
         except TypeError:
             # Not iterable; fallback to string cast
             s = str(value).strip()
+
             return [s.lower()] if s else []
 
-    def _get_year(self, item: MediaItem) -> Optional[int]:
+    def _get_year(self, item: MediaItem) -> int | None:
         """
         Extract year from MediaItem.
 
         For shows/seasons/episodes, uses the show's aired_at year.
         For movies, uses the year field directly.
         """
-        if item.type in ["show", "season", "episode"]:
-            # For TV content, get the show's aired_at year
-            show = item.get_top_title()
-            if show and hasattr(show, "aired_at") and show.aired_at:
-                try:
-                    return int(show.aired_at.split("-")[0])
-                except (ValueError, IndexError, AttributeError):
-                    return None
+
+        if isinstance(item, Episode):
+            # For episodes, get the parent show
+            show = item.parent.parent
+        elif isinstance(item, Season):
+            # For seasons, get the parent show
+            show = item.parent
+        else:
+            show = item
+
+        if show.aired_at:
+            return show.aired_at.year
 
         # For movies or if show year not available, use year field
-        if hasattr(item, "year") and item.year:
+        if item.year:
             return item.year
 
         return None

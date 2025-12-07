@@ -201,3 +201,6 @@ venv.bak/
 # Ignore all local history of files
 .history
 .ionide
+
+# OAPI Generator
+.openapi-generator

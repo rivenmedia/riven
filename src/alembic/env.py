@@ -6,7 +6,8 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from alembic import context
 from program.db.db import db
-from program.settings.manager import settings_manager
+from program.db.base_model import Base, get_base_metadata
+from program.settings import settings_manager
 
 
 # Loguru handler for alembic logs
@@ -34,7 +35,7 @@ config = context.config
 config.set_main_option("sqlalchemy.url", str(settings_manager.settings.database.host))
 
 # Set MetaData object for autogenerate support
-target_metadata = db.Model.metadata
+target_metadata = get_base_metadata()
 
 
 def reset_database(connection) -> bool:
@@ -45,11 +46,11 @@ def reset_database(connection) -> bool:
             connection.execute(
                 text(
                     """
-                SELECT pg_terminate_backend(pid)
-                FROM pg_stat_activity
-                WHERE datname = current_database()
-                AND pid <> pg_backend_pid()
-            """
+                            SELECT pg_terminate_backend(pid)
+                            FROM pg_stat_activity
+                            WHERE datname = current_database()
+                            AND pid <> pg_backend_pid()
+                        """
                 )
             )
             connection.execute(text("DROP SCHEMA public CASCADE"))
@@ -79,8 +80,14 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
+
+    configuration = config.get_section(config.config_ini_section)
+
+    if not configuration:
+        raise RuntimeError("Alembic configuration section is missing.")
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

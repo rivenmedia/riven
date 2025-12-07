@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum
-from typing import List, Optional, Union
 
 from RTN import ParsedData, parse
 
@@ -10,14 +9,20 @@ from program.services.downloaders.models import (
     TorrentContainer,
     TorrentInfo,
     UserInfo,
+    UnrestrictedLink,
 )
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
+
+from program.media.item import ProcessedItemType
 
 
 class DownloaderBase(ABC):
     """The abstract base class for all Downloader implementations."""
 
     PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
+
+    initialized: bool
+    key: str
 
     @abstractmethod
     def validate(self) -> bool:
@@ -30,8 +35,10 @@ class DownloaderBase(ABC):
 
     @abstractmethod
     def get_instant_availability(
-        self, infohash: str, item_type: str
-    ) -> Optional[TorrentContainer]:
+        self,
+        infohash: str,
+        item_type: ProcessedItemType,
+    ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash
 
@@ -40,11 +47,11 @@ class DownloaderBase(ABC):
             item_type: The type of media item being checked
 
         Returns:
-            Optional[TorrentContainer]: Cached status and available files for the hash, or None if not available
+            TorrentContainer | None: Cached status and available files for the hash, or None if not available
         """
 
     @abstractmethod
-    def add_torrent(self, infohash: str) -> Union[int, str]:
+    def add_torrent(self, infohash: str) -> int | str:
         """
         Add a torrent and return its information
 
@@ -52,14 +59,14 @@ class DownloaderBase(ABC):
             infohash: The hash of the torrent to add
 
         Returns:
-            Union[int, str]: The ID of the added torrent
+            int | str: The ID of the added torrent
 
         Notes:
             The return type changes depending on the downloader
         """
 
     @abstractmethod
-    def select_files(self, torrent_id: Union[int, str], file_ids: list[int]) -> None:
+    def select_files(self, torrent_id: int | str, file_ids: list[int]) -> None:
         """
         Select which files to download from the torrent
 
@@ -69,7 +76,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def get_torrent_info(self, torrent_id: Union[int, str]) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """
         Get information about a specific torrent using its ID
 
@@ -81,7 +88,7 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def delete_torrent(self, torrent_id: Union[int, str]) -> None:
+    def delete_torrent(self, torrent_id: int | str) -> None:
         """
         Delete a torrent from the service
 
@@ -90,13 +97,27 @@ class DownloaderBase(ABC):
         """
 
     @abstractmethod
-    def get_user_info(self) -> Optional[UserInfo]:
+    def get_user_info(self) -> UserInfo | None:
         """
         Get normalized user information from the debrid service
 
         Returns:
             UserInfo: Normalized user information including premium status and expiration
         """
+
+    @abstractmethod
+    def unrestrict_link(self, link: str) -> UnrestrictedLink | None:
+        """
+        Unrestrict a download link using the debrid service
+
+        Args:
+            link: The original download URL to unrestrict
+
+        Returns:
+            UnrestrictedLink | None: The unrestricted download URL, or None if unrestricting failed
+        """
+
+        raise NotImplementedError()
 
 
 def parse_filename(filename: str) -> ParsedData:
@@ -106,13 +127,9 @@ def parse_filename(filename: str) -> ParsedData:
 
 def premium_days_left(expiration: datetime) -> str:
     """Convert an expiration date into a message showing days remaining on the user's premium account"""
-    # Handle both timezone-aware and naive datetimes
-    if expiration.tzinfo is not None:
-        # Timezone-aware: compare with timezone-aware now
-        now = datetime.now(tz=timezone.utc)
-    else:
-        # Naive: compare with naive now (UTC)
-        now = datetime.utcnow()
+
+    now = datetime.now(tz=timezone.utc)
+    expiration = expiration.replace(tzinfo=timezone.utc)
 
     time_left = expiration - now
     days_left = time_left.days
@@ -141,17 +158,19 @@ class Resolution(Enum):
     UNKNOWN = 1
 
 
-RESOLUTION_MAP: dict[str, Resolution] = {
-    "4k": Resolution.UHD_2160P,
-    "2160p": Resolution.UHD_2160P,
-    "1440p": Resolution.UHD_1440P,
-    "1080p": Resolution.FHD_1080P,
-    "720p": Resolution.HD_720P,
-    "576p": Resolution.SD_576P,
-    "480p": Resolution.SD_480P,
-    "360p": Resolution.SD_360P,
-    "unknown": Resolution.UNKNOWN,
-}
+RESOLUTION_MAP = dict[str, Resolution](
+    {
+        "4k": Resolution.UHD_2160P,
+        "2160p": Resolution.UHD_2160P,
+        "1440p": Resolution.UHD_1440P,
+        "1080p": Resolution.FHD_1080P,
+        "720p": Resolution.HD_720P,
+        "576p": Resolution.SD_576P,
+        "480p": Resolution.SD_480P,
+        "360p": Resolution.SD_360P,
+        "unknown": Resolution.UNKNOWN,
+    }
+)
 
 
 def get_resolution(torrent: Stream) -> Resolution:
@@ -160,8 +179,9 @@ def get_resolution(torrent: Stream) -> Resolution:
     return RESOLUTION_MAP.get(resolution, Resolution.UNKNOWN)
 
 
-def _sort_streams_by_quality(streams: List[Stream]) -> List[Stream]:
+def sort_streams_by_quality(streams: list[Stream]) -> list[Stream]:
     """Sort streams by resolution (highest first) and then by rank (highest first)."""
+
     return sorted(
         streams,
         key=lambda stream: (get_resolution(stream).value, stream.rank),
