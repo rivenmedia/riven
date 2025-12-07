@@ -44,7 +44,8 @@ class Jackett(ScraperService[JackettConfig]):
     """Scraper for `Jackett`"""
 
     def __init__(self):
-        super().__init__("jackett")
+        super().__init__()
+
         self.api_key = None
         self.indexers = None
         self.settings = settings_manager.settings.scraping.jackett
