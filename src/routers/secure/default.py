@@ -149,8 +149,6 @@ async def get_services() -> dict[str, bool]:
 
     if services:
         for service in services.to_dict().values():
-            logger.debug(f"Checking service: {service}")
-
             if service.services:
                 data.update(
                     {
