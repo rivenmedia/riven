@@ -1644,6 +1644,9 @@ class RivenVFS(pyfuse3.Operations):
             if not entries:
                 raise pyfuse3.FUSEError(errno.ENOENT)
 
+            if not entries:
+                raise pyfuse3.FUSEError(errno.ENOENT)
+
             # Build directory listing
             async with self._tree_lock:
                 node = self._inode_to_node.get(fh)

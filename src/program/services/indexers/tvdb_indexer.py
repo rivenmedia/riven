@@ -360,11 +360,7 @@ class TVDBIndexer(BaseIndexer):
                             break
 
             # Extract TVDB status (Continuing, Ended, Upcoming)
-            tvdb_status = (
-                show_data.status.name
-                if show_data.status and show_data.status.name
-                else None
-            )
+            tvdb_status = show_data.release_status
 
             return Show(
                 {
@@ -497,12 +493,12 @@ class TVDBIndexer(BaseIndexer):
             # Extract year
             year = int(season_data.year) if season_data.year else None
 
-            poster_path = season_data.image
+            if poster_path := season_data.image:
+                season.poster_path = poster_path
 
             # Update season attributes
             season.tvdb_id = str(season_data.id)
             season.title = f"Season {season_data.number}"
-            season.poster_path = poster_path
             season.aired_at = aired_at
             season.year = year
 
@@ -545,20 +541,22 @@ class TVDBIndexer(BaseIndexer):
             if season_data.year:
                 year = int(season_data.year)
 
-            season_item = {
-                "number": season_number,
-                "tvdb_id": str(season_data.id),
-                "title": f"Season {season_number}",
-                "poster_path": poster_path,
-                "aired_at": aired_at,
-                "year": year,
-                "type": "season",
-                "is_anime": show.is_anime,
-                "requested_at": datetime.now(),
-            }
+            season = Season(
+                {
+                    "number": season_number,
+                    "tvdb_id": str(season_data.id),
+                    "title": f"Season {season_number}",
+                    "poster_path": poster_path,
+                    "aired_at": aired_at,
+                    "year": year,
+                    "type": "season",
+                    "is_anime": show.is_anime,
+                    "requested_at": datetime.now(),
+                }
+            )
 
-            season = Season(season_item)
             season.parent = show
+
             return season
         except Exception as e:
             logger.error(f"Error creating season from TVDB data: {str(e)}")
@@ -583,13 +581,16 @@ class TVDBIndexer(BaseIndexer):
             # Extract year
             year = int(episode_data.year) if episode_data.year else None
 
+            if poster_path := episode_data.image:
+                episode.poster_path = poster_path
+
             # Update episode attributes
             episode.tvdb_id = str(episode_data.id)
             episode.title = episode_data.name or f"Episode {episode_data.number}"
-            episode.poster_path = episode_data.image
             episode.aired_at = aired_at
             episode.year = year
             episode.absolute_number = episode_data.absolute_number
+
             # Note: is_anime and other attributes are inherited from show via __getattribute__
 
         except Exception as e:
