@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from program.types import Service
     from program.program import Program
     from program.types import Event
-    from program.media.item import MediaItem, Episode
+    from program.media.item import MediaItem
 
 
 @contextmanager
@@ -293,7 +293,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
     Returns a dict keyed by item.id with minimal metadata for scheduling.
     """
 
-    from program.media.item import MediaItem, Season, Show
+    from program.media.item import MediaItem, Season, Show, Episode
 
     with _maybe_session(session) as (s, _owns):
         result = s.execute(
