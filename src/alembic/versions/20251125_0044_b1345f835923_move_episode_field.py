@@ -76,13 +76,16 @@ def upgrade() -> None:
         )
     )
 
-    # Delete invalid episodes/seasons
+    # Delete invalid episodes/seasons and their linked MediaItem records
     connection.execute(
         sa.text(
             """
-            DELETE FROM "Episode"
-            WHERE number IS NULL
-            OR number <= 0
+            DELETE FROM "MediaItem"
+            WHERE id IN (
+                SELECT id FROM "Episode"
+                WHERE number IS NULL
+                OR number <= 0
+            )
             """,
         )
     )
@@ -90,9 +93,12 @@ def upgrade() -> None:
     connection.execute(
         sa.text(
             """
-            DELETE FROM "Season"
-            WHERE number IS NULL
-            OR number <= 0
+            DELETE FROM "MediaItem"
+            WHERE id IN (
+                SELECT id FROM "Season"
+                WHERE number IS NULL
+                OR number <= 0
+            )
             """,
         )
     )
@@ -129,16 +135,17 @@ def downgrade() -> None:
             """
         )
     )
+
     connection.execute(
         sa.text(
             """
             UPDATE "MediaItem" 
             SET number = (
                 SELECT number 
-                FROM Season 
-                WHERE Season.id = "MediaItem".id
+                FROM "Season" 
+                WHERE "Season".id = "MediaItem".id
             )
-            WHERE "MediaItem".id IN (SELECT id FROM Season)
+            WHERE "MediaItem".id IN (SELECT id FROM "Season")
             """
         )
     )
