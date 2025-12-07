@@ -74,7 +74,10 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     indexed_at: Mapped[datetime | None]
     scraped_at: Mapped[datetime | None]
     scraped_times: Mapped[int] = mapped_column(sqlalchemy.Integer, default=0)
-    active_stream: Mapped[ActiveStream | None] = mapped_column(ActiveStreamDecorator)
+    active_stream: Mapped[ActiveStream | None] = mapped_column(
+        ActiveStreamDecorator,
+        default=None,
+    )
     streams: Mapped[list[Stream]] = relationship(
         secondary="StreamRelation",
         back_populates="parents",
@@ -88,9 +91,9 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         cascade="all",
     )
 
-    aliases: Mapped[dict[str, list[str]]] = mapped_column(
+    aliases: Mapped[dict[str, list[str]] | None] = mapped_column(
         sqlalchemy.JSON,
-        default_factory=dict,
+        default=None,
     )
     is_anime: Mapped[bool | None] = mapped_column(sqlalchemy.Boolean, default=False)
     network: Mapped[str | None]
