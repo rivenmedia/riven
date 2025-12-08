@@ -60,13 +60,13 @@ class Indexer(BaseModel):
 
 
 class Params(BaseModel):
-    query: str | None
-    type: str | None
+    query: str | None = None
+    type: str | None = None
     indexer_ids: int | None = Field(alias="indexerIds")
-    categories: list[int] | None
-    limit: int | None
-    season: int | None
-    ep: int | None
+    categories: list[int] | None = None
+    limit: int | None = None
+    season: int | None = None
+    ep: int | None = None
 
 
 class ScrapeResponse(BaseModel):
