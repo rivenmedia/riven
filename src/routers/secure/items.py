@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, status, Query
 from kink import di
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -305,12 +305,6 @@ async def get_items(
         )
 
 
-class AddItemRequest(BaseModel):
-    tmdb_ids: str | None = Field(None, description="Comma-separated list of TMDB IDs")
-    tvdb_ids: str | None = Field(None, description="Comma-separated list of TVDB IDs")
-    media_type: Literal["movie", "tv"] | None = Field(None, description="Media type")
-
-
 @router.post(
     "/add",
     summary="Add Media Items",
@@ -322,11 +316,19 @@ class AddItemRequest(BaseModel):
     response_model=MessageResponse,
 )
 async def add_items(
-    request: AddItemRequest,
+    tmdb_ids: Annotated[
+        str | None,
+        Body(description="Comma-separated list of TMDB IDs"),
+    ] = None,
+    tvdb_ids: Annotated[
+        str | None,
+        Body(description="Comma-separated list of TVDB IDs"),
+    ] = None,
+    media_type: Annotated[
+        Literal["movie", "tv"] | None,
+        Body(description="Media type"),
+    ] = None,
 ) -> MessageResponse:
-    tmdb_ids = request.tmdb_ids
-    tvdb_ids = request.tvdb_ids
-    media_type = request.media_type
     if not tmdb_ids and not tvdb_ids:
         raise HTTPException(status_code=400, detail="No ID(s) provided")
 
@@ -475,13 +477,11 @@ async def get_item(
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-class ItemOperationRequest(BaseModel):
-    ids: str = Field(..., description="Comma-separated list of item IDs", min_length=1)
-
-
 class ResetResponse(BaseModel):
     message: str
     ids: list[int]
+
+
 @router.post(
     "/reset",
     summary="Reset Media Items",
@@ -490,10 +490,15 @@ class ResetResponse(BaseModel):
     response_model=ResetResponse,
 )
 async def reset_items(
-    request: ItemOperationRequest,
+    ids: Annotated[
+        str,
+        Body(
+            description="Comma-separated list of item IDs to reset",
+            min_length=1,
+        ),
+    ],
     session: Session = Depends(db_session.__wrapped__),
 ) -> ResetResponse:
-    ids = request.ids
     """
     Reset the specified media items to their initial state and trigger a media-server library refresh when applicable.
 
@@ -603,9 +608,6 @@ class RetryResponse(BaseModel):
     ids: Sequence[int]
 
 
-
-
-
 @router.post(
     "/retry",
     summary="Retry Media Items",
@@ -614,9 +616,14 @@ class RetryResponse(BaseModel):
     response_model=RetryResponse,
 )
 async def retry_items(
-    request: ItemOperationRequest,
+    ids: Annotated[
+        str,
+        Body(
+            description="Comma-separated list of item IDs to retry",
+            min_length=1,
+        ),
+    ],
 ) -> RetryResponse:
-    ids = request.ids
     """Re-add items to the queue"""
 
     parsed_ids = handle_ids(ids)
@@ -694,7 +701,7 @@ class RemoveResponse(BaseModel):
 async def remove_item(
     ids: Annotated[
         str,
-        Query(
+        Body(
             description="Comma-separated list of item IDs to remove",
             min_length=1,
         ),
