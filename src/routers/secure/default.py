@@ -222,12 +222,18 @@ class StatsResponse(BaseModel):
     total_symlinks: int
     incomplete_items: int
     states: dict[States, int]
-    activity: dict[str, int] = Field(
-        description="Dictionary mapping date strings to count of items requested on that day"
-    )
-    media_year_releases: list[dict[str, int | None]] = Field(
-        description="List of dictionaries with 'year' and 'count' keys representing media item releases per year"
-    )
+    activity: Annotated[
+        dict[str, int],
+        Field(
+            description="Dictionary mapping date strings to count of items requested on that day"
+        ),
+    ]
+    media_year_releases: Annotated[
+        list[dict[str, int | None]],
+        Field(
+            description="List of dictionaries with 'year' and 'count' keys representing media item releases per year"
+        ),
+    ]
 
 
 @router.get(
@@ -427,9 +433,12 @@ async def get_mount_files() -> MountResponse:
 
 class UploadLogsResponse(BaseModel):
     success: bool
-    url: HttpUrl = Field(
-        description="URL to the uploaded log file. 50M Filesize limit. 180 day retention."
-    )
+    url: Annotated[
+        HttpUrl,
+        Field(
+            description="URL to the uploaded log file. 50M Filesize limit. 180 day retention."
+        ),
+    ]
 
 
 @router.post(
@@ -485,9 +494,12 @@ async def upload_logs() -> UploadLogsResponse:
 
 
 class CalendarResponse(BaseModel):
-    data: dict[int, dict[str, Any]] = Field(
-        description="Dictionary with dates as keys and lists of media items as values"
-    )
+    data: Annotated[
+        dict[int, dict[str, Any]],
+        Field(
+            description="Dictionary with dates as keys and lists of media items as values"
+        ),
+    ]
 
 
 @router.get(
@@ -505,7 +517,10 @@ async def fetch_calendar() -> CalendarResponse:
 
 
 class VFSStatsResponse(BaseModel):
-    stats: dict[str, dict[str, Any]] = Field(description="VFS statistics")
+    stats: Annotated[
+        dict[str, dict[str, Any]],
+        Field(description="VFS statistics"),
+    ]
 
 
 @router.get(

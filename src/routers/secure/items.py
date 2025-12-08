@@ -3,11 +3,11 @@ import os
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 from fastapi import APIRouter, Body, HTTPException, Path, status, Query
 from kink import di
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -126,8 +126,14 @@ def apply_item_mutation(
 
 
 class StateResponse(BaseModel):
-    success: bool
-    states: list[str]
+    success: Annotated[
+        bool,
+        Field(description="Boolean signifying whether the request was successful"),
+    ]
+    states: Annotated[
+        list[str],
+        Field(description="The list of states"),
+    ]
 
 
 @router.get(
@@ -140,12 +146,30 @@ async def get_states() -> StateResponse:
 
 
 class ItemsResponse(BaseModel):
-    success: bool
-    items: list[dict[str, Any]]
-    page: int
-    limit: int
-    total_items: int
-    total_pages: int
+    success: Annotated[
+        bool,
+        Field(description="Boolean signifying whether the request was successful"),
+    ]
+    items: Annotated[
+        list[dict[str, Any]],
+        Field(description="The list of media items"),
+    ]
+    page: Annotated[
+        int,
+        Field(description="Current page number"),
+    ]
+    limit: Annotated[
+        int,
+        Field(description="Number of items per page"),
+    ]
+    total_items: Annotated[
+        int,
+        Field(description="Total number of items"),
+    ]
+    total_pages: Annotated[
+        int,
+        Field(description="Total number of pages"),
+    ]
 
 
 class StatesFilter(str, Enum):
@@ -304,17 +328,33 @@ async def get_items(
 
 
 class AddMediaItemPayload(BaseModel):
-    tmdb_ids: list[str] | None = Field(
-        default=None,
-        description="Comma-separated list of TMDB IDs",
-        min_length=1,
-    )
-    tvdb_ids: list[str] | None = Field(
-        default=None,
-        description="Comma-separated list of TVDB IDs",
-        min_length=1,
-    )
-    media_type: Literal["movie", "tv"] = Field(description="Media type")
+    tmdb_ids: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="Comma-separated list of TMDB IDs",
+            min_length=1,
+        ),
+    ]
+    tvdb_ids: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="Comma-separated list of TVDB IDs",
+            min_length=1,
+        ),
+    ]
+    media_type: Annotated[
+        Literal["movie", "tv"],
+        Field(description="Media type"),
+    ]
+
+    @model_validator(mode="after")
+    def check_at_least_one_id_provided(self) -> Self:
+        if not self.tmdb_ids and not self.tvdb_ids:
+            raise ValueError("At least one TMDB ID or TVDB ID must be provided")
+
+        return self
 
 
 @router.post(
@@ -473,8 +513,7 @@ async def get_item(
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-class ResetResponse(BaseModel):
-    message: str
+class ResetResponse(MessageResponse):
     ids: list[int]
 
 
@@ -600,9 +639,11 @@ async def reset_items(
     )
 
 
-class RetryResponse(BaseModel):
-    message: str
-    ids: Sequence[int]
+class RetryResponse(MessageResponse):
+    ids: Annotated[
+        Sequence[int],
+        Field(description="The IDs to retry", min_length=1),
+    ]
 
 
 @router.post(
@@ -682,7 +723,10 @@ async def retry_library_items() -> RetryResponse:
 
 class RemoveResponse(BaseModel):
     message: str
-    ids: list[int]
+    ids: Annotated[
+        list[int],
+        Field(description="The IDs to remove", min_length=1),
+    ]
 
 
 @router.delete(
@@ -829,10 +873,15 @@ async def remove_item(
     )
 
 
-class StreamsResponse(BaseModel):
-    message: str
-    streams: list[dict[str, Any]]
-    blacklisted_streams: list[dict[str, Any]]
+class StreamsResponse(MessageResponse):
+    streams: Annotated[
+        list[dict[str, Any]],
+        Field(description="The list of streams"),
+    ]
+    blacklisted_streams: Annotated[
+        list[dict[str, Any]],
+        Field(description="The list of blacklisted streams"),
+    ]
 
 
 @router.get(
@@ -1036,9 +1085,11 @@ async def reset_item_streams(
         )
 
 
-class PauseResponse(BaseModel):
-    message: str
-    ids: list[int]
+class PauseResponse(MessageResponse):
+    ids: Annotated[
+        list[int],
+        Field(description="The IDs to pause", min_length=1),
+    ]
 
 
 @router.post(
@@ -1173,26 +1224,41 @@ async def unpause_items(
 
 
 class ReindexPayload(BaseModel):
-    item_id: int | None = Field(
-        default=None,
-        description="The ID of the media item",
-    )
-    tvdb_id: str | None = Field(
-        default=None,
-        description="The TVDB ID of the media item",
-    )
-    tmdb_id: str | None = Field(
-        default=None,
-        description="The TMDB ID of the media item",
-    )
-    imdb_id: str | None = Field(
-        default=None,
-        description="The IMDB ID of the media item",
-    )
+    item_id: Annotated[
+        int | None,
+        Field(
+            default=None,
+            description="The ID of the media item",
+        ),
+    ]
+    tvdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TVDB ID of the media item",
+        ),
+    ]
+    tmdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TMDB ID of the media item",
+        ),
+    ]
+    imdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The IMDB ID of the media item",
+        ),
+    ]
 
+    @model_validator(mode="after")
+    def check_at_least_one_id_provided(self) -> Self:
+        if not any([self.item_id, self.tvdb_id, self.tmdb_id, self.imdb_id]):
+            raise ValueError("At least one ID must be provided")
 
-class ReindexResponse(BaseModel):
-    message: str
+        return self
 
 
 @router.post(
@@ -1203,14 +1269,14 @@ class ReindexResponse(BaseModel):
         Only works for movies and shows. Requires item id as a parameter.
     """,
     operation_id="composite_reindexer",
-    response_model=ReindexResponse,
+    response_model=MessageResponse,
 )
 async def reindex_item(
     input: Annotated[
         ReindexPayload,
         Body(description="Reindex item payload"),
     ],
-) -> ReindexResponse:
+) -> MessageResponse:
     """Reindex item through Composite Indexer manually"""
 
     with db_session() as session:
@@ -1285,7 +1351,7 @@ async def reindex_item(
 
             di[Program].em.add_event(Event("RetryItem", item.id))
 
-            return ReindexResponse(message=f"Successfully re-indexed {item.log_string}")
+            return MessageResponse(message=f"Successfully re-indexed {item.log_string}")
         except Exception as e:
             logger.error(f"Failed to re-index {item.log_string}: {str(e)}")
 
@@ -1296,7 +1362,10 @@ async def reindex_item(
 
 
 class ItemAliasesResponse(BaseModel):
-    aliases: dict[str, list[str]] | None
+    aliases: Annotated[
+        dict[str, list[str]] | None,
+        Field(description="The item aliases"),
+    ]
 
 
 @router.get(
