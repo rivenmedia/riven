@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Body, HTTPException, Path, status, Query
 from kink import di
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -19,7 +19,7 @@ from program.types import Event
 from program.program import Program
 from program.media.models import MediaMetadata
 
-from ..models.shared import MessageResponse
+from ..models.shared import IdListPayload, MessageResponse
 
 
 class MediaTypeEnum(str, Enum):
@@ -48,13 +48,16 @@ router = APIRouter(
 )
 
 
-def handle_ids(ids: str) -> list[int]:
+def handle_ids(ids: Sequence[str | int]) -> list[int]:
     try:
-        id_list = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+        id_list = [int(id) for id in ids]
+
         if not id_list:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No item ID provided",
             )
+
         return id_list
     except ValueError:
         raise HTTPException(
@@ -80,6 +83,7 @@ def apply_item_mutation(
     - Uses base MediaItem.store_state to avoid recursive child updates for seasons/shows.
     - Caller is responsible for session.commit().
     """
+
     try:
         program.em.cancel_job(item.id)
     except Exception:
@@ -109,6 +113,7 @@ def apply_item_mutation(
             if season:
                 MediaItem.store_state(season)
                 show = session.get(Show, season.parent_id)
+
                 if show:
                     MediaItem.store_state(show)
         elif isinstance(item, Season):
@@ -298,6 +303,18 @@ async def get_items(
         )
 
 
+class AddMediaItemPayload(BaseModel):
+    tmdb_ids: list[str] | None = Field(
+        description="Comma-separated list of TMDB IDs",
+        min_length=1,
+    )
+    tvdb_ids: list[str] | None = Field(
+        description="Comma-separated list of TVDB IDs",
+        min_length=1,
+    )
+    media_type: Literal["movie", "tv"] = Field(description="Media type")
+
+
 @router.post(
     "/add",
     summary="Add Media Items",
@@ -309,46 +326,31 @@ async def get_items(
     response_model=MessageResponse,
 )
 async def add_items(
-    tmdb_ids: Annotated[
-        str | None,
-        Body(description="Comma-separated list of TMDB IDs"),
-    ] = None,
-    tvdb_ids: Annotated[
-        str | None,
-        Body(description="Comma-separated list of TVDB IDs"),
-    ] = None,
-    media_type: Annotated[
-        Literal["movie", "tv"] | None,
-        Body(description="Media type"),
-    ] = None,
+    input: Annotated[
+        AddMediaItemPayload,
+        Body(embed=True),
+    ],
 ) -> MessageResponse:
-    if not tmdb_ids and not tvdb_ids:
+    if not input.tmdb_ids and not input.tvdb_ids:
         raise HTTPException(status_code=400, detail="No ID(s) provided")
 
-    all_tmdb_ids = list[str]()
-    all_tvdb_ids = list[str]()
+    all_tmdb_ids = (
+        [id.strip() for id in input.tmdb_ids if id]
+        if input.tmdb_ids and input.media_type == "movie"
+        else None
+    )
 
-    if tmdb_ids and media_type == "movie":
-        all_tmdb_ids = (
-            [id.strip() for id in tmdb_ids.split(",")]
-            if "," in tmdb_ids
-            else [tmdb_ids.strip()]
-        )
-        all_tmdb_ids = [id for id in all_tmdb_ids if id]
-
-    if tvdb_ids and media_type == "tv":
-        all_tvdb_ids = (
-            [id.strip() for id in tvdb_ids.split(",")]
-            if "," in tvdb_ids
-            else [tvdb_ids.strip()]
-        )
-        all_tvdb_ids = [id for id in all_tvdb_ids if id]
+    all_tvdb_ids = (
+        [id.strip() for id in input.tvdb_ids if id]
+        if input.tvdb_ids and input.media_type == "tv"
+        else None
+    )
 
     added_count = 0
     items = list[MediaItem]()
 
     with db_session() as session:
-        if media_type == "movie" and tmdb_ids:
+        if all_tmdb_ids:
             for id in all_tmdb_ids:
                 # Check if item exists using ORM
                 existing = session.execute(
@@ -363,12 +365,13 @@ async def add_items(
                             "requested_at": datetime.now(),
                         }
                     )
+
                     if item:
                         items.append(item)
                 else:
                     logger.debug(f"Item with TMDB ID {id} already exists")
 
-        if media_type == "tv" and tvdb_ids:
+        if all_tvdb_ids:
             for id in all_tvdb_ids:
                 # Check if item exists using ORM
                 existing = session.execute(
@@ -481,12 +484,9 @@ class ResetResponse(BaseModel):
     response_model=ResetResponse,
 )
 async def reset_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to reset",
-            min_length=1,
-        ),
+    input: Annotated[
+        IdListPayload,
+        Body(description="Reset items payload"),
     ],
 ) -> ResetResponse:
     """
@@ -505,7 +505,7 @@ async def reset_items(
         HTTPException: Raised with status 400 when the provided `ids` string cannot be parsed into valid IDs.
     """
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(input.ids)
 
     services = di[Program].services
 
@@ -611,17 +611,14 @@ class RetryResponse(BaseModel):
     response_model=RetryResponse,
 )
 async def retry_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to retry",
-            min_length=1,
-        ),
+    input: Annotated[
+        IdListPayload,
+        Body(description="Retry items payload"),
     ],
 ) -> RetryResponse:
     """Re-add items to the queue"""
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(input.ids)
 
     with db_session() as session:
         for id in parsed_ids:
@@ -694,12 +691,9 @@ class RemoveResponse(BaseModel):
     response_model=RemoveResponse,
 )
 async def remove_item(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to remove",
-            min_length=1,
-        ),
+    input: Annotated[
+        IdListPayload,
+        Body(description="Remove items payload"),
     ],
 ) -> RemoveResponse:
     """
@@ -718,7 +712,7 @@ async def remove_item(
         HTTPException: If no IDs are provided or if an item type is not removable (only "movie" and "show" are allowed).
     """
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(input.ids)
 
     if not parsed_ids:
         raise HTTPException(
@@ -1053,17 +1047,14 @@ class PauseResponse(BaseModel):
     response_model=PauseResponse,
 )
 async def pause_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to pause",
-            min_length=1,
-        ),
+    input: Annotated[
+        IdListPayload,
+        Body(description="Pause items payload"),
     ],
 ) -> PauseResponse:
     """Pause items and their children from being processed"""
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(input.ids)
 
     try:
         with db_session() as session:
@@ -1125,17 +1116,14 @@ async def pause_items(
     response_model=PauseResponse,
 )
 async def unpause_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to unpause",
-            min_length=1,
-        ),
+    input: Annotated[
+        IdListPayload,
+        Body(description="Unpause items payload"),
     ],
 ) -> PauseResponse:
     """Unpause items and their children to resume processing"""
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(input.ids)
 
     try:
         with db_session() as session:
@@ -1182,6 +1170,13 @@ async def unpause_items(
     )
 
 
+class ReindexPayload(BaseModel):
+    item_id: int | None = Field(description="The ID of the media item")
+    tvdb_id: str | None = Field(description="The TVDB ID of the media item")
+    tmdb_id: str | None = Field(description="The TMDB ID of the media item")
+    imdb_id: str | None = Field(description="The IMDB ID of the media item")
+
+
 class ReindexResponse(BaseModel):
     message: str
 
@@ -1197,22 +1192,10 @@ class ReindexResponse(BaseModel):
     response_model=ReindexResponse,
 )
 async def reindex_item(
-    item_id: Annotated[
-        int | None,
-        Body(description="The ID of the media item"),
-    ] = None,
-    tvdb_id: Annotated[
-        str | None,
-        Body(description="The TVDB ID of the media item"),
-    ] = None,
-    tmdb_id: Annotated[
-        str | None,
-        Body(description="The TMDB ID of the media item"),
-    ] = None,
-    imdb_id: Annotated[
-        str | None,
-        Body(description="The IMDB ID of the media item"),
-    ] = None,
+    input: Annotated[
+        ReindexPayload,
+        Body(description="Reindex item payload"),
+    ],
 ) -> ReindexResponse:
     """Reindex item through Composite Indexer manually"""
 
@@ -1220,19 +1203,19 @@ async def reindex_item(
         # Load item using ORM based on provided ID
         item: MediaItem | None = None
 
-        if item_id:
-            item = session.get(MediaItem, item_id)
-        elif tvdb_id:
+        if input.item_id:
+            item = session.get(MediaItem, input.item_id)
+        elif input.tvdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tvdb_id == tvdb_id)
+                select(MediaItem).where(MediaItem.tvdb_id == input.tvdb_id)
             ).scalar_one_or_none()
-        elif tmdb_id:
+        elif input.tmdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tmdb_id == tmdb_id)
+                select(MediaItem).where(MediaItem.tmdb_id == input.tmdb_id)
             ).scalar_one_or_none()
-        elif imdb_id:
+        elif input.imdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.imdb_id == imdb_id)
+                select(MediaItem).where(MediaItem.imdb_id == input.imdb_id)
             ).scalar_one_or_none()
         else:
             raise HTTPException(
