@@ -172,12 +172,6 @@ generate-prowlarr-schema:
 	@uv run black src/schemas/prowlarr
 	@echo "Prowlarr schema generated"
 
-generate-jackett-schema:
-	@echo "Generating Jackett schema from OpenAPI specification..."
-	@rm -rf src/schemas/jackett
-	@uv run datamodel-codegen --url https://raw.githubusercontent.com/Jackett/Jackett/refs/heads/master/src/Jackett.Common/Definitions/schema.json --output src/schemas/jackett.py --output-model-type pydantic_v2.BaseModel --target-python-version 3.13 --use-standard-collections --use-union-operator
-	@echo "Jackett schema generated"
-
 generate-schemas:
 	@echo "Generating all schemas..."
 
@@ -188,6 +182,5 @@ generate-schemas:
 	@make generate-trakt-schema
 	@make generate-tvdb-schema
 	@make generate-prowlarr-schema
-	@make generate-jackett-schema
 
 	@echo "All schemas generated"
