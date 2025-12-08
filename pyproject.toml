@@ -51,7 +51,7 @@ dependencies = [
 dev = [
     "pyright>=1.1.352,<2",
     "pyperf>=2.2.0,<3",
-    "pytest>=8.3.2,<9",
+    "pytest>=8.3.2,<10",
     "pytest-mock>=3.14.0,<4",
     "responses==0.25.3",
     "pyfakefs>=5.4.1,<6",
@@ -66,7 +66,7 @@ dev = [
     "openapi-generator-cli[jdk4py]>=7.17.0",
     "types-lxml>=2025.8.25",
 ]
-test = ["pytest>=8.3.2,<9"]
+test = ["pytest>=8.3.2,<10"]
 
 [tool.uv]
 package = false
