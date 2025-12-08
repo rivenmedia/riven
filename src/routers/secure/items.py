@@ -187,28 +187,24 @@ async def get_items(
     limit: Annotated[
         int,
         Query(
-            ge=1,
             description="Number of items per page",
+            ge=1,
         ),
     ] = 50,
     page: Annotated[
         int,
         Query(
-            ge=1,
             description="Page number",
+            ge=1,
         ),
     ] = 1,
     type: Annotated[
         list[MediaTypeEnum] | None,
-        Query(
-            description="Filter by media type(s)",
-        ),
+        Query(description="Filter by media type(s)"),
     ] = None,
     states: Annotated[
         list[States | StatesFilter] | None,
-        Query(
-            description="Filter by state(s)",
-        ),
+        Query(description="Filter by state(s)"),
     ] = None,
     sort: Annotated[
         list[SortOrderEnum] | None,
@@ -219,15 +215,13 @@ async def get_items(
     search: Annotated[
         str | None,
         Query(
-            min_length=1,
             description="Search by title or IMDB/TVDB/TMDB ID",
+            min_length=1,
         ),
     ] = None,
     extended: Annotated[
         bool,
-        Query(
-            description="Include extended item details",
-        ),
+        Query(description="Include extended item details"),
     ] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
@@ -368,23 +362,23 @@ class AddMediaItemPayload(BaseModel):
     response_model=MessageResponse,
 )
 async def add_items(
-    input: Annotated[
+    payload: Annotated[
         AddMediaItemPayload,
         Body(description="Add media items payload"),
     ],
 ) -> MessageResponse:
-    if not input.tmdb_ids and not input.tvdb_ids:
+    if not payload.tmdb_ids and not payload.tvdb_ids:
         raise HTTPException(status_code=400, detail="No ID(s) provided")
 
     all_tmdb_ids = (
-        [id.strip() for id in input.tmdb_ids if id]
-        if input.tmdb_ids and input.media_type == "movie"
+        [id.strip() for id in payload.tmdb_ids if id]
+        if payload.tmdb_ids and payload.media_type == "movie"
         else None
     )
 
     all_tvdb_ids = (
-        [id.strip() for id in input.tvdb_ids if id]
-        if input.tvdb_ids and input.media_type == "tv"
+        [id.strip() for id in payload.tvdb_ids if id]
+        if payload.tvdb_ids and payload.media_type == "tv"
         else None
     )
 
@@ -458,9 +452,9 @@ async def get_item(
         ),
     ],
     media_type: Annotated[
-        Literal["movie", "tv", "item"] | None,
+        Literal["movie", "tv", "item"],
         Query(description="The type of media item"),
-    ] = None,
+    ],
     extended: Annotated[
         bool,
         Query(description="Whether to include extended information"),
@@ -470,46 +464,48 @@ async def get_item(
         raise HTTPException(status_code=400, detail="No ID or media type provided")
 
     with db_session() as session:
-        if media_type == "movie":
-            # needs to be a string
-            query = select(MediaItem).where(
-                MediaItem.tmdb_id == id,
-            )
-        elif media_type == "tv":
-            # needs to be a string
-            query = select(MediaItem).where(
-                MediaItem.tvdb_id == id,
-            )
-        elif media_type == "item":
-            # needs to be an integer
-            _id = int(id)
-            query = select(MediaItem).where(
-                MediaItem.id == _id,
-            )
-        else:
-            raise HTTPException(status_code=400, detail="Invalid media type")
+        match media_type:
+            case "movie":
+                # needs to be a string
+                query = select(MediaItem).where(
+                    MediaItem.tmdb_id == id,
+                )
+            case "tv":
+                # needs to be a string
+                query = select(MediaItem).where(
+                    MediaItem.tvdb_id == id,
+                )
+            case "item":
+                # needs to be an integer
+                _id = int(id)
+                query = select(MediaItem).where(
+                    MediaItem.id == _id,
+                )
 
         try:
             item = session.execute(query).unique().scalar_one_or_none()
 
-            if item:
-                if extended:
-                    return item.to_extended_dict()
-
-                return item.to_dict()
-            else:
+            if not item:
                 raise HTTPException(status_code=404, detail="Item not found")
+
+            if extended:
+                return item.to_extended_dict()
+
+            return item.to_dict()
         except Exception as e:
             # Handle multiple results
             if "Multiple rows were found when one or none was required" in str(e):
                 items = session.execute(query).unique().scalars().all()
                 duplicate_ids = {item.id for item in items}
                 logger.debug(f"Multiple items found with ID {id}: {duplicate_ids}")
+
                 raise HTTPException(
                     status_code=500,
                     detail=f"Multiple items found with ID {id}: {duplicate_ids}",
                 )
+
             logger.error(f"Error fetching item with ID {id}: {str(e)}")
+
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -525,7 +521,7 @@ class ResetResponse(MessageResponse):
     response_model=ResetResponse,
 )
 async def reset_items(
-    input: Annotated[
+    payload: Annotated[
         IdListPayload,
         Body(description="Reset items payload"),
     ],
@@ -546,7 +542,7 @@ async def reset_items(
         HTTPException: Raised with status 400 when the provided `ids` string cannot be parsed into valid IDs.
     """
 
-    parsed_ids = handle_ids(input.ids)
+    parsed_ids = handle_ids(payload.ids)
 
     services = di[Program].services
 
@@ -654,14 +650,14 @@ class RetryResponse(MessageResponse):
     response_model=RetryResponse,
 )
 async def retry_items(
-    input: Annotated[
+    payload: Annotated[
         IdListPayload,
         Body(description="Retry items payload"),
     ],
 ) -> RetryResponse:
     """Re-add items to the queue"""
 
-    parsed_ids = handle_ids(input.ids)
+    parsed_ids = handle_ids(payload.ids)
 
     with db_session() as session:
         for id in parsed_ids:
@@ -725,7 +721,7 @@ class RemoveResponse(BaseModel):
     message: str
     ids: Annotated[
         list[int],
-        Field(description="The IDs to remove", min_length=1),
+        Field(description="The IDs to remove"),
     ]
 
 
@@ -737,7 +733,7 @@ class RemoveResponse(BaseModel):
     response_model=RemoveResponse,
 )
 async def remove_item(
-    input: Annotated[
+    payload: Annotated[
         IdListPayload,
         Body(description="Remove items payload"),
     ],
@@ -758,7 +754,7 @@ async def remove_item(
         HTTPException: If no IDs are provided or if an item type is not removable (only "movie" and "show" are allowed).
     """
 
-    parsed_ids = handle_ids(input.ids)
+    parsed_ids = handle_ids(payload.ids)
 
     if not parsed_ids:
         raise HTTPException(
@@ -798,41 +794,36 @@ async def remove_item(
             # 2. Gather all refresh paths before deletion (entry may appear at multiple VFS paths)
             refresh_paths = list[str]()
 
-            media_entry = item.media_entry
-
-            assert media_entry, f"Media entry not found for item {item.id}"
-
             if updater and item.filesystem_entry:
-                vfs_paths = media_entry.get_all_vfs_paths()
+                if media_entry := item.media_entry:
+                    for vfs_path in media_entry.get_all_vfs_paths():
+                        # Check if VFS path is already absolute (filesystem path)
+                        # VFS paths are normally VFS-relative (e.g., /movies/...) but could be
+                        # absolute filesystem paths in some configurations
+                        if os.path.isabs(vfs_path) and not vfs_path.startswith(
+                            str(updater.library_path)
+                        ):
+                            # VFS path is absolute but not under library_path - use as-is
+                            abs_path = vfs_path
+                        elif os.path.isabs(vfs_path) and vfs_path.startswith(
+                            str(updater.library_path)
+                        ):
+                            # VFS path is already an absolute path under library_path - use as-is
+                            abs_path = vfs_path
+                        else:
+                            # VFS path is VFS-relative - join with library_path
+                            abs_path = os.path.join(
+                                updater.library_path, vfs_path.lstrip("/")
+                            )
 
-                for vfs_path in vfs_paths:
-                    # Check if VFS path is already absolute (filesystem path)
-                    # VFS paths are normally VFS-relative (e.g., /movies/...) but could be
-                    # absolute filesystem paths in some configurations
-                    if os.path.isabs(vfs_path) and not vfs_path.startswith(
-                        str(updater.library_path)
-                    ):
-                        # VFS path is absolute but not under library_path - use as-is
-                        abs_path = vfs_path
-                    elif os.path.isabs(vfs_path) and vfs_path.startswith(
-                        str(updater.library_path)
-                    ):
-                        # VFS path is already an absolute path under library_path - use as-is
-                        abs_path = vfs_path
-                    else:
-                        # VFS path is VFS-relative - join with library_path
-                        abs_path = os.path.join(
-                            updater.library_path, vfs_path.lstrip("/")
-                        )
-
-                    if isinstance(item, Movie):
-                        refresh_path = os.path.dirname(os.path.dirname(abs_path))
-                    else:  # show
-                        refresh_path = os.path.dirname(
-                            os.path.dirname(os.path.dirname(abs_path))
-                        )
-                    if refresh_path not in refresh_paths:
-                        refresh_paths.append(refresh_path)
+                        if isinstance(item, Movie):
+                            refresh_path = os.path.dirname(os.path.dirname(abs_path))
+                        else:  # show
+                            refresh_path = os.path.dirname(
+                                os.path.dirname(os.path.dirname(abs_path))
+                            )
+                        if refresh_path not in refresh_paths:
+                            refresh_paths.append(refresh_path)
 
             # 3. Delete from Overseerr
             if item.overseerr_id and overseerr:
@@ -1100,14 +1091,14 @@ class PauseResponse(MessageResponse):
     response_model=PauseResponse,
 )
 async def pause_items(
-    input: Annotated[
+    payload: Annotated[
         IdListPayload,
         Body(description="Pause items payload"),
     ],
 ) -> PauseResponse:
     """Pause items and their children from being processed"""
 
-    parsed_ids = handle_ids(input.ids)
+    parsed_ids = handle_ids(payload.ids)
 
     try:
         with db_session() as session:
@@ -1169,14 +1160,14 @@ async def pause_items(
     response_model=PauseResponse,
 )
 async def unpause_items(
-    input: Annotated[
+    payload: Annotated[
         IdListPayload,
         Body(description="Unpause items payload"),
     ],
 ) -> PauseResponse:
     """Unpause items and their children to resume processing"""
 
-    parsed_ids = handle_ids(input.ids)
+    parsed_ids = handle_ids(payload.ids)
 
     try:
         with db_session() as session:
@@ -1272,7 +1263,7 @@ class ReindexPayload(BaseModel):
     response_model=MessageResponse,
 )
 async def reindex_item(
-    input: Annotated[
+    payload: Annotated[
         ReindexPayload,
         Body(description="Reindex item payload"),
     ],
@@ -1283,25 +1274,20 @@ async def reindex_item(
         # Load item using ORM based on provided ID
         item: MediaItem | None = None
 
-        if input.item_id:
-            item = session.get(MediaItem, input.item_id)
-        elif input.tvdb_id:
+        if payload.item_id:
+            item = session.get(MediaItem, payload.item_id)
+        elif payload.tvdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tvdb_id == input.tvdb_id)
+                select(MediaItem).where(MediaItem.tvdb_id == payload.tvdb_id)
             ).scalar_one_or_none()
-        elif input.tmdb_id:
+        elif payload.tmdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tmdb_id == input.tmdb_id)
+                select(MediaItem).where(MediaItem.tmdb_id == payload.tmdb_id)
             ).scalar_one_or_none()
-        elif input.imdb_id:
+        elif payload.imdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.imdb_id == input.imdb_id)
+                select(MediaItem).where(MediaItem.imdb_id == payload.imdb_id)
             ).scalar_one_or_none()
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Item id or external id is required",
-            )
 
         if not item:
             raise HTTPException(
