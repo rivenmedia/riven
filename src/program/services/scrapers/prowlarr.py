@@ -84,7 +84,8 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
     """Scraper for `Prowlarr`"""
 
     def __init__(self):
-        super().__init__("prowlarr")
+        super().__init__()
+
         self.settings = settings_manager.settings.scraping.prowlarr
         self.api_key = self.settings.api_key
         self.indexers = []
