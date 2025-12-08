@@ -328,7 +328,7 @@ class AddMediaItemPayload(BaseModel):
 async def add_items(
     input: Annotated[
         AddMediaItemPayload,
-        Body(embed=True),
+        Body(description="Add media items payload"),
     ],
 ) -> MessageResponse:
     if not input.tmdb_ids and not input.tvdb_ids:
