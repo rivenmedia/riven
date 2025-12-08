@@ -65,7 +65,7 @@ class Params(BaseModel):
     query: str | None = None
     type: str | None = None
     indexer_ids: int | None = Field(serialization_alias="indexerIds", default=None)
-    categories: set[int] | None = None
+    categories: list[int]
     limit: int | None = None
     season: int | None = None
     ep: int | None = None
@@ -76,7 +76,7 @@ class ScrapeResponse(BaseModel):
 
 
 class ScrapeErrorResponse(BaseModel):
-    message: str | None
+    message: str | None = None
 
 
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
@@ -450,7 +450,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             ep=episode,
             query=search_query,
             type=search_type,
-            categories=categories or None,
+            categories=list(categories),
             indexer_ids=indexer_ids,
             limit=limit,
         )

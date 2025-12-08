@@ -21,7 +21,7 @@ class OpenSubtitlesAPIResponse(BaseModel, Generic[T]):
     status: int
     data: T
 
-    @field_validator("status")
+    @field_validator("status", mode="before")
     def validate_status(cls, v: str) -> int:
         return int(v[:3])
 
@@ -142,7 +142,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
     def name(self) -> str:
         return "opensubtitles"
 
-    def _check_response[T: BaseModel | None](
+    def _raise_http_errors[T: BaseModel | None](
         self,
         response: Any,
         model: type[T],
@@ -175,8 +175,17 @@ class OpenSubtitlesProvider(SubtitleProvider):
         logger.debug(f"Logging in anonymously with user agent: {self.user_agent}")
 
         # Anonymous login: empty username and password
-        response = self._check_response(
-            response=self.server.LogIn("", "", "eng", self.user_agent),
+        login_response = OpenSubtitlesLoginResponse.model_validate(
+            self.server.LogIn(
+                "",
+                "",
+                "eng",
+                self.user_agent,
+            )
+        )
+
+        response = self._raise_http_errors(
+            response=login_response,
             model=OpenSubtitlesLoginResponse,
         )
 
@@ -302,7 +311,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
                 logger.trace("Skipping OpenSubtitles search: no valid search criteria")
                 return []
 
-            response = self._check_response(
+            response = self._raise_http_errors(
                 response=self.server.SearchSubtitles(self.token, search_criteria),
                 model=OpenSubtitlesSearchSubtitlesResponse,
             )
@@ -402,7 +411,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
             logger.debug(f"Downloading subtitle: {subtitle_info.filename}")
 
             response = self.server.DownloadSubtitles(self.token, [str(subtitle_id)])
-            response = self._check_response(
+            response = self._raise_http_errors(
                 response=response, model=OpenSubtitlesDownloadSubtitleResponse
             )
 

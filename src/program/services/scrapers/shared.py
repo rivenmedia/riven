@@ -169,7 +169,7 @@ def parse_results(
                 and not _check_item_year(item.aired_at, torrent.data)
             ):
                 # If year is present, then check to make sure it's correct
-                logger.debug(
+                logger.trace(
                     f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}"
                 )
                 continue
