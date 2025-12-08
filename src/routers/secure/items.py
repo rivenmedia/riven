@@ -305,10 +305,12 @@ async def get_items(
 
 class AddMediaItemPayload(BaseModel):
     tmdb_ids: list[str] | None = Field(
+        default=None,
         description="Comma-separated list of TMDB IDs",
         min_length=1,
     )
     tvdb_ids: list[str] | None = Field(
+        default=None,
         description="Comma-separated list of TVDB IDs",
         min_length=1,
     )
@@ -1171,10 +1173,22 @@ async def unpause_items(
 
 
 class ReindexPayload(BaseModel):
-    item_id: int | None = Field(description="The ID of the media item")
-    tvdb_id: str | None = Field(description="The TVDB ID of the media item")
-    tmdb_id: str | None = Field(description="The TMDB ID of the media item")
-    imdb_id: str | None = Field(description="The IMDB ID of the media item")
+    item_id: int | None = Field(
+        default=None,
+        description="The ID of the media item",
+    )
+    tvdb_id: str | None = Field(
+        default=None,
+        description="The TVDB ID of the media item",
+    )
+    tmdb_id: str | None = Field(
+        default=None,
+        description="The TMDB ID of the media item",
+    )
+    imdb_id: str | None = Field(
+        default=None,
+        description="The IMDB ID of the media item",
+    )
 
 
 class ReindexResponse(BaseModel):
