@@ -701,7 +701,7 @@ class RemoveResponse(BaseModel):
 async def remove_item(
     ids: Annotated[
         str,
-        Body(
+        Query(
             description="Comma-separated list of item IDs to remove",
             min_length=1,
         ),

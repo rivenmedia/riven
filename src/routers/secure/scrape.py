@@ -273,19 +273,19 @@ def initialize_downloader(downloader: Downloader):
 )
 def scrape_item(
     item_id: Annotated[
-        str | None,
+        int | None,
         Query(description="The ID of the media item"),
     ] = None,
     tmdb_id: Annotated[
-        str | None,
+        int | None,
         Query(description="The TMDB ID of the media item"),
     ] = None,
     tvdb_id: Annotated[
-        str | None,
+        int | None,
         Query(description="The TVDB ID of the media item"),
     ] = None,
     imdb_id: Annotated[
-        str | None,
+        int | None,
         Query(description="The IMDB ID of the media item"),
     ] = None,
     media_type: Annotated[
