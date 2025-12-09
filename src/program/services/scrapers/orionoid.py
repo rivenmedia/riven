@@ -296,10 +296,6 @@ class Orionoid(ScraperService[OrionoidConfig]):
                     f"Orionoid scrape failed for {item.log_string}: {response.text}"
                 )
 
-            logger.error(
-                f"Orionoid scrape failed for {item.log_string}: {response.text}"
-            )
-
             return {}
         except ValidationError:
             pass
