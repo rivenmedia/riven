@@ -46,12 +46,8 @@ class DebridCDNUrl:
                     return self.url
         except httpx.TimeoutException as e:
             logger.error(f"Timeout while validating CDN URL {self.url}: {e}")
-
-            return None
         except httpx.ConnectError as e:
             logger.error(f"Connection error while validating CDN URL {self.url}: {e}")
-
-            return None
         except httpx.HTTPStatusError as e:
             status_code = e.response.status_code
 
@@ -61,12 +57,10 @@ class DebridCDNUrl:
                 logger.debug(f"Refreshed CDN URL for {self.filename}")
 
                 return self.validate()
-
-            raise
         except Exception as e:
             logger.error(f"Unexpected error while validating CDN URL {self.url}: {e}")
 
-            return None
+        return None
 
     def _refresh(self) -> None:
         """Refresh the CDN URL."""
