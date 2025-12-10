@@ -21,23 +21,11 @@ class JackettScrapeResponse(BaseModel):
         """Model for a single Jackett torrent result"""
 
         title: str = Field(alias="Title")
-        link: str = Field(alias="Link")
+        link: str | None = Field(alias="Link")
         info_hash: str | None = Field(alias="InfoHash")
         magnet_uri: str | None = Field(alias="MagnetUri")
 
     results: list[JackettTorrentResult] = Field(alias="Results")
-
-
-class JackettIndexer(BaseModel):
-    """Indexer model for Jackett"""
-
-    title: str | None = None
-    id: str | None = None
-    link: str | None = None
-    type: str | None = None
-    language: str | None = None
-    tv_search_capabilities: list[str] | None = None
-    movie_search_capabilities: list[str] | None = None
 
 
 class Jackett(ScraperService[JackettConfig]):
@@ -54,10 +42,13 @@ class Jackett(ScraperService[JackettConfig]):
 
     def validate(self) -> bool:
         """Validate Jackett settings."""
+
         if not self.settings.enabled:
             return False
+
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
+
             try:
                 if self.settings.timeout <= 0:
                     logger.error("Jackett timeout must be a positive integer")
@@ -88,7 +79,9 @@ class Jackett(ScraperService[JackettConfig]):
             except Exception as e:
                 logger.error(f"Jackett failed to initialize with API Key: {e}")
                 return False
+
         logger.warning("Jackett is not configured and will not be used.")
+
         return False
 
     def run(self, item: MediaItem) -> dict[str, str]:
@@ -117,6 +110,7 @@ class Jackett(ScraperService[JackettConfig]):
             query = f"{query} ({item.aired_at.year})"
 
         logger.debug(f"Searching for '{query}' in Jackett")
+
         response = f"/indexers/test:passed/results?apikey={self.api_key}&Query={query}"
         response = self.session.get(response, timeout=self.settings.timeout)
 
@@ -162,27 +156,34 @@ class Jackett(ScraperService[JackettConfig]):
                             title,
                         )
                         for result, title in urls_to_fetch
+                        if result.link
                     }
 
                     done, pending = concurrent.futures.wait(
                         future_to_result.keys(),
                         timeout=self.settings.infohash_fetch_timeout,
                     )
+
                     # Process completed futures
                     for future in done:
                         result, title = future_to_result[future]
+
                         try:
                             infohash = future.result()
+
                             if infohash:
                                 torrents[infohash] = title
                         except Exception as e:
                             logger.debug(
                                 f"Failed to get infohash from Link for {title}: {e}"
                             )
+
                     # Cancel and log timeouts for pending futures
                     for future in pending:
                         result, title = future_to_result[future]
+
                         future.cancel()
+
                         logger.debug(f"Timeout getting infohash from Link for {title}")
 
         if torrents:
