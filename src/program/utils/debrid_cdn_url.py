@@ -63,9 +63,14 @@ class DebridCDNUrl:
             )
 
             try:
+                # If no URL is set, attempt to refresh it first if requested,
+                # otherwise return as an invalid URL
                 if not self.url:
-                    if url := self._refresh():
-                        self.url = url
+                    if attempt_refresh:
+                        if url := self._refresh():
+                            self.url = url
+                        else:
+                            return None
                     else:
                         return None
 
