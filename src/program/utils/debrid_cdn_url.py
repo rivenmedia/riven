@@ -30,6 +30,7 @@ class DebridCDNUrl:
         if not entry.url:
             raise ValueError("Could not find URL in entry info for CDN URL validation")
 
+        self.max_validation_attempts = 3
         self.url = entry.url
         self.provider = entry.provider or "Unknown provider"
 
@@ -54,7 +55,7 @@ class DebridCDNUrl:
         attempt_refresh: bool = True,
         attempt: int = 1,
     ) -> str | None:
-        """Get a validated CDN URL, refreshing if necessary."""
+        """Get a validated CDN URL, refreshing if requested."""
 
         try:
             # Assert URL availability by opening a stream, using a proxy if needed
@@ -76,7 +77,10 @@ class DebridCDNUrl:
         except httpx.HTTPStatusError as e:
             status_code = e.response.status_code
 
-            if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE) and attempt <= 3:
+            if (
+                status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE)
+                and attempt <= self.max_validation_attempts
+            ):
                 if attempt_refresh:
                     try:
                         self._refresh()
@@ -87,13 +91,14 @@ class DebridCDNUrl:
                             provider=self.provider,
                             link=self.url,
                         ) from e
-
-                return self.validate(
-                    attempt_refresh=attempt_refresh,
-                    attempt=attempt + 1,
-                )
         except Exception as e:
             logger.error(f"Unexpected error while validating CDN URL {self.url}: {e}")
+
+        if attempt <= self.max_validation_attempts:
+            return self.validate(
+                attempt_refresh=attempt_refresh,
+                attempt=attempt + 1,
+            )
 
         return None
 

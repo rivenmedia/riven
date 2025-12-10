@@ -133,9 +133,9 @@ class VFSDatabase:
                 if new_unrestricted:
                     entry.unrestricted_url = new_unrestricted.download
 
-                    validated_url = DebridCDNUrl(entry).validate(attempt_refresh=False)
+                    cdn_url = DebridCDNUrl(entry)
 
-                    if validated_url:
+                    if cdn_url.validate(attempt_refresh=False):
                         session.merge(entry)
                         session.commit()
 
