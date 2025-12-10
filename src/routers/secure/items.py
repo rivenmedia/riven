@@ -327,7 +327,6 @@ class AddMediaItemPayload(BaseModel):
         Field(
             default=None,
             description="Comma-separated list of TMDB IDs",
-            min_length=1,
         ),
     ]
     tvdb_ids: Annotated[
@@ -335,20 +334,12 @@ class AddMediaItemPayload(BaseModel):
         Field(
             default=None,
             description="Comma-separated list of TVDB IDs",
-            min_length=1,
         ),
     ]
     media_type: Annotated[
         Literal["movie", "tv"],
         Field(description="Media type"),
     ]
-
-    @model_validator(mode="after")
-    def check_at_least_one_id_provided(self) -> Self:
-        if not self.tmdb_ids and not self.tvdb_ids:
-            raise ValueError("At least one TMDB ID or TVDB ID must be provided")
-
-        return self
 
 
 @router.post(
