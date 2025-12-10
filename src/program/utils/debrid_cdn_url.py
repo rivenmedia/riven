@@ -14,6 +14,12 @@ from program.media.media_entry import MediaEntry
 from program.db.db import db_session
 
 
+class RefreshedURLIdenticalException(Exception):
+    """Exception raised when a refreshed URL is identical to the previous URL."""
+
+    pass
+
+
 class DebridCDNUrl:
     """DebridCDNUrl class"""
 
@@ -25,7 +31,7 @@ class DebridCDNUrl:
             raise ValueError("Could not find URL in entry info for CDN URL validation")
 
         self.url = entry.url
-        self.provider = entry.provider
+        self.provider = entry.provider or "Unknown provider"
 
     @classmethod
     def from_filename(cls, filename: str) -> Self:
@@ -71,15 +77,21 @@ class DebridCDNUrl:
             status_code = e.response.status_code
 
             if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE) and attempt <= 3:
-                if attempt_refresh and self._refresh():
-                    return self.validate(attempt=attempt + 1)
-                else:
-                    # If the URL hasn't changed after refreshing, it is likely dead.
-                    # Raise an exception to indicate the link is unavailable to trigger a re-scrape.
-                    raise DebridServiceLinkUnavailable(
-                        provider=self.provider or "Unknown provider",
-                        link=self.url,
-                    ) from e
+                if attempt_refresh:
+                    try:
+                        self._refresh()
+                    except RefreshedURLIdenticalException:
+                        # If the URL hasn't changed after refreshing, it is likely dead.
+                        # Raise an exception to indicate the link is unavailable to trigger a re-scrape.
+                        raise DebridServiceLinkUnavailable(
+                            provider=self.provider,
+                            link=self.url,
+                        ) from e
+
+                return self.validate(
+                    attempt_refresh=attempt_refresh,
+                    attempt=attempt + 1,
+                )
         except Exception as e:
             logger.error(f"Unexpected error while validating CDN URL {self.url}: {e}")
 
@@ -96,16 +108,16 @@ class DebridCDNUrl:
                 session=session,
             )
 
-        if not url:
-            logger.error("Could not refresh CDN URL; no URL returned from refresh")
+            if not url:
+                logger.error("Could not refresh CDN URL; no URL returned from refresh")
 
-            return False
+                return False
 
-        if url == self.url:
-            return False
+            if url == self.url:
+                raise RefreshedURLIdenticalException()
 
-        self.url = url
+            self.url = url
 
-        logger.debug(f"Refreshed CDN URL for {self.filename}")
+            logger.debug(f"Refreshed CDN URL for {self.filename}")
 
-        return True
+            return True

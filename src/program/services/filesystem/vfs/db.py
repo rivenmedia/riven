@@ -131,18 +131,19 @@ class VFSDatabase:
                 new_unrestricted = service.unrestrict_link(entry.download_url)
 
                 if new_unrestricted:
-                    DebridCDNUrl(entry).validate(attempt_refresh=False)
-
                     entry.unrestricted_url = new_unrestricted.download
 
-                    session.merge(entry)
-                    session.commit()
+                    validated_url = DebridCDNUrl(entry).validate(attempt_refresh=False)
 
-                    logger.debug(
-                        f"Refreshed unrestricted URL for {entry.original_filename}"
-                    )
+                    if validated_url:
+                        session.merge(entry)
+                        session.commit()
 
-                    return entry.unrestricted_url
+                        logger.debug(
+                            f"Refreshed unrestricted URL for {entry.original_filename}"
+                        )
+
+                        return entry.unrestricted_url
             except DebridServiceLinkUnavailable as e:
                 logger.warning(
                     f"Failed to unrestrict URL for {entry.original_filename}: {e}"
@@ -156,15 +157,14 @@ class VFSDatabase:
                         i.blacklist_active_stream()
                         i.reset()
 
-                    with db_session() as s:
-                        apply_item_mutation(
-                            program=di[Program],
-                            item=entry.media_item,
-                            mutation_fn=mutation,
-                            session=s,
-                        )
+                    apply_item_mutation(
+                        program=di[Program],
+                        item=entry.media_item,
+                        mutation_fn=mutation,
+                        session=session,
+                    )
 
-                        s.commit()
+                    session.commit()
 
                     di[Program].em.add_event(
                         Event(
