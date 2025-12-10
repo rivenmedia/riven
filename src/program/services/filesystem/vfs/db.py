@@ -92,14 +92,15 @@ class VFSDatabase:
                 .first()
             )
 
-        if subtitle and subtitle.content:
-            return subtitle.content.encode("utf-8")
+            if subtitle and subtitle.content:
+                return subtitle.content.encode("utf-8")
 
-        return None
+            return None
 
     def refresh_unrestricted_url(
         self,
         entry: MediaEntry,
+        session: Session,
     ) -> str | None:
         """
         Refresh the unrestricted URL for a MediaEntry using the downloader services.
@@ -134,9 +135,8 @@ class VFSDatabase:
 
                     entry.unrestricted_url = new_unrestricted.download
 
-                    with db_session() as s:
-                        s.merge(entry)
-                        s.commit()
+                    session.merge(entry)
+                    session.commit()
 
                     logger.debug(
                         f"Refreshed unrestricted URL for {entry.original_filename}"
@@ -199,25 +199,28 @@ class VFSDatabase:
         """
 
         try:
-            with db_session() as s:
+            with db_session() as session:
                 entry = (
-                    s.query(MediaEntry)
+                    session.query(MediaEntry)
                     .filter(MediaEntry.original_filename == original_filename)
                     .first()
                 )
 
-            if not entry:
-                return None
+                if not entry:
+                    return None
 
-            # Get download URL (with optional unrestricting)
-            download_url = entry.download_url
-            unrestricted_url = entry.unrestricted_url
+                # Get download URL (with optional unrestricting)
+                download_url = entry.download_url
+                unrestricted_url = entry.unrestricted_url
 
-            # If force_resolve or no unrestricted URL, try to unrestrict
-            if (force_resolve or not unrestricted_url) and (
-                self.downloader and entry.provider
-            ):
-                unrestricted_url = self.refresh_unrestricted_url(entry)
+                # If force_resolve or no unrestricted URL, try to unrestrict
+                if (force_resolve or not unrestricted_url) and (
+                    self.downloader and entry.provider
+                ):
+                    unrestricted_url = self.refresh_unrestricted_url(
+                        entry,
+                        session=session,
+                    )
 
             return GetEntryByOriginalFilenameResult(
                 original_filename=entry.original_filename,

@@ -38,10 +38,10 @@ class DebridCDNUrl:
                 .first()
             )
 
-        if not entry:
-            raise ValueError("Could not find entry info for CDN URL validation")
+            if not entry:
+                raise ValueError("Could not find entry info for CDN URL validation")
 
-        return cls(entry)
+            return cls(entry)
 
     def validate(
         self,
@@ -79,7 +79,7 @@ class DebridCDNUrl:
                     raise DebridServiceLinkUnavailable(
                         provider=self.provider or "Unknown provider",
                         link=self.url,
-                    )
+                    ) from e
         except Exception as e:
             logger.error(f"Unexpected error while validating CDN URL {self.url}: {e}")
 
@@ -90,7 +90,11 @@ class DebridCDNUrl:
 
         from program.services.filesystem.vfs.db import VFSDatabase
 
-        url = di[VFSDatabase].refresh_unrestricted_url(self.entry)
+        with db_session() as session:
+            url = di[VFSDatabase].refresh_unrestricted_url(
+                entry=self.entry,
+                session=session,
+            )
 
         if not url:
             logger.error("Could not refresh CDN URL; no URL returned from refresh")
