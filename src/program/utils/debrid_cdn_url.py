@@ -105,6 +105,8 @@ class DebridCDNUrl:
                     f"Unexpected error while validating CDN URL {self.url}: {e}"
                 )
 
+                return None
+
             if attempt <= self.max_validation_attempts:
                 return self.validate(
                     attempt_refresh=attempt_refresh,
@@ -140,7 +142,5 @@ class DebridCDNUrl:
                 raise RefreshedURLIdenticalException()
 
             self.url = url
-
-            logger.debug(f"Refreshed CDN URL for {self.filename}")
 
             return self.url
