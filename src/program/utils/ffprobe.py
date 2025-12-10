@@ -89,10 +89,10 @@ class FFProbeResponse(BaseModel):
         def fps(self) -> float:
             """Calculate frames per second from `r_frame_rate`"""
 
-            if "/" in self.r_frame_rate:
-                return float(Fraction(self.r_frame_rate))
+            return float(Fraction(self.r_frame_rate))
 
-            return float(self.r_frame_rate)
+    class DataStream(BaseStream, TagsMixin):
+        codec_type: Literal["data"]
 
     class VideoStream(BaseStream):
         codec_type: Literal["video"]
