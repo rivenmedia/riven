@@ -88,7 +88,7 @@ class MediaAnalysisService(AnalysisService):
 
             return False
 
-        validated_url = DebridCDNUrl(filename=media_entry.original_filename).validate()
+        validated_url = DebridCDNUrl(media_entry).validate()
 
         if not validated_url:
             logger.warning(f"No download URL for {item.log_string}, cannot analyze")
