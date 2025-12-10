@@ -867,6 +867,7 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             item: MediaItem to re-sync
         """
+
         from sqlalchemy.orm import object_session
         from program.db.db import db_session
 

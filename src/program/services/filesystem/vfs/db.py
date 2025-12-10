@@ -80,12 +80,12 @@ class VFSDatabase:
             bytes: Subtitle content encoded as UTF-8, or None if not found or not a subtitle.
         """
 
-        with db_session() as s:
+        with db_session() as session:
             from program.media.subtitle_entry import SubtitleEntry
 
             # Query specifically for SubtitleEntry by parent and language
             subtitle = (
-                s.query(SubtitleEntry)
+                session.query(SubtitleEntry)
                 .filter_by(
                     parent_original_filename=parent_original_filename, language=language
                 )
@@ -177,8 +177,10 @@ class VFSDatabase:
                 raise
             except Exception as e:
                 logger.warning(
-                    f"Failed to unrestrict URL for {entry.original_filename}: {e}"
+                    f"Unexpected error when unrestricting URL for {entry.original_filename}: {e}"
                 )
+
+        return None
 
     def get_entry_by_original_filename(
         self,
@@ -222,17 +224,17 @@ class VFSDatabase:
                         session=session,
                     )
 
-            return GetEntryByOriginalFilenameResult(
-                original_filename=entry.original_filename,
-                download_url=download_url,
-                unrestricted_url=unrestricted_url,
-                provider=entry.provider,
-                provider_download_id=entry.provider_download_id,
-                size=entry.file_size,
-                created=(entry.created_at.isoformat()),
-                modified=(entry.updated_at.isoformat()),
-                entry_type="media",
-            )
+                return GetEntryByOriginalFilenameResult(
+                    original_filename=entry.original_filename,
+                    download_url=download_url,
+                    unrestricted_url=unrestricted_url,
+                    provider=entry.provider,
+                    provider_download_id=entry.provider_download_id,
+                    size=entry.file_size,
+                    created=(entry.created_at.isoformat()),
+                    modified=(entry.updated_at.isoformat()),
+                    entry_type="media",
+                )
         except DebridServiceLinkUnavailable:
             raise
         except Exception as e:

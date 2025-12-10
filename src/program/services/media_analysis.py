@@ -90,6 +90,8 @@ class MediaAnalysisService(AnalysisService):
 
         validated_url = DebridCDNUrl(media_entry).validate()
 
+        logger.debug(f"Validated URL for {item.log_string}: {validated_url}")
+
         if not validated_url:
             logger.warning(f"No download URL for {item.log_string}, cannot analyze")
 
@@ -120,6 +122,7 @@ class MediaAnalysisService(AnalysisService):
         Returns:
             True if metadata was updated, False otherwise
         """
+
         try:
             if not playback_url:
                 logger.debug(

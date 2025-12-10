@@ -572,12 +572,12 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
         """
         try:
             with db_session() as session:
-                subtitle = (
+                return (
                     session.query(SubtitleEntry)
                     .filter_by(media_item_id=item.id, language=language)
                     .first()
                 )
-                return subtitle
+
         except Exception as e:
             logger.error(f"Failed to check for existing subtitle: {e}")
             return None

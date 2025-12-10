@@ -27,20 +27,17 @@ class DebridCDNUrl:
         self.filename = entry.original_filename
         self.entry = entry
 
-        if not entry.url:
-            raise ValueError("Could not find URL in entry info for CDN URL validation")
-
         self.max_validation_attempts = 3
-        self.url = entry.url
+        self.url = entry.unrestricted_url
         self.provider = entry.provider or "Unknown provider"
 
     @classmethod
     def from_filename(cls, filename: str) -> Self:
         """Create DebridCDNUrl from filename."""
 
-        with db_session() as s:
+        with db_session() as session:
             entry = (
-                s.query(MediaEntry)
+                session.query(MediaEntry)
                 .filter(MediaEntry.original_filename == filename)
                 .first()
             )
@@ -65,44 +62,60 @@ class DebridCDNUrl:
                 or None
             )
 
-            with httpx.Client(proxy=proxy) as client:
-                with client.stream(method="GET", url=self.url) as response:
-                    response.raise_for_status()
+            try:
+                if not self.url:
+                    if url := self._refresh():
+                        self.url = url
+                    else:
+                        return None
 
-                    return self.url
-        except httpx.TimeoutException as e:
-            logger.error(f"Timeout while validating CDN URL {self.url}: {e}")
-        except httpx.ConnectError as e:
-            logger.error(f"Connection error while validating CDN URL {self.url}: {e}")
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
+                with httpx.Client(proxy=proxy) as client:
+                    with client.stream(method="GET", url=self.url) as response:
+                        response.raise_for_status()
 
-            if (
-                status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE)
-                and attempt <= self.max_validation_attempts
-            ):
-                if attempt_refresh:
-                    try:
-                        self._refresh()
-                    except RefreshedURLIdenticalException:
-                        # If the URL hasn't changed after refreshing, it is likely dead.
-                        # Raise an exception to indicate the link is unavailable to trigger a re-scrape.
-                        raise DebridServiceLinkUnavailable(
-                            provider=self.provider,
-                            link=self.url,
-                        ) from e
-        except Exception as e:
-            logger.error(f"Unexpected error while validating CDN URL {self.url}: {e}")
+                        return self.url
+            except httpx.TimeoutException as e:
+                logger.error(f"Timeout while validating CDN URL {self.url}: {e}")
+            except httpx.ConnectError as e:
+                logger.error(
+                    f"Connection error while validating CDN URL {self.url}: {e}"
+                )
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
 
-        if attempt <= self.max_validation_attempts:
-            return self.validate(
-                attempt_refresh=attempt_refresh,
-                attempt=attempt + 1,
+                if (
+                    status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE)
+                    and attempt == 1
+                ):
+                    # Only attempt to refresh the URL on the first failure
+                    if attempt_refresh:
+                        if url := self._refresh():
+                            self.url = url
+                    else:
+                        return None
+            except RefreshedURLIdenticalException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error while validating CDN URL {self.url}: {e}"
+                )
+
+            if attempt <= self.max_validation_attempts:
+                return self.validate(
+                    attempt_refresh=attempt_refresh,
+                    attempt=attempt + 1,
+                )
+
+            return None
+        except RefreshedURLIdenticalException:
+            # If the URL hasn't changed after refreshing, it is likely dead.
+            # Raise an exception to indicate the link is unavailable to trigger a re-scrape.
+            raise DebridServiceLinkUnavailable(
+                provider=self.provider,
+                link=self.url or "Unknown URL",
             )
 
-        return None
-
-    def _refresh(self) -> bool:
+    def _refresh(self) -> str | None:
         """Refresh the CDN URL."""
 
         from program.services.filesystem.vfs.db import VFSDatabase
@@ -116,7 +129,7 @@ class DebridCDNUrl:
             if not url:
                 logger.error("Could not refresh CDN URL; no URL returned from refresh")
 
-                return False
+                return None
 
             if url == self.url:
                 raise RefreshedURLIdenticalException()
@@ -125,4 +138,4 @@ class DebridCDNUrl:
 
             logger.debug(f"Refreshed CDN URL for {self.filename}")
 
-            return True
+            return self.url
