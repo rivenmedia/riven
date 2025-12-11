@@ -1,20 +1,8 @@
-from datetime import datetime, timezone
-from typing import Annotated, Any, Literal
+from datetime import datetime
+from typing import Any, Literal
 
 import regex
-from pydantic import BaseModel, Field, PlainSerializer, field_validator
-
-
-def serialize_datetime(dt: datetime | None) -> str | None:
-    """Serialize datetime to ISO format with Z suffix for UTC"""
-    if dt is None:
-        return None
-    # If the datetime is naive (no timezone), assume UTC
-    if dt.tzinfo is None:
-        return dt.isoformat() + "Z"
-    
-    # If it's aware, convert to UTC and format with Z
-    return dt.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + "Z"
+from pydantic import BaseModel, Field
 
 from program.settings import settings_manager
 from program.media.item import ProcessedItemType
@@ -141,7 +129,6 @@ class TorrentContainer(BaseModel):
     files: list[DebridFile] = Field(default_factory=list[DebridFile])
     torrent_id: int | str | None = None  # Cached torrent_id to avoid re-adding
     torrent_info: "TorrentInfo | None" = None  # Cached info to avoid re-fetching
-    service: str | None = None  # The service key this container belongs to
 
     @property
     def cached(self) -> bool:
@@ -189,9 +176,9 @@ class TorrentInfo(BaseModel):
     infohash: str | None = None
     progress: float | None = None
     bytes: int | None = None
-    created_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
-    expires_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
-    completed_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
+    created_at: datetime | None = None
+    expires_at: datetime | None = None
+    completed_at: datetime | None = None
     alternative_filename: str | None = None
 
     # Real-Debrid only
@@ -199,20 +186,6 @@ class TorrentInfo(BaseModel):
 
     # Real-Debrid download links
     links: list[str] = Field(default_factory=list)
-
-    @field_validator("created_at", "expires_at", "completed_at", mode="before")
-    @classmethod
-    def parse_dates(cls, v: Any) -> Any:
-        if v is None:
-            return None
-        if isinstance(v, datetime):
-            return v
-        if isinstance(v, str):
-            try:
-                return datetime.fromisoformat(v.replace("Z", "+00:00"))
-            except ValueError:
-                return v
-        return v
 
     @property
     def size_mb(self) -> float:
@@ -244,13 +217,13 @@ class UserInfo(BaseModel):
     email: str | None = None
     user_id: int | str
     premium_status: Literal["free", "premium"]
-    premium_expires_at: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
+    premium_expires_at: datetime | None = None
     premium_days_left: int | None = None
 
     # Service-specific fields (optional)
     points: int | None = None  # Real-Debrid
     total_downloaded_bytes: int | None = None
-    cooldown_until: Annotated[datetime | None, PlainSerializer(serialize_datetime)] = None
+    cooldown_until: datetime | None = None
 
 
 class UnrestrictedLink(BaseModel):

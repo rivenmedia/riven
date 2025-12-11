@@ -110,6 +110,10 @@ class PlexAPI:
         if response.ok:
             data = ResponseData.model_validate(response.json())
 
+            if not data.MediaContainer.Metadata:
+                logger.debug(f"No metadata found for rating key: {ratingKey}")
+                return None
+
             return next(
                 (
                     guid.id.split("//")[-1]
@@ -128,7 +132,9 @@ class PlexAPI:
 
         rss_items = list[tuple[str, str]]()
 
-        assert self.rss_urls
+        if not self.rss_urls:
+            logger.warning("No RSS URLs configured")
+            return []
 
         for rss_url in self.rss_urls:
             try:
@@ -194,7 +200,8 @@ class PlexAPI:
     def get_items_from_watchlist(self) -> list[dict[str, str | None]]:
         """Fetch media from Plex watchlist"""
 
-        assert self.account
+        if not self.account:
+            raise PlexAPIError("Plex account not authenticated")
 
         items = cast(list[Movie | Show], self.account.watchlist())
         watchlist_items = list[dict[str, str | None]]()
@@ -277,7 +284,8 @@ class PlexAPI:
     def map_sections_with_paths(self) -> dict[LibrarySection, list[str]]:
         """Map Plex sections with their paths"""
 
-        assert self.plex_server
+        if not self.plex_server:
+            raise PlexAPIError("Plex server not initialized")
 
         # Skip sections without locations and non-movie/show sections
         sections = [

@@ -29,11 +29,12 @@ def parse_results(
     ranking_overrides: dict[str, list[str]] | None = None,
     manual: bool = False,
 ) -> dict[str, Stream]:
+def parse_results(
+    item: MediaItem,
+    results: dict[str, str],
+    log_msg: bool = True,
+) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
-
-    torrents = set[Torrent]()
-    processed_infohashes = set[str]()
-    correct_title = item.top_title
 
     torrents = set[Torrent]()
     processed_infohashes = set[str]()
@@ -92,6 +93,7 @@ def parse_results(
                 rtn_instance = RTN(overridden_settings, ranking_model)
 
             torrent: Torrent = rtn_instance.rank(
+            torrent = rtn.rank(
                 raw_title=raw_title,
                 infohash=infohash,
                 correct_title=correct_title,
@@ -112,8 +114,8 @@ def parse_results(
                     continue
 
             if isinstance(item, Show):
-                # make sure the torrent has at least 2 episodes (should weed out most junk), skip if manual
-                if not ranking_overrides and not manual and torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                # make sure the torrent has at least 2 episodes (should weed out most junk)
+                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
@@ -218,7 +220,7 @@ def parse_results(
                 and not _check_item_year(item.aired_at, torrent.data)
             ):
                 # If year is present, then check to make sure it's correct
-                logger.debug(
+                logger.trace(
                     f"Skipping torrent for incorrect year with {item.log_string}: {raw_title}"
                 )
                 continue
@@ -243,7 +245,7 @@ def parse_results(
         logger.debug(f"Found {len(torrents)} streams for {item.log_string}")
 
         sorted_torrents = sort_torrents(
-            torrents, bucket_limit=scraping_settings.bucket_limit if not manual else 1000
+            torrents, bucket_limit=scraping_settings.bucket_limit
         )
 
         torrent_stream_map = {

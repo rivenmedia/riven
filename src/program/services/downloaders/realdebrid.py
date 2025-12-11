@@ -179,20 +179,19 @@ class RealDebridDownloader(DownloaderBase):
         item_type: ProcessedItemType,
         limit_filesize: bool = True,
     ) -> TorrentContainer | None:
+        self,
+        infohash: str,
+        item_type: ProcessedItemType,
+    ) -> TorrentContainer | None:
         """
-        Get instant availability for a single infohash.
+        Attempt a quick availability check by adding the torrent, selecting video files (if required),
+        and returning a TorrentContainer when the status is 'downloaded'.
         """
-        if not self.api:
-            return None
 
-        # Check if we already have a torrent_id for this infohash
-        # This happens if we added it previously but didn't select files yet
-        # or if it's already downloading/downloaded
-        torrent_id = None
+        container: TorrentContainer | None = None
+        torrent_id: str | None = None
 
         try:
-            # 1. Add the torrent to check its status/files
-            # Real-Debrid requires adding the magnet to see files/status
             torrent_id = self.add_torrent(infohash)
 
             # 2. Process the torrent to get files and status
@@ -200,7 +199,9 @@ class RealDebridDownloader(DownloaderBase):
                 torrent_id, infohash, item_type, limit_filesize
             )
 
-            if not container:
+            if container is None and reason:
+                # Failed validation - delete the torrent
+
                 logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 if torrent_id:
@@ -284,7 +285,6 @@ class RealDebridDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).

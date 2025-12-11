@@ -30,7 +30,7 @@ class Zilean(ScraperService[ZileanConfig]):
     """Scraper for `Zilean`"""
 
     def __init__(self):
-        super().__init__("zilean")
+        super().__init__()
 
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout

@@ -27,11 +27,6 @@ class ScraperService(Runner[T, "ScraperService", dict[str, str]]):
 
     requires_imdb_id = False
 
-    def __init__(self, service_name: str):
-        super().__init__()
-        self.key = service_name
-        self.initialized = False
-
     def _initialize(self) -> None:
         try:
             if self.validate():

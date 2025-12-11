@@ -23,6 +23,7 @@ class Updater(Runner[None, BaseUpdater]):
 
     def __init__(self):
         super().__init__()
+
         self.library_path = settings_manager.settings.updaters.library_path
         self.services = {
             PlexUpdater: PlexUpdater(),

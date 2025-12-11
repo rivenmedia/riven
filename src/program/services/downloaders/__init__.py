@@ -42,6 +42,7 @@ from .alldebrid import AllDebridDownloader
 class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
         super().__init__()
+
         self.initialized = False
         self.services = {
             RealDebridDownloader: RealDebridDownloader(),
@@ -66,13 +67,6 @@ class Downloader(Runner[None, DownloaderBase]):
         self.subtitles_enabled = (
             settings_manager.settings.post_processing.subtitle.enabled
         )
-
-    def get_service(self, key: str) -> DownloaderBase | None:
-        """Get a service by key"""
-        for service in self.initialized_services:
-            if service.key == key:
-                return service
-        return None
 
     def validate(self):
         if not self.initialized_services:
@@ -643,7 +637,6 @@ class Downloader(Runner[None, DownloaderBase]):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
@@ -654,74 +647,37 @@ class Downloader(Runner[None, DownloaderBase]):
             list[TorrentContainer]: A list of TorrentContainer objects representing available cached torrents; empty list if none are found.
         """
 
-        if limit_filesize:
-            # If limiting filesize, we want to check all services to find one that has the file
-            # This is used for manual scraping where we want to find ANY valid source
-            for service in self.initialized_services:
-                container = service.get_instant_availability(
-                    infohash, item_type, limit_filesize=limit_filesize
-                )
-                if container and container.cached:
-                    container.service = service.key
-                    return container
-            return None
+        assert self.service
+
+        return self.service.get_instant_availability(infohash, item_type)
+
+    def add_torrent(self, infohash: str) -> int | str:
+        """Add a torrent by infohash"""
 
         assert self.service
 
-        return self.service.get_instant_availability(
-            infohash, item_type, limit_filesize=limit_filesize
-        )
+        return self.service.add_torrent(infohash)
 
-    def add_torrent(
-        self, infohash: str, service: DownloaderBase | None = None
-    ) -> int | str:
-        """Add a torrent by infohash"""
-
-        if service is None:
-            service = self.service
-
-        assert service
-
-        return service.add_torrent(infohash)
-
-    def get_torrent_info(
-        self, torrent_id: int | str, service: DownloaderBase | None = None
-    ) -> TorrentInfo:
+    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """Get information about a torrent"""
 
-        if service is None:
-            service = self.service
+        assert self.service
 
-        assert service
+        return self.service.get_torrent_info(torrent_id)
 
-        return service.get_torrent_info(torrent_id)
-
-    def select_files(
-        self,
-        torrent_id: int | str,
-        container: list[int],
-        service: DownloaderBase | None = None,
-    ) -> None:
+    def select_files(self, torrent_id: int | str, container: list[int]) -> None:
         """Select files from a torrent"""
 
-        if service is None:
-            service = self.service
+        assert self.service
 
-        assert service
+        self.service.select_files(torrent_id, container)
 
-        service.select_files(torrent_id, container)
-
-    def delete_torrent(
-        self, torrent_id: int | str, service: DownloaderBase | None = None
-    ) -> None:
+    def delete_torrent(self, torrent_id: int | str) -> None:
         """Delete a torrent"""
 
-        if service is None:
-            service = self.service
+        assert self.service
 
-        assert service
-
-        service.delete_torrent(torrent_id)
+        self.service.delete_torrent(torrent_id)
 
     def get_user_info(self, service: "DownloaderBase") -> UserInfo | None:
         """Get user information"""

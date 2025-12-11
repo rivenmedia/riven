@@ -261,7 +261,7 @@ class TVDBApi:
 
                 # Check if token is still valid
                 if token.expires_at > datetime.now():
-
+                    logger.debug("Loaded valid TVDB token from file")
 
                     return token
                 else:

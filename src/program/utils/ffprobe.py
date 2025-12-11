@@ -1,5 +1,5 @@
 import subprocess
-from typing import Any, Literal
+from typing import Literal
 import orjson
 from fractions import Fraction
 from pydantic import BaseModel, Field
@@ -74,32 +74,40 @@ class FFProbeMediaMetadata(BaseModel):
 class FFProbeResponse(BaseModel):
     """Model representing the ffprobe response"""
 
-    class Program(BaseModel): ...
+    class TagsMixin(BaseModel):
+        class Tags(BaseModel):
+            language: str | None = None
 
-    class StreamGroup(BaseModel): ...
+        tags: Tags
 
     class BaseStream(BaseModel):
-        class Tags(BaseModel):
-            language: str
-            title: str
-
         index: int
         codec_name: str
         r_frame_rate: str
-        tags: Tags
+
+        @property
+        def fps(self) -> float:
+            """Calculate frames per second from `r_frame_rate`"""
+
+            try:
+                return float(Fraction(self.r_frame_rate))
+            except (ZeroDivisionError, ValueError):
+                return 0.0
+
+    class DataStream(BaseStream, TagsMixin):
+        codec_type: Literal["data"]
 
     class VideoStream(BaseStream):
         codec_type: Literal["video"]
         width: int
         height: int
-        side_data_list: list[dict[str, Any]]
 
-    class AudioStream(BaseStream):
+    class AudioStream(BaseStream, TagsMixin):
         codec_type: Literal["audio"]
         channels: int
         sample_rate: int
 
-    class SubtitleStream(BaseStream):
+    class SubtitleStream(BaseStream, TagsMixin):
         codec_type: Literal["subtitle"]
 
     class Format(BaseModel):
@@ -109,9 +117,7 @@ class FFProbeResponse(BaseModel):
         size: int
         bit_rate: int
 
-    programs: list[Program]
-    stream_groups: list[StreamGroup]
-    streams: list[VideoStream | AudioStream | SubtitleStream]
+    streams: list[VideoStream | AudioStream | SubtitleStream | DataStream]
     format: Format
 
 
@@ -134,12 +140,12 @@ def extract_filename_from_url(download_url: str) -> str:
     return unquote(raw_name, encoding="utf-8", errors="replace")
 
 
-def parse_media_url(download_url: str) -> FFProbeMediaMetadata | None:
+def parse_media_url(url: str) -> FFProbeMediaMetadata | None:
     """
     Parse a media file using ffprobe and return its metadata.
 
     Args:
-        file_path: Path to the media file
+        url: URL of the media file
 
     Returns:
         MediaMetadata object
@@ -150,7 +156,7 @@ def parse_media_url(download_url: str) -> FFProbeMediaMetadata | None:
         ValueError: If an unexpected error occurs while parsing the file
     """
 
-    if not download_url:
+    if not url:
         raise ValueError("No download URL provided")
 
     try:
@@ -172,7 +178,7 @@ def parse_media_url(download_url: str) -> FFProbeMediaMetadata | None:
                 "stream_tags=language,title"
             ),
             "-i",
-            download_url,
+            url,
         ]
 
         try:
@@ -186,12 +192,10 @@ def parse_media_url(download_url: str) -> FFProbeMediaMetadata | None:
         except subprocess.CalledProcessError as exc:
             stderr = exc.stderr.decode("utf-8", errors="ignore") if exc.stderr else ""
 
-            raise RuntimeError(
-                f"ffprobe error while probing {download_url}: {stderr}"
-            ) from exc
+            raise RuntimeError(f"ffprobe error while probing {url}: {stderr}") from exc
         except Exception as exc:
             raise ValueError(
-                f"Unexpected error invoking ffprobe for {download_url}: {exc}"
+                f"Unexpected error invoking ffprobe for {url}: {exc}"
             ) from exc
 
         try:
@@ -199,16 +203,16 @@ def parse_media_url(download_url: str) -> FFProbeMediaMetadata | None:
             probe_data = FFProbeResponse(**raw_probe_data)
         except Exception as exc:
             raise ValueError(
-                f"Failed to parse ffprobe JSON output for {download_url}: {exc}"
+                f"Failed to parse ffprobe JSON output for {url}: {exc}"
             ) from exc
 
         if not probe_data:
-            raise ValueError(f"ffprobe returned no data for {download_url}")
+            raise ValueError(f"ffprobe returned no data for {url}")
 
         format_info = probe_data.format
 
         metadata = FFProbeMediaMetadata(
-            filename=extract_filename_from_url(download_url),
+            filename=extract_filename_from_url(url),
             file_size=int(format_info.size),
             duration=round(format_info.duration, 2),
             format=(
@@ -219,58 +223,39 @@ def parse_media_url(download_url: str) -> FFProbeMediaMetadata | None:
             bitrate=format_info.bit_rate,
         )
 
-        audio_tracks = []
-        subtitle_tracks = []
-        video_data = None
-
         for stream in probe_data.streams:
-            if isinstance(stream, FFProbeResponse.VideoStream) and not video_data:
-                # apparently theres multiple video codecs..
-                # the first one should always be correct though.
-                frame_rate = stream.r_frame_rate
-
-                fps = (
-                    float(Fraction(frame_rate))
-                    if "/" in frame_rate
-                    else float(frame_rate)
-                )
-
-                video_data = FFProbeVideoTrack(
-                    codec=stream.codec_name,
-                    width=stream.width,
-                    height=stream.height,
-                    frame_rate=round(fps, 2),
-                )
-
-            elif isinstance(stream, FFProbeResponse.AudioStream):
-                audio_tracks.append(
-                    FFProbeAudioTrack(
-                        codec=stream.codec_name,
-                        channels=stream.channels,
-                        sample_rate=stream.sample_rate,
-                        language=stream.tags.language,
+            match stream:
+                case FFProbeResponse.VideoStream():
+                    if not metadata.video.codec:
+                        # Apparently there's multiple video codecs..
+                        # the first one should always be correct though.
+                        metadata.video = FFProbeVideoTrack(
+                            codec=stream.codec_name,
+                            width=stream.width,
+                            height=stream.height,
+                            frame_rate=round(stream.fps, 2),
+                        )
+                case FFProbeResponse.AudioStream():
+                    metadata.audio.append(
+                        FFProbeAudioTrack(
+                            codec=stream.codec_name,
+                            channels=stream.channels,
+                            sample_rate=stream.sample_rate,
+                            language=stream.tags.language,
+                        )
                     )
-                )
-
-            elif isinstance(stream, FFProbeResponse.SubtitleStream):
-                subtitle_tracks.append(
-                    FFProbeSubtitleTrack(
-                        codec=stream.codec_name,
-                        language=stream.tags.language,
+                case FFProbeResponse.SubtitleStream():
+                    metadata.subtitles.append(
+                        FFProbeSubtitleTrack(
+                            codec=stream.codec_name,
+                            language=stream.tags.language,
+                        )
                     )
-                )
-
-        if video_data:
-            metadata.video = video_data
-
-        if audio_tracks:
-            metadata.audio = audio_tracks
-
-        if subtitle_tracks:
-            metadata.subtitles = subtitle_tracks
+                case FFProbeResponse.DataStream():
+                    pass
 
         return metadata
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"ffprobe error: {e}")
     except Exception as e:
-        raise ValueError(f"Unexpected error during ffprobe of {download_url}: {e}")
+        raise ValueError(f"Unexpected error during ffprobe of {url}: {e}")

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Generic, Literal, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError
 
 from program.services.downloaders.models import (
     DebridFile,
@@ -26,7 +26,7 @@ class AllDebridFile(BaseModel):
 
     n: str  # Name
     s: int  # Size in bytes
-    l: str | None = None  # Download link
+    l: str  # Download link
 
 
 class AllDebridDirectory(BaseModel):
@@ -104,12 +104,6 @@ class AllDebridLinkUnlockResponse(BaseModel):
 class AllDebridMagnetStatusResponse(BaseModel):
     """Represents magnet status information returned by AllDebrid."""
 
-    class MagnetLink(BaseModel):
-        filename: str
-        size: int
-        files: list[AllDebridFile | AllDebridDirectory]
-        link: str
-
     class MagnetInfo(BaseModel):
         id: int
         filename: str
@@ -118,21 +112,13 @@ class AllDebridMagnetStatusResponse(BaseModel):
         status_code: int = Field(alias="statusCode")
         upload_date: int = Field(alias="uploadDate")
         completion_date: int = Field(alias="completionDate")
-        files: list[AllDebridFile | AllDebridDirectory] | None = None
-        links: list["AllDebridMagnetStatusResponse.MagnetLink"] | None = None
+        files: list[AllDebridFile | AllDebridDirectory] | None
 
     class MagnetErrorInfo(BaseModel):
         id: str
         error: AllDebridErrorDetail
 
     magnets: list[MagnetInfo | MagnetErrorInfo]
-
-    @field_validator("magnets", mode="before")
-    @classmethod
-    def normalize_magnets(cls, v):
-        if isinstance(v, dict):
-            return [v]
-        return v
 
 
 class AllDebridError(Exception):
@@ -293,7 +279,6 @@ class AllDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -380,7 +365,6 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -448,7 +432,7 @@ class AllDebridDownloader(DownloaderBase):
                     AllDebridFile(
                         n=file_obj.n,
                         s=file_obj.s,
-                        l=download_link if download_link else file_obj.l,
+                        l=download_link,
                     )
                 )
 
@@ -488,7 +472,6 @@ class AllDebridDownloader(DownloaderBase):
                     filesize_bytes=size,
                     filetype=item_type,
                     file_id=None,
-                    limit_filesize=limit_filesize,
                 )
 
                 df.download_url = link
@@ -611,32 +594,24 @@ class AllDebridDownloader(DownloaderBase):
                 if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
                     continue  # Skip errored magnets
 
-                all_files = list[AllDebridFile]()
+                files = magnet.files
 
-                # Handle links (new structure)
-                if magnet.links:
-                    for link_obj in magnet.links:
-                        self._add_link_to_files_recursive(
-                            link_obj.files, link_obj.link, all_files
-                        )
+                if files:
+                    all_files = list[AllDebridFile]()
 
-                # Handle files (old structure or fallback)
-                elif magnet.files:
-                    files = magnet.files
                     for file_or_directory in files:
                         download_link = ""
 
                         if isinstance(file_or_directory, AllDebridFile):
-                            if file_or_directory.l:
-                                all_files.append(file_or_directory)
+                            download_link = file_or_directory.l
                         else:
                             # Recursively process files/folders and add download link
                             self._add_link_to_files_recursive(
                                 file_or_directory.e, download_link, all_files
                             )
 
-                if all_files:
-                    return all_files
+                    if all_files:
+                        return all_files
 
                 return None
 

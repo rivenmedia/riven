@@ -3,11 +3,11 @@ import os
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Literal
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, status, Query
+from typing import Annotated, Any, Literal, Self
+from fastapi import APIRouter, Body, HTTPException, Path, status, Query
 from kink import di
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
@@ -19,7 +19,7 @@ from program.types import Event
 from program.program import Program
 from program.media.models import MediaMetadata
 
-from ..models.shared import MessageResponse
+from ..models.shared import IdListPayload, MessageResponse
 
 
 class MediaTypeEnum(str, Enum):
@@ -48,13 +48,16 @@ router = APIRouter(
 )
 
 
-def handle_ids(ids: str) -> list[int]:
+def handle_ids(ids: Sequence[str | int]) -> list[int]:
     try:
-        id_list = [int(id) for id in ids.split(",")] if "," in ids else [int(ids)]
+        id_list = [int(id) for id in ids]
+
         if not id_list:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="No item ID provided"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No item ID provided",
             )
+
         return id_list
     except ValueError:
         raise HTTPException(
@@ -80,6 +83,7 @@ def apply_item_mutation(
     - Uses base MediaItem.store_state to avoid recursive child updates for seasons/shows.
     - Caller is responsible for session.commit().
     """
+
     try:
         program.em.cancel_job(item.id)
     except Exception:
@@ -109,6 +113,7 @@ def apply_item_mutation(
             if season:
                 MediaItem.store_state(season)
                 show = session.get(Show, season.parent_id)
+
                 if show:
                     MediaItem.store_state(show)
         elif isinstance(item, Season):
@@ -121,8 +126,14 @@ def apply_item_mutation(
 
 
 class StateResponse(BaseModel):
-    success: bool
-    states: list[str]
+    success: Annotated[
+        bool,
+        Field(description="Boolean signifying whether the request was successful"),
+    ]
+    states: Annotated[
+        list[str],
+        Field(description="The list of states"),
+    ]
 
 
 @router.get(
@@ -135,12 +146,30 @@ async def get_states() -> StateResponse:
 
 
 class ItemsResponse(BaseModel):
-    success: bool
-    items: list[dict[str, Any]]
-    page: int
-    limit: int
-    total_items: int
-    total_pages: int
+    success: Annotated[
+        bool,
+        Field(description="Boolean signifying whether the request was successful"),
+    ]
+    items: Annotated[
+        list[dict[str, Any]],
+        Field(description="The list of media items"),
+    ]
+    page: Annotated[
+        int,
+        Field(description="Current page number"),
+    ]
+    limit: Annotated[
+        int,
+        Field(description="Number of items per page"),
+    ]
+    total_items: Annotated[
+        int,
+        Field(description="Total number of items"),
+    ]
+    total_pages: Annotated[
+        int,
+        Field(description="Total number of pages"),
+    ]
 
 
 class StatesFilter(str, Enum):
@@ -158,28 +187,24 @@ async def get_items(
     limit: Annotated[
         int,
         Query(
-            gt=0,
             description="Number of items per page",
+            ge=1,
         ),
     ] = 50,
     page: Annotated[
         int,
         Query(
-            gt=0,
             description="Page number",
+            ge=1,
         ),
     ] = 1,
     type: Annotated[
         list[MediaTypeEnum] | None,
-        Query(
-            description="Filter by media type(s)",
-        ),
+        Query(description="Filter by media type(s)"),
     ] = None,
     states: Annotated[
         list[States | StatesFilter] | None,
-        Query(
-            description="Filter by state(s)",
-        ),
+        Query(description="Filter by state(s)"),
     ] = None,
     sort: Annotated[
         list[SortOrderEnum] | None,
@@ -190,18 +215,13 @@ async def get_items(
     search: Annotated[
         str | None,
         Query(
-            min_length=1,
             description="Search by title or IMDB/TVDB/TMDB ID",
+            min_length=1,
         ),
     ] = None,
     extended: Annotated[
         bool,
-        Query(
-            description="Include extended item details",
-        ),
-    ] = False,
-    count_only: Annotated[
-        bool, Query(description="Only return the count of items")
+        Query(description="Include extended item details"),
     ] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
@@ -283,12 +303,17 @@ async def get_items(
             else:
                 query = query.order_by(MediaItem.requested_at.desc())
 
-            items = (
-                session.execute(query.offset((page - 1) * limit).limit(limit))
-                .unique()
-                .scalars()
-                .all()
-            )
+    with db_session() as session:
+        total_items = session.execute(
+            select(func.count()).select_from(query.subquery())
+        ).scalar_one()
+
+        items = (
+            session.execute(query.offset((page - 1) * limit).limit(limit))
+            .unique()
+            .scalars()
+            .all()
+        )
 
         total_pages = (total_items + limit - 1) // limit
 
@@ -305,6 +330,27 @@ async def get_items(
         )
 
 
+class AddMediaItemPayload(BaseModel):
+    tmdb_ids: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="Comma-separated list of TMDB IDs",
+        ),
+    ]
+    tvdb_ids: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="Comma-separated list of TVDB IDs",
+        ),
+    ]
+    media_type: Annotated[
+        Literal["movie", "tv"],
+        Field(description="Media type"),
+    ]
+
+
 @router.post(
     "/add",
     summary="Add Media Items",
@@ -316,46 +362,31 @@ async def get_items(
     response_model=MessageResponse,
 )
 async def add_items(
-    tmdb_ids: Annotated[
-        str | None,
-        Body(description="Comma-separated list of TMDB IDs"),
-    ] = None,
-    tvdb_ids: Annotated[
-        str | None,
-        Body(description="Comma-separated list of TVDB IDs"),
-    ] = None,
-    media_type: Annotated[
-        Literal["movie", "tv"] | None,
-        Body(description="Media type"),
-    ] = None,
+    payload: Annotated[
+        AddMediaItemPayload,
+        Body(description="Add media items payload"),
+    ],
 ) -> MessageResponse:
-    if not tmdb_ids and not tvdb_ids:
+    if not payload.tmdb_ids and not payload.tvdb_ids:
         raise HTTPException(status_code=400, detail="No ID(s) provided")
 
-    all_tmdb_ids = list[str]()
-    all_tvdb_ids = list[str]()
+    all_tmdb_ids = (
+        [id.strip() for id in payload.tmdb_ids if id]
+        if payload.tmdb_ids and payload.media_type == "movie"
+        else None
+    )
 
-    if tmdb_ids and media_type == "movie":
-        all_tmdb_ids = (
-            [id.strip() for id in tmdb_ids.split(",")]
-            if "," in tmdb_ids
-            else [tmdb_ids.strip()]
-        )
-        all_tmdb_ids = [id for id in all_tmdb_ids if id]
-
-    if tvdb_ids and media_type == "tv":
-        all_tvdb_ids = (
-            [id.strip() for id in tvdb_ids.split(",")]
-            if "," in tvdb_ids
-            else [tvdb_ids.strip()]
-        )
-        all_tvdb_ids = [id for id in all_tvdb_ids if id]
+    all_tvdb_ids = (
+        [id.strip() for id in payload.tvdb_ids if id]
+        if payload.tvdb_ids and payload.media_type == "tv"
+        else None
+    )
 
     added_count = 0
     items = list[MediaItem]()
 
     with db_session() as session:
-        if media_type == "movie" and tmdb_ids:
+        if all_tmdb_ids:
             for id in all_tmdb_ids:
                 # Check if item exists using ORM
                 existing = session.execute(
@@ -370,12 +401,13 @@ async def add_items(
                             "requested_at": datetime.now(),
                         }
                     )
+
                     if item:
                         items.append(item)
                 else:
                     logger.debug(f"Item with TMDB ID {id} already exists")
 
-        if media_type == "tv" and tvdb_ids:
+        if all_tvdb_ids:
             for id in all_tvdb_ids:
                 # Check if item exists using ORM
                 existing = session.execute(
@@ -420,9 +452,9 @@ async def get_item(
         ),
     ],
     media_type: Annotated[
-        Literal["movie", "tv", "item"] | None,
+        Literal["movie", "tv", "item"],
         Query(description="The type of media item"),
-    ] = None,
+    ],
     extended: Annotated[
         bool,
         Query(description="Whether to include extended information"),
@@ -432,53 +464,52 @@ async def get_item(
         raise HTTPException(status_code=400, detail="No ID or media type provided")
 
     with db_session() as session:
-        if media_type == "movie":
-            # needs to be a string
-            query = select(MediaItem).where(
-                MediaItem.tmdb_id == id,
-            )
-        elif media_type == "tv":
-            # needs to be a string
-            query = select(MediaItem).where(
-                MediaItem.tvdb_id == id,
-            )
-        elif media_type == "item":
-            # needs to be an integer
-            _id = int(id)
-            query = select(MediaItem).where(
-                MediaItem.id == _id,
-            )
-        else:
-            raise HTTPException(status_code=400, detail="Invalid media type")
+        match media_type:
+            case "movie":
+                # needs to be a string
+                query = select(MediaItem).where(
+                    MediaItem.tmdb_id == id,
+                )
+            case "tv":
+                # needs to be a string
+                query = select(MediaItem).where(
+                    MediaItem.tvdb_id == id,
+                )
+            case "item":
+                # needs to be an integer
+                _id = int(id)
+                query = select(MediaItem).where(
+                    MediaItem.id == _id,
+                )
 
         try:
             item = session.execute(query).unique().scalar_one_or_none()
 
-            if item:
-                if extended:
-                    return item.to_extended_dict()
-
-                return item.to_dict()
-            else:
+            if not item:
                 raise HTTPException(status_code=404, detail="Item not found")
-        except HTTPException:
-            raise
+
+            if extended:
+                return item.to_extended_dict()
+
+            return item.to_dict()
         except Exception as e:
             # Handle multiple results
             if "Multiple rows were found when one or none was required" in str(e):
                 items = session.execute(query).unique().scalars().all()
                 duplicate_ids = {item.id for item in items}
                 logger.debug(f"Multiple items found with ID {id}: {duplicate_ids}")
+
                 raise HTTPException(
                     status_code=500,
                     detail=f"Multiple items found with ID {id}: {duplicate_ids}",
                 )
+
             logger.error(f"Error fetching item with ID {id}: {str(e)}")
+
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-class ResetResponse(BaseModel):
-    message: str
+class ResetResponse(MessageResponse):
     ids: list[int]
 
 
@@ -490,14 +521,10 @@ class ResetResponse(BaseModel):
     response_model=ResetResponse,
 )
 async def reset_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to reset",
-            min_length=1,
-        ),
+    payload: Annotated[
+        IdListPayload,
+        Body(description="Reset items payload"),
     ],
-    session: Session = Depends(db_session.__wrapped__),
 ) -> ResetResponse:
     """
     Reset the specified media items to their initial state and trigger a media-server library refresh when applicable.
@@ -515,7 +542,7 @@ async def reset_items(
         HTTPException: Raised with status 400 when the provided `ids` string cannot be parsed into valid IDs.
     """
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(payload.ids)
 
     services = di[Program].services
 
@@ -526,74 +553,79 @@ async def reset_items(
 
     try:
         # Load items using ORM
-        items = (
-            session.execute(select(MediaItem).where(MediaItem.id.in_(parsed_ids)))
-            .scalars()
-            .all()
-        )
+        with db_session() as session:
+            items = (
+                session.execute(select(MediaItem).where(MediaItem.id.in_(parsed_ids)))
+                .scalars()
+                .all()
+            )
 
-        for media_item in items:
-            try:
-                # Gather all refresh paths before reset (entry may appear at multiple VFS paths)
-                refresh_paths = list[str]()
+            for media_item in items:
+                try:
+                    # Gather all refresh paths before reset (entry may appear at multiple VFS paths)
+                    refresh_paths = list[str]()
 
-                media_entry = media_item.media_entry
+                    media_entry = media_item.media_entry
 
-                if updater and media_entry:
-                    vfs_paths = media_entry.get_all_vfs_paths()
+                    if updater and media_entry:
+                        vfs_paths = media_entry.get_all_vfs_paths()
 
-                    for vfs_path in vfs_paths:
-                        abs_path = os.path.join(
-                            updater.library_path, vfs_path.lstrip("/")
-                        )
-
-                        if isinstance(media_item, Movie):
-                            refresh_path = os.path.dirname(os.path.dirname(abs_path))
-                        else:  # show
-                            refresh_path = os.path.dirname(
-                                os.path.dirname(os.path.dirname(abs_path))
+                        for vfs_path in vfs_paths:
+                            abs_path = os.path.join(
+                                updater.library_path, vfs_path.lstrip("/")
                             )
-                        if refresh_path not in refresh_paths:
-                            refresh_paths.append(refresh_path)
 
-                def mutation(i: MediaItem, s: Session):
-                    """
-                    Blacklist the MediaItem's currently active stream and reset the item's state.
+                            if isinstance(media_item, Movie):
+                                refresh_path = os.path.dirname(
+                                    os.path.dirname(abs_path)
+                                )
+                            else:  # show
+                                refresh_path = os.path.dirname(
+                                    os.path.dirname(os.path.dirname(abs_path))
+                                )
+                            if refresh_path not in refresh_paths:
+                                refresh_paths.append(refresh_path)
 
-                    Parameters:
-                        i (MediaItem): The item to mutate.
-                        s (Session): Database session (provided for caller context; not used directly here).
-                    """
+                    def mutation(i: MediaItem, s: Session):
+                        """
+                        Blacklist the MediaItem's currently active stream and reset the item's state.
 
-                    i.blacklist_active_stream()
-                    i.reset()
+                        Parameters:
+                            i (MediaItem): The item to mutate.
+                            s (Session): Database session (provided for caller context; not used directly here).
+                        """
 
-                apply_item_mutation(
-                    di[Program],
-                    session,
-                    media_item,
-                    mutation,
-                    bubble_parents=True,
-                )
+                        i.blacklist_active_stream()
+                        i.reset()
 
-                session.commit()
+                    apply_item_mutation(
+                        di[Program],
+                        session,
+                        media_item,
+                        mutation,
+                        bubble_parents=True,
+                    )
 
-                # Trigger media server refresh for all paths where this item appeared
-                if updater and updater.initialized:
-                    for refresh_path in refresh_paths:
-                        updater.refresh_path(refresh_path)
-                        logger.debug(
-                            f"Triggered media server refresh for {refresh_path}"
-                        )
+                    session.commit()
 
-            except ValueError as e:
-                logger.error(f"Failed to reset item with id {media_item.id}: {str(e)}")
-                continue
-            except Exception as e:
-                logger.error(
-                    f"Unexpected error while resetting item with id {media_item.id}: {str(e)}"
-                )
-                continue
+                    # Trigger media server refresh for all paths where this item appeared
+                    if updater and updater.initialized:
+                        for refresh_path in refresh_paths:
+                            updater.refresh_path(refresh_path)
+                            logger.debug(
+                                f"Triggered media server refresh for {refresh_path}"
+                            )
+
+                except ValueError as e:
+                    logger.error(
+                        f"Failed to reset item with id {media_item.id}: {str(e)}"
+                    )
+                    continue
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error while resetting item with id {media_item.id}: {str(e)}"
+                    )
+                    continue
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -603,9 +635,11 @@ async def reset_items(
     )
 
 
-class RetryResponse(BaseModel):
-    message: str
-    ids: Sequence[int]
+class RetryResponse(MessageResponse):
+    ids: Annotated[
+        Sequence[int],
+        Field(description="The IDs to retry", min_length=1),
+    ]
 
 
 @router.post(
@@ -616,17 +650,14 @@ class RetryResponse(BaseModel):
     response_model=RetryResponse,
 )
 async def retry_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to retry",
-            min_length=1,
-        ),
+    payload: Annotated[
+        IdListPayload,
+        Body(description="Retry items payload"),
     ],
 ) -> RetryResponse:
     """Re-add items to the queue"""
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(payload.ids)
 
     with db_session() as session:
         for id in parsed_ids:
@@ -688,7 +719,10 @@ async def retry_library_items() -> RetryResponse:
 
 class RemoveResponse(BaseModel):
     message: str
-    ids: list[int]
+    ids: Annotated[
+        list[int],
+        Field(description="The IDs to remove"),
+    ]
 
 
 @router.delete(
@@ -699,14 +733,10 @@ class RemoveResponse(BaseModel):
     response_model=RemoveResponse,
 )
 async def remove_item(
-    ids: Annotated[
-        str,
-        Query(
-            description="Comma-separated list of item IDs to remove",
-            min_length=1,
-        ),
+    payload: Annotated[
+        IdListPayload,
+        Body(description="Remove items payload"),
     ],
-    session: Session = Depends(db_session.__wrapped__),
 ) -> RemoveResponse:
     """
     Remove one or more media items identified by their IDs.
@@ -724,7 +754,7 @@ async def remove_item(
         HTTPException: If no IDs are provided or if an item type is not removable (only "movie" and "show" are allowed).
     """
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(payload.ids)
 
     if not parsed_ids:
         raise HTTPException(
@@ -740,91 +770,91 @@ async def remove_item(
     updater = services.updater
     removed_ids = list[int]()
 
-    for item_id in parsed_ids:
-        # Load item using ORM
-        item = session.get(MediaItem, item_id)
+    with db_session() as session:
+        for item_id in parsed_ids:
+            # Load item using ORM
+            item = session.get(MediaItem, item_id)
 
-        if not item:
-            logger.warning(f"Item {item_id} not found, skipping")
-            continue
+            if not item:
+                logger.warning(f"Item {item_id} not found, skipping")
+                continue
 
-        # Only allow movies and shows to be removed
-        if not isinstance(item, (Movie, Show)):            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
-            )
+            # Only allow movies and shows to be removed
+            if not isinstance(item, (Movie, Show)):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
+                )
 
-        logger.debug(f"Removing item with ID {item.id}")
+            logger.debug(f"Removing item with ID {item.id}")
 
-        # 1. Cancel active jobs (EventManager cancels children too)
-        di[Program].em.cancel_job(item.id)
+            # 1. Cancel active jobs (EventManager cancels children too)
+            di[Program].em.cancel_job(item.id)
 
-        # 2. Gather all refresh paths before deletion (entry may appear at multiple VFS paths)
-        refresh_paths = list[str]()
+            # 2. Gather all refresh paths before deletion (entry may appear at multiple VFS paths)
+            refresh_paths = list[str]()
 
-        media_entry = item.media_entry
+            if updater and item.filesystem_entry:
+                if media_entry := item.media_entry:
+                    for vfs_path in media_entry.get_all_vfs_paths():
+                        # Check if VFS path is already absolute (filesystem path)
+                        # VFS paths are normally VFS-relative (e.g., /movies/...) but could be
+                        # absolute filesystem paths in some configurations
+                        if os.path.isabs(vfs_path) and not vfs_path.startswith(
+                            str(updater.library_path)
+                        ):
+                            # VFS path is absolute but not under library_path - use as-is
+                            abs_path = vfs_path
+                        elif os.path.isabs(vfs_path) and vfs_path.startswith(
+                            str(updater.library_path)
+                        ):
+                            # VFS path is already an absolute path under library_path - use as-is
+                            abs_path = vfs_path
+                        else:
+                            # VFS path is VFS-relative - join with library_path
+                            abs_path = os.path.join(
+                                updater.library_path, vfs_path.lstrip("/")
+                            )
 
-        if not media_entry:
-            logger.warning(f"Media entry not found for item {item.id}, skipping refresh path calculation")
-        elif updater and item.filesystem_entry:
-            vfs_paths = media_entry.get_all_vfs_paths()
+                        if isinstance(item, Movie):
+                            refresh_path = os.path.dirname(os.path.dirname(abs_path))
+                        else:  # show
+                            refresh_path = os.path.dirname(
+                                os.path.dirname(os.path.dirname(abs_path))
+                            )
+                        if refresh_path not in refresh_paths:
+                            refresh_paths.append(refresh_path)
 
-            for vfs_path in vfs_paths:
-                # Check if VFS path is already absolute (filesystem path)
-                # VFS paths are normally VFS-relative (e.g., /movies/...) but could be
-                # absolute filesystem paths in some configurations
-                if os.path.isabs(vfs_path) and not vfs_path.startswith(
-                    str(updater.library_path)
-                ):
-                    # VFS path is absolute but not under library_path - use as-is
-                    abs_path = vfs_path
-                elif os.path.isabs(vfs_path) and vfs_path.startswith(
-                    str(updater.library_path)
-                ):
-                    # VFS path is already an absolute path under library_path - use as-is
-                    abs_path = vfs_path
-                else:
-                    # VFS path is VFS-relative - join with library_path
-                    abs_path = os.path.join(updater.library_path, vfs_path.lstrip("/"))
+            # 3. Delete from Overseerr
+            if item.overseerr_id and overseerr:
+                try:
+                    overseerr.api.delete_request(item.overseerr_id)
 
-                if isinstance(item, Movie):
-                    refresh_path = os.path.dirname(os.path.dirname(abs_path))
-                else:  # show
-                    refresh_path = os.path.dirname(
-                        os.path.dirname(os.path.dirname(abs_path))
+                    logger.debug(
+                        f"Deleted Overseerr request {item.overseerr_id} for {item.id}"
                     )
-                if refresh_path not in refresh_paths:
-                    refresh_paths.append(refresh_path)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to delete Overseerr request {item.overseerr_id}: {e}"
+                    )
 
-        # 3. Delete from Overseerr
-        if item.overseerr_id and overseerr:
-            try:
-                overseerr.api.delete_request(item.overseerr_id)
+            # 4. Remove from VFS
+            if services.filesystem.riven_vfs:
+                services.filesystem.riven_vfs.remove(item)
 
-                logger.debug(
-                    f"Deleted Overseerr request {item.overseerr_id} for {item.id}"
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to delete Overseerr request {item.overseerr_id}: {e}"
-                )
+            # 5. Delete from database using ORM
+            session.delete(item)
+            session.commit()
 
-        # 4. Remove from VFS
-        if services.filesystem.riven_vfs:
-            services.filesystem.riven_vfs.remove(item)
+            removed_ids.append(item_id)
 
-        # 5. Delete from database using ORM
-        session.delete(item)
-        session.commit()
-        removed_ids.append(item_id)
+            logger.debug(f"Deleted item {item_id} from database")
 
-        logger.debug(f"Deleted item {item_id} from database")
-
-        # 6. Trigger media server refresh for all paths where this item appeared
-        if updater and updater.initialized:
-            for refresh_path in refresh_paths:
-                updater.refresh_path(refresh_path)
-                logger.debug(f"Triggered media server refresh for {refresh_path}")
+            # 6. Trigger media server refresh for all paths where this item appeared
+            if updater and updater.initialized:
+                for refresh_path in refresh_paths:
+                    updater.refresh_path(refresh_path)
+                    logger.debug(f"Triggered media server refresh for {refresh_path}")
 
     logger.info(f"Successfully removed items: {removed_ids}")
 
@@ -834,10 +864,15 @@ async def remove_item(
     )
 
 
-class StreamsResponse(BaseModel):
-    message: str
-    streams: list[dict[str, Any]]
-    blacklisted_streams: list[dict[str, Any]]
+class StreamsResponse(MessageResponse):
+    streams: Annotated[
+        list[dict[str, Any]],
+        Field(description="The list of streams"),
+    ]
+    blacklisted_streams: Annotated[
+        list[dict[str, Any]],
+        Field(description="The list of blacklisted streams"),
+    ]
 
 
 @router.get(
@@ -850,26 +885,21 @@ class StreamsResponse(BaseModel):
 async def get_item_streams(
     item_id: Annotated[
         int,
-        Path(description="The ID of the media item", min_length=1),
+        Path(description="The ID of the media item", ge=1),
     ],
-    db: Session = Depends(db_session.__wrapped__),
 ) -> StreamsResponse:
-    item = (
-        db.execute(select(MediaItem).where(MediaItem.id == item_id))
-        .unique()
-        .scalar_one_or_none()
-    )
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
+        )
 
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
         )
 
-    return StreamsResponse(
-        message=f"Retrieved streams for item {item_id}",
-        streams=[stream.to_dict() for stream in item.streams],
-        blacklisted_streams=[stream.to_dict() for stream in item.blacklisted_streams],
-    )
     return StreamsResponse(
         message=f"Retrieved streams for item {item_id}",
         streams=[stream.to_dict() for stream in item.streams],
@@ -889,48 +919,56 @@ async def blacklist_stream(
         int,
         Path(
             description="The ID of the media item",
-            min_length=1,
+            ge=1,
         ),
     ],
     stream_id: Annotated[
         int,
         Path(
             description="The ID of the stream",
-            min_length=1,
+            ge=1,
         ),
     ],
-    db: Session = Depends(db_session.__wrapped__),
-):
-    item = (
-        db.execute(select(MediaItem).where(MediaItem.id == item_id))
-        .unique()
-        .scalar_one_or_none()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Item not found",
+) -> MessageResponse:
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
         )
 
-    stream = next((stream for stream in item.streams if stream.id == stream_id), None)
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found",
+            )
 
-    if not stream:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Stream not found",
+        stream = next(
+            (stream for stream in item.streams if stream.id == stream_id), None
         )
 
-    def mutation(i: MediaItem, s: Session):
-        i.blacklist_stream(stream)
+        if not stream:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Stream not found",
+            )
 
-    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
+        def mutation(i: MediaItem, s: Session):
+            i.blacklist_stream(stream)
 
-    db.commit()
+        apply_item_mutation(
+            di[Program],
+            session,
+            item,
+            mutation,
+            bubble_parents=True,
+        )
 
-    return MessageResponse(
-        message=f"Blacklisted stream {stream_id} for item {item_id}",
-    )
+        session.commit()
+
+        return MessageResponse(
+            message=f"Blacklisted stream {stream_id} for item {item_id}",
+        )
 
 
 @router.post(
@@ -945,48 +983,49 @@ async def unblacklist_stream(
         int,
         Path(
             description="The ID of the media item",
-            min_length=1,
+            ge=1,
         ),
     ],
     stream_id: Annotated[
         int,
         Path(
             description="The ID of the stream",
-            min_length=1,
+            ge=1,
         ),
     ],
-    db: Session = Depends(db_session.__wrapped__),
-):
-    item = (
-        db.execute(select(MediaItem).where(MediaItem.id == item_id))
-        .unique()
-        .scalar_one_or_none()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+) -> MessageResponse:
+    with db_session() as db:
+        item = (
+            db.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
         )
 
-    stream = next(
-        (stream for stream in item.blacklisted_streams if stream.id == stream_id), None
-    )
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+            )
 
-    if not stream:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found"
+        stream = next(
+            (stream for stream in item.blacklisted_streams if stream.id == stream_id),
+            None,
         )
 
-    def mutation(i: MediaItem, s: Session):
-        i.unblacklist_stream(stream)
+        if not stream:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found"
+            )
 
-    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
+        def mutation(i: MediaItem, s: Session):
+            i.unblacklist_stream(stream)
 
-    db.commit()
+        apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
 
-    return MessageResponse(
-        message=f"Unblacklisted stream {stream_id} for item {item_id}",
-    )
+        db.commit()
+
+        return MessageResponse(
+            message=f"Unblacklisted stream {stream_id} for item {item_id}",
+        )
 
 
 @router.post(
@@ -1001,39 +1040,47 @@ async def reset_item_streams(
         int,
         Path(
             description="The ID of the media item",
-            min_length=1,
+            ge=1,
         ),
     ],
-    db: Session = Depends(db_session.__wrapped__),
-):
-    item = (
-        db.execute(select(MediaItem).where(MediaItem.id == item_id))
-        .unique()
-        .scalar_one_or_none()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+) -> MessageResponse:
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
         )
 
-    def mutation(i: MediaItem, s: Session):
-        i.streams.clear()
-        i.blacklisted_streams.clear()
-        i.active_stream = None
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+            )
 
-    apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
+        def mutation(i: MediaItem, s: Session):
+            i.streams.clear()
+            i.blacklisted_streams.clear()
+            i.active_stream = None
 
-    db.commit()
+        apply_item_mutation(
+            di[Program],
+            session,
+            item,
+            mutation,
+            bubble_parents=True,
+        )
 
-    return MessageResponse(
-        message=f"Successfully reset streams for item {item_id}",
-    )
+        session.commit()
+
+        return MessageResponse(
+            message=f"Successfully reset streams for item {item_id}",
+        )
 
 
-class PauseResponse(BaseModel):
-    message: str
-    ids: list[int]
+class PauseResponse(MessageResponse):
+    ids: Annotated[
+        list[int],
+        Field(description="The IDs to pause", min_length=1),
+    ]
 
 
 @router.post(
@@ -1044,17 +1091,14 @@ class PauseResponse(BaseModel):
     response_model=PauseResponse,
 )
 async def pause_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to pause",
-            min_length=1,
-        ),
+    payload: Annotated[
+        IdListPayload,
+        Body(description="Pause items payload"),
     ],
 ) -> PauseResponse:
     """Pause items and their children from being processed"""
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(payload.ids)
 
     try:
         with db_session() as session:
@@ -1116,23 +1160,20 @@ async def pause_items(
     response_model=PauseResponse,
 )
 async def unpause_items(
-    ids: Annotated[
-        str,
-        Body(
-            description="Comma-separated list of item IDs to unpause",
-            min_length=1,
-        ),
+    payload: Annotated[
+        IdListPayload,
+        Body(description="Unpause items payload"),
     ],
 ) -> PauseResponse:
     """Unpause items and their children to resume processing"""
 
-    parsed_ids = handle_ids(ids)
+    parsed_ids = handle_ids(payload.ids)
 
     try:
         with db_session() as session:
             # Load items using ORM
             items = (
-                session.execute(select(MediaItem).where(MediaItem.id.in_(ids)))
+                session.execute(select(MediaItem).where(MediaItem.id.in_(parsed_ids)))
                 .scalars()
                 .all()
             )
@@ -1173,8 +1214,42 @@ async def unpause_items(
     )
 
 
-class ReindexResponse(BaseModel):
-    message: str
+class ReindexPayload(BaseModel):
+    item_id: Annotated[
+        int | None,
+        Field(
+            default=None,
+            description="The ID of the media item",
+        ),
+    ]
+    tvdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TVDB ID of the media item",
+        ),
+    ]
+    tmdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TMDB ID of the media item",
+        ),
+    ]
+    imdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The IMDB ID of the media item",
+        ),
+    ]
+
+    @model_validator(mode="after")
+    def check_at_least_one_id_provided(self) -> Self:
+        if not any([self.item_id, self.tvdb_id, self.tmdb_id, self.imdb_id]):
+            raise ValueError("At least one ID must be provided")
+
+        return self
 
 
 @router.post(
@@ -1185,51 +1260,34 @@ class ReindexResponse(BaseModel):
         Only works for movies and shows. Requires item id as a parameter.
     """,
     operation_id="composite_reindexer",
-    response_model=ReindexResponse,
+    response_model=MessageResponse,
 )
 async def reindex_item(
-    item_id: Annotated[
-        int | None,
-        Body(description="The ID of the media item"),
-    ] = None,
-    tvdb_id: Annotated[
-        str | None,
-        Body(description="The TVDB ID of the media item"),
-    ] = None,
-    tmdb_id: Annotated[
-        str | None,
-        Body(description="The TMDB ID of the media item"),
-    ] = None,
-    imdb_id: Annotated[
-        str | None,
-        Body(description="The IMDB ID of the media item"),
-    ] = None,
-) -> ReindexResponse:
+    payload: Annotated[
+        ReindexPayload,
+        Body(description="Reindex item payload"),
+    ],
+) -> MessageResponse:
     """Reindex item through Composite Indexer manually"""
 
     with db_session() as session:
         # Load item using ORM based on provided ID
         item: MediaItem | None = None
 
-        if item_id:
-            item = session.get(MediaItem, item_id)
-        elif tvdb_id:
+        if payload.item_id:
+            item = session.get(MediaItem, payload.item_id)
+        elif payload.tvdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tvdb_id == tvdb_id)
+                select(MediaItem).where(MediaItem.tvdb_id == payload.tvdb_id)
             ).scalar_one_or_none()
-        elif tmdb_id:
+        elif payload.tmdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.tmdb_id == tmdb_id)
+                select(MediaItem).where(MediaItem.tmdb_id == payload.tmdb_id)
             ).scalar_one_or_none()
-        elif imdb_id:
+        elif payload.imdb_id:
             item = session.execute(
-                select(MediaItem).where(MediaItem.imdb_id == imdb_id)
+                select(MediaItem).where(MediaItem.imdb_id == payload.imdb_id)
             ).scalar_one_or_none()
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Item id or external id is required",
-            )
 
         if not item:
             raise HTTPException(
@@ -1254,9 +1312,9 @@ async def reindex_item(
                 i.indexed_at = None
 
                 # Run the indexer within the session context
-                reindexed_item = next(indexer_service.run(i, log_msg=True))
+                runner_result = next(indexer_service.run(i, log_msg=True))
 
-                if not reindexed_item:
+                if not runner_result.media_items:
                     raise ValueError(
                         "Failed to reindex item - no data returned from indexer"
                     )
@@ -1265,7 +1323,7 @@ async def reindex_item(
                 # Use no_autoflush to prevent SQLAlchemy from trying to flush
                 # the new Season/Episode objects before the merge is complete
                 with s.no_autoflush:
-                    s.merge(reindexed_item)
+                    s.merge(runner_result.media_items[0])
 
             apply_item_mutation(
                 program=di[Program],
@@ -1275,21 +1333,25 @@ async def reindex_item(
                 bubble_parents=True,
             )
 
-            logger.info(f"Successfully reindexed {item.log_string}")
+            logger.info(f"Successfully re-indexed {item.log_string}")
+
             di[Program].em.add_event(Event("RetryItem", item.id))
 
-            return ReindexResponse(message=f"Successfully reindexed {item.log_string}")
+            return MessageResponse(message=f"Successfully re-indexed {item.log_string}")
         except Exception as e:
-            logger.error(f"Failed to reindex {item.log_string}: {str(e)}")
+            logger.error(f"Failed to re-index {item.log_string}: {str(e)}")
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to reindex item: {str(e)}",
+                detail=f"Failed to re-index item: {str(e)}",
             )
 
 
 class ItemAliasesResponse(BaseModel):
-    aliases: dict[str, list[str]]
+    aliases: Annotated[
+        dict[str, list[str]] | None,
+        Field(description="The item aliases"),
+    ]
 
 
 @router.get(
@@ -1304,18 +1366,18 @@ async def get_item_aliases(
         int,
         Path(
             description="The ID of the media item",
-            min_length=1,
+            ge=1,
         ),
     ],
-    db: Session = Depends(db_session.__wrapped__),
 ) -> ItemAliasesResponse:
     """Get aliases for a media item"""
 
-    item = (
-        db.execute(select(MediaItem).where(MediaItem.id == item_id))
-        .unique()
-        .scalar_one_or_none()
-    )
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
+        )
 
     if not item:
         raise HTTPException(
@@ -1337,30 +1399,30 @@ async def get_item_metadata(
         int,
         Path(
             description="The ID of the media item",
-            min_length=1,
+            ge=1,
         ),
     ],
-    db: Session = Depends(db_session.__wrapped__),
 ) -> MediaMetadata:
     """Get all metadata for a media item using item ID"""
 
-    item = (
-        db.execute(select(MediaItem).where(MediaItem.id == item_id))
-        .unique()
-        .scalar_one_or_none()
-    )
-
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
         )
 
-    media_entry = item.media_entry
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+            )
 
-    if not media_entry or not media_entry.media_metadata:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No metadata available for this item",
-        )
+        media_entry = item.media_entry
 
-    return media_entry.media_metadata
+        if not media_entry or not media_entry.media_metadata:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No metadata available for this item",
+            )
+
+        return media_entry.media_metadata

@@ -9,12 +9,11 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from program.utils.logging import logger
-from sqlalchemy import delete, func, inspect, or_, select, text
+from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from program.media.state import States
-from program.media.stream import StreamBlacklistRelation, StreamRelation
 from program.core.runner import MediaItemGenerator
 from program.db.base_model import get_base_metadata
 
@@ -24,7 +23,7 @@ if TYPE_CHECKING:
     from program.types import Service
     from program.program import Program
     from program.types import Event
-    from program.media.item import MediaItem, Episode
+    from program.media.item import MediaItem
 
 
 @contextmanager
@@ -177,30 +176,6 @@ def item_exists_by_any_id(
         return count > 0
 
 
-def clear_streams(
-    *,
-    media_item_id: int,
-    session: Session | None = None,
-) -> None:
-    """
-    Remove all stream relations and blacklist entries for a media item in a single transaction.
-
-    Parameters:
-        media_item_id (int): ID of the media item whose stream relations and blacklist entries will be removed.
-    """
-
-    with _maybe_session(session) as (_s, _owns):
-        _s.execute(
-            delete(StreamRelation).where(StreamRelation.parent_id == media_item_id)
-        )
-        _s.execute(
-            delete(StreamBlacklistRelation).where(
-                StreamBlacklistRelation.media_item_id == media_item_id
-            )
-        )
-        _s.commit()
-
-
 def get_item_ids(session: Session, item_id: int) -> tuple[int, list[int]]:
     """
     Return the root media item ID and a list of its descendant item IDs.
@@ -293,7 +268,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
     Returns a dict keyed by item.id with minimal metadata for scheduling.
     """
 
-    from program.media.item import MediaItem, Season, Show
+    from program.media.item import MediaItem, Season, Show, Episode
 
     with _maybe_session(session) as (s, _owns):
         result = s.execute(

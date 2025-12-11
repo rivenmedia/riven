@@ -530,24 +530,11 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             True if successfully added, False otherwise
         """
-        from program.media.item import Season, Show
-
-        added_any = False
-
-        if isinstance(item, Show):
-            for season in item.seasons:
-                if self.add(season):
-                    added_any = True
-
-        if isinstance(item, Season):
-            for episode in item.episodes:
-                if self.add(episode):
-                    added_any = True
 
         # Only process if this item has a media entry
         if not (entry := item.media_entry):
             logger.debug(f"Item {item.id} has no media entry, skipping VFS add")
-            return added_any
+            return False
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)
@@ -880,6 +867,7 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             item: MediaItem to re-sync
         """
+
         from sqlalchemy.orm import object_session
         from program.db.db import db_session
 
@@ -1694,7 +1682,7 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
-                DebridCDNUrl(filename=node.original_filename).validate()
+                DebridCDNUrl.from_filename(node.original_filename).validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."
@@ -1710,7 +1698,13 @@ class RivenVFS(pyfuse3.Operations):
                                 for candidate in self._get_nodes_by_original_filename(
                                     node.original_filename
                                 )
-                                if candidate.inode != original_inode
+                                if (
+                                    candidate.inode != original_inode
+                                    and (
+                                        candidate.original_filename
+                                        != node.original_filename
+                                    )
+                                )
                             ]
 
                             if new_nodes:
@@ -1733,6 +1727,11 @@ class RivenVFS(pyfuse3.Operations):
                 inode = new_nodes[0].inode
 
                 return await self.open(inode, flags, ctx)
+            except Exception as e:
+                logger.error(f"Unexpected error whilst validating CDN URL: {e}")
+
+                raise pyfuse3.FUSEError(errno.EIO)
+                
 
             logger.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
