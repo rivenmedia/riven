@@ -965,7 +965,7 @@ class Season(MediaItem):
         sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
     )
     parent: Mapped["Show"] = relationship(
-        lazy="joined",
+        lazy="dynamic",
         back_populates="seasons",
         foreign_keys="Season.parent_id",
     )
@@ -1118,6 +1118,11 @@ class Season(MediaItem):
 
     @property
     def log_string(self):
+        session = object_session(self)
+
+        if session and session.is_active:
+            session.refresh(self, ["parent"])
+
         return self.parent.log_string + " S" + str(self.number).zfill(2)
 
     @property
@@ -1222,6 +1227,11 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
+        session = object_session(self)
+
+        if session and session.is_active:
+            session.refresh(self, ["parent"])
+
         return f"{self.parent.log_string}E{self.number:02}"
 
     @property
