@@ -1159,7 +1159,7 @@ class MediaStream:
         from program.services.filesystem.vfs import VFSDatabase
 
         # Query database by original_filename and force unrestrict
-        entry_info = di[VFSDatabase].get_entry_by_original_filename(
+        entry_info = await di[VFSDatabase].get_entry_by_original_filename(
             original_filename=self.file_metadata.original_filename,
             force_resolve=True,
         )

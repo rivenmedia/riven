@@ -1,10 +1,13 @@
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 import linecache
 import os
-import threading
 import time
-from queue import Empty
 from tracemalloc import Snapshot
+
+from kink import di
+import trio
+import trio_util
 
 from program.apis import bootstrap_apis
 from program.managers.event_manager import EventManager
@@ -29,6 +32,7 @@ from program.utils import data_dir_path
 from program.utils.logging import logger
 from program.scheduling import ProgramScheduler
 from program.core.runner import Runner
+from program.utils.nursery import Nursery
 
 from .state_transition import process_event
 from .services.filesystem import FilesystemService
@@ -91,13 +95,11 @@ class Services:
         return getattr(self, key)
 
 
-class Program(threading.Thread):
+class Program:
     """Program class"""
 
     def __init__(self):
-        super().__init__(name="Riven")
-
-        self.initialized = False
+        self.initialized = trio_util.AsyncBool(False)
         self.running = False
         self.services = None
         self.enable_trace = settings_manager.settings.tracemalloc
@@ -114,7 +116,7 @@ class Program(threading.Thread):
     def initialize_apis(self):
         bootstrap_apis()
 
-    def initialize_services(self):
+    async def initialize_services(self):
         """Initialize all services."""
 
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
@@ -135,11 +137,18 @@ class Program(threading.Thread):
             notifications=NotificationService(),
         )
 
+        with trio.move_on_after(5):
+            while True:
+                if all(s.initialized for s in self.services.to_dict().values()):
+                    break
+
+                await trio.sleep(0.5)
+
         if (
             len(
                 [
                     service
-                    for service in self.services.enabled_services
+                    for service in self.services.content_services
                     if service.initialized
                 ]
             )
@@ -194,7 +203,8 @@ class Program(threading.Thread):
             logger.error("Database connection failed. Is the database running?")
             return False
 
-    def start(self):
+    @asynccontextmanager
+    async def start(self):
         """
         Start the Riven program: ensure configuration and database readiness, initialize APIs and services, schedule background jobs, and start the main thread and scheduler.
 
@@ -219,14 +229,16 @@ class Program(threading.Thread):
         if not self.validate_database():
             # TODO: We should really make this configurable via frontend...
             logger.log("PROGRAM", "Database not found, trying to create database")
+
             if not create_database_if_not_exists():
                 logger.error("Failed to create database, exiting")
                 return
+
             logger.success("Database created successfully")
 
         run_migrations()
 
-        self.initialize_services()
+        await self.initialize_services()
 
         with db_session() as session:
             from sqlalchemy import exists
@@ -263,11 +275,15 @@ class Program(threading.Thread):
                 "ITEM", f"Total Items: {total_items} (With filesystem: {total_with_fs})"
             )
 
-        self.scheduler_manager.start()
+        logger.debug("Configuring executors and scheduler")
 
-        super().start()
+        await di[Nursery].nursery.start(self.scheduler_manager.start)
+
         logger.success("Riven is running!")
-        self.initialized = True
+
+        self.initialized.value = True
+
+        yield
 
     def display_top_allocators(
         self,
@@ -318,65 +334,57 @@ class Program(threading.Thread):
             snapshot = tracemalloc.take_snapshot()
             self.display_top_allocators(snapshot)
 
-    def run(self):
-        while self.initialized:
-            if not self.is_valid:
-                time.sleep(1)
-                continue
-
-            try:
-                event = self.em.next()
-
-                if self.enable_trace:
-                    self.dump_tracemalloc()
-            except Empty:
+    async def run(self):
+        async with (receive_channel := self.em.receive_channel):
+            async for event in receive_channel:
                 if self.enable_trace:
                     self.dump_tracemalloc()
 
-                time.sleep(0.1)
-                continue
+                existing_item = (
+                    db_functions.get_item_by_id(event.item_id)
+                    if event.item_id
+                    else None
+                )
 
-            if event.item_id:
-                existing_item = db_functions.get_item_by_id(event.item_id)
-            else:
-                existing_item = None
+                processed_event = process_event(
+                    event.emitted_by,
+                    existing_item,
+                    event.content_item,
+                )
 
-            processed_event = process_event(
-                event.emitted_by,
-                existing_item,
-                event.content_item,
-            )
+                next_service = processed_event.service
+                items_to_submit = processed_event.related_media_items
 
-            next_service = processed_event.service
-            items_to_submit = processed_event.related_media_items
-
-            if items_to_submit:
-                for item_to_submit in items_to_submit:
-                    if not next_service:
-                        self.em.add_event_to_queue(
-                            Event(
-                                emitted_by="StateTransition", item_id=item_to_submit.id
+                if items_to_submit:
+                    for item_to_submit in items_to_submit:
+                        if not next_service:
+                            await self.em.add_event_to_queue(
+                                Event(
+                                    emitted_by="StateTransition",
+                                    item_id=item_to_submit.id,
+                                )
                             )
-                        )
-                    else:
-                        # We are in the database, pass on id.
-                        if item_to_submit.id:
-                            event = Event(next_service, item_id=item_to_submit.id)
-                        # We are not, lets pass the MediaItem
                         else:
-                            event = Event(next_service, content_item=item_to_submit)
+                            if item_to_submit.id:
+                                # We are in the database, pass on id.
+                                event = Event(next_service, item_id=item_to_submit.id)
+                            else:
+                                # We are not, lets pass the MediaItem
+                                event = Event(next_service, content_item=item_to_submit)
 
-                        # Event will be added to running when job actually starts in submit_job
-                        self.em.submit_job(next_service, self, event)
+                            # Event will be added to running when job actually starts in submit_job
+                            await self.em.submit_job(next_service, self, event)
 
-    def stop(self):
-        if not self.initialized:
+    async def stop(self):
+        if not self.initialized.value:
             return
 
-        self.scheduler_manager.stop()
+        logger.debug("Stopping Riven...")
+
+        await self.scheduler_manager.stop()
 
         if self.services:
-            self.services.filesystem.close()
+            await self.services.filesystem.close()
 
         logger.log("PROGRAM", "Riven has been stopped.")
 

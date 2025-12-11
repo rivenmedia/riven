@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from program.media.item import MediaItem
 from program.services.content import (
@@ -18,6 +18,7 @@ from program.services.filesystem import FilesystemService
 from program.media.state import States
 from program.services.indexers import IndexerService
 from program.services.post_processing import PostProcessing
+from program.core.runner import Runner
 
 # Type aliases for various service types
 Scraper = Scraping
@@ -35,13 +36,13 @@ Service = (
 
 @dataclass
 class ProcessedEvent:
-    service: Service | None
+    service: Runner[Any, Any] | None
     related_media_items: Sequence[MediaItem] | None
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Event:
-    emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str
+    emitted_by: Runner | Literal["StateTransition", "RetryLibrary"] | str
     item_id: int | None = None
     content_item: "MediaItem | None" = None
     run_at: datetime = datetime.now()

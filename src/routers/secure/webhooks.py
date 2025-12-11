@@ -89,7 +89,7 @@ async def overseerr(request: Request) -> OverseerrWebhookResponse:
                 message="Failed to create new item",
             )
 
-        di[Program].em.add_item(
+        await di[Program].em.add_item(
             new_item,
             service=Overseerr.__class__.__name__,
         )

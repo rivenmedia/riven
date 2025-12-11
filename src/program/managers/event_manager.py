@@ -1,13 +1,13 @@
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 import json
-import threading
 import traceback
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from queue import Empty
-from threading import Lock
 from typing import TYPE_CHECKING
+from kink import di
+import trio
 
 import sqlalchemy.orm
 from loguru import logger
@@ -17,8 +17,9 @@ from program.db import db_functions
 from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
-from program.types import Event, Service
-from program.media.state import States
+from program.types import Event
+from program.utils.nursery import Nursery
+from program.core.runner import Runner
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -36,19 +37,18 @@ class ServiceExecutor:
     executor: ThreadPoolExecutor
 
 
-@dataclass(frozen=True)
-class FutureWithEvent:
-    future: Future[int | tuple[int, datetime] | None]
-    event: Event | None
-    cancellation_event: threading.Event
-
-
 class EventType(Enum):
     Completed = 0
     PartiallyCompleted = 1
     Symlinked = 2
     Downloaded = 3
     Scraped = 4
+
+
+@dataclass
+class Task:
+    event: Event
+    cancel_scope: trio.CancelScope
 
 
 class EventManager:
@@ -58,44 +58,20 @@ class EventManager:
 
     def __init__(self):
         self._executors = list[ServiceExecutor]()
-        self._futures = list[FutureWithEvent]()
-        self._queued_events = list[Event]()
-        self._running_events = list[Event]()
-        self.mutex = Lock()
-
-    def _find_or_create_executor(self, service_cls: Service) -> ThreadPoolExecutor:
-        """
-        Finds or creates a ThreadPoolExecutor for the given service class.
-
-        Args:
-            service_cls (Service): The service class for which to find or create an executor.
-
-        Returns:
-            concurrent.futures.ThreadPoolExecutor: The executor for the service class.
-        """
-
-        service_name = service_cls.__class__.__name__
-
-        for service_executor in self._executors:
-            if service_executor.service_name == service_name:
-                logger.debug(f"Executor for {service_name} found.")
-
-                return service_executor.executor
-
-        _executor = ThreadPoolExecutor(
-            thread_name_prefix=service_name,
-            max_workers=1,
+        self.tasks = dict[int, Task]()
+        self.send_channel, self.receive_channel = trio.open_memory_channel[Event](
+            max_buffer_size=float("inf")
         )
+        self._queued_events = set[Event]()
+        self._running_events = set[Event]()
+        self.mutex = trio.Lock()
 
-        self._executors.append(
-            ServiceExecutor(service_name=service_name, executor=_executor)
-        )
-
-        logger.debug(f"Created executor for {service_name}")
-
-        return _executor
-
-    def _process_future(self, future_with_event: FutureWithEvent, service: Service):
+    async def _process_future(
+        self,
+        event: Event | None,
+        result: int | tuple[int, datetime],
+        service: Runner,
+    ):
         """
         Processes the result of a future once it is completed.
 
@@ -104,50 +80,28 @@ class EventManager:
             service (type): The service class associated with the future.
         """
 
-        if future_with_event.future.cancelled():
-            if future_with_event.event:
-                logger.debug(
-                    f"Future for {future_with_event.event.log_message} was cancelled."
-                )
-            else:
-                logger.debug(f"Future for {future_with_event} was cancelled.")
-            return  # Skip processing if the future was cancelled
+        item_id = None
 
         try:
-            result = future_with_event.future.result()
-
-            if future_with_event in self._futures:
-                self._futures.remove(future_with_event)
-
-            sse_manager.publish_event(
-                "event_update", json.dumps(self.get_event_updates())
-            )
-
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
                 item_id, timestamp = result, datetime.now()
 
+            sse_manager.publish_event(
+                "event_update", json.dumps(self.get_event_updates())
+            )
+
             if item_id:
-                if future_with_event.event:
-                    self.remove_event_from_running(future_with_event.event)
-
-                    logger.debug(
-                        f"Removed {future_with_event.event.log_message} from running events."
+                await self.add_event(
+                    Event(
+                        emitted_by=service,
+                        item_id=item_id,
+                        run_at=timestamp,
                     )
-
-                if future_with_event.cancellation_event.is_set():
-                    logger.debug(
-                        f"Future with Item ID: {item_id} was cancelled; discarding results..."
-                    )
-
-                    return
-
-                self.add_event(
-                    Event(emitted_by=service, item_id=item_id, run_at=timestamp)
                 )
         except Exception as e:
-            logger.error(f"Error in future for {future_with_event}: {e}")
+            logger.error(f"Error in future for item {item_id}: {e}")
             logger.exception(traceback.format_exc())
 
             # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
@@ -155,12 +109,12 @@ class EventManager:
 
         log_message = f"Service {service.__class__.__name__} executed"
 
-        if future_with_event.event:
-            log_message += f" with {future_with_event.event.log_message}"
+        if event:
+            log_message += f" with {event.log_message}"
 
         logger.debug(log_message)
 
-    def add_event_to_queue(self, event: Event, log_message: bool = True):
+    async def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
         Adds an event to the queue.
 
@@ -168,7 +122,7 @@ class EventManager:
             event (Event): The event to add to the queue.
         """
 
-        with self.mutex:
+        async with self.mutex:
             if event.item_id:
                 with db_session() as session:
                     try:
@@ -202,12 +156,14 @@ class EventManager:
                         if item.last_state:
                             event.item_state = item.last_state
 
-            self._queued_events.append(event)
+            self._queued_events.add(event)
+
+            await self.send_channel.send(event)
 
             if log_message:
                 logger.debug(f"Added {event.log_message} to the queue.")
 
-    def remove_event_from_queue(self, event: Event):
+    async def remove_event_from_queue(self, event: Event):
         """
         Removes an event from the queue.
 
@@ -215,11 +171,12 @@ class EventManager:
             event (Event): The event to remove from the queue.
         """
 
-        with self.mutex:
-            self._queued_events.remove(event)
+        async with self.mutex:
+            # self.queued_events.remove(event)
+
             logger.debug(f"Removed {event.log_message} from the queue.")
 
-    def remove_event_from_running(self, event: Event):
+    async def remove_event_from_running(self, event: Event):
         """
         Removes an event from the running events.
 
@@ -227,12 +184,12 @@ class EventManager:
             event (Event): The event to remove from the running events.
         """
 
-        with self.mutex:
+        async with self.mutex:
             if event in self._running_events:
                 self._running_events.remove(event)
                 logger.debug(f"Removed {event.log_message} from running events.")
 
-    def remove_id_from_queue(self, item_id: int):
+    async def remove_id_from_queue(self, item_id: int):
         """
         Removes an item from the queue.
 
@@ -240,11 +197,13 @@ class EventManager:
             item (MediaItem): The event item to remove from the queue.
         """
 
-        for event in self._queued_events:
-            if event.item_id == item_id:
-                self.remove_event_from_queue(event)
+        pass
 
-    def add_event_to_running(self, event: Event):
+        # for event in self.queued_events:
+        #     if event.item_id == item_id:
+        #         await self.remove_event_from_queue(event)
+
+    async def add_event_to_running(self, event: Event):
         """
         Adds an event to the running events.
 
@@ -252,11 +211,11 @@ class EventManager:
             event (Event): The event to add to the running events.
         """
 
-        with self.mutex:
-            self._running_events.append(event)
+        async with self.mutex:
+            self._running_events.add(event)
             logger.debug(f"Added {event.log_message} to running events.")
 
-    def remove_id_from_running(self, item_id: int):
+    async def remove_id_from_running(self, item_id: int):
         """
         Removes an item from the running events.
 
@@ -266,9 +225,9 @@ class EventManager:
 
         for event in self._running_events:
             if event.item_id == item_id:
-                self.remove_event_from_running(event)
+                await self.remove_event_from_running(event)
 
-    def remove_id_from_queues(self, item_id: int):
+    async def remove_id_from_queues(self, item_id: int):
         """
         Removes an item from both the queue and the running events.
 
@@ -276,12 +235,12 @@ class EventManager:
             item_id: The event item to remove from both the queue and the running events.
         """
 
-        self.remove_id_from_queue(item_id)
-        self.remove_id_from_running(item_id)
+        await self.remove_id_from_queue(item_id)
+        await self.remove_id_from_running(item_id)
 
-    def submit_job(
+    async def submit_job(
         self,
-        service: Service,
+        service: Runner,
         program: "Program",
         event: Event | None = None,
     ) -> None:
@@ -302,41 +261,71 @@ class EventManager:
 
         logger.debug(log_message)
 
-        cancellation_event = threading.Event()
-
-        executor = self._find_or_create_executor(service)
-
         assert program.services
 
-        runner = program.services[service.get_key()]
+        @contextmanager
+        def task_context(scope: trio.CancelScope):
+            task_key = None
 
-        future = executor.submit(
-            db_functions.run_thread_with_db_item,
-            runner.run,
-            service,
-            program,
+            try:
+                if event:
+                    task = Task(event=event, cancel_scope=scope)
+
+                    if task_key := event.content_item and event.content_item.id:
+                        self.tasks[task_key] = task
+                    elif task_key := event.item_id:
+                        self.tasks[task_key] = task
+
+                yield
+            finally:
+                if task_key:
+                    del self.tasks[task_key]
+
+        async def run_task(event: Event | None, service: Runner):
+            with trio.CancelScope() as scope:
+                with task_context(scope):
+                    try:
+                        result = await db_functions.run_thread_with_db_item(
+                            fn=service.run,
+                            service=service,
+                            program=program,
+                            event=event,
+                        )
+
+                        if not result:
+                            logger.warning(f"No result found")
+
+                            return
+
+                        await self._process_future(
+                            event=event,
+                            result=result,
+                            service=service,
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            f"Error executing service {service.__class__.__name__}: {e}"
+                        )
+                        return
+
+            if scope.cancelled_caught:
+                if event:
+                    logger.debug(f"Task {event.item_id} was cancelled.")
+                else:
+                    logger.debug(f"Task was cancelled")
+
+        di[Nursery].nursery.start_soon(
+            run_task,
             event,
-            cancellation_event,
+            service,
         )
-
-        future_with_event = FutureWithEvent(
-            future=future,
-            event=event,
-            cancellation_event=cancellation_event,
-        )
-
-        self._futures.append(future_with_event)
 
         sse_manager.publish_event(
             "event_update",
             json.dumps(self.get_event_updates()),
         )
 
-        future.add_done_callback(
-            lambda f: self._process_future(future_with_event, service),
-        )
-
-    def cancel_job(self, item_id: int, suppress_logs: bool = False):
+    async def cancel_job(self, item_id: int, suppress_logs: bool = False):
         """
         Cancels a job associated with the given item.
 
@@ -349,134 +338,52 @@ class EventManager:
             item_id, related_ids = db_functions.get_item_ids(session, item_id)
             ids_to_cancel = set([item_id] + related_ids)
 
-            future_map = dict[int, list[FutureWithEvent]]()
+            for id in ids_to_cancel:
+                if id in self.tasks:
+                    task = self.tasks[id]
 
-            for future_with_event in self._futures:
-                if future_with_event.event and future_with_event.event.item_id:
-                    future_item_id = future_with_event.event.item_id
-                    future_map.setdefault(future_item_id, []).append(future_with_event)
+                    await self.remove_id_from_queues(id)
 
-            for fid in ids_to_cancel:
-                if fid in future_map:
-                    for future_with_event in future_map[fid]:
-                        self.remove_id_from_queues(fid)
+                    if not task.cancel_scope.cancel_called:
+                        try:
+                            task.cancel_scope.cancel()
 
-                        if (
-                            not future_with_event.future.done()
-                            and not future_with_event.future.cancelled()
-                        ):
-                            try:
-                                future_with_event.cancellation_event.set()
-                                future_with_event.future.cancel()
+                            logger.debug(f"Canceled job for Item ID {id}")
+                        except Exception as e:
+                            if not suppress_logs:
+                                logger.error(
+                                    f"Error cancelling future for {id}: {str(e)}"
+                                )
 
-                                logger.debug(f"Canceled job for Item ID {fid}")
-                            except Exception as e:
-                                if not suppress_logs:
-                                    logger.error(
-                                        f"Error cancelling future for {fid}: {str(e)}"
-                                    )
+                await self.remove_id_from_queues(id)
 
-            for fid in ids_to_cancel:
-                self.remove_id_from_queues(fid)
-
-    def next(self) -> Event:
-        """
-        Get the next event in the queue, prioritizing items closest to completion.
-
-        Priority order (highest to lowest):
-        0. Items in Completed state (closest to completion)
-        1. Items in Symlinked state
-        2. Items in Downloaded state
-        3. Items in Scraped state
-        4. Items in Indexed state
-        5. All other states
-
-        Within each priority level, events are sorted by run_at timestamp.
-
-        Performance: Uses cached item_state from Event object to avoid database queries.
-
-        Raises:
-            Empty: If the queue is empty or no events are ready to run.
-
-        Returns:
-            Event: The next event in the queue.
-        """
-
-        while True:
-            if self._queued_events:
-                with self.mutex:
-                    now = datetime.now()
-
-                    # Filter events that are ready to run (run_at <= now)
-                    ready_events = [
-                        event for event in self._queued_events if event.run_at <= now
-                    ]
-
-                    if not ready_events:
-                        raise Empty
-
-                    # Define state priority (lower number = higher priority)
-                    state_priority = dict[States, int](
-                        {
-                            States.Completed: 0,
-                            States.PartiallyCompleted: 1,
-                            States.Symlinked: 2,
-                            States.Downloaded: 3,
-                            States.Scraped: 4,
-                            States.Indexed: 5,
-                        }
-                    )
-
-                    def get_event_priority(event: Event) -> tuple[int, datetime]:
-                        """
-                        Returns a tuple for sorting: (state_priority, run_at)
-                        Items with higher priority states come first, then sorted by run_at.
-                        Uses cached item_state to avoid database queries.
-                        """
-                        if event.item_state:
-                            priority = state_priority.get(event.item_state, 999)
-                            return (priority, event.run_at)
-
-                        # Default priority for items without state or content-only events
-                        return (0, event.run_at)
-
-                    # Sort by priority (state first, then run_at)
-                    ready_events.sort(key=get_event_priority)
-
-                    # Get the highest priority event
-                    event = ready_events[0]
-                    self._queued_events.remove(event)
-
-                    return event
-            raise Empty
-
-    def _id_in_queue(self, _id: int) -> bool:
+    def _id_in_queue(self, id: int) -> bool:
         """
         Checks if an item with the given ID is in the queue.
 
         Args:
-            _id (int): The ID of the item to check.
+            id (int): The ID of the item to check.
 
         Returns:
             bool: True if the item is in the queue, False otherwise.
         """
 
-        return any(event.item_id == _id for event in self._queued_events)
+        return any(event.item_id == id for event in self._queued_events)
 
-    def _id_in_running_events(self, _id: int) -> bool:
+    def _id_in_running_events(self, id: int) -> bool:
         """
         Checks if an item with the given ID is in the running events.
 
         Args:
-            _id (int): The ID of the item to check.
+            id (int): The ID of the item to check.
 
         Returns:
             bool: True if the item is in the running events, False otherwise.
         """
 
-        return any(event.item_id == _id for event in self._running_events)
+        return any(event.item_id == id for event in self._running_events)
 
-    def add_event(self, event: Event) -> bool:
+    async def add_event(self, event: Event) -> bool:
         """
         Adds an event to the queue if it is not already present in the queue or running events.
 
@@ -535,11 +442,11 @@ class EventManager:
 
                 return False
 
-        self.add_event_to_queue(event)
+        await self.add_event_to_queue(event)
 
         return True
 
-    def add_item(
+    async def add_item(
         self,
         item: MediaItem,
         service: str | None = None,
@@ -557,7 +464,7 @@ class EventManager:
             item.tmdb_id,
             item.imdb_id,
         ):
-            if self.add_event(
+            if await self.add_event(
                 Event(
                     service or "Manual",
                     content_item=item,
@@ -576,7 +483,7 @@ class EventManager:
             dict[str, list[int]]: A dictionary with the event types as keys and a list of item IDs as values.
         """
 
-        events = [future.event for future in self._futures if future.event]
+        events = [task.event for task in self.tasks.values() if task.event]
         event_types = [
             "Scraping",
             "Downloader",
@@ -600,7 +507,7 @@ class EventManager:
 
         return updates
 
-    def item_exists_in_queue(self, item: MediaItem, queue: list[Event]) -> bool:
+    def item_exists_in_queue(self, item: MediaItem, queue: set[Event]) -> bool:
         """
         Check in a single pass whether any of the item's identifying ids (id, tmdb_id,
         tvdb_id, imdb_id) is already represented in the given event queue.

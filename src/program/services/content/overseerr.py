@@ -7,7 +7,7 @@ from program.apis.overseerr_api import OverseerrAPI
 from program.db.db_functions import item_exists_by_any_id
 from program.settings import settings_manager
 from program.settings.models import OverseerrModel
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 from program.media.item import MediaItem
 
 
@@ -50,11 +50,13 @@ class Overseerr(Runner[OverseerrModel]):
         except Exception:
             return False
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """Fetch new media from `Overseerr`"""
 
         if self.settings.use_webhook and self.run_once:
-            return
+            return RunnerResult(
+                media_items=[],
+            )
 
         overseerr_items = self.api.get_media_requests(
             self.key,
@@ -77,4 +79,4 @@ class Overseerr(Runner[OverseerrModel]):
 
         logger.info(f"Fetched {len(overseerr_items)} items from overseerr")
 
-        yield RunnerResult(media_items=overseerr_items)
+        return RunnerResult(media_items=overseerr_items)

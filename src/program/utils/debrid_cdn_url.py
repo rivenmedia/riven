@@ -47,7 +47,7 @@ class DebridCDNUrl:
 
             return cls(entry)
 
-    def validate(
+    async def validate(
         self,
         attempt_refresh: bool = True,
         attempt: int = 1,
@@ -67,7 +67,7 @@ class DebridCDNUrl:
                 # otherwise return as an invalid URL
                 if not self.url:
                     if attempt_refresh:
-                        if url := self._refresh():
+                        if url := await self._refresh():
                             self.url = url
                         else:
                             return None
@@ -94,7 +94,7 @@ class DebridCDNUrl:
                 ):
                     # Only attempt to refresh the URL on the first failure
                     if attempt_refresh:
-                        if url := self._refresh():
+                        if url := await self._refresh():
                             self.url = url
                     else:
                         return None
@@ -108,7 +108,7 @@ class DebridCDNUrl:
                 return None
 
             if attempt <= self.max_validation_attempts:
-                return self.validate(
+                return await self.validate(
                     attempt_refresh=attempt_refresh,
                     attempt=attempt + 1,
                 )
@@ -122,7 +122,7 @@ class DebridCDNUrl:
                 link=self.url or "Unknown URL",
             ) from e
 
-    def _refresh(self) -> str | None:
+    async def _refresh(self) -> str | None:
         """Refresh the CDN URL."""
 
         from program.services.filesystem.vfs.db import VFSDatabase
@@ -130,7 +130,7 @@ class DebridCDNUrl:
         with db_session() as session:
             entry = session.merge(self.entry)
 
-            url = di[VFSDatabase].refresh_unrestricted_url(
+            url = await di[VFSDatabase].refresh_unrestricted_url(
                 entry=entry,
                 session=session,
             )

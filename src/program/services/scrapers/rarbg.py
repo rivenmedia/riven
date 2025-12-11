@@ -73,7 +73,7 @@ class Rarbg(ScraperService[RarbgConfig]):
             return False
         return True
 
-    def run(self, item: MediaItem) -> dict[str, str]:
+    async def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape TheRARBG with the given media item for streams"""
 
         try:
@@ -85,6 +85,7 @@ class Rarbg(ScraperService[RarbgConfig]):
                 )
             else:
                 logger.exception(f"TheRARBG exception thrown: {str(e)}")
+
         return {}
 
     def scrape(self, item: MediaItem) -> dict[str, str]:

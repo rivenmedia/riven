@@ -67,7 +67,7 @@ class MediaAnalysisService(AnalysisService):
 
         return True
 
-    def run(self, item: MediaItem) -> bool:
+    async def run(self, item: MediaItem) -> bool:
         """
         Analyze media file and store metadata.
 
