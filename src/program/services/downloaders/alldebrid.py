@@ -279,6 +279,7 @@ class AllDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -365,6 +366,7 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).

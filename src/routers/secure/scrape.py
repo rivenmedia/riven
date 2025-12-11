@@ -33,6 +33,7 @@ from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
 from program.media.models import ActiveStream
+from program.media.state import States
 from ..models.shared import MessageResponse
 
 
@@ -44,7 +45,8 @@ class Stream(BaseModel):
     parsed_data: Any
     rank: int
     lev_ratio: float
-    resolution: str
+    is_cached: bool = False
+    resolution: str | None = None
 
 
 class ScrapeItemResponse(MessageResponse):
@@ -118,6 +120,7 @@ class ScrapingSession:
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
         magnet: str | None = None,
+        service: str | None = None,
     ):
         self.id = id
         self.item_id = item_id
@@ -126,6 +129,7 @@ class ScrapingSession:
         self.tmdb_id = tmdb_id
         self.tvdb_id = tvdb_id
         self.magnet = magnet
+        self.service = service
         self.torrent_id: int | str | None = None
         self.torrent_info: TorrentInfo | None = None
         self.containers: TorrentContainer | None = None
@@ -151,6 +155,7 @@ class ScrapingSessionManager:
         imdb_id: str | None = None,
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
+        service: str | None = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
@@ -162,6 +167,7 @@ class ScrapingSessionManager:
             tmdb_id,
             tvdb_id,
             magnet,
+            service,
         )
         self.sessions[session_id] = session
         return session
@@ -327,7 +333,7 @@ def scrape_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        streams = scraper.scrape(item)
+        streams = scraper.scrape(item, manual=True)
         log_string = item.log_string
 
         return ScrapeItemResponse(
@@ -340,6 +346,7 @@ def scrape_item(
                     parsed_data=stream.parsed_data,
                     rank=stream.rank,
                     lev_ratio=stream.lev_ratio,
+                    resolution=stream.resolution,
                 )
                 for stream in streams.values()
             },
@@ -398,88 +405,86 @@ async def start_manual_session(
     item = None
     indexer_result = None
 
-    if item_id:
-        item = db_functions.get_item_by_id(int(item_id))
-    else:
-        try:
-            item = db_functions.get_item_by_external_id(
-                tmdb_id=tmdb_id,
-                tvdb_id=tvdb_id,
-                imdb_id=imdb_id
-            )
-        except ValueError:
-            pass
-
-    # 2. If not found, create/fetch it using indexer
-    if not item:
-        if tmdb_id and media_type == "movie":
-            prepared_item = MediaItem(
-                {
-                    "tmdb_id": tmdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-            result = next(indexer.run(prepared_item), None)
-            if result and result.media_items:
-                item = result.media_items[0]
-        elif tvdb_id and media_type == "tv":
-            prepared_item = MediaItem(
-                {
-                    "tvdb_id": tvdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-            result = next(indexer.run(prepared_item), None)
-            if result and result.media_items:
-                item = result.media_items[0]
-        elif imdb_id:
-            prepared_item = MediaItem(
-                {
-                    "imdb_id": imdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-            result = next(indexer.run(prepared_item), None)
-            if result and result.media_items:
-                item = result.media_items[0]
+    with db_session() as session:
+        if item_id:
+            item = db_functions.get_item_by_id(int(item_id), session=session)
         else:
-            raise HTTPException(status_code=400, detail="No valid ID provided")
-        item = db_functions.get_item_by_id(item_id)
-    elif tmdb_id and media_type == "movie":
-        prepared_item = MediaItem(
-            {
-                "tmdb_id": tmdb_id,
-                "requested_by": "riven",
-                "requested_at": datetime.now(),
-            }
-        )
-        indexer_result = next(indexer.run(prepared_item), None)
-    elif tvdb_id and media_type == "tv":
-        prepared_item = MediaItem(
-            {
-                "tvdb_id": tvdb_id,
-                "requested_by": "riven",
-                "requested_at": datetime.now(),
-            }
-        )
-        indexer_result = next(indexer.run(prepared_item), None)
-    elif imdb_id:
-        prepared_item = MediaItem(
-            {
-                "imdb_id": imdb_id,
-                "requested_by": "riven",
-                "requested_at": datetime.now(),
-            }
-        )
-        indexer_result = next(indexer.run(prepared_item), None)
-    else:
-        raise HTTPException(status_code=400, detail="No valid ID provided")
+            try:
+                item = db_functions.get_item_by_external_id(
+                    tmdb_id=tmdb_id,
+                    tvdb_id=tvdb_id,
+                    imdb_id=imdb_id,
+                    session=session
+                )
+            except ValueError:
+                pass
 
-    if indexer_result:
-        item = indexer_result.media_items[0]
+        # 2. If not found, create/fetch it using indexer
+        if not item:
+            if tmdb_id and media_type == "movie":
+                prepared_item = MediaItem(
+                    {
+                        "tmdb_id": tmdb_id,
+                        "requested_by": "riven",
+                        "requested_at": datetime.now(),
+                    }
+                )
+                result = next(indexer.run(prepared_item), None)
+                if result and result.media_items:
+                    item = result.media_items[0]
+            elif tvdb_id and media_type == "tv":
+                prepared_item = MediaItem(
+                    {
+                        "tvdb_id": tvdb_id,
+                        "requested_by": "riven",
+                        "requested_at": datetime.now(),
+                    }
+                )
+                result = next(indexer.run(prepared_item), None)
+                if result and result.media_items:
+                    item = result.media_items[0]
+            elif imdb_id:
+                prepared_item = MediaItem(
+                    {
+                        "imdb_id": imdb_id,
+                        "requested_by": "riven",
+                        "requested_at": datetime.now(),
+                    }
+                )
+                result = next(indexer.run(prepared_item), None)
+                if result and result.media_items:
+                    item = result.media_items[0]
+            else:
+                raise HTTPException(status_code=400, detail="No valid ID provided")
+        
+            if item:
+                # Check directly if item exists in DB by external IDs to avoid unique constraint error
+                # This handles checking if the indexer returned an item that actually IS in the DB but wasn't found by the initial specific ID lookup
+                 # (e.g. we looked up by TMDB but indexer returned item with TMDB+IMDB and we only searched TMDB)
+                 # Re-using db_functions logic for this would be cleaner but let's just use merge.
+                 # Merge handles "if exists, update; if not, insert" based on Primary Key. 
+                 # BUT we don't have PK (id) yet for new items. We have unique external IDs.
+                 # SQLAlchemy merge needs PK.
+                 
+                 # We must check existence by external IDs first.
+                 existing = None
+                 try:
+                     existing = db_functions.get_item_by_external_id(
+                         tmdb_id=item.tmdb_id,
+                         tvdb_id=item.tvdb_id,
+                         imdb_id=item.imdb_id,
+                         session=session
+                     )
+                 except ValueError:
+                     pass
+                 
+                 if existing:
+                     item = existing
+                 else:
+                     item = session.merge(item)
+                     session.commit()
+                     session.refresh(item)
+
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -490,10 +495,6 @@ async def start_manual_session(
     container = downloader.get_instant_availability(
         info_hash, item.type, limit_filesize=not disable_filesize_check
     )
-    if item.type == "mediaitem":
-        raise HTTPException(status_code=500, detail="Incorrect item type found")
-
-    container = downloader.get_instant_availability(info_hash, item.type)
 
     if not container or not container.cached:
         raise HTTPException(
@@ -507,7 +508,7 @@ async def start_manual_session(
         imdb_id=imdb_id,
         tmdb_id=tmdb_id,
         tvdb_id=tvdb_id,
-        service=container.service,
+        service=downloader.service.key,
     )
 
     logger.debug(f"Created session {session.id} with item ID: {session.item_id}")
@@ -641,228 +642,251 @@ async def manual_update_attributes(
     with db_session() as session:
         if scraping_session.media_type == "tv" and scraping_session.tvdb_id:
             item = db_functions.get_item_by_external_id(
-                tvdb_id=str(scraping_session.tvdb_id)
+                tvdb_id=str(scraping_session.tvdb_id),
+                session=session
             )
         elif scraping_session.media_type == "movie" and scraping_session.tmdb_id:
             item = db_functions.get_item_by_external_id(
-                tmdb_id=str(scraping_session.tmdb_id)
+                tmdb_id=str(scraping_session.tmdb_id),
+                session=session
             )
         elif scraping_session.imdb_id:
             item = db_functions.get_item_by_external_id(
-                imdb_id=scraping_session.imdb_id
+                imdb_id=scraping_session.imdb_id,
+                session=session
             )
 
-    if not item:
-        # Try to find by any external ID
-        try:
-            item = db_functions.get_item_by_external_id(
-                tmdb_id=str(scraping_session.tmdb_id) if scraping_session.tmdb_id else None,
-                tvdb_id=str(scraping_session.tvdb_id) if scraping_session.tvdb_id else None,
-                imdb_id=scraping_session.imdb_id
-            )
-        except ValueError:
-            pass
-
-    if not item:
-        item_data = {
-            k: v for k, v in {
-                "imdb_id": scraping_session.imdb_id,
-                "tmdb_id": scraping_session.tmdb_id,
-                "tvdb_id": scraping_session.tvdb_id,
-                "requested_by": "riven",
-                "requested_at": datetime.now(),
-            }.items() if v
-        }
         if not item:
-            item_data = dict[str, Any]()
+            # Try to find by any external ID
+            try:
+                item = db_functions.get_item_by_external_id(
+                    tmdb_id=str(scraping_session.tmdb_id) if scraping_session.tmdb_id else None,
+                    tvdb_id=str(scraping_session.tvdb_id) if scraping_session.tvdb_id else None,
+                    imdb_id=scraping_session.imdb_id,
+                    session=session
+                )
+            except ValueError:
+                pass
 
-            if scraping_session.imdb_id:
-                item_data["imdb_id"] = scraping_session.imdb_id
-
-            if scraping_session.tmdb_id:
-                item_data["tmdb_id"] = scraping_session.tmdb_id
-
-            if scraping_session.tvdb_id:
-                item_data["tvdb_id"] = scraping_session.tvdb_id
-
-        if item_data:
-            result = next(IndexerService().run(MediaItem(item_data)), None)
-            if result and result.media_items:
-                indexed = result.media_items[0]
-                # Check if the indexed item actually exists (e.g. via a newly discovered ID)
-                try:
-                    if existing := db_functions.get_item_by_external_id(
-                        tmdb_id=str(indexed.tmdb_id) if indexed.tmdb_id else None,
-                        tvdb_id=str(indexed.tvdb_id) if indexed.tvdb_id else None,
-                        imdb_id=str(indexed.imdb_id) if indexed.imdb_id else None,
-                        session=session
-                    ):
-                        indexed.id = existing.id
-                except ValueError:
-                    pass
-                
-                item = session.merge(indexed)
-                session.commit()
-            if item_data:
-                item_data["requested_by"] = "riven"
-                item_data["requested_at"] = datetime.now()
-                prepared_item = MediaItem(item_data)
-
-                indexer_result = next(IndexerService().run(prepared_item), None)
-
-                if indexer_result:
-                    item = indexer_result.media_items[0]
-                    session.merge(item)
-                    session.commit()
-
+        if not item:
+            item_data = {
+                k: v for k, v in {
+                    "imdb_id": scraping_session.imdb_id,
+                    "tmdb_id": scraping_session.tmdb_id,
+                    "tvdb_id": scraping_session.tvdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                }.items() if v
+            }
             if not item:
-                raise HTTPException(status_code=404, detail="Item not found")
+                item_data = dict[str, Any]()
 
-            item = session.merge(item)
-            item_ids_to_submit = set[int]()
+                if scraping_session.imdb_id:
+                    item_data["imdb_id"] = scraping_session.imdb_id
 
-            def update_item(item: MediaItem, data: DebridFile):
-                """
-                Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
+                if scraping_session.tmdb_id:
+                    item_data["tmdb_id"] = scraping_session.tmdb_id
 
-                Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
+                if scraping_session.tvdb_id:
+                    item_data["tvdb_id"] = scraping_session.tvdb_id
 
-                Parameters:
-                    item (MediaItem): The media item to update; will be merged into the active DB session as needed.
-                    data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
-                """
-
-                di[Program].em.cancel_job(item.id)
-
-                if item.last_state == States.Paused:
-                    item.last_state = States.Unknown
-
-                item.reset()
-
-                # Ensure a staging MediaEntry exists and is linked
-                from program.media.media_entry import MediaEntry
-
-                fs_entry = None
-
-                if item.media_entry and data.filename:
-                    fs_entry = item.media_entry
-                    # Update source metadata on existing entry
-                    fs_entry.original_filename = data.filename
-                else:
-                    service_instance = None
-                    if services := di[Program].services:
-                        downloader = services.downloader
-                        service_instance = downloader.get_service(scraping_session.service) if scraping_session.service else None
-
-                    # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                    provider = service_instance.key if service_instance else None
-
-                    # Get torrent ID from scraping session
-                    torrent_id = (
-                        scraping_session.torrent_info.id if scraping_session.torrent_info else None
-                    )
+            if item_data:
+                result = next(IndexerService().run(MediaItem(item_data)), None)
+                if result and result.media_items:
+                    indexed = result.media_items[0]
+                    # Check if the indexed item actually exists (e.g. via a newly discovered ID)
+                    try:
+                        if existing := db_functions.get_item_by_external_id(
+                            tmdb_id=str(indexed.tmdb_id) if indexed.tmdb_id else None,
+                            tvdb_id=str(indexed.tvdb_id) if indexed.tvdb_id else None,
+                            imdb_id=str(indexed.imdb_id) if indexed.imdb_id else None,
+                            session=session
+                        ):
+                            indexed.id = existing.id
+                    except ValueError:
+                        pass
                     
-                    download_url = data.download_url
-                    
-                    # If download_url is missing, try to refresh torrent info to get it
-                    if not download_url and torrent_id and service_instance:
-                        try:
-                            logger.debug(f"Refreshing torrent info for {torrent_id} to resolve download_url")
-                            fresh_info = service_instance.get_torrent_info(torrent_id)
-                            
-                            # Find matching file
-                            for file in fresh_info.files.values():
-                                if file.filename == data.filename:
-                                    if file.download_url:
-                                        download_url = file.download_url
-                                        logger.debug(f"Resolved download_url for {data.filename}: {download_url}")
-                                    break
-                        except Exception as e:
-                            logger.warning(f"Failed to refresh torrent info: {e}")
-
-                    # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                    fs_entry = MediaEntry.create_placeholder_entry(
-                        original_filename=data.filename,
-                        download_url=download_url,
-                        provider=provider,
-                        provider_download_id=str(torrent_id) if torrent_id else None,
-                        file_size=data.filesize,
-                    )
-
-                    session.add(fs_entry)
+                    item = session.merge(indexed)
                     session.commit()
-                    session.refresh(fs_entry)
+                if item_data:
+                    item_data["requested_by"] = "riven"
+                    item_data["requested_at"] = datetime.now()
+                    prepared_item = MediaItem(item_data)
 
-                # Link MediaItem to FilesystemEntry
-                # Clear existing entries and add the new one
-                item.filesystem_entries.clear()
-                item.filesystem_entries.append(fs_entry)
+                    indexer_result = next(IndexerService().run(prepared_item), None)
+
+                    if indexer_result:
+                        item = indexer_result.media_items[0]
+                        session.merge(item)
+                        session.commit()
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        item = session.merge(item)
+        item_ids_to_submit = set[int]()
+        updated_episode_ids = set[int]()
+
+        def update_item(item: MediaItem, data: DebridFile):
+            """
+            Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
+
+            Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
+
+            Parameters:
+                item (MediaItem): The media item to update; will be merged into the active DB session as needed.
+                data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
+            """
+
+            di[Program].em.cancel_job(item.id)
+
+            if item.last_state == States.Paused:
+                item.last_state = States.Unknown
+
+            item.reset()
+
+            # Ensure a staging MediaEntry exists and is linked
+            from program.media.media_entry import MediaEntry
+
+            fs_entry = None
+
+            if item.media_entry and data.filename:
+                fs_entry = item.media_entry
+                # Update source metadata on existing entry
+                fs_entry.original_filename = data.filename
+            else:
+                service_instance = None
+                if services := di[Program].services:
+                    downloader = services.downloader
+                    service_instance = downloader.get_service(scraping_session.service) if scraping_session.service else None
+
+                # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+                provider = service_instance.key if service_instance else None
+
+                # Get torrent ID from scraping session
+                torrent_id = (
+                    scraping_session.torrent_info.id if scraping_session.torrent_info else None
+                )
+                
+                download_url = data.download_url
+                
+                # If download_url is missing, try to refresh torrent info to get it
+                if not download_url and torrent_id and service_instance:
+                    try:
+                        logger.debug(f"Refreshing torrent info for {torrent_id} to resolve download_url")
+                        fresh_info = service_instance.get_torrent_info(torrent_id)
+                        
+                        # Find matching file
+                        for file in fresh_info.files.values():
+                            if file.filename == data.filename:
+                                if file.download_url:
+                                    download_url = file.download_url
+                                    logger.debug(f"Resolved download_url for {data.filename}: {download_url}")
+                                break
+                    except Exception as e:
+                        logger.warning(f"Failed to refresh torrent info: {e}")
+
+                # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+                fs_entry = MediaEntry.create_placeholder_entry(
+                    original_filename=data.filename,
+                    download_url=download_url,
+                    provider=provider,
+                    provider_download_id=str(torrent_id) if torrent_id else None,
+                    file_size=data.filesize,
+                )
+
+                session.add(fs_entry)
+                session.commit()
+                session.refresh(fs_entry)
+
+            # Link MediaItem to FilesystemEntry
+            # Clear existing entries and add the new one
+            item.filesystem_entries.clear()
+            item.filesystem_entries.append(fs_entry)
+            item = session.merge(item)
+
+            assert scraping_session
+            assert scraping_session.magnet
+            assert scraping_session.torrent_info
+
+            item.active_stream = ActiveStream(
+                infohash=scraping_session.magnet,
+                id=scraping_session.torrent_info.id,
+            )
+
+            torrent = rtn.rank(
+                scraping_session.torrent_info.name,
+                scraping_session.magnet,
+            )
+
+            # Ensure the item is properly attached to the session before adding streams
+            # This prevents SQLAlchemy warnings about detached objects
+            if object_session(item) is not session:
                 item = session.merge(item)
 
-                assert scraping_session
-                assert scraping_session.magnet
-                assert scraping_session.torrent_info
+            item.streams.append(ItemStream(torrent=torrent))
+            item_ids_to_submit.add(item.id)
 
-                item.active_stream = ActiveStream(
-                    infohash=scraping_session.magnet,
-                    id=scraping_session.torrent_info.id,
-                )
+            if isinstance(item, Episode):
+                updated_episode_ids.add(item.id)
 
-                torrent = rtn.rank(
-                    scraping_session.torrent_info.name,
-                    scraping_session.magnet,
-                )
-
-                # Ensure the item is properly attached to the session before adding streams
-                # This prevents SQLAlchemy warnings about detached objects
-                if object_session(item) is not session:
-                    item = session.merge(item)
-
-                item.streams.append(ItemStream(torrent=torrent))
-                item_ids_to_submit.add(item.id)
-
-            if isinstance(data, DebridFile):
-                update_item(item, data)
-            else:
-                for season_number, episodes in data.root.items():
-                    for episode_number, episode_data in episodes.items():
-                        if isinstance(item, Show):
-                            if episode := item.get_absolute_episode(
-                                episode_number, season_number
-                            ):
-                                update_item(episode, episode_data)
-                            else:
-                                logger.error(
-                                    f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
-                                )
-
-                                continue
-                        elif isinstance(item, Season):
-                            if episode := item.parent.get_absolute_episode(
-                                episode_number, season_number
-                            ):
-                                update_item(episode, episode_data)
-                            else:
-                                logger.error(
-                                    f"Failed to find season {season_number} for {item.log_string}"
-                                )
-
-                                continue
-                        elif isinstance(item, Episode):
-                            if (
-                                season_number != item.parent.number
-                                and episode_number != item.number
-                            ):
-                                continue
-
-                            update_item(item, episode_data)
-
-                            break
+        if isinstance(data, DebridFile):
+            update_item(item, data)
+        else:
+            for season_number, episodes in data.root.items():
+                for episode_number, episode_data in episodes.items():
+                    if isinstance(item, Show):
+                        if episode := item.get_absolute_episode(
+                            episode_number, season_number
+                        ):
+                            update_item(episode, episode_data)
                         else:
                             logger.error(
-                                f"Failed to find item type for {item.log_string}"
+                                f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
                             )
+
                             continue
+
+            # If this is a show, we want to set any episodes that were NOT updated to Paused
+            # This prevents them from being auto-scraped if the user only wanted to scrape specific episodes
+            if isinstance(item, Show):
+                for season in item.seasons:
+                    for episode in season.episodes:
+                        if episode.id not in updated_episode_ids:
+                            # Only pause if it's not already completed/downloaded/etc
+                            if episode.state in [States.Unknown, States.Indexed, States.Scraped, States.Requested]:
+                                episode.store_state(States.Paused)
+                                session.merge(episode)
+                session.commit()
+
+            for season_number, episodes in data.root.items():
+                for episode_number, episode_data in episodes.items():
+                    if isinstance(item, Season):
+                        if episode := item.parent.get_absolute_episode(
+                            episode_number, season_number
+                        ):
+                            update_item(episode, episode_data)
+                        else:
+                            logger.error(
+                                f"Failed to find season {season_number} for {item.log_string}"
+                            )
+
+                            continue
+                    elif isinstance(item, Episode):
+                        if (
+                            season_number != item.parent.number
+                            and episode_number != item.number
+                        ):
+                            continue
+
+                        update_item(item, episode_data)
+
+                        break
+                    else:
+                        logger.error(
+                            f"Failed to find item type for {item.log_string}"
+                        )
+                        continue
 
         # Set unselected episodes to paused
         if isinstance(item, Show):
@@ -1179,7 +1203,7 @@ async def auto_scrape_item(
             raise HTTPException(status_code=404, detail="Item not found")
 
         # Scrape with overrides
-        streams = scraper.scrape(item, ranking_overrides=body.model_dump(exclude_unset=True))
+        streams = scraper.scrape(item, ranking_overrides=body.model_dump(exclude_unset=True), manual=True)
         
         # Filter out existing or blacklisted streams
         new_streams = [

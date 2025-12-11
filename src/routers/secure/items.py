@@ -223,6 +223,10 @@ async def get_items(
         bool,
         Query(description="Include extended item details"),
     ] = False,
+    count_only: Annotated[
+        bool,
+        Query(description="Only return the count of items"),
+    ] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
 
