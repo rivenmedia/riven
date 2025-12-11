@@ -128,8 +128,10 @@ class DebridCDNUrl:
         from program.services.filesystem.vfs.db import VFSDatabase
 
         with db_session() as session:
+            entry = session.merge(self.entry)
+
             url = di[VFSDatabase].refresh_unrestricted_url(
-                entry=self.entry,
+                entry=entry,
                 session=session,
             )
 
