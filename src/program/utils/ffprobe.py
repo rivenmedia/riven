@@ -76,7 +76,7 @@ class FFProbeResponse(BaseModel):
 
     class TagsMixin(BaseModel):
         class Tags(BaseModel):
-            language: str
+            language: str | None = None
 
         tags: Tags
 
@@ -89,7 +89,10 @@ class FFProbeResponse(BaseModel):
         def fps(self) -> float:
             """Calculate frames per second from `r_frame_rate`"""
 
-            return float(Fraction(self.r_frame_rate))
+            try:
+                return float(Fraction(self.r_frame_rate))
+            except (ZeroDivisionError, ValueError):
+                return 0.0
 
     class DataStream(BaseStream, TagsMixin):
         codec_type: Literal["data"]
@@ -223,7 +226,7 @@ def parse_media_url(url: str) -> FFProbeMediaMetadata | None:
         for stream in probe_data.streams:
             match stream:
                 case FFProbeResponse.VideoStream():
-                    if not metadata.video:
+                    if not metadata.video.codec:
                         # Apparently there's multiple video codecs..
                         # the first one should always be correct though.
                         metadata.video = FFProbeVideoTrack(

@@ -114,13 +114,13 @@ class DebridCDNUrl:
                 )
 
             return None
-        except RefreshedURLIdenticalException:
+        except RefreshedURLIdenticalException as e:
             # If the URL hasn't changed after refreshing, it is likely dead.
             # Raise an exception to indicate the link is unavailable to trigger a re-scrape.
             raise DebridServiceLinkUnavailable(
                 provider=self.provider,
                 link=self.url or "Unknown URL",
-            )
+            ) from e
 
     def _refresh(self) -> str | None:
         """Refresh the CDN URL."""
