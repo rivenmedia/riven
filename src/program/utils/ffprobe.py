@@ -114,7 +114,7 @@ class FFProbeResponse(BaseModel):
         size: int
         bit_rate: int
 
-    streams: list[VideoStream | AudioStream | SubtitleStream]
+    streams: list[VideoStream | AudioStream | SubtitleStream | DataStream]
     format: Format
 
 
