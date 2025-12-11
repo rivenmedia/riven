@@ -1727,6 +1727,11 @@ class RivenVFS(pyfuse3.Operations):
                 inode = new_nodes[0].inode
 
                 return await self.open(inode, flags, ctx)
+            except Exception as e:
+                logger.error(f"Unexpected error whilst validating CDN URL: {e}")
+
+                raise pyfuse3.FUSEError(errno.EIO)
+                
 
             logger.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
