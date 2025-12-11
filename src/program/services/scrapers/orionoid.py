@@ -16,6 +16,7 @@ class OrionoidErrorResponse(BaseModel):
     class Result(BaseModel):
         status: str
         message: str
+        type: str
 
     result: Result
 
@@ -285,19 +286,15 @@ class Orionoid(ScraperService[OrionoidConfig]):
             timeout=self.timeout,
         )
 
-        if not response.ok:
-            logger.error(
-                f"Orionoid scrape failed for {item.log_string}: {response.text}"
-            )
-
-            return {}
-
         try:
-            OrionoidErrorResponse.model_validate(response.json())
+            error = OrionoidErrorResponse.model_validate(response.json())
 
-            logger.error(
-                f"Orionoid scrape failed for {item.log_string}: {response.text}"
-            )
+            if error.result.type == "streammissing":
+                logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
+            else:
+                logger.error(
+                    f"Orionoid scrape failed for {item.log_string}: {response.text}"
+                )
 
             return {}
         except ValidationError:

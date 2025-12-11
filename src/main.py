@@ -10,10 +10,10 @@ from kink import di
 import uvicorn
 from dotenv import load_dotenv
 
+load_dotenv()  # import required here to support SETTINGS_FILENAME
+
 from program.utils.proxy_client import ProxyClient
 from program.utils.async_client import AsyncClient
-
-load_dotenv()  # import required here to support SETTINGS_FILENAME
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware

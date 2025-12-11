@@ -1,35 +1,58 @@
+from typing import Self
 import httpx
 from loguru import logger
 
 from http import HTTPStatus
 from kink import di
 
-from program.services.filesystem.vfs.db import VFSDatabase
 from program.settings import settings_manager
 from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
+from program.services.streaming.exceptions import (
+    DebridServiceLinkUnavailable,
+)
+from program.media.media_entry import MediaEntry
+from program.db.db import db_session
+
+
+class RefreshedURLIdenticalException(Exception):
+    """Exception raised when a refreshed URL is identical to the previous URL."""
+
+    pass
 
 
 class DebridCDNUrl:
     """DebridCDNUrl class"""
 
-    def __init__(self, filename: str) -> None:
-        self.filename = filename
+    def __init__(self, entry: MediaEntry) -> None:
+        self.filename = entry.original_filename
+        self.entry = entry
 
-        entry_info = di[VFSDatabase].get_entry_by_original_filename(
-            original_filename=self.filename,
-        )
+        self.max_validation_attempts = 3
+        self.url = entry.unrestricted_url
+        self.provider = entry.provider or "Unknown provider"
 
-        if not entry_info:
-            raise ValueError("Could not find entry info for CDN URL validation")
+    @classmethod
+    def from_filename(cls, filename: str) -> Self:
+        """Create DebridCDNUrl from filename."""
 
-        if not entry_info.url:
-            raise ValueError("Could not find URL in entry info for CDN URL validation")
+        with db_session() as session:
+            entry = (
+                session.query(MediaEntry)
+                .filter(MediaEntry.original_filename == filename)
+                .first()
+            )
 
-        self.url = entry_info.url
-        self.provider = entry_info.provider
+            if not entry:
+                raise ValueError("Could not find entry info for CDN URL validation")
 
-    def validate(self) -> str | None:
-        """Get a validated CDN URL, refreshing if necessary."""
+            return cls(entry)
+
+    def validate(
+        self,
+        attempt_refresh: bool = True,
+        attempt: int = 1,
+    ) -> str | None:
+        """Get a validated CDN URL, refreshing if requested."""
 
         try:
             # Assert URL availability by opening a stream, using a proxy if needed
@@ -39,47 +62,87 @@ class DebridCDNUrl:
                 or None
             )
 
-            with httpx.Client(proxy=proxy) as client:
-                with client.stream(method="GET", url=self.url) as response:
-                    response.raise_for_status()
+            try:
+                # If no URL is set, attempt to refresh it first if requested,
+                # otherwise return as an invalid URL
+                if not self.url:
+                    if attempt_refresh:
+                        if url := self._refresh():
+                            self.url = url
+                        else:
+                            return None
+                    else:
+                        return None
 
-                    return self.url
-        except httpx.TimeoutException as e:
-            logger.error(f"Timeout while validating CDN URL {self.url}: {e}")
+                with httpx.Client(proxy=proxy) as client:
+                    with client.stream(method="GET", url=self.url) as response:
+                        response.raise_for_status()
+
+                        return self.url
+            except httpx.TimeoutException as e:
+                logger.error(f"Timeout while validating CDN URL {self.url}: {e}")
+            except httpx.ConnectError as e:
+                logger.error(
+                    f"Connection error while validating CDN URL {self.url}: {e}"
+                )
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+
+                if (
+                    status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE)
+                    and attempt == 1
+                ):
+                    # Only attempt to refresh the URL on the first failure
+                    if attempt_refresh:
+                        if url := self._refresh():
+                            self.url = url
+                    else:
+                        return None
+            except RefreshedURLIdenticalException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error while validating CDN URL {self.url}: {e}"
+                )
+
+                return None
+
+            if attempt <= self.max_validation_attempts:
+                return self.validate(
+                    attempt_refresh=attempt_refresh,
+                    attempt=attempt + 1,
+                )
 
             return None
-        except httpx.ConnectError as e:
-            logger.error(f"Connection error while validating CDN URL {self.url}: {e}")
+        except RefreshedURLIdenticalException as e:
+            # If the URL hasn't changed after refreshing, it is likely dead.
+            # Raise an exception to indicate the link is unavailable to trigger a re-scrape.
+            raise DebridServiceLinkUnavailable(
+                provider=self.provider,
+                link=self.url or "Unknown URL",
+            ) from e
 
-            return None
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-
-            if status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
-                self._refresh()
-
-                logger.debug(f"Refreshed CDN URL for {self.filename}")
-
-                return self.validate()
-
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error while validating CDN URL {self.url}: {e}")
-
-            return None
-
-    def _refresh(self) -> None:
+    def _refresh(self) -> str | None:
         """Refresh the CDN URL."""
 
-        entry = di[VFSDatabase].get_entry_by_original_filename(
-            original_filename=self.filename,
-            force_resolve=True,
-        )
+        from program.services.filesystem.vfs.db import VFSDatabase
 
-        if not entry:
-            raise ValueError("Could not refresh CDN URL; entry not found")
+        with db_session() as session:
+            entry = session.merge(self.entry)
 
-        if not (url := entry.url):
-            raise ValueError("Could not refresh CDN URL; no URL found in entry")
+            url = di[VFSDatabase].refresh_unrestricted_url(
+                entry=entry,
+                session=session,
+            )
 
-        self.url = url
+            if not url:
+                logger.error("Could not refresh CDN URL; no URL returned from refresh")
+
+                return None
+
+            if url == self.url:
+                raise RefreshedURLIdenticalException()
+
+            self.url = url
+
+            return self.url

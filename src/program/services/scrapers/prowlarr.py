@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta
 
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from requests import ReadTimeout, RequestException
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -60,13 +60,15 @@ class Indexer(BaseModel):
 
 
 class Params(BaseModel):
-    query: str | None
-    type: str | None
-    indexer_ids: int | None = Field(alias="indexerIds")
-    categories: list[int] | None
-    limit: int | None
-    season: int | None
-    ep: int | None
+    model_config = ConfigDict(serialize_by_alias=True)
+
+    query: str | None = None
+    type: str | None = None
+    indexer_ids: int | None = Field(serialization_alias="indexerIds", default=None)
+    categories: list[int]
+    limit: int | None = None
+    season: int | None = None
+    ep: int | None = None
 
 
 class ScrapeResponse(BaseModel):
@@ -74,7 +76,7 @@ class ScrapeResponse(BaseModel):
 
 
 class ScrapeErrorResponse(BaseModel):
-    message: str | None
+    message: str | None = None
 
 
 ANIME_ONLY_INDEXERS = ("Nyaa.si", "SubsPlease", "Anidub", "Anidex")
@@ -361,15 +363,20 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
     def build_search_params(self, indexer: Indexer, item: MediaItem) -> Params:
         """Build a search query for a single indexer."""
 
-        params = {}
+        search_query = None
+        search_type = None
+        season = None
+        episode = None
 
         item_title = item.top_title
 
         search_params = indexer.capabilities.search_params
 
-        def set_query_and_type(query: str, search_type: str):
-            params["query"] = query
-            params["type"] = search_type
+        def set_query_and_type(_query: str, _type: str):
+            nonlocal search_query, search_type
+
+            search_query = _query
+            search_type = _type
 
         if isinstance(item, Movie):
             if "imdbId" in search_params.movie and item.imdb_id:
@@ -396,10 +403,12 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         elif isinstance(item, Season):
             if "q" in search_params.tv:
                 set_query_and_type(f"{item_title} S{item.number}", "tv-search")
+
                 if "season" in search_params.tv:
-                    params["season"] = item.number
+                    season = item.number
             elif "q" in search_params.search:
                 query = f"{item_title} S{item.number}"
+
                 set_query_and_type(query, "search")
             else:
                 raise ValueError(
@@ -410,14 +419,15 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             if "q" in search_params.tv:
                 if "ep" in search_params.tv:
                     query = f"{item_title}"
-                    params["season"] = item.parent.number
-                    params["ep"] = item.number
+                    season = item.parent.number
+                    episode = item.number
                 else:
                     query = f"{item.log_string}"
 
                 set_query_and_type(query, "tv-search")
             elif "q" in search_params.search:
                 query = f"{item.log_string}"
+
                 set_query_and_type(query, "search")
             else:
                 raise ValueError(
@@ -432,11 +442,18 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             for cat_id in category.ids
         }
 
-        params["indexerIds"] = indexer.id
-        params["categories"] = list(categories)
-        params["limit"] = 1000
+        indexer_ids = indexer.id
+        limit = 1000
 
-        return Params.model_validate(params)
+        return Params(
+            season=season,
+            ep=episode,
+            query=search_query,
+            type=search_type,
+            categories=list(categories),
+            indexer_ids=indexer_ids,
+            limit=limit,
+        )
 
     def scrape_indexer(self, indexer: Indexer, item: MediaItem) -> dict[str, str]:
         """Scrape from a single indexer"""

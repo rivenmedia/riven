@@ -19,6 +19,7 @@ from program.media.item import Episode, MediaItem, Movie
 from program.media.models import DataSource, MediaMetadata
 from program.utils.ffprobe import parse_media_url
 from program.core.analysis_service import AnalysisService
+from program.utils.debrid_cdn_url import DebridCDNUrl
 
 
 class MediaAnalysisService(AnalysisService):
@@ -84,17 +85,22 @@ class MediaAnalysisService(AnalysisService):
 
         if not (media_entry := item.media_entry):
             logger.warning(f"No media entry for {item.log_string}, cannot analyze")
+
             return False
 
-        if not media_entry.unrestricted_url:
+        validated_url = DebridCDNUrl(media_entry).validate()
+
+        if not validated_url:
             logger.warning(f"No download URL for {item.log_string}, cannot analyze")
+
             return False
 
         try:
             logger.debug(f"Analyzing media file for {item.log_string}")
 
-            if self._analyze_with_ffprobe(media_entry.unrestricted_url, item):
+            if self._analyze_with_ffprobe(validated_url, item):
                 logger.debug(f"Media analysis completed for {item.log_string}")
+
                 return True
         except FileNotFoundError:
             logger.warning(f"VFS file not found for {item.log_string}, cannot analyze")
@@ -114,6 +120,7 @@ class MediaAnalysisService(AnalysisService):
         Returns:
             True if metadata was updated, False otherwise
         """
+
         try:
             if not playback_url:
                 logger.debug(
