@@ -177,7 +177,8 @@ class RealDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-    ) -> TorrentContainer | None:
+        limit_filesize: bool = True
+) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
         and returning a TorrentContainer when the status is 'downloaded'.
@@ -188,8 +189,10 @@ class RealDebridDownloader(DownloaderBase):
 
         try:
             torrent_id = self.add_torrent(infohash)
+
+            # 2. Process the torrent to get files and status
             container, reason, info = self._process_torrent(
-                torrent_id, infohash, item_type
+                torrent_id, infohash, item_type, limit_filesize
             )
 
             if container is None and reason:
@@ -278,6 +281,7 @@ class RealDebridDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -331,6 +335,7 @@ class RealDebridDownloader(DownloaderBase):
                         filesize_bytes=meta.bytes,
                         filetype=item_type,
                         file_id=file_id,
+                        limit_filesize=limit_filesize,
                     )
 
                     # Download URL is already available from get_torrent_info()

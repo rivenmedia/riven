@@ -637,6 +637,7 @@ class Downloader(Runner[None, DownloaderBase]):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
@@ -649,7 +650,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         assert self.service
 
-        return self.service.get_instant_availability(infohash, item_type)
+        return self.service.get_instant_availability(infohash, item_type, limit_filesize)
 
     def add_torrent(self, infohash: str) -> int | str:
         """Add a torrent by infohash"""
@@ -665,12 +666,25 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.get_torrent_info(torrent_id)
 
-    def select_files(self, torrent_id: int | str, container: list[int]) -> None:
+    def get_service(self, key: str) -> DownloaderBase | None:
+        """Get a specific downloader service by key"""
+        for service in self.initialized_services:
+            if service.key == key:
+                return service
+        return None
+
+    def select_files(
+        self,
+        torrent_id: int | str,
+        container: list[int],
+        service: DownloaderBase | None = None,
+    ) -> None:
         """Select files from a torrent"""
 
-        assert self.service
+        target_service = service or self.service
+        assert target_service
 
-        self.service.select_files(torrent_id, container)
+        target_service.select_files(torrent_id, container)
 
     def delete_torrent(self, torrent_id: int | str) -> None:
         """Delete a torrent"""
