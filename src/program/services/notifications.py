@@ -23,6 +23,8 @@ class NotificationService(Runner[NotificationsModel, None, None]):
     """
 
     def __init__(self):
+        super().__init__()
+
         self.initialized = False
         self.settings = settings_manager.settings.notifications
         self.apprise = Apprise()

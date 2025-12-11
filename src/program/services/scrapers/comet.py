@@ -32,7 +32,7 @@ class Comet(ScraperService[CometConfig]):
     requires_imdb_id = True
 
     def __init__(self):
-        super().__init__("comet")
+        super().__init__()
 
         self.settings = settings_manager.settings.scraping.comet
         self.timeout = self.settings.timeout or 15

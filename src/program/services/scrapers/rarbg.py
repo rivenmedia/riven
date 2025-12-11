@@ -26,7 +26,7 @@ class Rarbg(ScraperService[RarbgConfig]):
     """Scraper for `TheRARBG`"""
 
     def __init__(self):
-        super().__init__("therarbg")
+        super().__init__()
 
         self.settings = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout

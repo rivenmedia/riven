@@ -27,7 +27,7 @@ class Torrentio(ScraperService[TorrentioConfig]):
     requires_imdb_id = True
 
     def __init__(self):
-        super().__init__("torrentio")
+        super().__init__()
 
         self.settings = settings_manager.settings.scraping.torrentio
         self.timeout = self.settings.timeout or 15

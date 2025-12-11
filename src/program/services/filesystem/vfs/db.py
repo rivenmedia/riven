@@ -15,6 +15,7 @@ from program.services.streaming.exceptions import (
 from program.media.item import MediaItem
 from program.types import Event
 from routers.secure.items import apply_item_mutation
+from program.utils.debrid_cdn_url import DebridCDNUrl
 
 if TYPE_CHECKING:
     from program.services.downloaders import Downloader
@@ -40,7 +41,12 @@ class GetEntryByOriginalFilenameResult(BaseModel):
     created: str | None
     modified: str | None
     entry_type: Literal["media", "subtitle"]
-    url: str | None
+
+    @property
+    def url(self) -> str | None:
+        """The URL to use for this request."""
+
+        return self.unrestricted_url or self.download_url
 
 
 class VFSDatabase:
@@ -53,22 +59,6 @@ class VFSDatabase:
         """
 
         self.downloader = downloader
-        self._ensure_default_directories()
-
-    def _ensure_default_directories(self) -> None:
-        """
-        Ensure default directories exist in the VFS for library structure.
-
-        Note: Directories are created automatically by the VFS based on file paths.
-        This method is kept for backward compatibility with existing code that may
-        expect these directories to exist in the database.
-
-        In practice, the VFS will create virtual directories on-the-fly when listing
-        parent directories of files, so explicit directory creation is not required.
-        """
-        # Legacy directories for backward compatibility with existing data
-        # These will be automatically created as virtual directories when files are added
-        pass
 
     # --- Queries ---
     def get_subtitle_content(
@@ -89,12 +79,13 @@ class VFSDatabase:
         Returns:
             bytes: Subtitle content encoded as UTF-8, or None if not found or not a subtitle.
         """
-        with db_session() as s:
+
+        with db_session() as session:
             from program.media.subtitle_entry import SubtitleEntry
 
             # Query specifically for SubtitleEntry by parent and language
             subtitle = (
-                s.query(SubtitleEntry)
+                session.query(SubtitleEntry)
                 .filter_by(
                     parent_original_filename=parent_original_filename, language=language
                 )
@@ -105,6 +96,91 @@ class VFSDatabase:
                 return subtitle.content.encode("utf-8")
 
             return None
+
+    async def refresh_unrestricted_url(
+        self,
+        entry: MediaEntry,
+        session: Session,
+    ) -> str | None:
+        """
+        Refresh the unrestricted URL for a MediaEntry using the downloader services.
+
+        Args:
+            entry: MediaEntry to refresh
+        """
+
+        if not self.downloader:
+            logger.warning("No downloader available to refresh unrestricted URL")
+
+            return None
+
+        from program.program import Program
+
+        # Find service by matching the key attribute (services dict uses class as key)
+        service = next(
+            (
+                svc
+                for svc in self.downloader.services.values()
+                if svc.key == entry.provider
+            ),
+            None,
+        )
+
+        if service and entry.download_url:
+            try:
+                new_unrestricted = service.unrestrict_link(entry.download_url)
+
+                if new_unrestricted:
+                    entry.unrestricted_url = new_unrestricted.download
+
+                    cdn_url = DebridCDNUrl(entry)
+
+                    if await cdn_url.validate(attempt_refresh=False):
+                        session.merge(entry)
+                        session.commit()
+
+                        logger.debug(
+                            f"Refreshed unrestricted URL for {entry.original_filename}"
+                        )
+
+                        return entry.unrestricted_url
+            except DebridServiceLinkUnavailable as e:
+                logger.warning(
+                    f"Failed to unrestrict URL for {entry.original_filename}: {e}"
+                )
+
+                # If un-restricting fails, reset the MediaItem to trigger a new download
+                if entry.media_item:
+                    item_id = entry.media_item.id
+
+                    async def mutation(i: MediaItem, s: Session):
+                        i.blacklist_active_stream()
+                        await i.reset()
+
+                    await apply_item_mutation(
+                        program=di[Program],
+                        item=entry.media_item,
+                        mutation_fn=mutation,
+                        session=session,
+                    )
+
+                    session.commit()
+
+                    await di[Program].em.add_event(
+                        Event(
+                            "VFS",
+                            item_id,
+                        )
+                    )
+
+                    return None
+                raise
+            except Exception as e:
+                logger.warning(
+                    f"Unexpected error when unrestricting URL for {entry.original_filename}: {e}"
+                )
+
+        return None
 
     async def get_entry_by_original_filename(
         self,
@@ -124,12 +200,10 @@ class VFSDatabase:
             Dictionary with entry metadata and URLs, or None if not found
         """
 
-        from program.program import Program
-
         try:
-            with db_session() as s:
+            with db_session() as session:
                 entry = (
-                    s.query(MediaEntry)
+                    session.query(MediaEntry)
                     .filter(MediaEntry.original_filename == original_filename)
                     .first()
                 )
@@ -145,68 +219,10 @@ class VFSDatabase:
                 if (force_resolve or not unrestricted_url) and (
                     self.downloader and entry.provider
                 ):
-                    # Find service by matching the key attribute (services dict uses class as key)
-                    service = next(
-                        (
-                            svc
-                            for svc in self.downloader.services.values()
-                            if svc.key == entry.provider
-                        ),
-                        None,
+                    unrestricted_url = await self.refresh_unrestricted_url(
+                        entry,
+                        session=session,
                     )
-
-                    if service and download_url:
-                        try:
-                            new_unrestricted = service.unrestrict_link(download_url)
-
-                            if (
-                                new_unrestricted
-                                and new_unrestricted.download != unrestricted_url
-                            ):
-                                entry.unrestricted_url = new_unrestricted.download
-                                unrestricted_url = new_unrestricted.download
-
-                                s.commit()
-
-                                logger.debug(
-                                    f"Refreshed unrestricted URL for {original_filename}"
-                                )
-                        except DebridServiceLinkUnavailable as e:
-                            logger.warning(
-                                f"Failed to unrestrict URL for {original_filename}: {e}"
-                            )
-
-                            # If unrestricting fails, reset the MediaItem to trigger a new download
-                            if entry.media_item:
-                                item_id = entry.media_item.id
-
-                                async def mutation(i: MediaItem, s: Session):
-                                    i.blacklist_active_stream()
-                                    await i.reset()
-
-                                await apply_item_mutation(
-                                    program=di[Program],
-                                    item=entry.media_item,
-                                    mutation_fn=mutation,
-                                    session=s,
-                                )
-
-                                s.commit()
-
-                                await di[Program].em.add_event(
-                                    Event(
-                                        "VFS",
-                                        item_id,
-                                    )
-                                )
-
-                            raise
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to unrestrict URL for {original_filename}: {e}"
-                            )
-
-                chosen_url = unrestricted_url or download_url
 
                 return GetEntryByOriginalFilenameResult(
                     original_filename=entry.original_filename,
@@ -218,7 +234,6 @@ class VFSDatabase:
                     created=(entry.created_at.isoformat()),
                     modified=(entry.updated_at.isoformat()),
                     entry_type="media",
-                    url=chosen_url,  # The URL to use for this request
                 )
         except DebridServiceLinkUnavailable:
             raise

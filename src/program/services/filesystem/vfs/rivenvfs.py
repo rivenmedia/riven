@@ -1709,9 +1709,7 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
-                cdn_url = await DebridCDNUrl.from_filename(node.original_filename)
-
-                await cdn_url.validate()
+                await DebridCDNUrl.from_filename(node.original_filename).validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
                     f"Dead link for {node.path}; attempting to download a working one..."
@@ -1729,7 +1727,13 @@ class RivenVFS(pyfuse3.Operations):
                             new_nodes = [
                                 candidate
                                 for candidate in candidates
-                                if candidate.inode != original_inode
+                                if (
+                                    candidate.inode != original_inode
+                                    and (
+                                        candidate.original_filename
+                                        != node.original_filename
+                                    )
+                                )
                             ]
 
                             if new_nodes:
@@ -1752,6 +1756,10 @@ class RivenVFS(pyfuse3.Operations):
                 inode = new_nodes[0].inode
 
                 return await self.open(inode, flags, ctx)
+            except Exception as e:
+                logger.error(f"Unexpected error whilst validating CDN URL: {e}")
+
+                raise pyfuse3.FUSEError(errno.EIO)
 
             logger.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 

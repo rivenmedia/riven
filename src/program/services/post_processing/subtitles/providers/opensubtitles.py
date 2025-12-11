@@ -5,28 +5,54 @@ OpenSubtitles provider for Riven.
 import base64
 import time
 import zlib
-from xmlrpc.client import ServerProxy
-from typing import Any, Generic, TypeVar, cast
 
+from collections.abc import Iterable
+from http import HTTPStatus
+from xmlrpc.client import ServerProxy
+from typing import Any, Generic, Self, TypeVar, cast
 from babelfish import Language, Error as BabelfishError
 from loguru import logger
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import SubtitleItem, SubtitleProvider
 
-T = TypeVar("T", bound=BaseModel | None)
+T = TypeVar("T", bound=BaseModel | Iterable[BaseModel] | dict[Any, Any] | None)
 
 
-class OpenSubtitlesAPIResponse(BaseModel, Generic[T]):
+class StatusMixin(BaseModel):
     status: int
+
+    @field_validator("status", mode="before")
+    def transform_status(cls, status_string: str) -> int:
+        """Transform OpenSubtitles status string (e.g. '200 OK') to integer code."""
+
+        return int(status_string[:3])
+
+    @model_validator(mode="after")
+    def validate_response(self) -> Self:
+        """Raise exception for HTTP errors based on status code."""
+
+        status_code = HTTPStatus(self.status)
+
+        if status_code == HTTPStatus.UNAUTHORIZED:
+            raise Exception("Unauthorized - Invalid credentials")
+        elif status_code == HTTPStatus.NOT_ACCEPTABLE:
+            raise Exception("No session - Please login again")
+        elif status_code == HTTPStatus.PROXY_AUTHENTICATION_REQUIRED:
+            raise Exception("Download limit reached")
+        elif status_code == HTTPStatus.SERVICE_UNAVAILABLE:
+            raise Exception("Service unavailable")
+        elif not status_code.is_success:
+            raise Exception(f"OpenSubtitles error: {status_code}")
+
+        return self
+
+
+class OpenSubtitlesAPIResponse(StatusMixin, Generic[T]):
     data: T
 
-    @field_validator("status")
-    def validate_status(cls, v: str) -> int:
-        return int(v[:3])
 
-
-class OpenSubtitlesLoginResponse(BaseModel):
+class OpenSubtitlesLoginResponse(StatusMixin):
     token: str
 
 
@@ -41,13 +67,8 @@ class OpenSubtitlesSubtitleItem(BaseModel):
     movie_name: str | None = Field(alias="MovieName")
 
 
-class OpenSubtitlesSearchSubtitlesResponse(BaseModel):
-
-    items: list[OpenSubtitlesSubtitleItem]
-
-
-class OpenSubtitlesDownloadSubtitleResponse(BaseModel):
-    data: list[dict[str, Any]] | None
+class OpenSubtitlesDownloadSubtitleItem(BaseModel):
+    data: str
 
 
 def normalize_language_to_alpha3(language: str) -> str:
@@ -142,45 +163,22 @@ class OpenSubtitlesProvider(SubtitleProvider):
     def name(self) -> str:
         return "opensubtitles"
 
-    def _check_response[T: BaseModel | None](
-        self,
-        response: Any,
-        model: type[T],
-    ) -> T:
-        """Check OpenSubtitles API response and handle errors."""
-
-        data = OpenSubtitlesAPIResponse[T].model_validate(response)
-
-        status = data.status
-
-        if status == 401:
-            raise Exception("Unauthorized - Invalid credentials")
-        elif status == 406:
-            raise Exception("No session - Please login again")
-        elif status == 407:
-            raise Exception("Download limit reached")
-        elif status == 503:
-            raise Exception("Service unavailable")
-        elif status != 200:
-            raise Exception(f"OpenSubtitles error: {status}")
-
-        if data.data is None:
-            raise Exception("No data in OpenSubtitles response")
-
-        return data.data
-
     def initialize(self):
         """Initialize the provider session with anonymous authentication."""
 
         logger.debug(f"Logging in anonymously with user agent: {self.user_agent}")
 
         # Anonymous login: empty username and password
-        response = self._check_response(
-            response=self.server.LogIn("", "", "eng", self.user_agent),
-            model=OpenSubtitlesLoginResponse,
+        response = OpenSubtitlesLoginResponse.model_validate(
+            self.server.LogIn(
+                "",
+                "",
+                "eng",
+                self.user_agent,
+            )
         )
 
-        self.token = str(response.token)
+        self.token = response.token
         self.login_time = time.time()
 
         logger.debug("Authenticated to OpenSubtitles (anonymous)")
@@ -256,6 +254,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
                         "moviebytesize": str(file_size),
                     }
                 )
+
                 logger.trace(
                     f"OpenSubtitles search strategy 1: moviehash={video_hash[:8]}...{video_hash[-8:]}, size={file_size:,} bytes"
                 )
@@ -276,6 +275,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
                     criteria["episode"] = str(episode)
 
                 search_criteria.append(criteria)
+
                 logger.trace(
                     f"OpenSubtitles search strategy 2: imdbid={imdb_id}, tags={search_tags}, season={season}, episode={episode}"
                 )
@@ -294,6 +294,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
                     criteria3["episode"] = str(episode)
 
                 search_criteria.append(criteria3)
+
                 logger.trace(
                     f"OpenSubtitles search strategy 3: filename={filename}, season={season}, episode={episode}"
                 )
@@ -302,14 +303,11 @@ class OpenSubtitlesProvider(SubtitleProvider):
                 logger.trace("Skipping OpenSubtitles search: no valid search criteria")
                 return []
 
-            response = self._check_response(
-                response=self.server.SearchSubtitles(self.token, search_criteria),
-                model=OpenSubtitlesSearchSubtitlesResponse,
-            )
+            response = OpenSubtitlesAPIResponse[
+                list[OpenSubtitlesSubtitleItem]
+            ].model_validate(self.server.SearchSubtitles(self.token, search_criteria))
 
-            data = response or []
-
-            if not data:
+            if not response.data:
                 logger.debug("No subtitles found from OpenSubtitles")
                 return []
 
@@ -318,7 +316,7 @@ class OpenSubtitlesProvider(SubtitleProvider):
             results = list[SubtitleItem]()
             norm_hash = str(video_hash).lower() if video_hash else None
 
-            for item in data.items:
+            for item in response.data:
                 try:
                     # Get match type from API response
                     matched_by = (item.matched_by or "unknown").lower()
@@ -369,12 +367,12 @@ class OpenSubtitlesProvider(SubtitleProvider):
             tag_count = sum(1 for r in results if r.matched_by == "tag")
             imdb_count = sum(1 for r in results if r.matched_by == "imdbid")
             fulltext_count = sum(1 for r in results if r.matched_by == "fulltext")
+
             logger.debug(
                 f"Found {len(results)} subtitles from OpenSubtitles (hash:{hash_count}, tag:{tag_count}, imdb:{imdb_count}, fulltext:{fulltext_count})"
             )
 
             return results
-
         except Exception as e:
             error_msg = str(e).lower()
 
@@ -401,16 +399,15 @@ class OpenSubtitlesProvider(SubtitleProvider):
 
             logger.debug(f"Downloading subtitle: {subtitle_info.filename}")
 
-            response = self.server.DownloadSubtitles(self.token, [str(subtitle_id)])
-            response = self._check_response(
-                response=response, model=OpenSubtitlesDownloadSubtitleResponse
-            )
+            response = OpenSubtitlesAPIResponse[
+                list[OpenSubtitlesDownloadSubtitleItem] | None
+            ].model_validate(self.server.DownloadSubtitles(self.token, [subtitle_id]))
 
             if not response.data:
                 return None
 
             # Decode subtitle content (base64 + zlib compression)
-            subtitle_data = response.data[0]["data"]
+            subtitle_data = response.data[0].data
             decoded_data = base64.b64decode(subtitle_data)
             decompressed_data = zlib.decompress(decoded_data, 47)
 

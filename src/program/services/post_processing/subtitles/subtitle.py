@@ -26,6 +26,8 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
     """Service for fetching and managing subtitles."""
 
     def __init__(self):
+        super().__init__()
+
         self.settings = settings_manager.settings.post_processing.subtitle
         self.initialized = False
 
@@ -59,6 +61,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
 
     def _initialize_providers(self):
         """Initialize configured subtitle providers."""
+
         provider_configs = self.settings.providers
 
         # Initialize OpenSubtitles provider
@@ -93,6 +96,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
         for lang_code in language_codes:
             try:
                 normalized = normalize_language_to_alpha3(lang_code)
+
                 if (
                     normalized
                     and normalized != "eng"
@@ -114,6 +118,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
     @property
     def enabled(self) -> bool:
         """Check if the subtitle service is enabled."""
+
         return self.settings.enabled and self.initialized
 
     async def run(self, item: MediaItem) -> bool:
@@ -567,12 +572,12 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
         """
         try:
             with db_session() as session:
-                subtitle = (
+                return (
                     session.query(SubtitleEntry)
                     .filter_by(media_item_id=item.id, language=language)
                     .first()
                 )
-                return subtitle
+
         except Exception as e:
             logger.error(f"Failed to check for existing subtitle: {e}")
             return None

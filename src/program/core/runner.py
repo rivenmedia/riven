@@ -38,7 +38,7 @@ class Runner(ABC, Generic[TSettings, TService, TRunnerReturnType]):
 
     is_content_service: bool = False
     settings: TSettings
-    services: dict[type[TService], TService]
+    services = dict[type[TService], TService]()
 
     def __init__(self):
         super().__init__()

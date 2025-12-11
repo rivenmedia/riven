@@ -32,7 +32,8 @@ class Mediafusion(ScraperService[MediafusionConfig]):
     """Scraper for `Mediafusion`"""
 
     def __init__(self):
-        super().__init__("mediafusion")
+        super().__init__()
+
         self.api_key = None
         self.downloader = None
         self.app_settings: AppModel = settings_manager.settings

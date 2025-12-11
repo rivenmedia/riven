@@ -77,6 +77,16 @@ class MediaEntry(FilesystemEntry):
         sqlalchemy.Index("ix_media_entry_original_filename", "original_filename"),
     )
 
+    @property
+    def url(self) -> str | None:
+        """Get the best available URL for this media entry.
+
+        Returns:
+            str | None: The unrestricted URL if available, otherwise the download URL.
+        """
+
+        return self.unrestricted_url or self.download_url
+
     def __repr__(self):
         return f"<MediaEntry(id={self.id}, original_filename='{self.original_filename}', size={self.file_size})>"
 

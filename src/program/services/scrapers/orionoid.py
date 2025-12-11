@@ -112,7 +112,8 @@ class Orionoid(ScraperService[OrionoidConfig]):
     """Scraper for `Orionoid`"""
 
     def __init__(self):
-        super().__init__("orionoid")
+        super().__init__()
+
         self.base_url = "https://api.orionoid.com"
         self.settings = settings_manager.settings.scraping.orionoid
         self.timeout = self.settings.timeout

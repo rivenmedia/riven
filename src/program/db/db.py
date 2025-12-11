@@ -25,9 +25,7 @@ from . import db, db_host, engine_options
 @contextmanager
 def db_session() -> Generator[Session, Any, None]:
     with db.Session() as session:
-        s: Session = session
-
-        yield s
+        yield session
 
 
 def create_database_if_not_exists():
