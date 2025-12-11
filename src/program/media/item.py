@@ -965,7 +965,7 @@ class Season(MediaItem):
         sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
     )
     parent: Mapped["Show"] = relationship(
-        lazy="dynamic",
+        lazy="joined",
         back_populates="seasons",
         foreign_keys="Season.parent_id",
     )
