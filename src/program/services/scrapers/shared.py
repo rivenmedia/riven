@@ -29,11 +29,6 @@ def parse_results(
     ranking_overrides: dict[str, list[str]] | None = None,
     manual: bool = False,
 ) -> dict[str, Stream]:
-def parse_results(
-    item: MediaItem,
-    results: dict[str, str],
-    log_msg: bool = True,
-) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
 
     torrents = set[Torrent]()
@@ -92,7 +87,6 @@ def parse_results(
                 
                 rtn_instance = RTN(overridden_settings, ranking_model)
 
-            torrent: Torrent = rtn_instance.rank(
             torrent = rtn.rank(
                 raw_title=raw_title,
                 infohash=infohash,

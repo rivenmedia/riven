@@ -177,12 +177,8 @@ class RealDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
-    ) -> TorrentContainer | None:
-        self,
-        infohash: str,
-        item_type: ProcessedItemType,
-    ) -> TorrentContainer | None:
+        limit_filesize: bool = True
+) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
         and returning a TorrentContainer when the status is 'downloaded'.
