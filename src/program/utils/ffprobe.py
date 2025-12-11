@@ -221,32 +221,35 @@ def parse_media_url(url: str) -> FFProbeMediaMetadata | None:
         )
 
         for stream in probe_data.streams:
-            if isinstance(stream, FFProbeResponse.VideoStream):
-                if not metadata.video:
-                    # Apparently there's multiple video codecs..
-                    # the first one should always be correct though.
-                    metadata.video = FFProbeVideoTrack(
-                        codec=stream.codec_name,
-                        width=stream.width,
-                        height=stream.height,
-                        frame_rate=round(stream.fps, 2),
+            match stream:
+                case FFProbeResponse.VideoStream():
+                    if not metadata.video:
+                        # Apparently there's multiple video codecs..
+                        # the first one should always be correct though.
+                        metadata.video = FFProbeVideoTrack(
+                            codec=stream.codec_name,
+                            width=stream.width,
+                            height=stream.height,
+                            frame_rate=round(stream.fps, 2),
+                        )
+                case FFProbeResponse.AudioStream():
+                    metadata.audio.append(
+                        FFProbeAudioTrack(
+                            codec=stream.codec_name,
+                            channels=stream.channels,
+                            sample_rate=stream.sample_rate,
+                            language=stream.tags.language,
+                        )
                     )
-            elif isinstance(stream, FFProbeResponse.AudioStream):
-                metadata.audio.append(
-                    FFProbeAudioTrack(
-                        codec=stream.codec_name,
-                        channels=stream.channels,
-                        sample_rate=stream.sample_rate,
-                        language=stream.tags.language,
+                case FFProbeResponse.SubtitleStream():
+                    metadata.subtitles.append(
+                        FFProbeSubtitleTrack(
+                            codec=stream.codec_name,
+                            language=stream.tags.language,
+                        )
                     )
-                )
-            else:
-                metadata.subtitles.append(
-                    FFProbeSubtitleTrack(
-                        codec=stream.codec_name,
-                        language=stream.tags.language,
-                    )
-                )
+                case FFProbeResponse.DataStream():
+                    pass
 
         return metadata
     except subprocess.CalledProcessError as e:
