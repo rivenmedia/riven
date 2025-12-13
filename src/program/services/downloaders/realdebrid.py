@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from loguru import logger
 from requests import exceptions
 
+from enum import IntEnum
+
 from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
     DebridFile,
@@ -25,6 +27,52 @@ from program.services.streaming.exceptions.debrid_service_exception import (
 from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left
+
+
+class RealDebridErrorCode(IntEnum):
+    INTERNAL_ERROR = -1
+    MISSING_PARAMETER = 1
+    BAD_PARAMETER_VALUE = 2
+    UNKNOWN_METHOD = 3
+    METHOD_NOT_ALLOWED = 4
+    SLOW_DOWN = 5
+    RESOURCE_UNREACHABLE = 6
+    RESOURCE_NOT_FOUND = 7
+    BAD_TOKEN = 8
+    PERMISSION_DENIED = 9
+    TWO_FACTOR_AUTH_REQUIRED = 10
+    TWO_FACTOR_AUTH_PENDING = 11
+    INVALID_LOGIN = 12
+    INVALID_PASSWORD = 13
+    ACCOUNT_LOCKED = 14
+    ACCOUNT_NOT_ACTIVATED = 15
+    UNSUPPORTED_HOSTER = 16
+    HOSTER_IN_MAINTENANCE = 17
+    HOSTER_LIMIT_REACHED = 18
+    HOSTER_TEMPORARY_UNAVAILABLE = 19
+    HOSTER_NOT_AVAILABLE_FOR_FREE_USERS = 20
+    TOO_MANY_ACTIVE_DOWNLOADS = 21
+    IP_ADDRESS_NOT_ALLOWED = 22
+    TRAFFIC_EXHAUSTED = 23
+    FILE_UNAVAILABLE = 24
+    SERVICE_UNAVAILABLE = 25
+    UPLOAD_TOO_BIG = 26
+    UPLOAD_ERROR = 27
+    FILE_NOT_ALLOWED = 28
+    TORRENT_TOO_BIG = 29
+    TORRENT_FILE_INVALID = 30
+    ACTION_ALREADY_DONE = 31
+    IMAGE_RESOLUTION_ERROR = 32
+    TORRENT_ALREADY_ACTIVE = 33
+    TOO_MANY_REQUESTS = 34
+    INFRINGING_FILE = 35
+    FAIR_USAGE_LIMIT = 36
+    DISABLED_ENDPOINT = 37
+
+
+class RealDebridErrorResponse(BaseModel):
+    error: str
+    error_code: RealDebridErrorCode
 
 
 class RealDebridUserInfoResponse(BaseModel):
@@ -593,18 +641,39 @@ class RealDebridDownloader(DownloaderBase):
             self._maybe_backoff(response)
 
             if not response.ok:
-                logger.debug(
-                    f"Direct unrestrict failed with status {response.status_code}: {response.text}"
-                )
+                data = RealDebridErrorResponse.model_validate(response.json())
 
-                raise DebridServiceLinkUnavailable(provider=self.key, link=link)
+                if data.error_code in (
+                    RealDebridErrorCode.RESOURCE_UNREACHABLE,
+                    RealDebridErrorCode.RESOURCE_NOT_FOUND,
+                    RealDebridErrorCode.UNSUPPORTED_HOSTER,
+                    RealDebridErrorCode.HOSTER_LIMIT_REACHED,
+                    RealDebridErrorCode.HOSTER_TEMPORARY_UNAVAILABLE,
+                    RealDebridErrorCode.FILE_UNAVAILABLE,
+                    RealDebridErrorCode.SERVICE_UNAVAILABLE,
+                    RealDebridErrorCode.TORRENT_FILE_INVALID,
+                    RealDebridErrorCode.INFRINGING_FILE,
+                    RealDebridErrorCode.FILE_NOT_ALLOWED,
+                ):
+                    logger.warning(
+                        f"Link unavailable: {data.error} [error_code: {data.error_code}]"
+                    )
+
+                    raise DebridServiceLinkUnavailable(provider=self.key, link=link)
+                else:
+                    logger.warning(
+                        f"Direct unrestrict failed with status {response.status_code}: {data.error} [{data.error_code}]"
+                    )
+
+                    return None
 
             return UnrestrictedLink.model_validate(response.json())
         except DebridServiceLinkUnavailable:
             raise
         except Exception as e:
             logger.debug(f"Direct unrestrict_link failed for {link}: {e}")
-            return None
+
+        return None
 
     def get_user_info(self) -> UserInfo | None:
         """
