@@ -500,6 +500,12 @@ async def start_manual_session(
             status_code=400, detail="Torrent is not cached, please try another stream"
         )
 
+    if not downloader.service:
+        raise HTTPException(
+            status_code=500,
+            detail="Downloader service not initialized",
+        )
+
     session = scraping_session_manager.create_session(
         item.id,
         info_hash,
