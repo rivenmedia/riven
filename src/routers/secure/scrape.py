@@ -1188,6 +1188,7 @@ class AutoScrapeRequest(BaseModel):
     "/auto",
     summary="Auto scrape an item with resolution overrides",
     operation_id="auto_scrape_item",
+    response_model=MessageResponse,
 )
 async def auto_scrape_item(
     body: AutoScrapeRequest,
