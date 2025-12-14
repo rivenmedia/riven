@@ -29,7 +29,6 @@ from program.services.downloaders.models import (
 )
 from program.services.indexers import IndexerService
 from program.services.scrapers.shared import rtn
-from RTN import ParsedData
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
