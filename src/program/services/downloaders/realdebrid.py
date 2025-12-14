@@ -240,7 +240,10 @@ class RealDebridDownloader(DownloaderBase):
 
             # 2. Process the torrent to get files and status
             container, reason, info = self._process_torrent(
-                torrent_id, infohash, item_type, limit_filesize
+                torrent_id,
+                infohash,
+                item_type,
+                limit_filesize,
             )
 
             if container is None and reason:

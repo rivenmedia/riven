@@ -294,7 +294,10 @@ class AllDebridDownloader(DownloaderBase):
         try:
             torrent_id = self.add_torrent(infohash)
             container, reason, info = self._process_torrent(
-                torrent_id, infohash, item_type, limit_filesize
+                torrent_id,
+                infohash,
+                item_type,
+                limit_filesize,
             )
 
             if container is None and reason:
