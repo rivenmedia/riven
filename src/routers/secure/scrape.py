@@ -72,6 +72,18 @@ ContainerMap: TypeAlias = dict[str, DebridFile]
 class Container(RootModel[ContainerMap]):
     """
     Root model for container mapping file IDs to file information.
+    
+    Example:
+    {
+        "4": {
+            "filename": "show.s01e01.mkv",
+            "filesize": 30791392598
+        },
+        "5": {
+            "filename": "show.s01e02.mkv",
+            "filesize": 25573181861
+        }
+    }
     """
 
     root: ContainerMap
