@@ -491,16 +491,23 @@ async def start_manual_session(
     if item.type == "mediaitem":
         raise HTTPException(status_code=500, detail="Incorrect item type found")
 
-    container = downloader.get_instant_availability(
-        info_hash, item.type, limit_filesize=not disable_filesize_check
-    )
+    container = None
+    used_service = None
+
+    for service in downloader.initialized_services:
+        if container := service.get_instant_availability(
+            info_hash, item.type, limit_filesize=not disable_filesize_check
+        ):
+            if container.cached:
+                used_service = service
+                break
 
     if not container or not container.cached:
         raise HTTPException(
             status_code=400, detail="Torrent is not cached, please try another stream"
         )
 
-    if not downloader.service:
+    if not used_service:
         raise HTTPException(
             status_code=500,
             detail="Downloader service not initialized",
@@ -513,14 +520,14 @@ async def start_manual_session(
         imdb_id=imdb_id,
         tmdb_id=tmdb_id,
         tvdb_id=tvdb_id,
-        service=downloader.service.key,
+        service=used_service.key,
     )
 
     logger.debug(f"Created session {session.id} with item ID: {session.item_id}")
 
     try:
-        torrent_id = downloader.add_torrent(info_hash)
-        torrent_info = downloader.get_torrent_info(torrent_id)
+        torrent_id = used_service.add_torrent(info_hash)
+        torrent_info = used_service.get_torrent_info(torrent_id)
         scraping_session_manager.update_session(
             session_id=session.id,
             torrent_id=torrent_id,
