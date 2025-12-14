@@ -110,9 +110,9 @@ class AllDebridMagnetStatusResponse(BaseModel):
         size: int
         status: str
         status_code: int = Field(alias="statusCode")
-        upload_date: int = Field(alias="uploadDate")
-        completion_date: int = Field(alias="completionDate")
-        files: list[AllDebridFile | AllDebridDirectory] | None
+        upload_date: int | None = Field(alias="uploadDate", default=None)
+        completion_date: int | None = Field(alias="completionDate", default=None)
+        files: list[AllDebridFile | AllDebridDirectory] | None = None
 
     class MagnetErrorInfo(BaseModel):
         id: str
