@@ -109,9 +109,15 @@ class OverseerrAPI:
 
         items = response_data.results
 
+        logger.debug(f"Fetched {len(items)} items from Overseerr with filter={filter}")
+
         # If filtering for only pending items, pick those with media status PROCESSING (3)
         if only_pending_items and filter == "approved":
+            logger.debug("Filtering pending items only")
+
             items = [item for item in items if item.media and item.media.status == 3]
+
+            logger.debug(f"{len(items)} pending items after filtering approved items")
 
         media_items: list[MediaItem] = []
 
