@@ -540,7 +540,7 @@ class RivenVFS(pyfuse3.Operations):
         video_paths = self._register_filesystem_entry(entry)
 
         if not video_paths:
-            return added_any
+            return False
 
         # Mark as available in VFS
         entry.available_in_vfs = True

@@ -287,9 +287,7 @@ async def get_items(
             sort_types.add(sort_type)
 
     with db_session() as session:
-        total_items = session.execute(
-            select(func.count()).select_from(query.subquery())
-        ).scalar_one()
+
 
         if count_only:
             items = []

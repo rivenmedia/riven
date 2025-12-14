@@ -29,6 +29,7 @@ from program.services.downloaders.models import (
 )
 from program.services.indexers import IndexerService
 from program.services.scrapers.shared import rtn
+from RTN import ParsedData
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
@@ -42,7 +43,7 @@ class Stream(BaseModel):
     infohash: str
     raw_title: str
     parsed_title: str
-    parsed_data: Any
+    parsed_data: ParsedData
     rank: int
     lev_ratio: float
     is_cached: bool = False
@@ -71,18 +72,6 @@ ContainerMap: TypeAlias = dict[str, DebridFile]
 class Container(RootModel[ContainerMap]):
     """
     Root model for container mapping file IDs to file information.
-
-    Example:
-    {
-        "4": {
-            "filename": "show.s01e01.mkv",
-            "filesize": 30791392598
-        },
-        "5": {
-            "filename": "show.s01e02.mkv",
-            "filesize": 25573181861
-        }
-    }
     """
 
     root: ContainerMap
@@ -694,17 +683,6 @@ async def manual_update_attributes(
                 }.items()
                 if v
             }
-            if not item:
-                item_data = dict[str, Any]()
-
-                if scraping_session.imdb_id:
-                    item_data["imdb_id"] = scraping_session.imdb_id
-
-                if scraping_session.tmdb_id:
-                    item_data["tmdb_id"] = scraping_session.tmdb_id
-
-                if scraping_session.tvdb_id:
-                    item_data["tvdb_id"] = scraping_session.tvdb_id
 
             if item_data:
                 result = next(IndexerService().run(MediaItem(item_data)), None)
@@ -873,22 +851,7 @@ async def manual_update_attributes(
 
                             continue
 
-            # If this is a show, we want to set any episodes that were NOT updated to Paused
-            # This prevents them from being auto-scraped if the user only wanted to scrape specific episodes
-            if isinstance(item, Show):
-                for season in item.seasons:
-                    for episode in season.episodes:
-                        if episode.id not in updated_episode_ids:
-                            # Only pause if it's not already completed/downloaded/etc
-                            if episode.state in [
-                                States.Unknown,
-                                States.Indexed,
-                                States.Scraped,
-                                States.Requested,
-                            ]:
-                                episode.store_state(States.Paused)
-                                session.merge(episode)
-                session.commit()
+
 
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
@@ -959,12 +922,13 @@ async def manual_update_attributes(
                         f"Paused episode {episode.log_string} (ID: {episode.id})"
                     )
 
-            item.store_state()
 
-            log_string = item.log_string
+        item.store_state()
 
-            session.merge(item)
-            session.commit()
+        log_string = item.log_string
+
+        session.merge(item)
+        session.commit()
 
         # Sync VFS to reflect any deleted/updated entries
         # Must happen AFTER commit so the database reflects the changes
