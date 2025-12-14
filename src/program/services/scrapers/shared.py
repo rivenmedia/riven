@@ -53,9 +53,12 @@ def parse_results(
             if ranking_overrides:
                 # Create a copy of settings with overrides
                 overridden_settings = ranking_settings.model_copy(deep=True)
-                
+
                 # 1. Resolutions
-                if "resolutions" in ranking_overrides and ranking_overrides["resolutions"] is not None:
+                if (
+                    "resolutions" in ranking_overrides
+                    and ranking_overrides["resolutions"] is not None
+                ):
                     resolutions_list = ranking_overrides["resolutions"]
                     if resolutions_list:
                         # Reset all to False
@@ -65,18 +68,27 @@ def parse_results(
                         for res_key in resolutions_list:
                             if hasattr(overridden_settings.resolutions, res_key):
                                 setattr(overridden_settings.resolutions, res_key, True)
-                    
-                    enabled_res = [k for k, v in overridden_settings.resolutions.model_dump().items() if v is True]
+
+                    enabled_res = [
+                        k
+                        for k, v in overridden_settings.resolutions.model_dump().items()
+                        if v is True
+                    ]
 
                 # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
                 for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
-                    if category in ranking_overrides and ranking_overrides[category] is not None:
+                    if (
+                        category in ranking_overrides
+                        and ranking_overrides[category] is not None
+                    ):
                         selected_keys = ranking_overrides[category]
                         if not selected_keys:
                             continue
-                            
-                        category_settings = getattr(overridden_settings.custom_ranks, category)
-                        
+
+                        category_settings = getattr(
+                            overridden_settings.custom_ranks, category
+                        )
+
                         for key in category_settings.model_fields:
                             rank_obj = getattr(category_settings, key)
                             # Set fetch to False for all
@@ -84,18 +96,18 @@ def parse_results(
                             # If key is in selected_keys, set fetch to True
                             if key in selected_keys:
                                 rank_obj.fetch = True
-                
+
                 rtn_instance = RTN(overridden_settings, ranking_model)
 
             torrent = rtn.rank(
                 raw_title=raw_title,
                 infohash=infohash,
                 correct_title=correct_title,
-                remove_trash=settings_manager.settings.ranking.options[
-                    "remove_all_trash"
-                ]
-                if not manual
-                else False,
+                remove_trash=(
+                    settings_manager.settings.ranking.options["remove_all_trash"]
+                    if not manual
+                    else False
+                ),
                 aliases=aliases,
             )
 
@@ -109,15 +121,23 @@ def parse_results(
 
             if isinstance(item, Show):
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
-                if not manual and torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                if (
+                    not manual
+                    and torrent.data.episodes
+                    and len(torrent.data.episodes) <= 2
+                ):
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
                     continue
 
                 # make sure all of the item seasons are present in the torrent
-                if not ranking_overrides and not manual and not all(
-                    season.number in torrent.data.seasons for season in item.seasons
+                if (
+                    not ranking_overrides
+                    and not manual
+                    and not all(
+                        season.number in torrent.data.seasons for season in item.seasons
+                    )
                 ):
                     logger.trace(
                         f"Skipping torrent with incorrect number of seasons for {item.log_string}: {raw_title}"
@@ -125,7 +145,7 @@ def parse_results(
                     continue
 
                 if (
-                    not manual 
+                    not manual
                     and torrent.data.episodes
                     and not torrent.data.seasons
                     and len(item.seasons) == 1
@@ -140,14 +160,23 @@ def parse_results(
                     continue
 
             if isinstance(item, Season):
-                if not manual and torrent.data.seasons and item.number not in torrent.data.seasons:
+                if (
+                    not manual
+                    and torrent.data.seasons
+                    and item.number not in torrent.data.seasons
+                ):
                     logger.trace(
                         f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}"
                     )
                     continue
 
                 # make sure the torrent has at least 2 episodes (should weed out most junk), skip if manual
-                if not ranking_overrides and not manual and torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                if (
+                    not ranking_overrides
+                    and not manual
+                    and torrent.data.episodes
+                    and len(torrent.data.episodes) <= 2
+                ):
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )

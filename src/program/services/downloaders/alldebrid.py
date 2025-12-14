@@ -395,7 +395,14 @@ class AllDebridDownloader(DownloaderBase):
 
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
-        self._extract_files_recursive(files_data, item_type, files, infohash, "", limit_filesize)
+        self._extract_files_recursive(
+            files_data,
+            item_type,
+            files,
+            infohash,
+            "",
+            limit_filesize,
+        )
 
         if not files:
             return None, "no valid files after validation", None

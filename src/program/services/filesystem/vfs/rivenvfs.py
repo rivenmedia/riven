@@ -1731,7 +1731,6 @@ class RivenVFS(pyfuse3.Operations):
                 logger.error(f"Unexpected error whilst validating CDN URL: {e}")
 
                 raise pyfuse3.FUSEError(errno.EIO)
-                
 
             logger.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 

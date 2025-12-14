@@ -414,7 +414,7 @@ async def start_manual_session(
                     tmdb_id=tmdb_id,
                     tvdb_id=tvdb_id,
                     imdb_id=imdb_id,
-                    session=session
+                    session=session,
                 )
             except ValueError:
                 pass
@@ -456,35 +456,34 @@ async def start_manual_session(
                     item = result.media_items[0]
             else:
                 raise HTTPException(status_code=400, detail="No valid ID provided")
-        
+
             if item:
                 # Check directly if item exists in DB by external IDs to avoid unique constraint error
                 # This handles checking if the indexer returned an item that actually IS in the DB but wasn't found by the initial specific ID lookup
-                 # (e.g. we looked up by TMDB but indexer returned item with TMDB+IMDB and we only searched TMDB)
-                 # Re-using db_functions logic for this would be cleaner but let's just use merge.
-                 # Merge handles "if exists, update; if not, insert" based on Primary Key. 
-                 # BUT we don't have PK (id) yet for new items. We have unique external IDs.
-                 # SQLAlchemy merge needs PK.
-                 
-                 # We must check existence by external IDs first.
-                 existing = None
-                 try:
-                     existing = db_functions.get_item_by_external_id(
-                         tmdb_id=item.tmdb_id,
-                         tvdb_id=item.tvdb_id,
-                         imdb_id=item.imdb_id,
-                         session=session
-                     )
-                 except ValueError:
-                     pass
-                 
-                 if existing:
-                     item = existing
-                 else:
-                     item = session.merge(item)
-                     session.commit()
-                     session.refresh(item)
+                # (e.g. we looked up by TMDB but indexer returned item with TMDB+IMDB and we only searched TMDB)
+                # Re-using db_functions logic for this would be cleaner but let's just use merge.
+                # Merge handles "if exists, update; if not, insert" based on Primary Key.
+                # BUT we don't have PK (id) yet for new items. We have unique external IDs.
+                # SQLAlchemy merge needs PK.
 
+                # We must check existence by external IDs first.
+                existing = None
+                try:
+                    existing = db_functions.get_item_by_external_id(
+                        tmdb_id=item.tmdb_id,
+                        tvdb_id=item.tvdb_id,
+                        imdb_id=item.imdb_id,
+                        session=session,
+                    )
+                except ValueError:
+                    pass
+
+                if existing:
+                    item = existing
+                else:
+                    item = session.merge(item)
+                    session.commit()
+                    session.refresh(item)
 
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -575,9 +574,13 @@ def manual_select_files(
         download_type = "cached"
 
     try:
-        service_instance = downloader.get_service(session.service) if session.service else None
+        service_instance = (
+            downloader.get_service(session.service) if session.service else None
+        )
         downloader.select_files(
-            session.torrent_id, [int(file_id) for file_id in files.root.keys()], service=service_instance
+            session.torrent_id,
+            [int(file_id) for file_id in files.root.keys()],
+            service=service_instance,
         )
 
         session.selected_files = files.model_dump()
@@ -642,41 +645,48 @@ async def manual_update_attributes(
     with db_session() as session:
         if scraping_session.media_type == "tv" and scraping_session.tvdb_id:
             item = db_functions.get_item_by_external_id(
-                tvdb_id=str(scraping_session.tvdb_id),
-                session=session
+                tvdb_id=str(scraping_session.tvdb_id), session=session
             )
         elif scraping_session.media_type == "movie" and scraping_session.tmdb_id:
             item = db_functions.get_item_by_external_id(
-                tmdb_id=str(scraping_session.tmdb_id),
-                session=session
+                tmdb_id=str(scraping_session.tmdb_id), session=session
             )
         elif scraping_session.imdb_id:
             item = db_functions.get_item_by_external_id(
-                imdb_id=scraping_session.imdb_id,
-                session=session
+                imdb_id=scraping_session.imdb_id, session=session
             )
 
         if not item:
             # Try to find by any external ID
             try:
                 item = db_functions.get_item_by_external_id(
-                    tmdb_id=str(scraping_session.tmdb_id) if scraping_session.tmdb_id else None,
-                    tvdb_id=str(scraping_session.tvdb_id) if scraping_session.tvdb_id else None,
+                    tmdb_id=(
+                        str(scraping_session.tmdb_id)
+                        if scraping_session.tmdb_id
+                        else None
+                    ),
+                    tvdb_id=(
+                        str(scraping_session.tvdb_id)
+                        if scraping_session.tvdb_id
+                        else None
+                    ),
                     imdb_id=scraping_session.imdb_id,
-                    session=session
+                    session=session,
                 )
             except ValueError:
                 pass
 
         if not item:
             item_data = {
-                k: v for k, v in {
+                k: v
+                for k, v in {
                     "imdb_id": scraping_session.imdb_id,
                     "tmdb_id": scraping_session.tmdb_id,
                     "tvdb_id": scraping_session.tvdb_id,
                     "requested_by": "riven",
                     "requested_at": datetime.now(),
-                }.items() if v
+                }.items()
+                if v
             }
             if not item:
                 item_data = dict[str, Any]()
@@ -700,12 +710,12 @@ async def manual_update_attributes(
                             tmdb_id=str(indexed.tmdb_id) if indexed.tmdb_id else None,
                             tvdb_id=str(indexed.tvdb_id) if indexed.tvdb_id else None,
                             imdb_id=str(indexed.imdb_id) if indexed.imdb_id else None,
-                            session=session
+                            session=session,
                         ):
                             indexed.id = existing.id
                     except ValueError:
                         pass
-                    
+
                     item = session.merge(indexed)
                     session.commit()
                 if item_data:
@@ -758,30 +768,40 @@ async def manual_update_attributes(
                 service_instance = None
                 if services := di[Program].services:
                     downloader = services.downloader
-                    service_instance = downloader.get_service(scraping_session.service) if scraping_session.service else None
+                    service_instance = (
+                        downloader.get_service(scraping_session.service)
+                        if scraping_session.service
+                        else None
+                    )
 
                 # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
                 provider = service_instance.key if service_instance else None
 
                 # Get torrent ID from scraping session
                 torrent_id = (
-                    scraping_session.torrent_info.id if scraping_session.torrent_info else None
+                    scraping_session.torrent_info.id
+                    if scraping_session.torrent_info
+                    else None
                 )
-                
+
                 download_url = data.download_url
-                
+
                 # If download_url is missing, try to refresh torrent info to get it
                 if not download_url and torrent_id and service_instance:
                     try:
-                        logger.debug(f"Refreshing torrent info for {torrent_id} to resolve download_url")
+                        logger.debug(
+                            f"Refreshing torrent info for {torrent_id} to resolve download_url"
+                        )
                         fresh_info = service_instance.get_torrent_info(torrent_id)
-                        
+
                         # Find matching file
                         for file in fresh_info.files.values():
                             if file.filename == data.filename:
                                 if file.download_url:
                                     download_url = file.download_url
-                                    logger.debug(f"Resolved download_url for {data.filename}: {download_url}")
+                                    logger.debug(
+                                        f"Resolved download_url for {data.filename}: {download_url}"
+                                    )
                                 break
                     except Exception as e:
                         logger.warning(f"Failed to refresh torrent info: {e}")
@@ -854,7 +874,12 @@ async def manual_update_attributes(
                     for episode in season.episodes:
                         if episode.id not in updated_episode_ids:
                             # Only pause if it's not already completed/downloaded/etc
-                            if episode.state in [States.Unknown, States.Indexed, States.Scraped, States.Requested]:
+                            if episode.state in [
+                                States.Unknown,
+                                States.Indexed,
+                                States.Scraped,
+                                States.Requested,
+                            ]:
                                 episode.store_state(States.Paused)
                                 session.merge(episode)
                 session.commit()
@@ -883,16 +908,18 @@ async def manual_update_attributes(
 
                         break
                     else:
-                        logger.error(
-                            f"Failed to find item type for {item.log_string}"
-                        )
+                        logger.error(f"Failed to find item type for {item.log_string}")
                         continue
 
         # Set unselected episodes to paused
         if isinstance(item, Show):
-            logger.debug(f"Checking {len(item.seasons)} seasons for unselected episodes to pause")
+            logger.debug(
+                f"Checking {len(item.seasons)} seasons for unselected episodes to pause"
+            )
             for season in item.seasons:
-                logger.debug(f"Season {season.number} has {len(season.episodes)} episodes")
+                logger.debug(
+                    f"Season {season.number} has {len(season.episodes)} episodes"
+                )
                 for episode in season.episodes:
                     if episode.id not in updated_episode_ids:
                         if episode.state in [
@@ -904,9 +931,13 @@ async def manual_update_attributes(
 
                         episode.store_state(States.Paused)
                         session.merge(episode)
-                        logger.debug(f"Paused episode {episode.log_string} (ID: {episode.id})")
+                        logger.debug(
+                            f"Paused episode {episode.log_string} (ID: {episode.id})"
+                        )
         elif isinstance(item, Season):
-            logger.debug(f"Checking {len(item.episodes)} episodes in season {item.number} to pause")
+            logger.debug(
+                f"Checking {len(item.episodes)} episodes in season {item.number} to pause"
+            )
             for episode in item.episodes:
                 if episode.id not in updated_episode_ids:
                     if episode.state in [
@@ -918,7 +949,9 @@ async def manual_update_attributes(
 
                     episode.store_state(States.Paused)
                     session.merge(episode)
-                    logger.debug(f"Paused episode {episode.log_string} (ID: {episode.id})")
+                    logger.debug(
+                        f"Paused episode {episode.log_string} (ID: {episode.id})"
+                    )
 
             item.store_state()
 
@@ -1127,6 +1160,7 @@ async def overseerr_requests(
 
     return MessageResponse(message="No new overseerr requests to process")
 
+
 class AutoScrapeRequest(BaseModel):
     item_id: str | None = None
     tmdb_id: str | None = None
@@ -1191,20 +1225,22 @@ async def auto_scrape_item(
             prepared_item = MediaItem(
                 {
                     "imdb_id": body.imdb_id,
-                    "tvdb_id": body.tvdb_id, # imdb_id alone is not enough for TV, needs tvdb_id
+                    "tvdb_id": body.tvdb_id,  # imdb_id alone is not enough for TV, needs tvdb_id
                     "requested_by": "riven",
                     "requested_at": datetime.now(),
                 }
             )
             if result := next(indexer.run(prepared_item), None):
                 item = result.media_items[0] if result.media_items else None
-        
+
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
         # Scrape with overrides
-        streams = scraper.scrape(item, ranking_overrides=body.model_dump(exclude_unset=True), manual=True)
-        
+        streams = scraper.scrape(
+            item, ranking_overrides=body.model_dump(exclude_unset=True), manual=True
+        )
+
         # Filter out existing or blacklisted streams
         new_streams = [
             stream
@@ -1215,16 +1251,21 @@ async def auto_scrape_item(
         if new_streams:
             item.streams.extend(new_streams)
             from program.media.state import States
-            item.store_state(States.Scraped) # Force state update to trigger downloader
-            logger.info(f"Auto scrape found {len(new_streams)} new streams for {item.log_string}")
-            
+
+            item.store_state(States.Scraped)  # Force state update to trigger downloader
+            logger.info(
+                f"Auto scrape found {len(new_streams)} new streams for {item.log_string}"
+            )
+
             # Commit changes to DB
             session.add(item)
             session.commit()
-            
+
             # Emit event to trigger downloader
             di[Program].em.add_event(Event("Scraping", item_id=item.id))
-            
-            return {"message": f"Auto scrape started. Found {len(new_streams)} new streams."}
+
+            return {
+                "message": f"Auto scrape started. Found {len(new_streams)} new streams."
+            }
         else:
             return {"message": "Auto scrape completed. No new streams found."}

@@ -652,7 +652,11 @@ class Downloader(Runner[None, DownloaderBase]):
 
         assert self.service
 
-        return self.service.get_instant_availability(infohash, item_type, limit_filesize)
+        return self.service.get_instant_availability(
+            infohash,
+            item_type,
+            limit_filesize,
+        )
 
     def add_torrent(self, infohash: str) -> int | str:
         """Add a torrent by infohash"""
