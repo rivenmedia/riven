@@ -300,6 +300,7 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int | None = None
 
         try:
+            logger.debug(f"Checking availability for {infohash} with limit_filesize={limit_filesize}")
             torrent_id = self.add_torrent(infohash)
             container, reason, info = self._process_torrent(
                 torrent_id,
@@ -319,7 +320,7 @@ class AllDebridDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
-
+                
                 return None
 
             # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
@@ -492,11 +493,13 @@ class AllDebridDownloader(DownloaderBase):
                     filesize_bytes=size,
                     filetype=item_type,
                     file_id=None,
+                    limit_filesize=limit_filesize,
                 )
 
                 df.download_url = link
                 files.append(df)
-            except InvalidDebridFileException:
+            except InvalidDebridFileException as e:
+                logger.debug(f"Validation failed for {name}: {e}")
                 pass
 
     def add_torrent(self, infohash: str) -> int:
@@ -625,25 +628,32 @@ class AllDebridDownloader(DownloaderBase):
                             )
                         )
                     return all_files
+                
+                logger.debug(f"Magnet {magnet.id} has no links")
 
                 files = magnet.files
-
+                
                 if files:
+                    logger.debug(f"Magnet {magnet.id} has files structure")
                     all_files = list[AllDebridFile]()
 
                     for file_or_directory in files:
-                        download_link = ""
-
                         if isinstance(file_or_directory, AllDebridFile):
-                            download_link = file_or_directory.l
+                            # It's a file at root, add it
+                            all_files.append(file_or_directory)
                         else:
-                            # Recursively process files/folders and add download link
+                            # It's a directory, recurse
+                            # download_link is not provided by directory at this level
                             self._add_link_to_files_recursive(
-                                file_or_directory.e, download_link, all_files
+                                file_or_directory.e, "", all_files
                             )
 
                     if all_files:
                         return all_files
+                    else:
+                        logger.debug(f"Magnet {magnet.id} processed files but result was empty")
+                else:
+                    logger.debug(f"Magnet {magnet.id} has no files structure")
 
                 return None
 
