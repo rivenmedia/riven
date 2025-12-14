@@ -243,11 +243,106 @@ scraping_session_manager = ScrapingSessionManager()
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
 
+
 def initialize_downloader(downloader: Downloader):
     """Initialize downloader if not already set"""
 
     if not scraping_session_manager.downloader:
         scraping_session_manager.set_downloader(downloader)
+
+
+def get_media_item(
+    session,
+    item_id: int | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: str | None = None,
+) -> MediaItem:
+    """
+    Get or create a MediaItem based on provided IDs.
+    
+    Tries to fetch authentication item by item_id, then by external IDs.
+    If not found, tries to fetch from indexer and create/merge into DB.
+    """
+    item = None
+    
+    # 1. Try by internal ID
+    if item_id:
+        item = db_functions.get_item_by_id(int(item_id), session=session)
+        if item:
+            return item
+
+    # 2. Try by external IDs
+    try:
+        item = db_functions.get_item_by_external_id(
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            imdb_id=imdb_id,
+            session=session,
+        )
+        if item:
+            return item
+    except ValueError:
+        pass
+
+    # 3. Try to fetch from Indexer
+    if services := di[Program].services:
+        indexer = services.indexer
+    else:
+        raise HTTPException(status_code=412, detail="Services not initialized")
+
+    prepared_item = None
+    if tmdb_id and media_type == "movie":
+        prepared_item = MediaItem(
+            {
+                "tmdb_id": tmdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }
+        )
+    elif tvdb_id and media_type == "tv":
+        prepared_item = MediaItem(
+            {
+                "tvdb_id": tvdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }
+        )
+    elif imdb_id:
+        prepared_item = MediaItem(
+            {
+                "imdb_id": imdb_id,
+                "tvdb_id": tvdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }
+        )
+    
+    if prepared_item:
+        if result := next(indexer.run(prepared_item), None):
+            if result.media_items:
+                indexed = result.media_items[0]
+                
+                # Check directly if item exists in DB by external IDs to avoid unique constraint error
+                try:
+                    existing = db_functions.get_item_by_external_id(
+                        tmdb_id=str(indexed.tmdb_id) if indexed.tmdb_id else None,
+                        tvdb_id=str(indexed.tvdb_id) if indexed.tvdb_id else None,
+                        imdb_id=str(indexed.imdb_id) if indexed.imdb_id else None,
+                        session=session,
+                    )
+                    if existing:
+                        return existing
+                except ValueError:
+                    pass
+
+                item = session.merge(indexed)
+                session.commit()
+                session.refresh(item)
+                return item
+
+    raise HTTPException(status_code=404, detail="Item not found")
 
 
 @router.get(
@@ -290,48 +385,15 @@ def scrape_item(
     item = None
     indexer_result = None
 
-    with db_session():
-        if item_id:
-            item = db_functions.get_item_by_id(int(item_id))
-        elif tmdb_id and media_type == "movie":
-            prepared_item = MediaItem(
-                {
-                    "tmdb_id": tmdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-
-            indexer_result = next(indexer.run(prepared_item), None)
-        elif tvdb_id and media_type == "tv":
-            prepared_item = MediaItem(
-                {
-                    "tvdb_id": tvdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-
-            indexer_result = next(indexer.run(prepared_item), None)
-        elif imdb_id:
-            prepared_item = MediaItem(
-                {
-                    "imdb_id": imdb_id,
-                    "tvdb_id": tvdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-
-            indexer_result = next(indexer.run(prepared_item), None)
-        else:
-            raise HTTPException(status_code=400, detail="No valid ID provided")
-
-        if indexer_result and indexer_result.media_items:
-            item = indexer_result.media_items[0]
-
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
+    with db_session() as session:
+        item = get_media_item(
+            session,
+            item_id=int(item_id) if item_id else None,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            imdb_id=imdb_id,
+            media_type=media_type,
+        )
 
         streams = scraper.scrape(item, manual=True)
         log_string = item.log_string
@@ -406,87 +468,14 @@ async def start_manual_session(
     indexer_result = None
 
     with db_session() as session:
-        if item_id:
-            item = db_functions.get_item_by_id(int(item_id), session=session)
-        else:
-            try:
-                item = db_functions.get_item_by_external_id(
-                    tmdb_id=tmdb_id,
-                    tvdb_id=tvdb_id,
-                    imdb_id=imdb_id,
-                    session=session,
-                )
-            except ValueError:
-                pass
-
-        # 2. If not found, create/fetch it using indexer
-        if not item:
-            if tmdb_id and media_type == "movie":
-                prepared_item = MediaItem(
-                    {
-                        "tmdb_id": tmdb_id,
-                        "requested_by": "riven",
-                        "requested_at": datetime.now(),
-                    }
-                )
-                result = next(indexer.run(prepared_item), None)
-                if result and result.media_items:
-                    item = result.media_items[0]
-            elif tvdb_id and media_type == "tv":
-                prepared_item = MediaItem(
-                    {
-                        "tvdb_id": tvdb_id,
-                        "requested_by": "riven",
-                        "requested_at": datetime.now(),
-                    }
-                )
-                result = next(indexer.run(prepared_item), None)
-                if result and result.media_items:
-                    item = result.media_items[0]
-            elif imdb_id:
-                prepared_item = MediaItem(
-                    {
-                        "imdb_id": imdb_id,
-                        "requested_by": "riven",
-                        "requested_at": datetime.now(),
-                    }
-                )
-                result = next(indexer.run(prepared_item), None)
-                if result and result.media_items:
-                    item = result.media_items[0]
-            else:
-                raise HTTPException(status_code=400, detail="No valid ID provided")
-
-            if item:
-                # Check directly if item exists in DB by external IDs to avoid unique constraint error
-                # This handles checking if the indexer returned an item that actually IS in the DB but wasn't found by the initial specific ID lookup
-                # (e.g. we looked up by TMDB but indexer returned item with TMDB+IMDB and we only searched TMDB)
-                # Re-using db_functions logic for this would be cleaner but let's just use merge.
-                # Merge handles "if exists, update; if not, insert" based on Primary Key.
-                # BUT we don't have PK (id) yet for new items. We have unique external IDs.
-                # SQLAlchemy merge needs PK.
-
-                # We must check existence by external IDs first.
-                existing = None
-                try:
-                    existing = db_functions.get_item_by_external_id(
-                        tmdb_id=item.tmdb_id,
-                        tvdb_id=item.tvdb_id,
-                        imdb_id=item.imdb_id,
-                        session=session,
-                    )
-                except ValueError:
-                    pass
-
-                if existing:
-                    item = existing
-                else:
-                    item = session.merge(item)
-                    session.commit()
-                    session.refresh(item)
-
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+        item = get_media_item(
+            session,
+            item_id=int(item_id) if item_id else None,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            imdb_id=imdb_id,
+            media_type=media_type,
+        )
 
     if item.type == "mediaitem":
         raise HTTPException(status_code=500, detail="Incorrect item type found")
@@ -656,84 +645,14 @@ async def manual_update_attributes(
     item_ids_to_submit = None
 
     with db_session() as session:
-        if scraping_session.media_type == "tv" and scraping_session.tvdb_id:
-            item = db_functions.get_item_by_external_id(
-                tvdb_id=str(scraping_session.tvdb_id), session=session
-            )
-        elif scraping_session.media_type == "movie" and scraping_session.tmdb_id:
-            item = db_functions.get_item_by_external_id(
-                tmdb_id=str(scraping_session.tmdb_id), session=session
-            )
-        elif scraping_session.imdb_id:
-            item = db_functions.get_item_by_external_id(
-                imdb_id=scraping_session.imdb_id, session=session
-            )
-
-        if not item:
-            # Try to find by any external ID
-            try:
-                item = db_functions.get_item_by_external_id(
-                    tmdb_id=(
-                        str(scraping_session.tmdb_id)
-                        if scraping_session.tmdb_id
-                        else None
-                    ),
-                    tvdb_id=(
-                        str(scraping_session.tvdb_id)
-                        if scraping_session.tvdb_id
-                        else None
-                    ),
-                    imdb_id=scraping_session.imdb_id,
-                    session=session,
-                )
-            except ValueError:
-                pass
-
-        if not item:
-            item_data = {
-                k: v
-                for k, v in {
-                    "imdb_id": scraping_session.imdb_id,
-                    "tmdb_id": scraping_session.tmdb_id,
-                    "tvdb_id": scraping_session.tvdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }.items()
-                if v
-            }
-
-            if item_data:
-                result = next(IndexerService().run(MediaItem(item_data)), None)
-                if result and result.media_items:
-                    indexed = result.media_items[0]
-                    # Check if the indexed item actually exists (e.g. via a newly discovered ID)
-                    try:
-                        if existing := db_functions.get_item_by_external_id(
-                            tmdb_id=str(indexed.tmdb_id) if indexed.tmdb_id else None,
-                            tvdb_id=str(indexed.tvdb_id) if indexed.tvdb_id else None,
-                            imdb_id=str(indexed.imdb_id) if indexed.imdb_id else None,
-                            session=session,
-                        ):
-                            indexed.id = existing.id
-                    except ValueError:
-                        pass
-
-                    item = session.merge(indexed)
-                    session.commit()
-                if item_data:
-                    item_data["requested_by"] = "riven"
-                    item_data["requested_at"] = datetime.now()
-                    prepared_item = MediaItem(item_data)
-
-                    indexer_result = next(IndexerService().run(prepared_item), None)
-
-                    if indexer_result:
-                        item = indexer_result.media_items[0]
-                        session.merge(item)
-                        session.commit()
-
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
+        item = get_media_item(
+            session,
+            item_id=scraping_session.item_id,
+            tmdb_id=str(scraping_session.tmdb_id) if scraping_session.tmdb_id else None,
+            tvdb_id=str(scraping_session.tvdb_id) if scraping_session.tvdb_id else None,
+            imdb_id=scraping_session.imdb_id,
+            media_type=scraping_session.media_type,
+        )
 
         item = session.merge(item)
         item_ids_to_submit = set[int]()
@@ -857,46 +776,22 @@ async def manual_update_attributes(
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
-                    if isinstance(item, Show):
-                        if episode := item.get_absolute_episode(
+                    if isinstance(item, Show) or isinstance(item, Season):
+                        show = item if isinstance(item, Show) else item.parent
+                        if episode := show.get_absolute_episode(
                             episode_number, season_number
                         ):
                             update_item(episode, episode_data)
                         else:
                             logger.error(
-                                f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
+                                f"Failed to find episode {episode_number} in season {season_number} for {item.log_string}"
                             )
-
-                            continue
-
-
-
-            for season_number, episodes in data.root.items():
-                for episode_number, episode_data in episodes.items():
-                    if isinstance(item, Season):
-                        if episode := item.parent.get_absolute_episode(
-                            episode_number, season_number
-                        ):
-                            update_item(episode, episode_data)
-                        else:
-                            logger.error(
-                                f"Failed to find season {season_number} for {item.log_string}"
-                            )
-
-                            continue
                     elif isinstance(item, Episode):
                         if (
-                            season_number != item.parent.number
-                            and episode_number != item.number
+                            season_number == item.parent.number
+                            and episode_number == item.number
                         ):
-                            continue
-
-                        update_item(item, episode_data)
-
-                        break
-                    else:
-                        logger.error(f"Failed to find item type for {item.log_string}")
-                        continue
+                            update_item(item, episode_data)
 
         # Set unselected episodes to paused
         if isinstance(item, Show):
@@ -1190,45 +1085,14 @@ async def auto_scrape_item(
     item = None
 
     with db_session() as session:
-        if body.item_id:
-            item = db_functions.get_item_by_id(int(body.item_id), session=session)
-        elif body.tmdb_id and body.media_type == "movie":
-            prepared_item = MediaItem(
-                {
-                    "tmdb_id": body.tmdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-
-            if result := next(indexer.run(prepared_item), None):
-                item = result.media_items[0] if result.media_items else None
-        elif body.tvdb_id and body.media_type == "tv":
-            prepared_item = MediaItem(
-                {
-                    "tvdb_id": body.tvdb_id,
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-
-            if result := next(indexer.run(prepared_item), None):
-                item = result.media_items[0] if result.media_items else None
-        elif body.imdb_id:
-            prepared_item = MediaItem(
-                {
-                    "imdb_id": body.imdb_id,
-                    "tvdb_id": body.tvdb_id,  # imdb_id alone is not enough for TV, needs tvdb_id
-                    "requested_by": "riven",
-                    "requested_at": datetime.now(),
-                }
-            )
-
-            if result := next(indexer.run(prepared_item), None):
-                item = result.media_items[0] if result.media_items else None
-
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
+        item = get_media_item(
+            session,
+            item_id=int(body.item_id) if body.item_id else None,
+            tmdb_id=body.tmdb_id,
+            tvdb_id=body.tvdb_id,
+            imdb_id=body.imdb_id,
+            media_type=body.media_type,
+        )
 
         # Scrape with overrides
         streams = scraper.scrape(
