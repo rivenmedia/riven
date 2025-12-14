@@ -1264,8 +1264,10 @@ async def auto_scrape_item(
             # Emit event to trigger downloader
             di[Program].em.add_event(Event("Scraping", item_id=item.id))
 
-            return {
-                "message": f"Auto scrape started. Found {len(new_streams)} new streams."
-            }
+            return MessageResponse(
+                message=f"Auto scrape started. Found {len(new_streams)} new streams."
+            )
         else:
-            return {"message": "Auto scrape completed. No new streams found."}
+            return MessageResponse(
+                message="Auto scrape completed. No new streams found."
+            )
