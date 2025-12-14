@@ -1198,6 +1198,7 @@ async def auto_scrape_item(
     This performs a one-time scrape using the provided resolutions
     and triggers the downloader if new streams are found.
     """
+
     if services := di[Program].services:
         scraper = services.scraping
         indexer = services.indexer
@@ -1205,6 +1206,7 @@ async def auto_scrape_item(
         raise HTTPException(status_code=412, detail="Services not initialized")
 
     item = None
+
     with db_session() as session:
         if body.item_id:
             item = db_functions.get_item_by_id(int(body.item_id), session=session)
@@ -1216,6 +1218,7 @@ async def auto_scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
+
             if result := next(indexer.run(prepared_item), None):
                 item = result.media_items[0] if result.media_items else None
         elif body.tvdb_id and body.media_type == "tv":
@@ -1226,6 +1229,7 @@ async def auto_scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
+
             if result := next(indexer.run(prepared_item), None):
                 item = result.media_items[0] if result.media_items else None
         elif body.imdb_id:
@@ -1237,6 +1241,7 @@ async def auto_scrape_item(
                     "requested_at": datetime.now(),
                 }
             )
+
             if result := next(indexer.run(prepared_item), None):
                 item = result.media_items[0] if result.media_items else None
 
@@ -1257,9 +1262,11 @@ async def auto_scrape_item(
 
         if new_streams:
             item.streams.extend(new_streams)
+
             from program.media.state import States
 
             item.store_state(States.Scraped)  # Force state update to trigger downloader
+
             logger.info(
                 f"Auto scrape found {len(new_streams)} new streams for {item.log_string}"
             )
