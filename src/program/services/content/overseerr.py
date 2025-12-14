@@ -58,7 +58,7 @@ class Overseerr(Runner[OverseerrModel]):
 
         overseerr_items = self.api.get_media_requests(
             self.key,
-            filter_pending_items=self.run_once,
+            only_pending_items=self.run_once,
         )
 
         if self.settings.use_webhook:
@@ -66,7 +66,7 @@ class Overseerr(Runner[OverseerrModel]):
                 "Webhook is enabled. Running Overseerr once before switching to webhook only mode"
             )
 
-            self.run_once = True
+        self.run_once = True
 
         if overseerr_items:
             overseerr_items = [
