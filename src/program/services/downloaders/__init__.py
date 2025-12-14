@@ -674,9 +674,11 @@ class Downloader(Runner[None, DownloaderBase]):
 
     def get_service(self, key: str) -> DownloaderBase | None:
         """Get a specific downloader service by key"""
+
         for service in self.initialized_services:
             if service.key == key:
                 return service
+
         return None
 
     def select_files(
