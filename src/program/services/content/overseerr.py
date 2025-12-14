@@ -68,8 +68,6 @@ class Overseerr(Runner[OverseerrModel]):
 
             self.run_once = True
 
-        logger.debug(f"Returned {len(overseerr_items)} items from overseerr")
-
         if overseerr_items:
             overseerr_items = [
                 item
