@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from program.services.downloaders.models import (
     DebridFile,
@@ -113,12 +113,20 @@ class AllDebridMagnetStatusResponse(BaseModel):
         upload_date: int | None = Field(alias="uploadDate", default=None)
         completion_date: int | None = Field(alias="completionDate", default=None)
         files: list[AllDebridFile | AllDebridDirectory] | None = None
+        links: list[dict[str, Any]] | None = None
 
     class MagnetErrorInfo(BaseModel):
         id: str
         error: AllDebridErrorDetail
 
     magnets: list[MagnetInfo | MagnetErrorInfo]
+
+    @field_validator("magnets", mode="before")
+    @classmethod
+    def parse_magnets(cls, v: Any) -> Any:
+        if isinstance(v, dict):
+            return [v]
+        return v
 
 
 class AllDebridError(Exception):
@@ -444,7 +452,7 @@ class AllDebridDownloader(DownloaderBase):
                     AllDebridFile(
                         n=file_obj.n,
                         s=file_obj.s,
-                        l=download_link,
+                        l=file_obj.l or download_link,
                     )
                 )
 
@@ -605,6 +613,18 @@ class AllDebridDownloader(DownloaderBase):
 
                 if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
                     continue  # Skip errored magnets
+
+                if magnet.links:
+                    all_files = list[AllDebridFile]()
+                    for link_data in magnet.links:
+                        all_files.append(
+                            AllDebridFile(
+                                n=link_data.get("filename", ""),
+                                s=link_data.get("size", 0),
+                                l=link_data.get("link", ""),
+                            )
+                        )
+                    return all_files
 
                 files = magnet.files
 
