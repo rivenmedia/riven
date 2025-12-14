@@ -110,12 +110,22 @@ class OverseerrAPI:
         # Lets look at approved items only that are only in the pending state
         pending_items = response_data.results
 
+        logger.debug(
+            f"Fetched {len(pending_items)} items from Overseerr with filter={filter}"
+        )
+
         if filter_pending_items and filter == "approved":
+            logger.debug("Filtering pending items only")
+
             pending_items = [
                 item
                 for item in response_data.results
                 if item.status == 2 and item.media and item.media.status == 3
             ]
+
+            logger.debug(
+                f"{len(pending_items)} pending items after filtering approved items"
+            )
 
         media_items: list[MediaItem] = []
 
