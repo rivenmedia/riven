@@ -26,6 +26,7 @@ from program.services.downloaders.models import (
     DebridFile,
     TorrentContainer,
     TorrentInfo,
+    FilesizeLimitExceededException,
 )
 from program.services.indexers import IndexerService
 from program.services.scrapers.shared import rtn
@@ -482,16 +483,25 @@ async def start_manual_session(
 
     container = None
     used_service = None
+    filesize_error = False
 
     for service in downloader.initialized_services:
-        if container := service.get_instant_availability(
-            info_hash, item.type, limit_filesize=not disable_filesize_check
-        ):
-            if container.cached:
-                used_service = service
-                break
+        try:
+            if container := service.get_instant_availability(
+                info_hash, item.type, limit_filesize=not disable_filesize_check
+            ):
+                if container.cached:
+                    used_service = service
+                    break
+        except FilesizeLimitExceededException:
+            filesize_error = True
+            continue
 
     if not container or not container.cached:
+        if filesize_error:
+            raise HTTPException(
+                status_code=400, detail="File size above set limit"
+            )
         raise HTTPException(
             status_code=400, detail="Torrent is not cached, please try another stream"
         )

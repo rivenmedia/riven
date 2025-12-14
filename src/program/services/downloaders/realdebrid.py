@@ -13,6 +13,7 @@ from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
     DebridFile,
     InvalidDebridFileException,
+    FilesizeLimitExceededException,
     TorrentContainer,
     TorrentFile,
     TorrentInfo,
@@ -249,7 +250,8 @@ class RealDebridDownloader(DownloaderBase):
             if container is None and reason:
                 # Failed validation - delete the torrent
 
-                logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                if reason != "File size above set limit":
+                    logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 if torrent_id:
                     try:
@@ -258,6 +260,9 @@ class RealDebridDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
+                
+                if reason == "File size above set limit":
+                    raise FilesizeLimitExceededException("File size above set limit")
 
                 return None
 
@@ -292,6 +297,8 @@ class RealDebridDownloader(DownloaderBase):
                     pass
 
             return None
+        except FilesizeLimitExceededException:
+            raise
         except InvalidDebridFileException as e:
             logger.debug(
                 f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
@@ -374,6 +381,7 @@ class RealDebridDownloader(DownloaderBase):
 
         if info.status == "downloaded":
             files = list[DebridFile]()
+            filesize_limit_reached = False
 
             for file_id, meta in info.files.items():
                 if meta.selected != 1:
@@ -401,11 +409,16 @@ class RealDebridDownloader(DownloaderBase):
                         logger.warning(f"No download URL available for {meta.filename}")
 
                     files.append(df)
+                except FilesizeLimitExceededException as e:
+                    filesize_limit_reached = True
+                    logger.debug(f"{infohash}: {e}")
                 except InvalidDebridFileException as e:
                     # noisy per-file details kept at debug
                     logger.debug(f"{infohash}: {e}")
 
             if not files:
+                if filesize_limit_reached:
+                    return None, "File size above set limit", None
                 return None, "no valid files after validation", None
 
             # Return container WITH the TorrentInfo to avoid re-fetching in download phase

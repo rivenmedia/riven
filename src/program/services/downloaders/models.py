@@ -64,6 +64,10 @@ class InvalidDebridFileException(Exception):
     """Exception raised for errors creating a DebridFile"""
 
 
+class FilesizeLimitExceededException(InvalidDebridFileException):
+    """Exception raised when a file is outside the allowed size range"""
+
+
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 
@@ -100,12 +104,12 @@ class DebridFile(BaseModel):
 
             if filetype == "movie":
                 if not (MOVIE_MIN_FILESIZE <= filesize_mb <= MOVIE_MAX_FILESIZE):
-                    raise InvalidDebridFileException(
+                    raise FilesizeLimitExceededException(
                         f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {MOVIE_MIN_FILESIZE}MB to {MOVIE_MAX_FILESIZE}MB"
                     )
             elif filetype in ["show", "season", "episode"]:
                 if not (EPISODE_MIN_FILESIZE <= filesize_mb <= EPISODE_MAX_FILESIZE):
-                    raise InvalidDebridFileException(
+                    raise FilesizeLimitExceededException(
                         f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {EPISODE_MIN_FILESIZE}MB to {EPISODE_MAX_FILESIZE}MB"
                     )
 

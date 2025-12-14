@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
+    FilesizeLimitExceededException,
     TorrentContainer,
     TorrentInfo,
     UserInfo,
@@ -309,7 +310,8 @@ class AllDebridDownloader(DownloaderBase):
             )
 
             if container is None and reason:
-                logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                if reason != "File size above set limit":
+                    logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 # Failed validation - delete the torrent
                 if torrent_id:
@@ -349,6 +351,8 @@ class AllDebridDownloader(DownloaderBase):
                     pass
 
             return None
+        except FilesizeLimitExceededException:
+            raise
         except InvalidDebridFileException as e:
             logger.debug(
                 f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
@@ -464,6 +468,7 @@ class AllDebridDownloader(DownloaderBase):
         infohash: str,
         path_prefix: str = "",
         limit_filesize: bool = True,
+        errors: list[str] | None = None,
     ) -> None:
         """
         Recursively extract files from AllDebrid's nested file structure.
@@ -497,7 +502,12 @@ class AllDebridDownloader(DownloaderBase):
 
                 df.download_url = link
                 files.append(df)
-            except InvalidDebridFileException:
+            except FilesizeLimitExceededException as e:
+                logger.debug(f"Validation failed for {name}: {e}")
+                if errors is not None:
+                    errors.append("filesize_limit")
+            except InvalidDebridFileException as e:
+                logger.debug(f"Validation failed for {name}: {e}")
                 pass
 
     def add_torrent(self, infohash: str) -> int:
@@ -630,7 +640,9 @@ class AllDebridDownloader(DownloaderBase):
                 files = magnet.files
 
                 if files:
+                    filesize_limit_reached = False
                     all_files = list[AllDebridFile]()
+                    errors = []
 
                     for file_or_directory in files:
                         download_link = ""
@@ -639,12 +651,22 @@ class AllDebridDownloader(DownloaderBase):
                             download_link = file_or_directory.l
                         else:
                             # Recursively process files/folders and add download link
-                            self._add_link_to_files_recursive(
-                                file_or_directory.e, download_link, all_files
+                            self._extract_files_recursive(
+                                [file_or_directory],
+                                item_type,
+                                all_files,
+                                infohash,
+                                "",
+                                limit_filesize,
+                                errors,
                             )
+                            pass
 
                     if all_files:
                         return all_files
+                    
+                    if "filesize_limit" in errors:
+                        raise FilesizeLimitExceededException("File size above set limit")
 
                 return None
 
