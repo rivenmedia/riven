@@ -42,6 +42,26 @@ def parse_results(
     )
 
     logger.debug(f"Processing {len(results)} results for {item.log_string}")
+    
+    rtn_instance = rtn
+
+    if manual and not ranking_overrides:
+        # If manual and no overrides, use permissive settings (show everything)
+        overridden_settings = ranking_settings.model_copy(deep=True)
+
+        # Enable all resolutions
+        for res_key in overridden_settings.resolutions.model_fields:
+            if hasattr(overridden_settings.resolutions, res_key):
+                setattr(overridden_settings.resolutions, res_key, True)
+
+        # Enable all custom ranks
+        for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
+            category_settings = getattr(overridden_settings.custom_ranks, category)
+            for key in category_settings.model_fields:
+                rank_obj = getattr(category_settings, key)
+                rank_obj.fetch = True
+
+        rtn_instance = RTN(overridden_settings, ranking_model)
 
     for infohash, raw_title in results.items():
         if infohash in processed_infohashes:
@@ -49,7 +69,6 @@ def parse_results(
 
         try:
             # Use overrides if provided, otherwise use global settings
-            rtn_instance = rtn
             if ranking_overrides:
                 # Create a copy of settings with overrides
                 overridden_settings = ranking_settings.model_copy(deep=True)
@@ -68,12 +87,6 @@ def parse_results(
                         for res_key in resolutions_list:
                             if hasattr(overridden_settings.resolutions, res_key):
                                 setattr(overridden_settings.resolutions, res_key, True)
-
-                    enabled_res = [
-                        k
-                        for k, v in overridden_settings.resolutions.model_dump().items()
-                        if v is True
-                    ]
 
                 # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
                 for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
@@ -99,7 +112,7 @@ def parse_results(
 
                 rtn_instance = RTN(overridden_settings, ranking_model)
 
-            torrent = rtn.rank(
+            torrent = rtn_instance.rank(
                 raw_title=raw_title,
                 infohash=infohash,
                 correct_title=correct_title,
@@ -270,7 +283,8 @@ def parse_results(
         logger.debug(f"Found {len(torrents)} streams for {item.log_string}")
 
         sorted_torrents = sort_torrents(
-            torrents, bucket_limit=scraping_settings.bucket_limit
+            torrents,
+            bucket_limit=scraping_settings.bucket_limit if not manual else 500,
         )
 
         torrent_stream_map = {
