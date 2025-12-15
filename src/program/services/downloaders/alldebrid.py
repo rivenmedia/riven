@@ -401,12 +401,7 @@ class AllDebridDownloader(DownloaderBase):
             return None, f"Not instantly available (status={info.status})", None
 
         # Get files from the magnet/files endpoint
-        files_data = self._get_magnet_files(
-            torrent_id,
-            infohash,
-            item_type,
-            limit_filesize,
-        )
+        files_data = self._get_magnet_files(torrent_id)
 
         if not files_data:
             return None, "no files present in the torrent", None
@@ -583,9 +578,6 @@ class AllDebridDownloader(DownloaderBase):
     def _get_magnet_files(
         self,
         magnet_id: int,
-        infohash: str,
-        item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> list[AllDebridFile] | None:
         """
         Get the files and download links for a magnet.
@@ -648,33 +640,9 @@ class AllDebridDownloader(DownloaderBase):
                 files = magnet.files
 
                 if files:
-                    filesize_limit_reached = False
                     all_files = list[AllDebridFile]()
-                    errors = []
-
-                    for file_or_directory in files:
-                        download_link = ""
-
-                        if isinstance(file_or_directory, AllDebridFile):
-                            download_link = file_or_directory.l
-                        else:
-                            # Recursively process files/folders and add download link
-                            self._extract_files_recursive(
-                                [file_or_directory],
-                                item_type,
-                                all_files,
-                                infohash,
-                                "",
-                                limit_filesize,
-                                errors,
-                            )
-                            pass
-
-                    if all_files:
-                        return all_files
-                    
-                    if "filesize_limit" in errors:
-                        raise FilesizeLimitExceededException("File size above set limit")
+                    self._add_link_to_files_recursive(files, "", all_files)
+                    return all_files
 
                 return None
 
