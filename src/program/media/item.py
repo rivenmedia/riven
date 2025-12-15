@@ -798,7 +798,7 @@ class Show(MediaItem):
     seasons: Mapped[list["Season"]] = relationship(
         back_populates="parent",
         foreign_keys="Season.parent_id",
-        lazy="joined",
+        lazy="selectin",
         cascade="all, delete-orphan",
         order_by="Season.number",
     )
@@ -965,14 +965,14 @@ class Season(MediaItem):
         sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
     )
     parent: Mapped["Show"] = relationship(
-        lazy="joined",
+        lazy="selectin",
         back_populates="seasons",
         foreign_keys="Season.parent_id",
     )
     episodes: Mapped[list["Episode"]] = relationship(
         back_populates="parent",
         foreign_keys="Episode.parent_id",
-        lazy="joined",
+        lazy="selectin",
         cascade="all, delete-orphan",
         order_by="Episode.number",
     )
@@ -1146,7 +1146,7 @@ class Episode(MediaItem):
     parent: Mapped["Season"] = relationship(
         back_populates="episodes",
         foreign_keys="Episode.parent_id",
-        lazy="joined",
+        lazy="selectin",
     )
     absolute_number: Mapped[int | None]
 
