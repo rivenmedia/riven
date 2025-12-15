@@ -965,7 +965,7 @@ class Season(MediaItem):
         sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
     )
     parent: Mapped["Show"] = relationship(
-        lazy="selectin",
+        lazy="joined",
         back_populates="seasons",
         foreign_keys="Season.parent_id",
     )
@@ -1146,7 +1146,7 @@ class Episode(MediaItem):
     parent: Mapped["Season"] = relationship(
         back_populates="episodes",
         foreign_keys="Episode.parent_id",
-        lazy="selectin",
+        lazy="joined",
     )
     absolute_number: Mapped[int | None]
 
