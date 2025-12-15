@@ -108,12 +108,25 @@ def range_stream_response(
                 start_str, end_str = range_str.split("-")
                 
                 if start_str:
+                    # Normal range: bytes=start-end or bytes=start-
                     start = int(start_str)
+                    if end_str:
+                        # Clamp end to file_size - 1
+                        end = min(int(end_str), file_size - 1)
+                    else:
+                        # bytes=start- means from start to end of file
+                        end = file_size - 1
+                elif end_str:
+                    # Suffix-range: bytes=-N means last N bytes
+                    suffix_length = int(end_str)
+                    start = max(0, file_size - suffix_length)
+                    end = file_size - 1
+                else:
+                    # Both empty is invalid, fallback to full download
+                    raise ValueError("Invalid range: both start and end are empty")
                 
-                if end_str:
-                    end = int(end_str)
-                
-                if start >= file_size:
+                # Validate range boundaries
+                if start >= file_size or start > end:
                     # Requested range not satisfiable
                     return Response(
                         status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
@@ -187,5 +200,8 @@ async def stream_file(
         # Construct absolute path to the first VFS entry
         mount_path = settings_manager.settings.filesystem.mount_path
         file_path = os.path.join(mount_path, vfs_paths[0].lstrip("/"))
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
 
     return range_stream_response(file_path, request)
