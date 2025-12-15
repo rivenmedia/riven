@@ -74,10 +74,11 @@ def range_stream_response(
     """
     chunk_size = settings_manager.settings.stream.chunk_size_mb * 1024 * 1024
     file_size = os.path.getsize(path)
-    last_modified = datetime.fromtimestamp(os.path.getmtime(path)).strftime(
+    mtime = os.path.getmtime(path)
+    last_modified = datetime.fromtimestamp(mtime).strftime(
         "%a, %d %b %Y %H:%M:%S GMT"
     )
-    etag = f"{os.path.getmtime(path)}-{file_size}"
+    etag = f"{mtime}-{file_size}"
 
     # Check headers
     range_header = request.headers.get("range")
