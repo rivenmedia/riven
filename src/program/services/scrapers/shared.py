@@ -63,54 +63,55 @@ def parse_results(
 
         rtn_instance = RTN(overridden_settings, ranking_model)
 
+    # Use overrides if provided, otherwise use global settings
+    if ranking_overrides:
+        # Create a copy of settings with overrides
+        overridden_settings = ranking_settings.model_copy(deep=True)
+
+        # 1. Resolutions
+        if (
+            "resolutions" in ranking_overrides
+            and ranking_overrides["resolutions"] is not None
+        ):
+            resolutions_list = ranking_overrides["resolutions"]
+            if resolutions_list:
+                # Reset all to False
+                for res_key in overridden_settings.resolutions.model_fields:
+                    setattr(overridden_settings.resolutions, res_key, False)
+                # Enable selected
+                for res_key in resolutions_list:
+                    if hasattr(overridden_settings.resolutions, res_key):
+                        setattr(overridden_settings.resolutions, res_key, True)
+
+        # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
+        for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
+            if (
+                category in ranking_overrides
+                and ranking_overrides[category] is not None
+            ):
+                selected_keys = ranking_overrides[category]
+                if not selected_keys:
+                    continue
+
+                category_settings = getattr(
+                    overridden_settings.custom_ranks, category
+                )
+
+                for key in category_settings.model_fields:
+                    rank_obj = getattr(category_settings, key)
+                    # Set fetch to False for all
+                    rank_obj.fetch = False
+                    # If key is in selected_keys, set fetch to True
+                    if key in selected_keys:
+                        rank_obj.fetch = True
+
+        rtn_instance = RTN(overridden_settings, ranking_model)
+
     for infohash, raw_title in results.items():
         if infohash in processed_infohashes:
             continue
 
         try:
-            # Use overrides if provided, otherwise use global settings
-            if ranking_overrides:
-                # Create a copy of settings with overrides
-                overridden_settings = ranking_settings.model_copy(deep=True)
-
-                # 1. Resolutions
-                if (
-                    "resolutions" in ranking_overrides
-                    and ranking_overrides["resolutions"] is not None
-                ):
-                    resolutions_list = ranking_overrides["resolutions"]
-                    if resolutions_list:
-                        # Reset all to False
-                        for res_key in overridden_settings.resolutions.model_fields:
-                            setattr(overridden_settings.resolutions, res_key, False)
-                        # Enable selected
-                        for res_key in resolutions_list:
-                            if hasattr(overridden_settings.resolutions, res_key):
-                                setattr(overridden_settings.resolutions, res_key, True)
-
-                # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
-                for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
-                    if (
-                        category in ranking_overrides
-                        and ranking_overrides[category] is not None
-                    ):
-                        selected_keys = ranking_overrides[category]
-                        if not selected_keys:
-                            continue
-
-                        category_settings = getattr(
-                            overridden_settings.custom_ranks, category
-                        )
-
-                        for key in category_settings.model_fields:
-                            rank_obj = getattr(category_settings, key)
-                            # Set fetch to False for all
-                            rank_obj.fetch = False
-                            # If key is in selected_keys, set fetch to True
-                            if key in selected_keys:
-                                rank_obj.fetch = True
-
-                rtn_instance = RTN(overridden_settings, ranking_model)
 
             torrent = rtn_instance.rank(
                 raw_title=raw_title,
