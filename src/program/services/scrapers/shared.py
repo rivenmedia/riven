@@ -271,6 +271,10 @@ def parse_results(
                     )
                     continue
 
+
+            if not torrent.fetch:
+                continue
+
             torrents.add(torrent)
             processed_infohashes.add(infohash)
         except Exception as e:

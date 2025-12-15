@@ -1,6 +1,8 @@
+import asyncio
 from datetime import datetime, timedelta
 import concurrent.futures
-from typing import Annotated, Any, Literal, TypeAlias
+import threading
+from typing import Annotated, Any, AsyncGenerator, Literal, TypeAlias
 from uuid import uuid4
 
 from RTN import ParsedData, Torrent
@@ -12,6 +14,7 @@ from fastapi import (
     Path,
     Query,
 )
+from fastapi.responses import StreamingResponse
 from kink import di
 from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
@@ -347,7 +350,179 @@ def get_media_item(
     operation_id="scrape_item",
     response_model=ScrapeItemResponse,
 )
-def scrape_item(
+
+class ScrapeStreamEvent(BaseModel):
+    """Event model for SSE streaming scrape results."""
+    event: Literal["start", "progress", "streams", "complete", "error"]
+    service: str | None = None
+    message: str | None = None
+    streams: dict[str, Stream] | None = None
+    total_streams: int = 0
+    services_completed: int = 0
+    total_services: int = 0
+
+
+def setup_scrape_request(
+    session: Any,
+    item_id: int | None,
+    tmdb_id: str | None,
+    tvdb_id: str | None,
+    imdb_id: str | None,
+    media_type: Literal["movie", "tv"] | None,
+) -> tuple[MediaItem, list[MediaItem]]:
+    """Helper to retrieve item and scrape targets."""
+    item = get_media_item(
+        session,
+        item_id=int(item_id) if item_id else None,
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
+        imdb_id=imdb_id,
+        media_type=media_type,
+    )
+
+    targets = [item]
+
+    if isinstance(item, Show):
+        # Pre-load/assign parent to avoid lazy load in threads causing DetachedInstanceError
+        for season in item.seasons:
+            season.parent = item
+        targets.extend(item.seasons)
+        
+    return item, targets
+
+
+async def execute_scrape(
+    item: MediaItem, 
+    scraper: Any, 
+    targets: list[MediaItem]
+) -> AsyncGenerator[ScrapeStreamEvent, None]:
+    """
+    Execute scrape for multiple targets in parallel and yield events.
+    """
+    num_scrapers = len(scraper.initialized_services)
+    total_targets = len(targets)
+    total_services = num_scrapers * total_targets
+    
+    all_streams: dict[str, Stream] = {}
+    all_streams_lock = threading.Lock()
+    services_completed = 0
+    services_completed_lock = threading.Lock()
+    
+    # Send start event
+    yield ScrapeStreamEvent(
+        event="start",
+        message=f"Starting scrape for {item.log_string}",
+        total_services=total_services,
+    )
+    
+    event_queue: asyncio.Queue[ScrapeStreamEvent | None] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    
+    def process_target(target: MediaItem):
+        nonlocal services_completed
+        target_name = getattr(target, "log_string", str(target))
+        
+        try:
+            for service_name, parsed_streams in scraper.scrape_streaming(target, manual=True):
+                current_streams = {}
+                
+                with all_streams_lock:
+                    # Update global streams
+                    for infohash, stream in parsed_streams.items():
+                        if infohash not in all_streams:
+                            s = Stream(
+                                infohash=stream.infohash,
+                                raw_title=stream.raw_title,
+                                parsed_title=stream.parsed_title,
+                                parsed_data=stream.parsed_data,
+                                rank=stream.rank,
+                                lev_ratio=stream.lev_ratio,
+                                resolution=stream.resolution,
+                            )
+                            all_streams[infohash] = s
+                            current_streams[infohash] = s
+                            
+                    total_count = len(all_streams)
+                    
+                with services_completed_lock:
+                    services_completed += 1
+                    current_completed = services_completed
+                
+                # Create event
+                if current_streams:
+                    event = ScrapeStreamEvent(
+                        event="streams",
+                        service=service_name,
+                        message=f"{service_name} found {len(current_streams)} new streams for {target_name}",
+                        streams=current_streams,
+                        total_streams=total_count,
+                        services_completed=current_completed,
+                        total_services=total_services,
+                    )
+                else:
+                    event = ScrapeStreamEvent(
+                        event="progress",
+                        service=service_name,
+                        message=f"{service_name} completed for {target_name}",
+                        total_streams=total_count,
+                        services_completed=current_completed,
+                        total_services=total_services,
+                    )
+                    
+                asyncio.run_coroutine_threadsafe(event_queue.put(event), loop)
+                
+        except Exception as e:
+            logger.error(f"Error scraping {target_name}: {e}")
+            error_event = ScrapeStreamEvent(
+                event="error",
+                message=f"Error scraping {target_name}: {str(e)}",
+                services_completed=services_completed,
+                total_services=total_services,
+            )
+            asyncio.run_coroutine_threadsafe(event_queue.put(error_event), loop)
+
+    def run_all_targets():
+        # Limit concurrency for targets to avoid exploding threads (max 10 targets in parallel)
+        max_workers = min(len(targets), 10)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="ScrapeTarget_") as executor:
+            futures = [executor.submit(process_target, target) for target in targets]
+            concurrent.futures.wait(futures)
+            
+        # Signal completion
+        asyncio.run_coroutine_threadsafe(event_queue.put(None), loop)
+
+    # Start scraping in background thread
+    wrapper_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="ScrapeCoordinator_")
+    wrapper_executor.submit(run_all_targets)
+    
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(event_queue.get(), timeout=30.0)
+                if event is None:
+                    break
+                yield event
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        wrapper_executor.shutdown(wait=False)
+        
+    # Send final complete event
+    yield ScrapeStreamEvent(
+        event="complete",
+        message=f"Scraping complete. Found {len(all_streams)} total streams.",
+        streams=all_streams,
+        total_streams=len(all_streams),
+        services_completed=services_completed,
+        total_services=total_services,
+    )
+
+
+@router.post(
+    "/scrape",
+    response_model=ScrapeItemResponse,
+)
+async def scrape_item(
     item_id: Annotated[
         int | None,
         Query(description="The ID of the media item"),
@@ -372,63 +547,81 @@ def scrape_item(
     """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
     if services := di[Program].services:
-        indexer = services.indexer
         scraper = services.scraping
     else:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
-    log_string = None
-    item = None
-    indexer_result = None
-
     with db_session() as session:
-        item = get_media_item(
-            session,
-            item_id=int(item_id) if item_id else None,
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-            imdb_id=imdb_id,
-            media_type=media_type,
+        item, targets = setup_scrape_request(
+            session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
         )
-
-        streams = {}
-        targets = [item]
-
-        if isinstance(item, Show):
-            # Pre-load/assign parent to avoid lazy load in threads causing DetachedInstanceError
-            for season in item.seasons:
-                season.parent = item
-            targets.extend(item.seasons)
-
-        max_workers = min(len(targets), 10)  # Limit concurrency to 10 threads
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_target = {
-                executor.submit(scraper.scrape, target, manual=True): target 
-                for target in targets
-            }
-            
-            for future in concurrent.futures.as_completed(future_to_target):
-                result = future.result()
-                streams.update(result)
-
-        log_string = item.log_string
+        all_streams = {}
+        async for event in execute_scrape(item, scraper, targets):
+            if event.streams:
+                all_streams.update(event.streams)
 
         return ScrapeItemResponse(
-            message=f"Manually scraped streams for item {log_string}",
-            streams={
-                stream.infohash: Stream(
-                    infohash=stream.infohash,
-                    raw_title=stream.raw_title,
-                    parsed_title=stream.parsed_title,
-                    parsed_data=stream.parsed_data,
-                    rank=stream.rank,
-                    lev_ratio=stream.lev_ratio,
-                    resolution=stream.resolution,
-                )
-                for stream in streams.values()
-            },
+            message=f"Manually scraped streams for item {item.log_string}",
+            streams=all_streams,
         )
+
+
+
+
+
+@router.get(
+    "/scrape_stream",
+    summary="Stream scraping results via SSE",
+    operation_id="scrape_item_stream",
+)
+async def scrape_item_stream(
+    item_id: Annotated[
+        int | None,
+        Query(description="The ID of the media item"),
+    ] = None,
+    tmdb_id: Annotated[
+        str | None,
+        Query(description="The TMDB ID of the media item"),
+    ] = None,
+    tvdb_id: Annotated[
+        str | None,
+        Query(description="The TVDB ID of the media item"),
+    ] = None,
+    imdb_id: Annotated[
+        str | None,
+        Query(description="The IMDB ID of the media item"),
+    ] = None,
+    media_type: Annotated[
+        Literal["movie", "tv"] | None,
+        Query(description="The media type"),
+    ] = None,
+) -> StreamingResponse:
+    """Stream scraping results via SSE."""
+    
+    if services := di[Program].services:
+        scraper = services.scraping
+    else:
+        raise HTTPException(status_code=412, detail="Scraping services not initialized")
+
+    async def sse_generator():
+        with db_session() as session:
+            item, targets = setup_scrape_request(
+                session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
+            )
+            
+            async for event in execute_scrape(item, scraper, targets):
+                yield f"data: {event.model_dump_json()}\n\n"
+                
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post(
