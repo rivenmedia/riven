@@ -401,7 +401,12 @@ class AllDebridDownloader(DownloaderBase):
             return None, f"Not instantly available (status={info.status})", None
 
         # Get files from the magnet/files endpoint
-        files_data = self._get_magnet_files(torrent_id)
+        files_data = self._get_magnet_files(
+            torrent_id,
+            infohash,
+            item_type,
+            limit_filesize,
+        )
 
         if not files_data:
             return None, "no files present in the torrent", None
@@ -578,6 +583,9 @@ class AllDebridDownloader(DownloaderBase):
     def _get_magnet_files(
         self,
         magnet_id: int,
+        infohash: str,
+        item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> list[AllDebridFile] | None:
         """
         Get the files and download links for a magnet.
