@@ -634,16 +634,14 @@ class AllDebridDownloader(DownloaderBase):
                     continue  # Skip errored magnets
 
                 if magnet.links:
-                    all_files = list[AllDebridFile]()
-                    for link_data in magnet.links:
-                        all_files.append(
-                            AllDebridFile(
-                                n=link_data.get("filename", ""),
-                                s=link_data.get("size", 0),
-                                l=link_data.get("link", ""),
-                            )
+                    return [
+                        AllDebridFile(
+                            n=link_data.get("filename", ""),
+                            s=link_data.get("size", 0),
+                            l=link_data.get("link", ""),
                         )
-                    return all_files
+                        for link_data in magnet.links
+                    ]
 
                 files = magnet.files
 
