@@ -209,7 +209,7 @@ async def stream_file(
             raise HTTPException(status_code=404, detail="Item not found")
             
         if not item.media_entry:
-             raise HTTPException(status_code=404, detail="Item has no media file")
+            raise HTTPException(status_code=404, detail="Item has no media file")
 
         # Get VFS paths
         vfs_paths = item.media_entry.get_all_vfs_paths()
