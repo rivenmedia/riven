@@ -393,7 +393,10 @@ def setup_scrape_request(
 
 
 async def execute_scrape(
-    item: MediaItem, scraper: Any, targets: list[MediaItem]
+    item: MediaItem,
+    scraper: Any,
+    targets: list[MediaItem],
+    ranking_overrides: RankingOverrides | None = None,
 ) -> AsyncGenerator[ScrapeStreamEvent, None]:
     """
     Execute scrape for multiple targets in parallel and yield events.
@@ -423,7 +426,7 @@ async def execute_scrape(
 
         try:
             for service_name, parsed_streams in scraper.scrape_streaming(
-                target, manual=True
+                target, ranking_overrides=ranking_overrides, manual=True
             ):
                 current_streams = dict[str, Stream]()
 
@@ -620,6 +623,48 @@ async def scrape_item_stream(
             )
 
             async for event in execute_scrape(item, scraper, targets):
+                yield f"data: {event.model_dump_json()}\n\n"
+
+    return StreamingResponse(
+        sse_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post(
+    "/scrape_stream/auto",
+    summary="Stream auto scraping results via SSE",
+    operation_id="auto_scrape_item_stream",
+)
+async def auto_scrape_item_stream(
+    body: Annotated[AutoScrapeRequestPayload, Body()],
+) -> StreamingResponse:
+    """Stream auto scraping results via SSE."""
+
+    if services := di[Program].services:
+        scraper = services.scraping
+    else:
+        raise HTTPException(status_code=412, detail="Scraping services not initialized")
+
+    async def sse_generator():
+        with db_session() as session:
+            item, targets = setup_scrape_request(
+                session,
+                body.item_id,
+                body.tmdb_id,
+                body.tvdb_id,
+                body.imdb_id,
+                body.media_type,
+            )
+
+            async for event in execute_scrape(
+                item, scraper, targets, ranking_overrides=body.ranking_overrides
+            ):
                 yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(
@@ -1439,3 +1484,4 @@ async def auto_scrape_item(
             return MessageResponse(
                 message="Auto scrape completed. No new streams found."
             )
+
