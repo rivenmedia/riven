@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, TypeAlias
 from uuid import uuid4
 
-from RTN import ParsedData
+from RTN import ParsedData, Torrent
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -66,10 +66,7 @@ class SelectFilesResponse(MessageResponse):
     download_type: Literal["cached", "uncached"]
 
 
-ContainerMap: TypeAlias = dict[str, DebridFile]
-
-
-class Container(RootModel[ContainerMap]):
+class Container(RootModel[dict[str, DebridFile]]):
     """
     Root model for container mapping file IDs to file information.
     
@@ -86,13 +83,10 @@ class Container(RootModel[ContainerMap]):
     }
     """
 
-    root: ContainerMap
+    root: dict[str, DebridFile]
 
 
-SeasonEpisodeMap: TypeAlias = dict[int, dict[int, DebridFile]]
-
-
-class ShowFileData(RootModel[SeasonEpisodeMap]):
+class ShowFileData(RootModel[dict[int, dict[int, DebridFile]]]):
     """
     Root model for show file data that maps seasons to episodes to file data.
 
@@ -108,7 +102,7 @@ class ShowFileData(RootModel[SeasonEpisodeMap]):
     }
     """
 
-    root: SeasonEpisodeMap
+    root: dict[int, dict[int, DebridFile]]
 
 
 class ScrapingSession:
@@ -668,121 +662,15 @@ async def manual_update_attributes(
         item_ids_to_submit = set[int]()
         updated_episode_ids = set[int]()
 
-        def update_item(item: MediaItem, data: DebridFile):
-            """
-            Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
-
-            Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
-
-            Parameters:
-                item (MediaItem): The media item to update; will be merged into the active DB session as needed.
-                data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
-            """
-
-            di[Program].em.cancel_job(item.id)
-
-            if item.last_state == States.Paused:
-                item.last_state = States.Unknown
-
-            item.reset()
-
-            # Ensure a staging MediaEntry exists and is linked
-            from program.media.media_entry import MediaEntry
-
-            fs_entry = None
-
-            if item.media_entry and data.filename:
-                fs_entry = item.media_entry
-                # Update source metadata on existing entry
-                fs_entry.original_filename = data.filename
-            else:
-                service_instance = None
-                if services := di[Program].services:
-                    downloader = services.downloader
-                    service_instance = (
-                        downloader.get_service(scraping_session.service)
-                        if scraping_session.service
-                        else None
-                    )
-
-                # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                provider = service_instance.key if service_instance else None
-
-                # Get torrent ID from scraping session
-                torrent_id = (
-                    scraping_session.torrent_info.id
-                    if scraping_session.torrent_info
-                    else None
-                )
-
-                download_url = data.download_url
-
-                # If download_url is missing, try to refresh torrent info to get it
-                if not download_url and torrent_id and service_instance:
-                    try:
-                        logger.debug(
-                            f"Refreshing torrent info for {torrent_id} to resolve download_url"
-                        )
-                        fresh_info = service_instance.get_torrent_info(torrent_id)
-
-                        # Find matching file
-                        for file in fresh_info.files.values():
-                            if file.filename == data.filename:
-                                if file.download_url:
-                                    download_url = file.download_url
-                                    logger.debug(
-                                        f"Resolved download_url for {data.filename}: {download_url}"
-                                    )
-                                break
-                    except Exception as e:
-                        logger.warning(f"Failed to refresh torrent info: {e}")
-
-                # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-                fs_entry = MediaEntry.create_placeholder_entry(
-                    original_filename=data.filename,
-                    download_url=download_url,
-                    provider=provider,
-                    provider_download_id=str(torrent_id) if torrent_id else None,
-                    file_size=data.filesize,
-                )
-
-                session.add(fs_entry)
-                session.commit()
-                session.refresh(fs_entry)
-
-            # Link MediaItem to FilesystemEntry
-            # Clear existing entries and add the new one
-            item.filesystem_entries.clear()
-            item.filesystem_entries.append(fs_entry)
-            item = session.merge(item)
-
-            assert scraping_session
-            assert scraping_session.magnet
-            assert scraping_session.torrent_info
-
-            item.active_stream = ActiveStream(
-                infohash=scraping_session.magnet,
-                id=scraping_session.torrent_info.id,
-            )
-
-            torrent = rtn.rank(
-                scraping_session.torrent_info.name,
-                scraping_session.magnet,
-            )
-
-            # Ensure the item is properly attached to the session before adding streams
-            # This prevents SQLAlchemy warnings about detached objects
-            if object_session(item) is not session:
-                item = session.merge(item)
-
-            item.streams.append(ItemStream(torrent=torrent))
-            item_ids_to_submit.add(item.id)
-
-            if isinstance(item, Episode):
-                updated_episode_ids.add(item.id)
-
         if isinstance(data, DebridFile):
-            update_item(item, data)
+            _update_item_fs_entry(
+                session,
+                updated_episode_ids,
+                item_ids_to_submit,
+                scraping_session,
+                item,
+                data,
+            )
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
@@ -791,7 +679,14 @@ async def manual_update_attributes(
                         if episode := show.get_absolute_episode(
                             episode_number, season_number
                         ):
-                            update_item(episode, episode_data)
+                            _update_item_fs_entry(
+                                session,
+                                updated_episode_ids,
+                                item_ids_to_submit,
+                                scraping_session,
+                                episode,
+                                episode_data,
+                            )
                         else:
                             logger.error(
                                 f"Failed to find episode {episode_number} in season {season_number} for {item.log_string}"
@@ -801,7 +696,14 @@ async def manual_update_attributes(
                             season_number == item.parent.number
                             and episode_number == item.number
                         ):
-                            update_item(item, episode_data)
+                             _update_item_fs_entry(
+                                session,
+                                updated_episode_ids,
+                                item_ids_to_submit,
+                                scraping_session,
+                                item,
+                                episode_data,
+                            )
 
         # Set unselected episodes to paused
         if isinstance(item, Show):
@@ -871,6 +773,127 @@ async def manual_update_attributes(
                 di[Program].em.add_event(Event("ManualAPI", item_id))
 
         return MessageResponse(message=f"Updated given data to {log_string}")
+
+
+def _update_item_fs_entry(
+    session,
+    updated_episode_ids: set[int],
+    item_ids_to_submit: set[int],
+    scraping_session: ScrapingSession,
+    item: MediaItem,
+    data: DebridFile,
+):
+    """
+    Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
+
+    Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
+
+    Parameters:
+        item (MediaItem): The media item to update; will be merged into the active DB session as needed.
+        data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
+    """
+
+    di[Program].em.cancel_job(item.id)
+
+    if item.last_state == States.Paused:
+        item.last_state = States.Unknown
+
+    item.reset()
+
+    # Ensure a staging MediaEntry exists and is linked
+    from program.media.media_entry import MediaEntry
+
+    fs_entry = None
+
+    if item.media_entry and data.filename:
+        fs_entry = item.media_entry
+        # Update source metadata on existing entry
+        fs_entry.original_filename = data.filename
+    else:
+        service_instance = None
+        if services := di[Program].services:
+            downloader = services.downloader
+            service_instance = (
+                downloader.get_service(scraping_session.service)
+                if scraping_session.service
+                else None
+            )
+
+        # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+        provider = service_instance.key if service_instance else None
+
+        # Get torrent ID from scraping session
+        torrent_id = (
+            scraping_session.torrent_info.id
+            if scraping_session.torrent_info
+            else None
+        )
+
+        download_url = data.download_url
+
+        # If download_url is missing, try to refresh torrent info to get it
+        if not download_url and torrent_id and service_instance:
+            try:
+                logger.debug(
+                    f"Refreshing torrent info for {torrent_id} to resolve download_url"
+                )
+                fresh_info = service_instance.get_torrent_info(torrent_id)
+
+                # Find matching file
+                for file in fresh_info.files.values():
+                    if file.filename == data.filename:
+                        if file.download_url:
+                            download_url = file.download_url
+                            logger.debug(
+                                f"Resolved download_url for {data.filename}: {download_url}"
+                            )
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to refresh torrent info: {e}")
+
+        # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
+        fs_entry = MediaEntry.create_placeholder_entry(
+            original_filename=data.filename,
+            download_url=download_url,
+            provider=provider,
+            provider_download_id=str(torrent_id) if torrent_id else None,
+            file_size=data.filesize,
+        )
+
+        session.add(fs_entry)
+        session.commit()
+        session.refresh(fs_entry)
+
+    # Link MediaItem to FilesystemEntry
+    # Clear existing entries and add the new one
+    item.filesystem_entries.clear()
+    item.filesystem_entries.append(fs_entry)
+    item = session.merge(item)
+
+    assert scraping_session
+    assert scraping_session.magnet
+    assert scraping_session.torrent_info
+
+    item.active_stream = ActiveStream(
+        infohash=scraping_session.magnet,
+        id=scraping_session.torrent_info.id,
+    )
+
+    torrent = rtn.rank(
+        scraping_session.torrent_info.name,
+        scraping_session.magnet,
+    )
+
+    # Ensure the item is properly attached to the session before adding streams
+    # This prevents SQLAlchemy warnings about detached objects
+    if object_session(item) is not session:
+        item = session.merge(item)
+
+    item.streams.append(ItemStream(torrent=torrent))
+    item_ids_to_submit.add(item.id)
+
+    if isinstance(item, Episode):
+        updated_episode_ids.add(item.id)
 
 
 @router.post(
@@ -1110,11 +1133,26 @@ async def auto_scrape_item(
         )
 
         # Filter out existing or blacklisted streams
-        new_streams = [
-            stream
-            for stream in streams.values()
-            if stream not in item.streams and stream not in item.blacklisted_streams
-        ]
+        existing_infohashes = {s.infohash for s in item.streams}
+        blacklisted_infohashes = {s.infohash for s in item.blacklisted_streams}
+
+        new_streams = list[ItemStream]()
+
+        for stream in streams.values():
+            if (
+                stream.infohash not in existing_infohashes
+                and stream.infohash not in blacklisted_infohashes
+            ):
+                # Convert Pydantic Stream to RTN.Torrent to create ItemStream
+                torrent_data = Torrent(
+                    raw_title=stream.raw_title,
+                    infohash=stream.infohash,
+                    data=stream.parsed_data,
+                    fetch=True,
+                    rank=stream.rank,
+                    lev_ratio=stream.lev_ratio,
+                )
+                new_streams.append(ItemStream(torrent=torrent_data))
 
         if new_streams:
             item.streams.extend(new_streams)
