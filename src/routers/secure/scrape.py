@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import concurrent.futures
 from typing import Annotated, Any, Literal, TypeAlias
 from uuid import uuid4
 
@@ -390,7 +391,27 @@ def scrape_item(
             media_type=media_type,
         )
 
-        streams = scraper.scrape(item, manual=True)
+        streams = {}
+        targets = [item]
+
+        if isinstance(item, Show):
+            # Pre-load/assign parent to avoid lazy load in threads causing DetachedInstanceError
+            for season in item.seasons:
+                season.parent = item
+            targets.extend(item.seasons)
+
+        max_workers = min(len(targets), 10)  # Limit concurrency to 10 threads
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_target = {
+                executor.submit(scraper.scrape, target, manual=True): target 
+                for target in targets
+            }
+            
+            for future in concurrent.futures.as_completed(future_to_target):
+                result = future.result()
+                streams.update(result)
+
         log_string = item.log_string
 
         return ScrapeItemResponse(
