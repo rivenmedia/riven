@@ -80,7 +80,7 @@ def range_stream_response(
     except (OSError, IOError):
         raise HTTPException(status_code=503, detail="VFS temporarily unavailable")
     
-    last_modified = datetime.fromtimestamp(mtime).strftime(
+    last_modified = datetime.utcfromtimestamp(mtime).strftime(
         "%a, %d %b %Y %H:%M:%S GMT"
     )
     etag = f"{mtime}-{file_size}"
