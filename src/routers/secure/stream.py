@@ -73,8 +73,13 @@ def range_stream_response(
     Returns a StreamingResponse that supports HTTP Range requests for a given file path.
     """
     chunk_size = settings_manager.settings.stream.chunk_size_mb * 1024 * 1024
-    file_size = os.path.getsize(path)
-    mtime = os.path.getmtime(path)
+
+    try:
+        file_size = os.path.getsize(path)
+        mtime = os.path.getmtime(path)
+    except (OSError, IOError):
+        raise HTTPException(status_code=503, detail="VFS temporarily unavailable")
+    
     last_modified = datetime.fromtimestamp(mtime).strftime(
         "%a, %d %b %Y %H:%M:%S GMT"
     )
@@ -127,7 +132,7 @@ def range_stream_response(
                     raise ValueError("Invalid range: both start and end are empty")
                 
                 # Validate range boundaries
-                if start >= file_size or start > end:
+                if start < 0 or start >= file_size or start > end:
                     # Requested range not satisfiable
                     return Response(
                         status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
@@ -145,20 +150,34 @@ def range_stream_response(
         headers["content-length"] = str(file_size)
 
     def file_iterator(file_path: str, offset: int, length: int) -> typing.Generator[bytes, None, None]:
+        f = None
         try:
-            with open(file_path, "rb") as f:
-                f.seek(offset)
-                remaining = length
-                while remaining > 0:
-                    read_size = min(chunk_size, remaining)
-                    data = f.read(read_size)
-                    if not data:
-                        break
-                    yield data
-                    remaining -= len(data)
-        except OSError:
-            # Handle case where VFS is unmounted during shutdown
-            return
+            f = open(file_path, "rb")
+            f.seek(offset)
+            remaining = length
+            while remaining > 0:
+                read_size = min(chunk_size, remaining)
+                data = f.read(read_size)
+                if not data:
+                    break
+                yield data
+                remaining -= len(data)
+        except GeneratorExit:
+            # Client disconnected - ensure clean shutdown
+            pass
+        except (OSError, IOError):
+            # Handle VFS errors, unmount during shutdown, etc.
+            pass
+        except Exception:
+            # Catch any unexpected errors to prevent VFS corruption
+            pass
+        finally:
+            # Always close the file handle to prevent VFS deadlocks
+            if f is not None:
+                try:
+                    f.close()
+                except Exception:
+                    pass
 
     return StreamingResponse(
         file_iterator(path, start, end - start + 1),
@@ -202,7 +221,11 @@ async def stream_file(
         mount_path = settings_manager.settings.filesystem.mount_path
         file_path = os.path.join(mount_path, vfs_paths[0].lstrip("/"))
 
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Media file not found on disk")
+    # Check file existence with VFS error protection
+    try:
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="Media file not found on disk")
+    except (OSError, IOError):
+        raise HTTPException(status_code=503, detail="VFS temporarily unavailable")
 
     return range_stream_response(file_path, request)
