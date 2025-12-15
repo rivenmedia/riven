@@ -322,6 +322,9 @@ class AllDebridDownloader(DownloaderBase):
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
 
+                if reason == "File size above set limit":
+                    raise FilesizeLimitExceededException("File size above set limit")
+
                 return None
 
             # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
@@ -408,6 +411,8 @@ class AllDebridDownloader(DownloaderBase):
 
         files = list[DebridFile]()
 
+        errors = list[str]()
+
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
         self._extract_files_recursive(
@@ -417,9 +422,12 @@ class AllDebridDownloader(DownloaderBase):
             infohash,
             "",
             limit_filesize,
+            errors,
         )
 
         if not files:
+            if "filesize_limit" in errors:
+                return None, "File size above set limit", None
             return None, "no valid files after validation", None
 
         # Return container WITH the TorrentInfo to avoid re-fetching in download phase
