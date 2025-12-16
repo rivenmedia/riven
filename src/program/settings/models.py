@@ -76,7 +76,7 @@ class DownloadersModel(Observable):
         description="list of video file extensions to consider for downloads",
     )
     movie_bitrate_mbps_min: float = Field(
-        default=0.6, ge=0, description="Minimum bitrate in Mbps for movies"
+        default=4, ge=1, description="Minimum bitrate in Mbps for movies"
     )
     movie_bitrate_mbps_max: float = Field(
         default=-1,
@@ -84,7 +84,7 @@ class DownloadersModel(Observable):
         description="Maximum bitrate in Mbps for movies (-1 for no limit)",
     )
     episode_bitrate_mbps_min: float = Field(
-        default=0.6, ge=0, description="Minimum bitrate in Mbps for episodes"
+        default=4, ge=1, description="Minimum bitrate in Mbps for episodes"
     )
     episode_bitrate_mbps_max: float = Field(
         default=-1,
