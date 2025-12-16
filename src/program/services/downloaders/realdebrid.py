@@ -13,7 +13,7 @@ from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
     TorrentContainer,
     TorrentFile,
     TorrentInfo,
@@ -27,7 +27,7 @@ from program.services.streaming.exceptions.debrid_service_exception import (
 )
 from program.media.item import ProcessedItemType
 
-from .shared import DownloaderBase, premium_days_left
+from .shared import DownloaderBase, parse_filename, premium_days_left
 
 
 class RealDebridErrorCode(IntEnum):
@@ -226,11 +226,15 @@ class RealDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
+        duration: int | None = None,
     ) -> TorrentContainer | None:
         """
-        Attempt a quick availability check by adding the torrent, selecting video files (if required),
-        and returning a TorrentContainer when the status is 'downloaded'.
+        Attempt a quick availability check by adding the torrent to the seedbox
+        and checking if it's instantly available (already cached).
+
+        Real-Debrid's actual instant availability endpoint is unreliable for exact file matching,
+        so we add the torrent (which is quick/instant if cached) and check the status.
         """
 
         container: TorrentContainer | None = None
@@ -238,21 +242,19 @@ class RealDebridDownloader(DownloaderBase):
 
         try:
             torrent_id = self.add_torrent(infohash)
-
-            # 2. Process the torrent to get files and status
             container, reason, info = self._process_torrent(
                 torrent_id,
                 infohash,
                 item_type,
-                limit_filesize,
+                limit_bitrate,
+                duration,
             )
 
             if container is None and reason:
-                # Failed validation - delete the torrent
-
-                if reason != "File size above set limit":
+                if reason != "Bitrate above set limit":
                     logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
+                # Failed validation - delete the torrent
                 if torrent_id:
                     try:
                         self.delete_torrent(torrent_id)
@@ -260,14 +262,13 @@ class RealDebridDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
-                
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
+
+                if reason == "Bitrate above set limit":
+                    raise BitrateLimitExceededException("Bitrate above set limit")
 
                 return None
 
             # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
-            # This eliminates 2 API calls per stream (add_torrent + get_torrent_info in download phase)
             if container:
                 container.torrent_id = torrent_id
                 container.torrent_info = info
@@ -297,7 +298,7 @@ class RealDebridDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
+        except BitrateLimitExceededException:
             raise
         except InvalidDebridFileException as e:
             logger.debug(
@@ -339,7 +340,8 @@ class RealDebridDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
+        duration: int | None = None,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -353,75 +355,67 @@ class RealDebridDownloader(DownloaderBase):
         if not info:
             return None, "no torrent info returned by Real-Debrid", None
 
+        if info.status == "waiting_files_selection":
+            # If waiting for selection, we select all files to verify cache status
+            try:
+                self.select_files(torrent_id, None)  # None selects all
+                info = self.get_torrent_info(torrent_id)  # Refresh info
+                
+                if not info:
+                    return None, "no torrent info returned after selection", None
+            except Exception as e:
+                return None, f"Failed to select files: {e}", None
+
         if not info.files:
             return None, "no files present in the torrent", None
 
-        if info.status == "waiting_files_selection":
-            video_exts = tuple(ext.lower() for ext in VALID_VIDEO_EXTENSIONS)
-            video_ids = list[int](
-                [
-                    file_id
-                    for file_id, meta in info.files.items()
-                    if meta.filename.lower().endswith(video_exts)
-                ]
-            )
-
-            if not video_ids:
-                return None, "no video files found to select", None
-
-            # Select only video files
-            self.select_files(torrent_id, video_ids)
-
-            # Refresh info - REQUIRED to verify torrent is actually downloaded after selection
-            # Real-Debrid may still be processing, so we need to check the actual status
-            info = self.get_torrent_info(torrent_id)
-
-            if not info:
-                return None, "failed to refresh torrent info after selection", None
-
-        if info.status == "downloaded":
+        # Status "downloaded" means completed/cached
+        # Also check if downloadPercent == 100
+        if info.status == "downloaded" or (info.progress and info.progress >= 100):
             files = list[DebridFile]()
-            filesize_limit_reached = False
+            bitrate_limit_reached = False
 
-            for file_id, meta in info.files.items():
-                if meta.selected != 1:
-                    continue
+            for file in info.files.values():
+                # Real-Debrid selected (active) files have selected=1
+                if file.selected:
+                    try:
+                        # Handle double/multi-episodes for bitrate calculation
+                        effective_duration = duration
+                        if duration and duration > 0:
+                            try:
+                                # Extract filename from path for parsing
+                                current_filename = file.path.split("/")[-1]
+                                parsed = parse_filename(current_filename)
+                                if parsed.episodes and len(parsed.episodes) > 1:
+                                    logger.debug(
+                                        f"Detected {len(parsed.episodes)} episodes in {current_filename}, adjusting duration ({duration} -> {duration * len(parsed.episodes)})"
+                                    )
+                                    effective_duration = duration * len(parsed.episodes)
+                            except Exception:
+                                pass
 
-                try:
-                    df = DebridFile.create(
-                        path=meta.path,
-                        filename=meta.filename,
-                        filesize_bytes=meta.bytes,
-                        filetype=item_type,
-                        file_id=file_id,
-                        limit_filesize=limit_filesize,
-                    )
-
-                    # Download URL is already available from get_torrent_info()
-                    if (
-                        download_url := meta.download_url
-                    ):  # Empty string is falsy, so this works
-                        df.download_url = download_url
-                        logger.debug(
-                            f"Using correlated download URL for {meta.filename}"
+                        df = DebridFile.create(
+                            path=file.path,
+                            filename=file.path,  # Real-Debrid uses path as filename usually
+                            filesize_bytes=file.bytes,
+                            filetype=item_type,
+                            file_id=file.id,
+                            limit_bitrate=limit_bitrate,
+                            duration=effective_duration,
                         )
-                    else:
-                        logger.warning(f"No download URL available for {meta.filename}")
-
-                    files.append(df)
-                except FilesizeLimitExceededException as e:
-                    filesize_limit_reached = True
-                    logger.debug(f"{infohash}: {e}")
-                except InvalidDebridFileException as e:
-                    # noisy per-file details kept at debug
-                    logger.debug(f"{infohash}: {e}")
+                        files.append(df)
+                    except BitrateLimitExceededException as e:
+                        bitrate_limit_reached = True
+                        logger.debug(f"{infohash}: {e}")
+                    except InvalidDebridFileException as e:
+                        logger.debug(f"{infohash}: {e}")
 
             if not files:
-                if filesize_limit_reached:
-                    return None, "File size above set limit", None
+                if bitrate_limit_reached:
+                    return None, "Bitrate above set limit", None
                 return None, "no valid files after validation", None
 
-            # Return container WITH the TorrentInfo to avoid re-fetching in download phase
+            # Return container WITH the TorrentInfo to avoid re-fetching during download
             return TorrentContainer(infohash=infohash, files=files), None, info
 
         if info.status in ("downloading", "queued"):

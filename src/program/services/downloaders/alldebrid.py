@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
     TorrentContainer,
     TorrentInfo,
     UserInfo,
@@ -19,7 +19,7 @@ from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 from program.media.item import ProcessedItemType
 
-from .shared import DownloaderBase, premium_days_left
+from .shared import DownloaderBase, parse_filename, premium_days_left
 
 
 class AllDebridFile(BaseModel):
@@ -288,7 +288,8 @@ class AllDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
+        duration: int | None = None,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -298,42 +299,51 @@ class AllDebridDownloader(DownloaderBase):
         so we add the magnet and check its status.
         """
 
+        container: TorrentContainer | None = None
         torrent_id: int | None = None
 
         try:
+            # AllDebrid requires uploading the magnet to get an ID first (mostly)
+            # The /magnet/upload endpoint checks for instant availability too
             torrent_id = self.add_torrent(infohash)
+
             container, reason, info = self._process_torrent(
                 torrent_id,
                 infohash,
                 item_type,
-                limit_filesize,
+                limit_bitrate,
+                duration,
             )
 
             if container is None and reason:
-                if reason != "File size above set limit":
-                    logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                # If reason is Bitrate above set limit, we raise it to propagate to caller
+                # Other reasons are logged as debug
+                if reason == "Bitrate above set limit":
+                    # Cleanup before raising
+                    if torrent_id:
+                        try:
+                            self.delete_torrent(torrent_id)
+                        except Exception:
+                            pass
+                    raise BitrateLimitExceededException(reason)
+                
+                logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 # Failed validation - delete the torrent
                 if torrent_id:
                     try:
                         self.delete_torrent(torrent_id)
-                    except Exception as e:
-                        logger.debug(
-                            f"Failed to delete failed torrent {torrent_id}: {e}"
-                        )
-
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
+                    except Exception:
+                        pass
 
                 return None
 
-            # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
+            # Success - cache torrent_id AND info in container
             if container:
                 container.torrent_id = torrent_id
                 container.torrent_info = info
 
             return container
-
         except CircuitBreakerOpen:
             logger.debug(f"Circuit breaker OPEN for AllDebrid; skipping {infohash}")
 
@@ -354,7 +364,7 @@ class AllDebridDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
+        except BitrateLimitExceededException:
             raise
         except InvalidDebridFileException as e:
             logger.debug(
@@ -384,7 +394,8 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
+        duration: int | None = None,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -421,13 +432,14 @@ class AllDebridDownloader(DownloaderBase):
             files,
             infohash,
             "",
-            limit_filesize,
+            limit_bitrate,
+            duration,
             errors,
         )
 
         if not files:
-            if "filesize_limit" in errors:
-                return None, "File size above set limit", None
+            if "bitrate_limit" in errors:
+                return None, "Bitrate above set limit", None
             return None, "no valid files after validation", None
 
         # Return container WITH the TorrentInfo to avoid re-fetching in download phase
@@ -475,7 +487,8 @@ class AllDebridDownloader(DownloaderBase):
         files: list[DebridFile],
         infohash: str,
         path_prefix: str = "",
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
+        duration: int | None = None,
         errors: list[str] | None = None,
     ) -> None:
         """
@@ -492,30 +505,62 @@ class AllDebridDownloader(DownloaderBase):
             name = file_entry.n
             current_path = f"{path_prefix}/{name}" if path_prefix else name
 
+            # If it has entries ('e'), it's a directory
+            if hasattr(file_entry, "e") and file_entry.e:
+                self._extract_files_recursive(
+                    file_entry.e,
+                    item_type,
+                    files,
+                    infohash,
+                    current_path,
+                    limit_bitrate,
+                    duration,
+                    errors,
+                )
+                continue
+
             link = file_entry.l
             size = file_entry.s
 
-            if not link:
+            if not link or not size:
                 continue
 
+
             try:
+                # Handle double/multi-episodes for bitrate calculation
+                effective_duration = duration
+                if duration and duration > 0:
+                    try:
+                        # Extract filename from path for parsing
+                        # current_path might contain directories, so we use 'name' which is the filename
+                        current_filename = name
+                        parsed = parse_filename(current_filename)
+                        if parsed.episodes and len(parsed.episodes) > 1:
+                            logger.debug(
+                                f"Detected {len(parsed.episodes)} episodes in {current_filename}, adjusting duration ({duration} -> {duration * len(parsed.episodes)})"
+                            )
+                            effective_duration = duration * len(parsed.episodes)
+                    except Exception:
+                        pass
+
                 df = DebridFile.create(
                     path=current_path,
                     filename=name,
                     filesize_bytes=size,
                     filetype=item_type,
                     file_id=None,
-                    limit_filesize=limit_filesize,
+                    limit_bitrate=limit_bitrate,
+                    duration=effective_duration,
                 )
 
                 df.download_url = link
                 files.append(df)
-            except FilesizeLimitExceededException as e:
-                logger.debug(f"Validation failed for {name}: {e}")
+            except BitrateLimitExceededException as e:
                 if errors is not None:
-                    errors.append("filesize_limit")
+                    errors.append("bitrate_limit")
+                logger.debug(f"{infohash}: {e}")
             except InvalidDebridFileException as e:
-                logger.debug(f"Validation failed for {name}: {e}")
+                logger.debug(f"{infohash}: {e}")
                 pass
 
     def add_torrent(self, infohash: str) -> int:

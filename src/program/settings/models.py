@@ -75,21 +75,21 @@ class DownloadersModel(Observable):
         default_factory=lambda: list[str](["mp4", "mkv", "avi"]),
         description="list of video file extensions to consider for downloads",
     )
-    movie_filesize_mb_min: int = Field(
-        default=700, ge=1, description="Minimum file size in MB for movies"
+    movie_bitrate_mbps_min: float = Field(
+        default=0.6, ge=0, description="Minimum bitrate in Mbps for movies"
     )
-    movie_filesize_mb_max: int = Field(
+    movie_bitrate_mbps_max: float = Field(
         default=-1,
         ge=-1,
-        description="Maximum file size in MB for movies (-1 for no limit)",
+        description="Maximum bitrate in Mbps for movies (-1 for no limit)",
     )
-    episode_filesize_mb_min: int = Field(
-        default=100, ge=1, description="Minimum file size in MB for episodes"
+    episode_bitrate_mbps_min: float = Field(
+        default=0.6, ge=0, description="Minimum bitrate in Mbps for episodes"
     )
-    episode_filesize_mb_max: int = Field(
+    episode_bitrate_mbps_max: float = Field(
         default=-1,
         ge=-1,
-        description="Maximum file size in MB for episodes (-1 for no limit)",
+        description="Maximum bitrate in Mbps for episodes (-1 for no limit)",
     )
     proxy_url: EmptyOrUrl = Field(
         default="", description="Proxy URL for downloaders (optional)"

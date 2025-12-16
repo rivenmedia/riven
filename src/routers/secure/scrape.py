@@ -30,7 +30,7 @@ from program.services.downloaders.models import (
     DebridFile,
     TorrentContainer,
     TorrentInfo,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
 )
 from program.services.indexers import IndexerService
 from program.services.scrapers.shared import rtn
@@ -653,9 +653,9 @@ async def start_manual_session(
         Literal["movie", "tv"] | None,
         Query(description="The media type"),
     ] = None,
-    disable_filesize_check: Annotated[
+    disable_bitrate_check: Annotated[
         bool,
-        Query(description="Disable filesize check"),
+        Query(description="Disable bitrate check"),
     ] = False,
 ) -> StartSessionResponse:
     scraping_session_manager.cleanup_expired(background_tasks)
@@ -696,19 +696,19 @@ async def start_manual_session(
     for service in downloader.initialized_services:
         try:
             if container := service.get_instant_availability(
-                info_hash, item.type, limit_filesize=not disable_filesize_check
+                info_hash, item.type, limit_bitrate=not disable_bitrate_check
             ):
                 if container.cached:
                     used_service = service
                     break
-        except FilesizeLimitExceededException:
+        except BitrateLimitExceededException:
             filesize_error = True
             continue
 
     if not container or not container.cached:
         if filesize_error:
             raise HTTPException(
-                status_code=400, detail="File size above set limit"
+                status_code=400, detail="Bitrate above set limit"
             )
         raise HTTPException(
             status_code=400, detail="Torrent is not cached, please try another stream"
@@ -910,14 +910,24 @@ async def manual_update_attributes(
                             season_number == item.parent.number
                             and episode_number == item.number
                         ):
-                             _update_item_fs_entry(
-                                session,
-                                updated_episode_ids,
-                                item_ids_to_submit,
-                                scraping_session,
-                                item,
-                                episode_data,
-                            )
+                            try:
+                                _update_item_fs_entry(
+                                    session,
+                                    updated_episode_ids,
+                                    item_ids_to_submit,
+                                    scraping_session,
+                                    item,
+                                    episode_data,
+                                )
+                            except BitrateLimitExceededException:
+                                logger.debug(f"Bitrate above set limit for {item.log_string}")
+                                session.dispatch(
+                                    ScrapeEvent(
+                                        "warning",
+                                        f"Bitrate above set limit for {item.log_string}",
+                                    )
+                                )
+                                return None
 
         # Set unselected episodes to paused
         if isinstance(item, Show):

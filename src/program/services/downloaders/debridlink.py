@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
     TorrentContainer,
     TorrentFile,
     TorrentInfo,
@@ -21,7 +21,7 @@ from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
 from program.media.item import ProcessedItemType
 
-from .shared import DownloaderBase, premium_days_left
+from .shared import DownloaderBase, parse_filename, premium_days_left
 
 
 class DebridLinkErrorResponse(BaseModel):
@@ -234,7 +234,8 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
+        duration: int | None = None,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
@@ -253,34 +254,39 @@ class DebridLinkDownloader(DownloaderBase):
                 torrent_id,
                 infohash,
                 item_type,
-                limit_filesize,
+                limit_bitrate,
+                duration,
             )
 
             if container is None and reason:
-                if reason != "File size above set limit":
-                    logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                # If reason is Bitrate above set limit, we raise it to propagate to caller
+                # Other reasons are logged as debug
+                if reason == "Bitrate above set limit":
+                    # Cleanup before raising
+                    if torrent_id:
+                        try:
+                            self.delete_torrent(torrent_id)
+                        except Exception:
+                            pass
+                    raise BitrateLimitExceededException(reason)
+                
+                logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 # Failed validation - delete the torrent
                 if torrent_id:
                     try:
                         self.delete_torrent(torrent_id)
-                    except Exception as e:
-                        logger.debug(
-                            f"Failed to delete failed torrent {torrent_id}: {e}"
-                        )
-
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
+                    except Exception:
+                        pass
 
                 return None
 
-            # Success - cache torrent_id AND info in container to avoid re-adding/re-fetching during download
+            # Success - cache torrent_id AND info in container
             if container:
                 container.torrent_id = torrent_id
                 container.torrent_info = info
 
             return container
-
         except CircuitBreakerOpen:
             logger.debug(f"Circuit breaker OPEN for Debrid-Link; skipping {infohash}")
 
@@ -301,7 +307,7 @@ class DebridLinkDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
+        except BitrateLimitExceededException:
             raise
         except InvalidDebridFileException as e:
             logger.debug(
@@ -331,7 +337,8 @@ class DebridLinkDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
+        duration: int | None = None,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -352,18 +359,34 @@ class DebridLinkDownloader(DownloaderBase):
         # Also check if downloadPercent == 100
         if info.status == "downloaded" or (info.progress and info.progress >= 100):
             files = list[DebridFile]()
-            filesize_limit_reached = False
+            bitrate_limit_reached = False
 
             for file_id, file in info.files.items():
                 # Debrid-Link doesn't have a "selected" field, all files are available
                 try:
+                    # Handle double/multi-episodes for bitrate calculation
+                    effective_duration = duration
+                    if duration and duration > 0:
+                        try:
+                            # Extract filename from path for parsing
+                            current_filename = file.path.split("/")[-1]
+                            parsed = parse_filename(current_filename)
+                            if parsed.episodes and len(parsed.episodes) > 1:
+                                logger.debug(
+                                    f"Detected {len(parsed.episodes)} episodes in {current_filename}, adjusting duration ({duration} -> {duration * len(parsed.episodes)})"
+                                )
+                                effective_duration = duration * len(parsed.episodes)
+                        except Exception:
+                            pass
+
                     df = DebridFile.create(
                         path=file.path,
                         filename=file.filename,
                         filesize_bytes=file.bytes,
                         filetype=item_type,
                         file_id=file_id,
-                        limit_filesize=limit_filesize,
+                        limit_bitrate=limit_bitrate,
+                        duration=effective_duration,
                     )
 
                     # Store download URL if available
@@ -377,15 +400,15 @@ class DebridLinkDownloader(DownloaderBase):
                         )
 
                     files.append(df)
-                except FilesizeLimitExceededException as e:
-                    filesize_limit_reached = True
+                except BitrateLimitExceededException as e:
+                    bitrate_limit_reached = True
                     logger.debug(f"{infohash}: {e}")
                 except InvalidDebridFileException as e:
                     logger.debug(f"{infohash}: {e}")
 
             if not files:
-                if filesize_limit_reached:
-                    return None, "File size above set limit", None
+                if bitrate_limit_reached:
+                    return None, "Bitrate above set limit", None
                 return None, "no valid files after validation", None
 
             # Return container WITH the TorrentInfo to avoid re-fetching in download phase

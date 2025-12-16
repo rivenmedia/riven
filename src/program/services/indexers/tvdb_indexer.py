@@ -595,6 +595,7 @@ class TVDBIndexer(BaseIndexer):
             episode.aired_at = aired_at
             episode.year = year
             episode.absolute_number = episode_data.absolute_number
+            episode.runtime = episode_data.runtime
 
             # Note: is_anime and other attributes are inherited from show via __getattribute__
 
@@ -638,6 +639,7 @@ class TVDBIndexer(BaseIndexer):
                     "is_anime": season.is_anime,
                     "requested_at": datetime.now(),
                     "absolute_number": episode_data.absolute_number,
+                    "runtime": episode_data.runtime,
                 }
             )
 

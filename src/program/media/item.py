@@ -110,6 +110,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
 
     ## US content rating (G, PG, PG-13, R, NC-17, TV-Y, TV-PG, TV-14, TV-MA, etc.)
     content_rating: Mapped[str | None]
+    runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, nullable=True)
 
     updated: Mapped[bool | None] = mapped_column(sqlalchemy.Boolean, default=False)
     guid: Mapped[str | None]
@@ -187,6 +188,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.is_anime = item.get("is_anime", False)
         self.rating = item.get("rating")
         self.content_rating = item.get("content_rating")
+        self.runtime = item.get("runtime")
 
         # Media server related
         self.updated = item.get("updated", False)
@@ -463,6 +465,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             "guid": self.guid,
             "rating": self.rating,
             "content_rating": self.content_rating,
+            "runtime": self.runtime,
             "requested_at": str(self.requested_at),
             "requested_by": self.requested_by,
             "scraped_at": str(self.scraped_at),

@@ -302,9 +302,13 @@ class Downloader(Runner[None, DownloaderBase]):
 
             return None
 
-        container = service.get_instant_availability(stream.infohash, item.type)
-
-        if not container:
+        # Get duration in seconds (runtime is in minutes)
+        duration = (item.runtime * 60) if item.runtime else None
+        try:
+            container = service.get_instant_availability(
+                stream.infohash, item.type, duration=duration
+            )
+        except NotCachedException:
             logger.debug(
                 f"Stream {stream.infohash} is not cached or valid on {service.key}."
             )
@@ -639,7 +643,7 @@ class Downloader(Runner[None, DownloaderBase]):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        limit_bitrate: bool = True,
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
@@ -655,7 +659,7 @@ class Downloader(Runner[None, DownloaderBase]):
         return self.service.get_instant_availability(
             infohash,
             item_type,
-            limit_filesize,
+            limit_bitrate,
         )
 
     def add_torrent(self, infohash: str) -> int | str:
