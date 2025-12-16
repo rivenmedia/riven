@@ -55,6 +55,19 @@ class Stream(BaseModel):
     resolution: str | None = None
 
 
+
+class ScrapeStreamEvent(BaseModel):
+    """Event model for SSE streaming scrape results."""
+
+    event: Literal["start", "progress", "streams", "complete", "error"]
+    service: str | None = None
+    message: str | None = None
+    streams: dict[str, Stream] | None = None
+    total_streams: int = 0
+    services_completed: int = 0
+    total_services: int = 0
+
+
 class ScrapeItemResponse(MessageResponse):
     streams: dict[str, Stream]
 
@@ -344,22 +357,6 @@ def get_media_item(
     raise HTTPException(status_code=404, detail="Item not found")
 
 
-@router.get(
-    "/scrape",
-    summary="Get streams for an item",
-    operation_id="scrape_item",
-    response_model=ScrapeItemResponse,
-)
-class ScrapeStreamEvent(BaseModel):
-    """Event model for SSE streaming scrape results."""
-
-    event: Literal["start", "progress", "streams", "complete", "error"]
-    service: str | None = None
-    message: str | None = None
-    streams: dict[str, Stream] | None = None
-    total_streams: int = 0
-    services_completed: int = 0
-    total_services: int = 0
 
 
 def setup_scrape_request(
@@ -522,6 +519,12 @@ async def execute_scrape(
     )
 
 
+@router.get(
+    "/scrape",
+    summary="Get streams for an item",
+    operation_id="scrape_item",
+    response_model=ScrapeItemResponse,
+)
 @router.post(
     "/scrape",
     response_model=ScrapeItemResponse,
@@ -1421,3 +1424,4 @@ async def auto_scrape_item(
             return MessageResponse(
                 message="Auto scrape completed. No new streams found."
             )
+
