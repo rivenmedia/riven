@@ -214,12 +214,14 @@ class Downloader(Runner[None, DownloaderBase]):
                                 logger.debug(
                                     f"Media analysis completed for {item.log_string}"
                                 )
+                                yield RunnerResult(media_items=[item])
                                 break
                             else:
                                 logger.error(
                                     f"Failed to analyze media file for {item.log_string}"
                                 )
                     else:
+                        yield RunnerResult(media_items=[item])
                         break
 
                 # Only blacklist if stream genuinely failed on ALL available services
@@ -593,7 +595,6 @@ class Downloader(Runner[None, DownloaderBase]):
                 id=download_result.info.id,
             )
 
-        # Create MediaEntry for virtual file if download URL is available
         if debrid_file.download_url:
             from program.services.library_profile_matcher import LibraryProfileMatcher
 

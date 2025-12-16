@@ -403,6 +403,12 @@ class RealDebridDownloader(DownloaderBase):
                             limit_bitrate=limit_bitrate,
                             duration=effective_duration,
                         )
+                        
+                        # Populate download_url if available
+                        if hasattr(file, "download_url") and file.download_url:
+                            df.download_url = file.download_url
+                            logger.debug(f"Using correlated download URL for {file.path}")
+                        
                         files.append(df)
                     except BitrateLimitExceededException as e:
                         bitrate_limit_reached = True
