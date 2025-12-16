@@ -3,11 +3,13 @@ import logging
 import mimetypes
 import os
 import typing
+import httpx
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Path, Request, Response, status, HTTPException
 from fastapi.responses import StreamingResponse
+from kink import di
 from loguru import logger
 from pydantic import BaseModel
 
@@ -15,6 +17,9 @@ from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.settings import settings_manager
+from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
+from program.utils.async_client import AsyncClient
+from program.utils.proxy_client import ProxyClient
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
@@ -65,126 +70,6 @@ async def stream_events(
         media_type="text/event-stream",
     )
 
-def range_stream_response(
-    path: str,
-    request: Request,
-) -> StreamingResponse:
-    """
-    Returns a StreamingResponse that supports HTTP Range requests for a given file path.
-    """
-    chunk_size = settings_manager.settings.stream.chunk_size_mb * 1024 * 1024
-
-    try:
-        file_size = os.path.getsize(path)
-        mtime = os.path.getmtime(path)
-    except (OSError, IOError):
-        raise HTTPException(status_code=503, detail="VFS temporarily unavailable")
-    
-    last_modified = datetime.utcfromtimestamp(mtime).strftime(
-        "%a, %d %b %Y %H:%M:%S GMT"
-    )
-    etag = f"{mtime}-{file_size}"
-
-    # Check headers
-    range_header = request.headers.get("range")
-
-    # Get filename from path
-    filename = os.path.basename(path)
-
-    headers = {
-        "content-type": mimetypes.guess_type(path)[0] or "application/octet-stream",
-        "content-disposition": f'inline; filename="{filename}"',
-        "accept-ranges": "bytes",
-        "connection": "keep-alive",
-        "last-modified": last_modified,
-        "etag": etag,
-        "cache-control": "no-cache",
-    }
-
-    start = 0
-    end = file_size - 1
-    status_code = status.HTTP_200_OK
-
-    if range_header:
-        try:
-            # Parse Range header: bytes=start-end
-            unit, ranges = range_header.split("=")
-            if unit.strip().lower() == "bytes":
-                range_str = ranges.split(",")[0].strip()
-                start_str, end_str = range_str.split("-")
-                
-                if start_str:
-                    # Normal range: bytes=start-end or bytes=start-
-                    start = int(start_str)
-                    if end_str:
-                        # Clamp end to file_size - 1
-                        end = min(int(end_str), file_size - 1)
-                    else:
-                        # bytes=start- means from start to end of file
-                        end = file_size - 1
-                elif end_str:
-                    # Suffix-range: bytes=-N means last N bytes
-                    suffix_length = int(end_str)
-                    start = max(0, file_size - suffix_length)
-                    end = file_size - 1
-                else:
-                    # Both empty is invalid, fallback to full download
-                    raise ValueError("Invalid range: both start and end are empty")
-                
-                # Validate range boundaries
-                if start < 0 or start >= file_size or start > end:
-                    # Requested range not satisfiable
-                    return Response(
-                        status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
-                        headers={"content-range": f"bytes */{file_size}"},
-                    )
-                
-                status_code = status.HTTP_206_PARTIAL_CONTENT
-                headers["content-range"] = f"bytes {start}-{end}/{file_size}"
-                headers["content-length"] = str(end - start + 1)
-        except ValueError:
-            # Invalid range header, fallback to full download
-            pass
-
-    if status_code == status.HTTP_200_OK:
-        headers["content-length"] = str(file_size)
-
-    def file_iterator(file_path: str, offset: int, length: int) -> typing.Generator[bytes, None, None]:
-        f = None
-        try:
-            f = open(file_path, "rb")
-            f.seek(offset)
-            remaining = length
-            while remaining > 0:
-                read_size = min(chunk_size, remaining)
-                data = f.read(read_size)
-                if not data:
-                    break
-                yield data
-                remaining -= len(data)
-        except GeneratorExit:
-            # Client disconnected - ensure clean shutdown
-            pass
-        except (OSError, IOError):
-            # Handle VFS errors, unmount during shutdown, etc.
-            pass
-        except Exception:
-            # Catch any unexpected errors to prevent VFS corruption
-            pass
-        finally:
-            # Always close the file handle to prevent VFS deadlocks
-            if f is not None:
-                try:
-                    f.close()
-                except Exception:
-                    pass
-
-    return StreamingResponse(
-        file_iterator(path, start, end - start + 1),
-        status_code=status_code,
-        headers=headers,
-    )
-
 
 @router.get("/file/{item_id}")
 async def stream_file(
@@ -192,7 +77,7 @@ async def stream_file(
     request: Request,
 ) -> StreamingResponse:
     """
-    Stream a file directly from the VFS.
+    Stream a file directly from the provider.
     
     Args:
         item_id: The ID of the MediaItem to stream.
@@ -202,7 +87,6 @@ async def stream_file(
         A StreamingResponse for the file content.
     """
     with db_session() as session:
-        # Fetch the item
         item = session.get(MediaItem, item_id)
         
         if not item:
@@ -211,21 +95,76 @@ async def stream_file(
         if not item.media_entry:
             raise HTTPException(status_code=404, detail="Item has no media file")
 
-        # Get VFS paths
-        vfs_paths = item.media_entry.get_all_vfs_paths()
+        url = item.media_entry.url
         
-        if not vfs_paths:
-            raise HTTPException(status_code=404, detail="Item not found in VFS")
-            
-        # Construct absolute path to the first VFS entry
-        mount_path = settings_manager.settings.filesystem.mount_path
-        file_path = os.path.join(mount_path, vfs_paths[0].lstrip("/"))
+        if not url:
+            raise HTTPException(status_code=404, detail="Item has no valid stream URL")
 
-    # Check file existence with VFS error protection
+        provider = item.media_entry.provider
+        filename = item.media_entry.original_filename
+
+    use_proxy = (
+        provider in PROXY_REQUIRED_PROVIDERS
+        and settings_manager.settings.downloaders.proxy_url
+    )
+
+    if use_proxy:
+        client = di[ProxyClient]
+    else:
+        client = di[AsyncClient]
+
     try:
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="Media file not found on disk")
-    except (OSError, IOError):
-        raise HTTPException(status_code=503, detail="VFS temporarily unavailable")
+        forward_headers = {}
+        if "range" in request.headers:
+            forward_headers["Range"] = request.headers["range"]
 
-    return range_stream_response(file_path, request)
+        req = client.build_request("GET", url, headers=forward_headers)
+        
+        try:
+            upstream_response = await client.send(req, stream=True)
+        except Exception as e:
+            logger.error(f"Failed to connect to upstream: {e}")
+            raise HTTPException(status_code=502, detail="Upstream connection failed")
+
+        if upstream_response.status_code >= 400:
+            try:
+                content = await upstream_response.aread()
+                logger.error(f"Upstream returned error {upstream_response.status_code}: {content}")
+            except Exception:
+                pass
+            
+            await upstream_response.aclose()
+            
+            raise HTTPException(
+                status_code=upstream_response.status_code, 
+                detail=f"Upstream error: {upstream_response.status_code}"
+            )
+
+        response_headers = {}
+        for key in ["content-type", "content-length", "content-range", "accept-ranges"]:
+            if key in upstream_response.headers:
+                response_headers[key] = upstream_response.headers[key]
+        
+        response_headers["content-disposition"] = f'inline; filename="{filename}"'
+
+        async def stream_iterator():
+            try:
+                async for chunk in upstream_response.aiter_bytes():
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error during streaming: {e}")
+            finally:
+                await upstream_response.aclose()
+
+        return StreamingResponse(
+            stream_iterator(),
+            status_code=upstream_response.status_code,
+            headers=response_headers,
+            media_type=response_headers.get("content-type"),
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Unexpected error in stream_file: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
