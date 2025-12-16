@@ -288,7 +288,6 @@ async def get_items(
 
     with db_session() as session:
 
-
         if count_only:
             items = []
         else:

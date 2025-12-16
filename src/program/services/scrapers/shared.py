@@ -42,7 +42,7 @@ def parse_results(
     )
 
     logger.debug(f"Processing {len(results)} results for {item.log_string}")
-    
+
     rtn_instance = rtn
 
     if manual and not ranking_overrides:
@@ -93,9 +93,7 @@ def parse_results(
                 if not selected_keys:
                     continue
 
-                category_settings = getattr(
-                    overridden_settings.custom_ranks, category
-                )
+                category_settings = getattr(overridden_settings.custom_ranks, category)
 
                 for key in category_settings.model_fields:
                     rank_obj = getattr(category_settings, key)
@@ -271,7 +269,6 @@ def parse_results(
                         f"Skipping non-dubbed anime torrent for {item.log_string}: {raw_title}"
                     )
                     continue
-
 
             if not torrent.fetch:
                 continue

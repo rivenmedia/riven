@@ -260,7 +260,7 @@ class RealDebridDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
-                
+
                 if reason == "File size above set limit":
                     raise FilesizeLimitExceededException("File size above set limit")
 

@@ -109,9 +109,9 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         manual: bool = False,
     ) -> dict[str, Stream]:
         """Scrape an item."""
-        
+
         all_streams = {}
-        
+
         # Consume the streaming generator to get all results
         for _, streams in self.scrape_streaming(item, ranking_overrides, manual):
             all_streams.update(streams)
@@ -142,15 +142,17 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     ) -> Generator[tuple[str, dict[str, Stream]], None, None]:
         """
         Scrape an item and yield results incrementally as each scraper finishes.
-        
+
         Yields:
             Tuples of (service_name, parsed_streams_dict) as each service completes.
         """
         results_queue: Queue[tuple[str, dict[str, str]]] = Queue()
         all_raw_results = dict[str, str]()
         results_lock = threading.RLock()
-        
-        def run_service_streaming(svc: "ScraperService[Observable]", item: MediaItem) -> None:
+
+        def run_service_streaming(
+            svc: "ScraperService[Observable]", item: MediaItem
+        ) -> None:
             """Run a single service and put results in the queue."""
             try:
                 service_results = svc.run(item)
@@ -171,22 +173,22 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                 executor.submit(run_service_streaming, service, item): service.key
                 for service in self.initialized_services
             }
-            
+
             services_completed = 0
             total_services = len(futures)
-            
+
             # Yield results as they complete
             while services_completed < total_services:
                 try:
                     # Wait for next result with timeout
                     service_name, raw_results = results_queue.get(timeout=60.0)
                     services_completed += 1
-                    
+
                     if raw_results:
                         # Merge into all results for proper ranking
                         with results_lock:
                             all_raw_results.update(raw_results)
-                        
+
                         # Parse and rank only the new streams
                         parsed_streams = parse_results(
                             item,
@@ -195,12 +197,12 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                             ranking_overrides=ranking_overrides,
                             manual=manual,
                         )
-                        
+
                         yield (service_name, parsed_streams)
                     else:
                         # Still yield empty to signal progress
                         yield (service_name, {})
-                        
+
                 except Empty:
                     logger.warning("Timeout waiting for scraper results")
                     break

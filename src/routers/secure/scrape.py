@@ -73,7 +73,7 @@ class SelectFilesResponse(MessageResponse):
 class Container(RootModel[dict[str, DebridFile]]):
     """
     Root model for container mapping file IDs to file information.
-    
+
     Example:
     {
         "4": {
@@ -242,7 +242,6 @@ scraping_session_manager = ScrapingSessionManager()
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
 
-
 def initialize_downloader(downloader: Downloader):
     """Initialize downloader if not already set"""
 
@@ -260,12 +259,12 @@ def get_media_item(
 ) -> MediaItem:
     """
     Get or create a MediaItem based on provided IDs.
-    
+
     Tries to fetch authentication item by item_id, then by external IDs.
     If not found, tries to fetch from indexer and create/merge into DB.
     """
     item = None
-    
+
     # 1. Try by internal ID
     if item_id:
         item = db_functions.get_item_by_id(int(item_id), session=session)
@@ -317,12 +316,12 @@ def get_media_item(
                 "requested_at": datetime.now(),
             }
         )
-    
+
     if prepared_item:
         if result := next(indexer.run(prepared_item), None):
             if result.media_items:
                 indexed = result.media_items[0]
-                
+
                 # Check directly if item exists in DB by external IDs to avoid unique constraint error
                 try:
                     existing = db_functions.get_item_by_external_id(
@@ -350,9 +349,9 @@ def get_media_item(
     operation_id="scrape_item",
     response_model=ScrapeItemResponse,
 )
-
 class ScrapeStreamEvent(BaseModel):
     """Event model for SSE streaming scrape results."""
+
     event: Literal["start", "progress", "streams", "complete", "error"]
     service: str | None = None
     message: str | None = None
@@ -387,14 +386,12 @@ def setup_scrape_request(
         for season in item.seasons:
             season.parent = item
         targets.extend(item.seasons)
-        
+
     return item, targets
 
 
 async def execute_scrape(
-    item: MediaItem, 
-    scraper: Any, 
-    targets: list[MediaItem]
+    item: MediaItem, scraper: Any, targets: list[MediaItem]
 ) -> AsyncGenerator[ScrapeStreamEvent, None]:
     """
     Execute scrape for multiple targets in parallel and yield events.
@@ -402,30 +399,32 @@ async def execute_scrape(
     num_scrapers = len(scraper.initialized_services)
     total_targets = len(targets)
     total_services = num_scrapers * total_targets
-    
+
     all_streams: dict[str, Stream] = {}
     all_streams_lock = threading.Lock()
     services_completed = 0
     services_completed_lock = threading.Lock()
-    
+
     # Send start event
     yield ScrapeStreamEvent(
         event="start",
         message=f"Starting scrape for {item.log_string}",
         total_services=total_services,
     )
-    
+
     event_queue: asyncio.Queue[ScrapeStreamEvent | None] = asyncio.Queue()
     loop = asyncio.get_running_loop()
-    
+
     def process_target(target: MediaItem):
         nonlocal services_completed
         target_name = getattr(target, "log_string", str(target))
-        
+
         try:
-            for service_name, parsed_streams in scraper.scrape_streaming(target, manual=True):
+            for service_name, parsed_streams in scraper.scrape_streaming(
+                target, manual=True
+            ):
                 current_streams = {}
-                
+
                 with all_streams_lock:
                     # Update global streams
                     for infohash, stream in parsed_streams.items():
@@ -441,13 +440,13 @@ async def execute_scrape(
                             )
                             all_streams[infohash] = s
                             current_streams[infohash] = s
-                            
+
                     total_count = len(all_streams)
-                    
+
                 with services_completed_lock:
                     services_completed += 1
                     current_completed = services_completed
-                
+
                 # Create event
                 if current_streams:
                     event = ScrapeStreamEvent(
@@ -468,9 +467,9 @@ async def execute_scrape(
                         services_completed=current_completed,
                         total_services=total_services,
                     )
-                    
+
                 asyncio.run_coroutine_threadsafe(event_queue.put(event), loop)
-                
+
         except Exception as e:
             logger.error(f"Error scraping {target_name}: {e}")
             error_event = ScrapeStreamEvent(
@@ -484,17 +483,21 @@ async def execute_scrape(
     def run_all_targets():
         # Limit concurrency for targets to avoid exploding threads (max 10 targets in parallel)
         max_workers = min(len(targets), 10)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="ScrapeTarget_") as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="ScrapeTarget_"
+        ) as executor:
             futures = [executor.submit(process_target, target) for target in targets]
             concurrent.futures.wait(futures)
-            
+
         # Signal completion
         asyncio.run_coroutine_threadsafe(event_queue.put(None), loop)
 
     # Start scraping in background thread
-    wrapper_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="ScrapeCoordinator_")
+    wrapper_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="ScrapeCoordinator_"
+    )
     wrapper_executor.submit(run_all_targets)
-    
+
     try:
         while True:
             try:
@@ -506,7 +509,7 @@ async def execute_scrape(
                 pass
     finally:
         wrapper_executor.shutdown(wait=False)
-        
+
     # Send final complete event
     yield ScrapeStreamEvent(
         event="complete",
@@ -555,7 +558,7 @@ async def scrape_item(
         item, targets = setup_scrape_request(
             session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
         )
-        
+
         all_streams = {}
         async for event in execute_scrape(item, scraper, targets):
             if event.streams:
@@ -565,9 +568,6 @@ async def scrape_item(
             message=f"Manually scraped streams for item {item.log_string}",
             streams=all_streams,
         )
-
-
-
 
 
 @router.get(
@@ -598,7 +598,7 @@ async def scrape_item_stream(
     ] = None,
 ) -> StreamingResponse:
     """Stream scraping results via SSE."""
-    
+
     if services := di[Program].services:
         scraper = services.scraping
     else:
@@ -609,10 +609,10 @@ async def scrape_item_stream(
             item, targets = setup_scrape_request(
                 session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
             )
-            
+
             async for event in execute_scrape(item, scraper, targets):
                 yield f"data: {event.model_dump_json()}\n\n"
-                
+
     return StreamingResponse(
         sse_generator(),
         media_type="text/event-stream",
@@ -707,9 +707,7 @@ async def start_manual_session(
 
     if not container or not container.cached:
         if filesize_error:
-            raise HTTPException(
-                status_code=400, detail="File size above set limit"
-            )
+            raise HTTPException(status_code=400, detail="File size above set limit")
         raise HTTPException(
             status_code=400, detail="Torrent is not cached, please try another stream"
         )
@@ -910,7 +908,7 @@ async def manual_update_attributes(
                             season_number == item.parent.number
                             and episode_number == item.number
                         ):
-                             _update_item_fs_entry(
+                            _update_item_fs_entry(
                                 session,
                                 updated_episode_ids,
                                 item_ids_to_submit,
@@ -960,7 +958,6 @@ async def manual_update_attributes(
                     logger.debug(
                         f"Paused episode {episode.log_string} (ID: {episode.id})"
                     )
-
 
         item.store_state()
 
@@ -1038,9 +1035,7 @@ def _update_item_fs_entry(
 
         # Get torrent ID from scraping session
         torrent_id = (
-            scraping_session.torrent_info.id
-            if scraping_session.torrent_info
-            else None
+            scraping_session.torrent_info.id if scraping_session.torrent_info else None
         )
 
         download_url = data.download_url
