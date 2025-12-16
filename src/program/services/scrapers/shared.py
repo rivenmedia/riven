@@ -10,11 +10,14 @@ from RTN import (
     BaseRankingModel,
     DefaultRanking,
 )
+from RTN.models import ResolutionConfig, CustomRanksConfig, CustomRank
+from pydantic import BaseModel
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
 from program.settings import settings_manager
 from program.settings.models import RTNSettingsModel, ScraperModel
+from program.services.scrapers.models import RankingOverrides
 
 scraping_settings: ScraperModel = settings_manager.settings.scraping
 ranking_settings: RTNSettingsModel = settings_manager.settings.ranking
@@ -26,7 +29,7 @@ def parse_results(
     item: MediaItem,
     results: dict[str, str],
     log_msg: bool = True,
-    ranking_overrides: dict[str, list[str]] | None = None,
+    ranking_overrides: RankingOverrides | None = None,
     manual: bool = False,
 ) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects."""
@@ -50,14 +53,17 @@ def parse_results(
         overridden_settings = ranking_settings.model_copy(deep=True)
 
         # Enable all resolutions
-        for res_key in overridden_settings.resolutions.model_fields:
+        for res_key in ResolutionConfig.model_fields:
             if hasattr(overridden_settings.resolutions, res_key):
                 setattr(overridden_settings.resolutions, res_key, True)
 
         # Enable all custom ranks
-        for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
-            category_settings = getattr(overridden_settings.custom_ranks, category)
-            for key in category_settings.model_fields:
+        for category in CustomRanksConfig.model_fields:
+            category_settings: BaseModel = getattr(
+                overridden_settings.custom_ranks, category
+            )
+
+            for key in category_settings.__class__.model_fields:
                 rank_obj = getattr(category_settings, key)
                 rank_obj.fetch = True
 
@@ -69,39 +75,28 @@ def parse_results(
         overridden_settings = ranking_settings.model_copy(deep=True)
 
         # 1. Resolutions
-        if (
-            "resolutions" in ranking_overrides
-            and ranking_overrides["resolutions"] is not None
-        ):
-            resolutions_list = ranking_overrides["resolutions"]
-            if resolutions_list:
-                # Reset all to False
-                for res_key in overridden_settings.resolutions.model_fields:
-                    setattr(overridden_settings.resolutions, res_key, False)
-                # Enable selected
-                for res_key in resolutions_list:
-                    if hasattr(overridden_settings.resolutions, res_key):
-                        setattr(overridden_settings.resolutions, res_key, True)
+        if resolutions_list := ranking_overrides.resolutions:
+            # Reset all to False
+            for res_key in ResolutionConfig.model_fields:
+                setattr(overridden_settings.resolutions, res_key, False)
+
+            # Enable selected
+            for res_key in resolutions_list:
+                if hasattr(overridden_settings.resolutions, res_key):
+                    setattr(overridden_settings.resolutions, res_key, True)
 
         # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
-        for category in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
-            if (
-                category in ranking_overrides
-                and ranking_overrides[category] is not None
-            ):
-                selected_keys = ranking_overrides[category]
-                if not selected_keys:
-                    continue
+        for category in CustomRanksConfig.model_fields:
+            if selected_keys := getattr(ranking_overrides, category):
+                category_settings: BaseModel = getattr(
+                    overridden_settings.custom_ranks, category
+                )
 
-                category_settings = getattr(overridden_settings.custom_ranks, category)
+                for key in category_settings.__class__.model_fields:
+                    rank_obj: CustomRank = getattr(category_settings, key)
 
-                for key in category_settings.model_fields:
-                    rank_obj = getattr(category_settings, key)
-                    # Set fetch to False for all
-                    rank_obj.fetch = False
-                    # If key is in selected_keys, set fetch to True
-                    if key in selected_keys:
-                        rank_obj.fetch = True
+                    # Fetch if key in selected keys
+                    rank_obj.fetch = key in selected_keys
 
         rtn_instance = RTN(overridden_settings, ranking_model)
 
@@ -225,7 +220,7 @@ def parse_results(
 
                 # If the torrent does not have episodes, but has seasons, and the parent season is not present
                 elif torrent.data.seasons:
-                    if item.parent.number not in torrent.data.seasons:
+                    if item.parent.number not in torrent.data.seasons:  # type: ignore
                         skip = True
 
                 # If the torrent has neither episodes nor seasons, skip (junk)

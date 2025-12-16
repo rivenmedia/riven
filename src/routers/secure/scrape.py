@@ -1,8 +1,9 @@
 import asyncio
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 import concurrent.futures
 import threading
-from typing import Annotated, Any, AsyncGenerator, Literal, TypeAlias
+from typing import Annotated, Any, Literal, Self
 from uuid import uuid4
 
 from RTN import ParsedData, Torrent
@@ -18,8 +19,8 @@ from fastapi.responses import StreamingResponse
 from kink import di
 from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
-from pydantic import BaseModel, ConfigDict, RootModel
-from sqlalchemy.orm import object_session
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
+from sqlalchemy.orm import object_session, Session
 
 from program.db import db_functions
 from program.db.db import db_session
@@ -32,13 +33,13 @@ from program.services.downloaders.models import (
     TorrentInfo,
     FilesizeLimitExceededException,
 )
-from program.services.indexers import IndexerService
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
 from program.media.models import ActiveStream
 from program.media.state import States
+from program.services.scrapers.models import RankingOverrides
 from ..models.shared import MessageResponse
 
 
@@ -250,7 +251,7 @@ def initialize_downloader(downloader: Downloader):
 
 
 def get_media_item(
-    session,
+    session: Session,
     item_id: int | None = None,
     tmdb_id: str | None = None,
     tvdb_id: str | None = None,
@@ -423,7 +424,7 @@ async def execute_scrape(
             for service_name, parsed_streams in scraper.scrape_streaming(
                 target, manual=True
             ):
-                current_streams = {}
+                current_streams = dict[str, Stream]()
 
                 with all_streams_lock:
                     # Update global streams
@@ -559,7 +560,8 @@ async def scrape_item(
             session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
         )
 
-        all_streams = {}
+        all_streams = dict[str, Stream]()
+
         async for event in execute_scrape(item, scraper, targets):
             if event.streams:
                 all_streams.update(event.streams)
@@ -666,7 +668,6 @@ async def start_manual_session(
         raise HTTPException(status_code=400, detail="Invalid magnet URI")
 
     if services := di[Program].services:
-        indexer = services.indexer
         downloader = services.downloader
     else:
         raise HTTPException(status_code=412, detail="Required services not initialized")
@@ -674,7 +675,6 @@ async def start_manual_session(
     initialize_downloader(downloader)
 
     item = None
-    indexer_result = None
 
     with db_session() as session:
         item = get_media_item(
@@ -987,7 +987,7 @@ async def manual_update_attributes(
 
 
 def _update_item_fs_entry(
-    session,
+    session: Session,
     updated_episode_ids: set[int],
     item_ids_to_submit: set[int],
     scraping_session: ScrapingSession,
@@ -1286,21 +1286,53 @@ async def overseerr_requests(
     return MessageResponse(message="No new overseerr requests to process")
 
 
-class AutoScrapeRequest(BaseModel):
-    item_id: str | None = None
-    tmdb_id: str | None = None
-    tvdb_id: str | None = None
-    imdb_id: str | None = None
-    media_type: Literal["movie", "tv"] | None = None
-    resolutions: list[str] | None = None
-    quality: list[str] | None = None
-    rips: list[str] | None = None
-    hdr: list[str] | None = None
-    audio: list[str] | None = None
-    extras: list[str] | None = None
-    trash: list[str] | None = None
-    require: list[str] | None = None
-    exclude: list[str] | None = None
+class AutoScrapeRequestPayload(BaseModel):
+    item_id: Annotated[
+        int | None,
+        Field(
+            default=None,
+            description="The ID of the media item",
+        ),
+    ] = None
+    tmdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TMDB ID of the media item",
+        ),
+    ] = None
+    tvdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TVDB ID of the media item",
+        ),
+    ] = None
+    imdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The IMDB ID of the media item",
+        ),
+    ] = None
+    media_type: Annotated[
+        Literal["movie", "tv"] | None,
+        Field(
+            default=None,
+            description="The media type",
+        ),
+    ] = None
+    ranking_overrides: Annotated[
+        RankingOverrides | None,
+        Field(description="Ranking overrides for the media item"),
+    ] = None
+
+    @model_validator(mode="after")
+    def check_at_least_one_id_provided(self) -> Self:
+        if not any([self.item_id, self.tvdb_id, self.tmdb_id, self.imdb_id]):
+            raise ValueError("At least one ID must be provided")
+
+        return self
 
 
 @router.post(
@@ -1310,7 +1342,7 @@ class AutoScrapeRequest(BaseModel):
     response_model=MessageResponse,
 )
 async def auto_scrape_item(
-    body: AutoScrapeRequest,
+    body: Annotated[AutoScrapeRequestPayload, Body()],
 ) -> MessageResponse:
     """
     Auto scrape an item with specific resolution overrides.
@@ -1320,7 +1352,6 @@ async def auto_scrape_item(
 
     if services := di[Program].services:
         scraper = services.scraping
-        indexer = services.indexer
     else:
         raise HTTPException(status_code=412, detail="Services not initialized")
 
@@ -1338,7 +1369,9 @@ async def auto_scrape_item(
 
         # Scrape with overrides
         streams = scraper.scrape(
-            item, ranking_overrides=body.model_dump(exclude_unset=True), manual=True
+            item,
+            ranking_overrides=body.ranking_overrides,
+            manual=True,
         )
 
         # Filter out existing or blacklisted streams

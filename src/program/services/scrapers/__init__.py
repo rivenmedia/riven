@@ -23,6 +23,7 @@ from program.services.scrapers.zilean import Zilean
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import Observable, ScraperModel
 from program.services.scrapers.base import ScraperService
+from program.services.scrapers.models import RankingOverrides
 
 
 class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
@@ -105,12 +106,12 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         self,
         item: MediaItem,
         verbose_logging: bool = True,
-        ranking_overrides: dict[str, list[str]] | None = None,
+        ranking_overrides: RankingOverrides | None = None,
         manual: bool = False,
     ) -> dict[str, Stream]:
         """Scrape an item."""
 
-        all_streams = {}
+        all_streams = dict[str, Stream]()
 
         # Consume the streaming generator to get all results
         for _, streams in self.scrape_streaming(item, ranking_overrides, manual):
@@ -137,7 +138,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     def scrape_streaming(
         self,
         item: MediaItem,
-        ranking_overrides: dict[str, list[str]] | None = None,
+        ranking_overrides: RankingOverrides | None = None,
         manual: bool = False,
     ) -> Generator[tuple[str, dict[str, Stream]], None, None]:
         """
@@ -146,6 +147,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         Yields:
             Tuples of (service_name, parsed_streams_dict) as each service completes.
         """
+
         results_queue: Queue[tuple[str, dict[str, str]]] = Queue()
         all_raw_results = dict[str, str]()
         results_lock = threading.RLock()

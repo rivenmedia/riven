@@ -309,15 +309,16 @@ async def get_items(
             select(func.count()).select_from(query.subquery())
         ).scalar_one()
 
-        if count_only:
-            items = []
-        else:
-            items = (
+        items: Sequence[MediaItem] = (
+            (
                 session.execute(query.offset((page - 1) * limit).limit(limit))
                 .unique()
                 .scalars()
                 .all()
             )
+            if not count_only
+            else []
+        )
 
         total_pages = (total_items + limit - 1) // limit
 
