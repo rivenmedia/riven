@@ -1402,8 +1402,6 @@ async def auto_scrape_item(
         if new_streams:
             item.streams.extend(new_streams)
 
-            from program.media.state import States
-
             item.store_state(States.Scraped)  # Force state update to trigger downloader
 
             logger.info(
