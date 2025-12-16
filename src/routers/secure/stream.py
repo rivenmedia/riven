@@ -163,12 +163,10 @@ async def stream_file(
             headers=response_headers,
             media_type=response_headers.get("content-type"),
         )
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Unexpected error in stream_file: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-    finally:
         if upstream_response is not None and not upstream_response.is_closed:
             await upstream_response.aclose()
+        logger.exception(f"Unexpected error in stream_file: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
