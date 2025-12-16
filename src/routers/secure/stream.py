@@ -113,6 +113,7 @@ async def stream_file(
     else:
         client = di[AsyncClient]
 
+    upstream_response = None
     try:
         forward_headers = {}
         if "range" in request.headers:
@@ -168,3 +169,6 @@ async def stream_file(
     except Exception as e:
         logger.exception(f"Unexpected error in stream_file: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        if upstream_response is not None and not upstream_response.is_closed:
+            await upstream_response.aclose()
