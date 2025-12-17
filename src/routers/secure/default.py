@@ -475,7 +475,7 @@ async def upload_logs() -> UploadLogsResponse:
         response = requests.post(
             "https://paste.c-net.org/",
             data=log_contents.encode("utf-8"),
-            headers={"Content-Type": "text/plain"},
+            headers={"Content-Type": "text/plain", "x-uuid": ""},
         )
 
         if response.status_code == 200:
