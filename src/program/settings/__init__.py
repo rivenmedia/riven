@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 import json
 import os
 from typing import Any, cast
@@ -35,7 +35,7 @@ class SettingsManager:
         else:
             self.load()
 
-    def register_observer(self, observer: Callable[[], None]):
+    def register_observer(self, observer: Callable[[], Awaitable[None] | None]):
         self.observers.append(observer)
 
     def notify_observers(self):

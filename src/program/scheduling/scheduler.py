@@ -7,14 +7,15 @@ for content services and item-specific schedules.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
-from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+import trio
+import trio_util
 
 from program.db import db_functions
 from program.db.db import db_session, vacuum_and_analyze_index_maintenance
@@ -26,6 +27,7 @@ from program.types import Event
 from program.utils.logging import log_cleaner, logger
 from program.apis.tvdb_api import SeriesRelease
 from schemas.tvdb.models.series_airs_days import SeriesAirsDays
+from program.core.runner import Runner
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -45,27 +47,57 @@ class ProgramScheduler:
 
     def __init__(self, program: "Program") -> None:
         self.program = program
-        self.scheduler = BackgroundScheduler()
+        self.stop_requested = trio_util.AsyncBool(False)
 
-    def start(self) -> None:
+    async def start(
+        self,
+        *,
+        task_status: trio.TaskStatus = trio.TASK_STATUS_IGNORED,
+    ) -> None:
         """Create and start the background scheduler with all jobs registered."""
 
-        self._schedule_services()
-        self._schedule_functions()
-        self.scheduler.start()
+        async with trio.open_nursery() as nursery:
+            self._schedule_services(nursery)
+            self._schedule_functions(nursery)
 
-    def stop(self) -> None:
+            task_status.started()
+
+            await self.stop_requested.wait_value(True)
+
+            logger.debug(f"Shutting down ProgramScheduler")
+
+            nursery.cancel_scope.cancel()
+
+    async def stop(self) -> None:
         """Stop the background scheduler if running."""
 
-        if self.scheduler and self.scheduler.running:
-            self.scheduler.shutdown(wait=False)
+        self.stop_requested.value = True
 
-    def _schedule_functions(self) -> None:
+    def _add_job(
+        self,
+        func: Callable[..., Awaitable[None] | None],
+        config: ScheduledFunctionConfig,
+        nursery: trio.Nursery,
+    ) -> None:
+        """Add a job to the scheduler."""
+
+        async def job_wrapper():
+            async for _ in trio_util.periodic(config["interval"]):
+                result = func()
+
+                if isinstance(result, Awaitable):
+                    await result
+
+                logger.debug(f"Scheduled job {func.__name__} completed, sleeping")
+
+        nursery.start_soon(job_wrapper)
+
+    def _schedule_functions(self, nursery: trio.Nursery) -> None:
         """Register internal periodic functions and maintenance tasks."""
 
-        assert self.scheduler is not None
-
-        scheduled_functions = dict[Callable[..., None], ScheduledFunctionConfig](
+        scheduled_functions = dict[
+            Callable[..., Awaitable[None] | None], ScheduledFunctionConfig
+        ](
             {
                 vacuum_and_analyze_index_maintenance: {"interval": 60 * 60 * 24},
             }
@@ -88,26 +120,15 @@ class ProgramScheduler:
         scheduled_functions[self._monitor_ongoing_schedules] = {"interval": 15 * 60}
 
         for func, config in scheduled_functions.items():
-            self.scheduler.add_job(
-                func,
-                "interval",
-                seconds=config["interval"],
-                args=config.get("args"),
-                id=f"{func.__name__}",
-                max_instances=config.get("max_instances", 1),
-                replace_existing=True,
-                next_run_time=datetime.now(),
-                misfire_grace_time=30,
-            )
+            self._add_job(func, config, nursery)
 
             logger.debug(
                 f"Scheduled {func.__name__} to run every {config['interval']} seconds."
             )
 
-    def _schedule_services(self) -> None:
+    def _schedule_services(self, nursery: trio.Nursery) -> None:
         """Schedule each content service based on its update interval or webhook mode."""
 
-        assert self.scheduler
         assert self.program.services
 
         for service_instance in self.program.services.content_services:
@@ -119,14 +140,10 @@ class ProgramScheduler:
             )
 
             if use_webhook:
-                self.scheduler.add_job(
+                nursery.start_soon(
                     self.program.em.submit_job,
-                    "date",
-                    run_date=datetime.now(),
-                    args=[service_instance, self.program],
-                    id=f"{service_name}_update_once",
-                    replace_existing=True,
-                    misfire_grace_time=30,
+                    service_instance,
+                    self.program,
                 )
 
                 logger.debug(
@@ -142,29 +159,38 @@ class ProgramScheduler:
             if not update_interval:
                 continue
 
-            self.scheduler.add_job(
-                self.program.em.submit_job,
-                "interval",
-                seconds=update_interval,
-                args=[service_instance, self.program],
-                id=f"{service_name}_update",
-                max_instances=1,
-                replace_existing=True,
-                next_run_time=datetime.now(),
-                coalesce=False,
+            async def run_task(
+                service_instance: Runner = service_instance,
+            ) -> None:
+                """Wrapper to submit the service job to the EM."""
+
+                await self.program.em.submit_job(
+                    service_instance,
+                    self.program,
+                )
+
+            self._add_job(
+                func=run_task,
+                config={"interval": update_interval},
+                nursery=nursery,
             )
 
             logger.debug(
                 f"Scheduled {service_name} to run every {update_interval} seconds."
             )
 
-    def _retry_library(self) -> None:
+    async def _retry_library(self) -> None:
         """Retry items that failed to download by emitting events into the EM."""
 
         item_ids = db_functions.retry_library()
 
         for item_id in item_ids:
-            self.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
+            await self.program.em.add_event(
+                Event(
+                    emitted_by="RetryLibrary",
+                    item_id=item_id,
+                )
+            )
 
         if item_ids:
             logger.log(
@@ -193,7 +219,7 @@ class ProgramScheduler:
             logger.error(f"Scheduler DB error: {e}")
             return []
 
-    def _process_scheduled_tasks(self) -> None:
+    async def _process_scheduled_tasks(self) -> None:
         """
         Process due scheduled tasks by delegating to focused helpers.
 
@@ -203,19 +229,21 @@ class ProgramScheduler:
         - handling reindex vs. release tasks;
         - updating task status with consistent error handling.
         """
+
         try:
             with db_session() as session:
                 now = datetime.now()
                 due_tasks = self._get_pending_scheduled_tasks(session)
+
                 if not due_tasks:
                     return
 
                 for task in due_tasks:
-                    self._process_single_scheduled_task(session, task, now)
+                    await self._process_single_scheduled_task(session, task, now)
         except SQLAlchemyError as e:
             logger.error(f"Scheduler DB error: {e}")
 
-    def _process_single_scheduled_task(
+    async def _process_single_scheduled_task(
         self,
         session: Session,
         task: ScheduledTask,
@@ -247,9 +275,9 @@ class ProgramScheduler:
                 return
 
             if task.task_type in ("reindex_show", "reindex", "reindex_movie"):
-                self._run_reindex_for_item(session, item)
+                await self._run_reindex_for_item(session, item)
             else:
-                self._enqueue_item_if_needed(session, item)
+                await self._enqueue_item_if_needed(session, item)
 
             self._mark_task_status(
                 session,
@@ -279,14 +307,14 @@ class ProgramScheduler:
 
         return session.merge(item)
 
-    def _run_reindex_for_item(self, session: Session, item: MediaItem) -> None:
+    async def _run_reindex_for_item(self, session: Session, item: MediaItem) -> None:
         """Run indexer service for an item if available and persist updates."""
 
         assert self.program.services, "Services not initialized in Program"
 
         indexer_service = self.program.services.indexer
 
-        updated = next(indexer_service.run(item, log_msg=False), None)
+        updated = await indexer_service.run(item, log_msg=False)
 
         if updated:
             session.merge(updated.media_items[0])
@@ -294,15 +322,23 @@ class ProgramScheduler:
 
             logger.info(f"Reindexed {item.log_string} from scheduler")
 
-    def _enqueue_item_if_needed(self, session: Session, item: MediaItem) -> None:
+    async def _enqueue_item_if_needed(self, session: Session, item: MediaItem) -> None:
         """Refresh state and enqueue item to the event manager if not completed."""
 
         was_completed = item.last_state == States.Completed
-        item.store_state()
+
+        await item.store_state()
+
         session.commit()
 
         if not was_completed:
-            self.program.em.add_event(Event(emitted_by="Scheduler", item_id=item.id))
+            await self.program.em.add_event(
+                Event(
+                    emitted_by="Scheduler",
+                    item_id=item.id,
+                )
+            )
+
             logger.info(f"Enqueued {item.log_string} from scheduler")
 
     def _mark_task_status(
@@ -316,6 +352,7 @@ class ProgramScheduler:
 
         task.status = status
         task.executed_at = executed_at
+
         session.add(task)
         session.commit()
 

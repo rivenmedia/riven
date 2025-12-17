@@ -82,7 +82,7 @@ class Torrentio(ScraperService[TorrentioConfig]):
 
             return False
 
-    def run(self, item: MediaItem) -> dict[str, str]:
+    async def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape Torrentio with the given media item for streams"""
 
         try:

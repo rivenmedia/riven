@@ -84,7 +84,7 @@ class Jackett(ScraperService[JackettConfig]):
 
         return False
 
-    def run(self, item: MediaItem) -> dict[str, str]:
+    async def run(self, item: MediaItem) -> dict[str, str]:
         """
         Scrape the Jackett site for the given media items
         and update the object with scraped streams

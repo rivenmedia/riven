@@ -249,7 +249,7 @@ def initialize_downloader(downloader: Downloader):
     operation_id="scrape_item",
     response_model=ScrapeItemResponse,
 )
-def scrape_item(
+async def scrape_item(
     item_id: Annotated[
         int | None,
         Query(description="The ID of the media item"),
@@ -295,7 +295,7 @@ def scrape_item(
                 }
             )
 
-            indexer_result = next(indexer.run(prepared_item), None)
+            indexer_result = await indexer.run(prepared_item)
         elif tvdb_id and media_type == "tv":
             prepared_item = MediaItem(
                 {
@@ -305,7 +305,7 @@ def scrape_item(
                 }
             )
 
-            indexer_result = next(indexer.run(prepared_item), None)
+            indexer_result = await indexer.run(prepared_item)
         elif imdb_id:
             prepared_item = MediaItem(
                 {
@@ -316,7 +316,7 @@ def scrape_item(
                 }
             )
 
-            indexer_result = next(indexer.run(prepared_item), None)
+            indexer_result = await indexer.run(prepared_item)
         else:
             raise HTTPException(status_code=400, detail="No valid ID provided")
 
@@ -326,7 +326,7 @@ def scrape_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        streams = scraper.scrape(item)
+        streams = await scraper.scrape(item)
         log_string = item.log_string
 
         return ScrapeItemResponse(
@@ -403,7 +403,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        indexer_result = next(indexer.run(prepared_item), None)
+        indexer_result = await indexer.run(prepared_item)
     elif tvdb_id and media_type == "tv":
         prepared_item = MediaItem(
             {
@@ -412,7 +412,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        indexer_result = next(indexer.run(prepared_item), None)
+        indexer_result = await indexer.run(prepared_item)
     elif imdb_id:
         prepared_item = MediaItem(
             {
@@ -421,7 +421,7 @@ async def start_manual_session(
                 "requested_at": datetime.now(),
             }
         )
-        indexer_result = next(indexer.run(prepared_item), None)
+        indexer_result = await indexer.run(prepared_item)
     else:
         raise HTTPException(status_code=400, detail="No valid ID provided")
 
@@ -606,7 +606,7 @@ async def manual_update_attributes(
                 item_data["requested_at"] = datetime.now()
                 prepared_item = MediaItem(item_data)
 
-                indexer_result = next(IndexerService().run(prepared_item), None)
+                indexer_result = await IndexerService().run(prepared_item)
 
                 if indexer_result:
                     item = indexer_result.media_items[0]
@@ -619,7 +619,7 @@ async def manual_update_attributes(
             item = session.merge(item)
             item_ids_to_submit = set[int]()
 
-            def update_item(item: MediaItem, data: DebridFile):
+            async def update_item(item: MediaItem, data: DebridFile):
                 """
                 Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
 
@@ -630,9 +630,9 @@ async def manual_update_attributes(
                     data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
                 """
 
-                di[Program].em.cancel_job(item.id)
+                await di[Program].em.cancel_job(item.id)
 
-                item.reset()
+                await item.reset()
 
                 # Ensure a staging MediaEntry exists and is linked
                 from program.media.media_entry import MediaEntry
@@ -686,7 +686,7 @@ async def manual_update_attributes(
                 item_ids_to_submit.add(item.id)
 
             if isinstance(data, DebridFile):
-                update_item(item, data)
+                await update_item(item, data)
             else:
                 for season_number, episodes in data.root.items():
                     for episode_number, episode_data in episodes.items():
@@ -694,7 +694,7 @@ async def manual_update_attributes(
                             if episode := item.get_absolute_episode(
                                 episode_number, season_number
                             ):
-                                update_item(episode, episode_data)
+                                await update_item(episode, episode_data)
                             else:
                                 logger.error(
                                     f"Failed to find episode {episode_number} for season {season_number} for {item.log_string}"
@@ -705,7 +705,7 @@ async def manual_update_attributes(
                             if episode := item.parent.get_absolute_episode(
                                 episode_number, season_number
                             ):
-                                update_item(episode, episode_data)
+                                await update_item(episode, episode_data)
                             else:
                                 logger.error(
                                     f"Failed to find season {season_number} for {item.log_string}"
@@ -719,7 +719,7 @@ async def manual_update_attributes(
                             ):
                                 continue
 
-                            update_item(item, episode_data)
+                            await update_item(item, episode_data)
 
                             break
                         else:
@@ -728,7 +728,7 @@ async def manual_update_attributes(
                             )
                             continue
 
-            item.store_state()
+            await item.store_state()
 
             log_string = item.log_string
 
@@ -745,12 +745,12 @@ async def manual_update_attributes(
             )
 
         if filesystem_service and filesystem_service.riven_vfs:
-            filesystem_service.riven_vfs.sync(item)
+            await filesystem_service.riven_vfs.sync(item)
             logger.debug("VFS synced after manual scraping update")
 
         if item_ids_to_submit:
             for item_id in item_ids_to_submit:
-                di[Program].em.add_event(Event("ManualAPI", item_id))
+                await di[Program].em.add_event(Event("ManualAPI", item_id))
 
         return MessageResponse(message=f"Updated given data to {log_string}")
 
@@ -927,7 +927,9 @@ async def overseerr_requests(
             from program.services.content.overseerr import Overseerr
 
             for persisted in persisted_items:
-                di[Program].em.add_item(persisted, service=Overseerr.__class__.__name__)
+                await di[Program].em.add_item(
+                    persisted, service=Overseerr.__class__.__name__
+                )
 
             return MessageResponse(
                 message=f"Submitted {len(overseerr_items)} overseerr requests to the queue"

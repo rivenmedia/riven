@@ -32,7 +32,7 @@ from RTN import ParsedData
 from program.services.downloaders.shared import parse_filename
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
@@ -81,7 +81,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return True
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> RunnerResult:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
         # Check if all services are in cooldown due to circuit breaker
@@ -102,8 +102,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 f"All downloader services in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
             )
 
-            yield RunnerResult(media_items=[item], run_at=next_attempt)
-            return
+            return RunnerResult(media_items=[item], run_at=next_attempt)
 
         download_success = False
 
@@ -208,7 +207,7 @@ class Downloader(Runner[None, DownloaderBase]):
                         )
 
                         if media_analysis_service.should_submit(item):
-                            success = media_analysis_service.run(item)
+                            success = await media_analysis_service.run(item)
 
                             if success:
                                 logger.debug(
@@ -241,7 +240,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 tried_streams += 1
 
                 if tried_streams >= 3:
-                    yield RunnerResult(media_items=[item])
+                    return RunnerResult(media_items=[item])
 
         except Exception as e:
             logger.error(
@@ -258,9 +257,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     f"Single provider hit circuit breaker for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
                 )
 
-                yield RunnerResult(media_items=[item], run_at=next_attempt)
-
-                return
+                return RunnerResult(media_items=[item], run_at=next_attempt)
             else:
                 logger.debug(
                     f"Failed to download any streams for {item.log_string} ({item.id})"
@@ -269,7 +266,7 @@ class Downloader(Runner[None, DownloaderBase]):
             # Clear service cooldowns on successful download
             self._service_cooldowns.clear()
 
-        yield RunnerResult(media_items=[item])
+        return RunnerResult(media_items=[item])
 
     def validate_stream(
         self,

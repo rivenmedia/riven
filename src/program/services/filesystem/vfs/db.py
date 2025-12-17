@@ -97,7 +97,7 @@ class VFSDatabase:
 
             return None
 
-    def refresh_unrestricted_url(
+    async def refresh_unrestricted_url(
         self,
         entry: MediaEntry,
         session: Session,
@@ -135,7 +135,7 @@ class VFSDatabase:
 
                     cdn_url = DebridCDNUrl(entry)
 
-                    if cdn_url.validate(attempt_refresh=False):
+                    if await cdn_url.validate(attempt_refresh=False):
                         session.merge(entry)
                         session.commit()
 
@@ -153,11 +153,11 @@ class VFSDatabase:
                 if entry.media_item:
                     item_id = entry.media_item.id
 
-                    def mutation(i: MediaItem, s: Session):
+                    async def mutation(i: MediaItem, s: Session):
                         i.blacklist_active_stream()
-                        i.reset()
+                        await i.reset()
 
-                    apply_item_mutation(
+                    await apply_item_mutation(
                         program=di[Program],
                         item=entry.media_item,
                         mutation_fn=mutation,
@@ -166,7 +166,7 @@ class VFSDatabase:
 
                     session.commit()
 
-                    di[Program].em.add_event(
+                    await di[Program].em.add_event(
                         Event(
                             "VFS",
                             item_id,
@@ -182,7 +182,7 @@ class VFSDatabase:
 
         return None
 
-    def get_entry_by_original_filename(
+    async def get_entry_by_original_filename(
         self,
         original_filename: str,
         force_resolve: bool = False,
@@ -219,7 +219,7 @@ class VFSDatabase:
                 if (force_resolve or not unrestricted_url) and (
                     self.downloader and entry.provider
                 ):
-                    unrestricted_url = self.refresh_unrestricted_url(
+                    unrestricted_url = await self.refresh_unrestricted_url(
                         entry,
                         session=session,
                     )

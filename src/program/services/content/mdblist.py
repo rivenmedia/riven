@@ -8,7 +8,7 @@ from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
 from program.settings import settings_manager
 from program.settings.models import MdblistModel
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.core.runner import Runner, RunnerResult
 
 
 class Mdblist(Runner[MdblistModel]):
@@ -48,10 +48,10 @@ class Mdblist(Runner[MdblistModel]):
 
         return self.api.validate()
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    async def run(self, item: MediaItem) -> RunnerResult:
         """Fetch media from mdblist and add them to media_items attribute"""
 
-        items_to_yield = list[MediaItem]()
+        media_items = list[MediaItem]()
 
         try:
             for list_id in self.settings.lists:
@@ -75,7 +75,7 @@ class Mdblist(Runner[MdblistModel]):
                     if list_item.mediatype == "movie" and not item_exists_by_any_id(
                         imdb_id=list_item.imdb_id, tmdb_id=str(list_item.id)
                     ):
-                        items_to_yield.append(
+                        media_items.append(
                             MediaItem(
                                 {
                                     "tmdb_id": list_item.id,
@@ -87,7 +87,7 @@ class Mdblist(Runner[MdblistModel]):
                     elif list_item.mediatype == "show" and not item_exists_by_any_id(
                         imdb_id=list_item.imdb_id, tvdb_id=str(list_item.tvdb_id)
                     ):
-                        items_to_yield.append(
+                        media_items.append(
                             MediaItem(
                                 {
                                     "tvdb_id": list_item.tvdb_id,
@@ -102,9 +102,9 @@ class Mdblist(Runner[MdblistModel]):
             else:
                 logger.error(f"Mdblist error: {e}")
 
-        logger.info(f"Fetched {len(items_to_yield)} new items from Mdblist")
+        logger.info(f"Fetched {len(media_items)} new items from Mdblist")
 
-        yield RunnerResult(media_items=items_to_yield)
+        return RunnerResult(media_items=media_items)
 
     def _calculate_request_time(self):
         """Calculate requests per 2 minutes based on mdblist limits"""

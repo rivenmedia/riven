@@ -121,7 +121,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
 
         return self.settings.enabled and self.initialized
 
-    def run(self, item: MediaItem) -> bool:
+    async def run(self, item: MediaItem) -> bool:
         """
         Fetch and store subtitles for a media item.
 
@@ -200,7 +200,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
                     continue
 
                 try:
-                    self._fetch_subtitle_for_language(
+                    await self._fetch_subtitle_for_language(
                         item=item,
                         language=language,
                         video_path=video_path,
@@ -412,7 +412,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             logger.error(f"Failed to calculate video hash for {item.log_string}: {e}")
             return None
 
-    def _fetch_subtitle_for_language(
+    async def _fetch_subtitle_for_language(
         self,
         item: MediaItem,
         language: str,
@@ -544,7 +544,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
                 filesystem_service = riven.services.filesystem
 
                 if filesystem_service and filesystem_service.riven_vfs:
-                    filesystem_service.riven_vfs.sync(item)
+                    await filesystem_service.riven_vfs.sync(item)
 
                 return
 
