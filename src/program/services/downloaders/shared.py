@@ -180,6 +180,9 @@ def get_resolution(torrent: Stream) -> Resolution:
     return RESOLUTION_MAP.get(resolution, Resolution.UNKNOWN)
 
 
+def sort_streams_by_quality(streams: list[Stream]) -> list[Stream]:
+    """Sort streams by resolution (highest first) and then by rank (highest first)."""
+
     return sorted(
         streams,
         key=lambda stream: (get_resolution(stream).value, stream.rank),
