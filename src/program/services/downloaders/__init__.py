@@ -27,6 +27,7 @@ from program.services.downloaders.shared import (
     DownloaderBase,
     sort_streams_by_quality,
     parse_filename,
+    resolve_download_url,
 )
 from RTN import ParsedData
 from program.services.downloaders.shared import parse_filename
@@ -633,6 +634,26 @@ class Downloader(Runner[None, DownloaderBase]):
             if library_profiles:
                 logger.debug(
                     f"Matched library profiles for {item.log_string}: {library_profiles}"
+                )
+        elif download_result.info.id and service:
+            logger.debug(
+                f"Refreshing torrent info for {download_result.info.id} to resolve download_url"
+            )
+
+            if new_url := resolve_download_url(
+                service, download_result.info.id, debrid_file.filename
+            ):
+                logger.debug(
+                    f"Resolved download_url for {debrid_file.filename}: {new_url}"
+                )
+                debrid_file.download_url = new_url
+                # Recursively call with updated file
+                self._update_attributes(
+                    item, debrid_file, download_result, service, file_data
+                )
+            else:
+                logger.warning(
+                    f"Failed to resolve download_url for {debrid_file.filename}"
                 )
 
     def get_instant_availability(

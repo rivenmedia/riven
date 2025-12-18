@@ -33,6 +33,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
     FilesizeLimitExceededException,
 )
+from program.services.downloaders.shared import parse_filename, resolve_download_url
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
@@ -1016,6 +1017,7 @@ def _update_item_fs_entry(
 
     # Ensure a staging MediaEntry exists and is linked
     from program.media.media_entry import MediaEntry
+    from program.media.models import MediaMetadata
 
     fs_entry = None
 
@@ -1045,23 +1047,46 @@ def _update_item_fs_entry(
 
         # If download_url is missing, try to refresh torrent info to get it
         if not download_url and torrent_id and service_instance:
-            try:
-                logger.debug(
-                    f"Refreshing torrent info for {torrent_id} to resolve download_url"
-                )
-                fresh_info = service_instance.get_torrent_info(torrent_id)
+            logger.debug(
+                f"Refreshing torrent info for {torrent_id} to resolve download_url"
+            )
 
-                # Find matching file
-                for file in fresh_info.files.values():
-                    if file.filename == data.filename:
-                        if file.download_url:
-                            download_url = file.download_url
-                            logger.debug(
-                                f"Resolved download_url for {data.filename}: {download_url}"
-                            )
-                        break
-            except Exception as e:
-                logger.warning(f"Failed to refresh torrent info: {e}")
+            if new_url := resolve_download_url(
+                service_instance, torrent_id, data.filename
+            ):
+                download_url = new_url
+                logger.debug(
+                    f"Resolved download_url for {data.filename}: {download_url}"
+                )
+                data.download_url = download_url
+                # Recursively call with updated file
+                _update_item_fs_entry(
+                    session,
+                    updated_episode_ids,
+                    item_ids_to_submit,
+                    scraping_session,
+                    item,
+                    data,
+                )
+                return
+            else:
+                logger.warning(
+                    f"Failed to resolve download_url for {data.filename}"
+                )
+
+        # Parse filename to create metadata
+        media_metadata = None
+        try:
+            if data.filename:
+                file_data = parse_filename(data.filename)
+                media_metadata = MediaMetadata.from_parsed_data(
+                    parsed_data=file_data,
+                    filename=data.filename,
+                )
+        except Exception as e:
+            logger.warning(
+                f"Failed to parse filename '{data.filename}' for metadata: {e}"
+            )
 
         # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
         fs_entry = MediaEntry.create_placeholder_entry(
@@ -1070,6 +1095,7 @@ def _update_item_fs_entry(
             provider=provider,
             provider_download_id=str(torrent_id) if torrent_id else None,
             file_size=data.filesize,
+            media_metadata=media_metadata,
         )
 
         session.add(fs_entry)
