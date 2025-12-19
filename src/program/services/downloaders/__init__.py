@@ -693,15 +693,6 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.get_torrent_info(torrent_id)
 
-    def get_service(self, key: str) -> DownloaderBase | None:
-        """Get a specific downloader service by key"""
-
-        for service in self.initialized_services:
-            if service.key == key:
-                return service
-
-        return None
-
     def select_files(
         self,
         torrent_id: int | str,
@@ -711,6 +702,7 @@ class Downloader(Runner[None, DownloaderBase]):
         """Select files from a torrent"""
 
         target_service = service or self.service
+
         assert target_service
 
         target_service.select_files(torrent_id, container)

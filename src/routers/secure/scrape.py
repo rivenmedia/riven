@@ -33,7 +33,11 @@ from program.services.downloaders.models import (
     TorrentInfo,
     FilesizeLimitExceededException,
 )
-from program.services.downloaders.shared import parse_filename, resolve_download_url
+from program.services.downloaders.shared import (
+    DownloaderBase,
+    parse_filename,
+    resolve_download_url,
+)
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
@@ -54,7 +58,6 @@ class Stream(BaseModel):
     lev_ratio: float
     is_cached: bool = False
     resolution: str | None = None
-
 
 
 class ScrapeStreamEvent(BaseModel):
@@ -134,7 +137,7 @@ class ScrapingSession:
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
         magnet: str | None = None,
-        service: str | None = None,
+        service: DownloaderBase | None = None,
     ):
         self.id = id
         self.item_id = item_id
@@ -169,7 +172,7 @@ class ScrapingSessionManager:
         imdb_id: str | None = None,
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
-        service: str | None = None,
+        service: DownloaderBase | None = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
@@ -356,8 +359,6 @@ def get_media_item(
                 return item
 
     raise HTTPException(status_code=404, detail="Item not found")
-
-
 
 
 def setup_scrape_request(
@@ -729,7 +730,7 @@ async def start_manual_session(
         imdb_id=imdb_id,
         tmdb_id=tmdb_id,
         tvdb_id=tvdb_id,
-        service=used_service.key,
+        service=used_service,
     )
 
     logger.debug(f"Created session {session.id} with item ID: {session.item_id}")
@@ -796,13 +797,10 @@ def manual_select_files(
         download_type = "cached"
 
     try:
-        service_instance = (
-            downloader.get_service(session.service) if session.service else None
-        )
         downloader.select_files(
             session.torrent_id,
             [int(file_id) for file_id in files.root.keys()],
-            service=service_instance,
+            service=session.service,
         )
 
         session.selected_files = files.model_dump()
@@ -1026,17 +1024,8 @@ def _update_item_fs_entry(
         # Update source metadata on existing entry
         fs_entry.original_filename = data.filename
     else:
-        service_instance = None
-        if services := di[Program].services:
-            downloader = services.downloader
-            service_instance = (
-                downloader.get_service(scraping_session.service)
-                if scraping_session.service
-                else None
-            )
-
         # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-        provider = service_instance.key if service_instance else None
+        provider = scraping_session.service.key if scraping_session.service else None
 
         # Get torrent ID from scraping session
         torrent_id = (
@@ -1046,13 +1035,15 @@ def _update_item_fs_entry(
         download_url = data.download_url
 
         # If download_url is missing, try to refresh torrent info to get it
-        if not download_url and torrent_id and service_instance:
+        if not download_url and torrent_id and scraping_session.service:
             logger.debug(
                 f"Refreshing torrent info for {torrent_id} to resolve download_url"
             )
 
             if new_url := resolve_download_url(
-                service_instance, torrent_id, data.filename
+                scraping_session.service,
+                torrent_id,
+                data.filename,
             ):
                 download_url = new_url
                 logger.debug(
@@ -1070,9 +1061,7 @@ def _update_item_fs_entry(
                 )
                 return
             else:
-                logger.warning(
-                    f"Failed to resolve download_url for {data.filename}"
-                )
+                logger.warning(f"Failed to resolve download_url for {data.filename}")
 
         # Parse filename to create metadata
         media_metadata = None
@@ -1448,4 +1437,3 @@ async def auto_scrape_item(
             return MessageResponse(
                 message="Auto scrape completed. No new streams found."
             )
-
