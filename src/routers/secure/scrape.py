@@ -343,9 +343,9 @@ def get_media_item(
                 # Check directly if item exists in DB by external IDs to avoid unique constraint error
                 try:
                     existing = db_functions.get_item_by_external_id(
-                        tmdb_id=str(indexed.tmdb_id) if indexed.tmdb_id else None,
-                        tvdb_id=str(indexed.tvdb_id) if indexed.tvdb_id else None,
-                        imdb_id=str(indexed.imdb_id) if indexed.imdb_id else None,
+                        tmdb_id=indexed.tmdb_id,
+                        tvdb_id=indexed.tvdb_id,
+                        imdb_id=indexed.imdb_id,
                         session=session,
                     )
                     if existing:
@@ -868,8 +868,8 @@ async def manual_update_attributes(
         item = get_media_item(
             session,
             item_id=scraping_session.item_id,
-            tmdb_id=str(scraping_session.tmdb_id) if scraping_session.tmdb_id else None,
-            tvdb_id=str(scraping_session.tvdb_id) if scraping_session.tvdb_id else None,
+            tmdb_id=scraping_session.tmdb_id,
+            tvdb_id=scraping_session.tvdb_id,
             imdb_id=scraping_session.imdb_id,
             media_type=scraping_session.media_type,
         )
