@@ -285,7 +285,7 @@ def get_media_item(
 
     # 1. Try by internal ID
     if item_id:
-        item = db_functions.get_item_by_id(int(item_id), session=session)
+        item = db_functions.get_item_by_id(item_id, session=session)
         if item:
             return item
 
@@ -370,9 +370,10 @@ def setup_scrape_request(
     media_type: Literal["movie", "tv"] | None,
 ) -> tuple[MediaItem, list[MediaItem]]:
     """Helper to retrieve item and scrape targets."""
+
     item = get_media_item(
         session,
-        item_id=int(item_id) if item_id else None,
+        item_id=item_id,
         tmdb_id=tmdb_id,
         tvdb_id=tvdb_id,
         imdb_id=imdb_id,
@@ -385,6 +386,7 @@ def setup_scrape_request(
         # Pre-load/assign parent to avoid lazy load in threads causing DetachedInstanceError
         for season in item.seasons:
             season.parent = item
+
         targets.extend(item.seasons)
 
     return item, targets
@@ -684,7 +686,7 @@ async def start_manual_session(
     with db_session() as session:
         item = get_media_item(
             session,
-            item_id=int(item_id) if item_id else None,
+            item_id=item_id,
             tmdb_id=tmdb_id,
             tvdb_id=tvdb_id,
             imdb_id=imdb_id,
@@ -1378,7 +1380,7 @@ async def auto_scrape_item(
     with db_session() as session:
         item = get_media_item(
             session,
-            item_id=int(body.item_id) if body.item_id else None,
+            item_id=body.item_id,
             tmdb_id=body.tmdb_id,
             tvdb_id=body.tvdb_id,
             imdb_id=body.imdb_id,
