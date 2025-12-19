@@ -75,13 +75,15 @@ def parse_results(
         overridden_settings = ranking_settings.model_copy(deep=True)
 
         # 1. Resolutions
-        if ranking_overrides.resolutions:
+        if resolutions_list := ranking_overrides.resolutions:
+            # Reset all to False
             for res_key in ResolutionConfig.model_fields:
-                setattr(
-                    overridden_settings.resolutions,
-                    res_key,
-                    getattr(overridden_settings.resolutions, res_key, False),
-                )
+                setattr(overridden_settings.resolutions, res_key, False)
+
+            # Enable selected
+            for res_key in resolutions_list:
+                if hasattr(overridden_settings.resolutions, res_key):
+                    setattr(overridden_settings.resolutions, res_key, True)
 
         # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
         for category in CustomRanksConfig.model_fields:
