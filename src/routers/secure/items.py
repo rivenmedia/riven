@@ -286,23 +286,19 @@ async def get_items(
 
             sort_types.add(sort_type)
 
-    with db_session() as session:
-
-        if count_only:
-            items = []
+    if not count_only:
+        if sort:
+            for sort_criterion in sort:
+                if sort_criterion == SortOrderEnum.TITLE_ASC:
+                    query = query.order_by(MediaItem.title.asc())
+                elif sort_criterion == SortOrderEnum.TITLE_DESC:
+                    query = query.order_by(MediaItem.title.desc())
+                elif sort_criterion == SortOrderEnum.DATE_ASC:
+                    query = query.order_by(MediaItem.requested_at.asc())
+                elif sort_criterion == SortOrderEnum.DATE_DESC:
+                    query = query.order_by(MediaItem.requested_at.desc())
         else:
-            if sort:
-                for sort_criterion in sort:
-                    if sort_criterion == SortOrderEnum.TITLE_ASC:
-                        query = query.order_by(MediaItem.title.asc())
-                    elif sort_criterion == SortOrderEnum.TITLE_DESC:
-                        query = query.order_by(MediaItem.title.desc())
-                    elif sort_criterion == SortOrderEnum.DATE_ASC:
-                        query = query.order_by(MediaItem.requested_at.asc())
-                    elif sort_criterion == SortOrderEnum.DATE_DESC:
-                        query = query.order_by(MediaItem.requested_at.desc())
-            else:
-                query = query.order_by(MediaItem.requested_at.desc())
+            query = query.order_by(MediaItem.requested_at.desc())
 
     with db_session() as session:
         total_items = session.execute(
