@@ -1668,6 +1668,7 @@ class RivenVFS(pyfuse3.Operations):
         ctx: pyfuse3.RequestContext,
     ) -> pyfuse3.FileInfo:
         """Open a file for reading."""
+
         try:
             with self._tree_lock:
                 # Get node from tree and verify it's a file
@@ -1680,61 +1681,60 @@ class RivenVFS(pyfuse3.Operations):
                     raise pyfuse3.FUSEError(errno.EISDIR)
 
                 path = node.path
+                entry_type = node.entry_type
 
-            try:
-                logger.debug(
-                    f"Attempting to validate CDN URL for {node.path} with original_filename={node.original_filename}"
-                )
-
-                DebridCDNUrl.from_filename(node.original_filename).validate()
-            except DebridServiceLinkUnavailable:
-                logger.warning(
-                    f"Dead link for {node.path}; attempting to download a working one..."
-                )
-
+            # Only validate the CDN URL for media entries; subtitles are read directly from the database
+            if entry_type == "media":
                 try:
-                    original_inode = node.inode
-
-                    with trio.fail_after(30):
-                        while True:
-                            new_nodes = [
-                                candidate
-                                for candidate in self._get_nodes_by_original_filename(
-                                    node.original_filename
-                                )
-                                if (
-                                    candidate.inode != original_inode
-                                    and (
-                                        candidate.original_filename
-                                        != node.original_filename
-                                    )
-                                )
-                            ]
-
-                            if new_nodes:
-                                logger.trace(
-                                    f"Found new file for {node.original_filename}"
-                                )
-
-                                break
-
-                            await trio.sleep(1)
-                except trio.TooSlowError:
-                    logger.error(
-                        f"Timeout waiting for new link to become available for path={node.path}"
+                    DebridCDNUrl.from_filename(node.original_filename).validate()
+                except DebridServiceLinkUnavailable:
+                    logger.warning(
+                        f"Dead link for {node.path}; attempting to download a working one..."
                     )
 
-                    raise pyfuse3.FUSEError(errno.ENOENT) from None
+                    try:
+                        original_inode = node.inode
 
-                logger.trace(f"Found new nodes after redownload: {new_nodes}")
+                        with trio.fail_after(30):
+                            while True:
+                                new_nodes = [
+                                    candidate
+                                    for candidate in self._get_nodes_by_original_filename(
+                                        node.original_filename
+                                    )
+                                    if (
+                                        candidate.inode != original_inode
+                                        and (
+                                            candidate.original_filename
+                                            != node.original_filename
+                                        )
+                                    )
+                                ]
 
-                inode = new_nodes[0].inode
+                                if new_nodes:
+                                    logger.trace(
+                                        f"Found new file for {node.original_filename}"
+                                    )
 
-                return await self.open(inode, flags, ctx)
-            except Exception as e:
-                logger.exception(f"Unexpected error whilst validating CDN URL: {e}")
+                                    break
 
-                raise pyfuse3.FUSEError(errno.EIO)
+                                await trio.sleep(1)
+                    except trio.TooSlowError:
+                        logger.error(
+                            f"Timeout waiting for new link to become available for path={node.path}"
+                        )
+
+                        raise pyfuse3.FUSEError(errno.ENOENT) from None
+
+                    logger.trace(f"Found new nodes after redownload: {new_nodes}")
+
+                    inode = new_nodes[0].inode
+
+                    return await self.open(inode, flags, ctx)
+                except Exception as e:
+                    logger.exception(f"Unexpected error whilst validating CDN URL: {e}")
+
+                    raise pyfuse3.FUSEError(errno.EIO)
 
             logger.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
