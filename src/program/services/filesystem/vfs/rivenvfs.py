@@ -1682,6 +1682,10 @@ class RivenVFS(pyfuse3.Operations):
                 path = node.path
 
             try:
+                logger.debug(
+                    f"Attempting to validate CDN URL for {node.path} with original_filename={node.original_filename}"
+                )
+
                 DebridCDNUrl.from_filename(node.original_filename).validate()
             except DebridServiceLinkUnavailable:
                 logger.warning(
@@ -1728,10 +1732,9 @@ class RivenVFS(pyfuse3.Operations):
 
                 return await self.open(inode, flags, ctx)
             except Exception as e:
-                logger.error(f"Unexpected error whilst validating CDN URL: {e}")
+                logger.exception(f"Unexpected error whilst validating CDN URL: {e}")
 
                 raise pyfuse3.FUSEError(errno.EIO)
-                
 
             logger.trace(f"open: path={path} inode={inode} fh_pending flags={flags}")
 
