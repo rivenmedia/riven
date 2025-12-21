@@ -46,6 +46,8 @@ from program.media.models import ActiveStream
 from program.media.state import States
 from program.services.scrapers.models import RankingOverrides
 from ..models.shared import MessageResponse
+from program.types import Event
+from program.services.scrapers import Scraping
 
 
 class Stream(BaseModel):
@@ -633,6 +635,176 @@ async def scrape_item_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+class ScrapeSeasonsRequest(BaseModel):
+    tvdb_id: str | None = None
+    tmdb_id: str | None = None
+    imdb_id: str | None = None
+    season_numbers: list[int]
+
+
+def _scrape_worker(item_id: int) -> dict[str, Stream]:
+    """Worker function to run scraper in a separate thread/session."""
+    
+    if services := di[Program].services:
+        scraper = services.scraping
+    else:
+        return {}
+
+    with db_session() as session:
+        item = session.get(MediaItem, item_id)
+        if not item:
+            return {}
+            
+        # Fail-safe: Ensure item is not paused in this session before scraping
+        if item.last_state == States.Paused:
+             logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
+             item.store_state(States.Unknown)
+
+        # Run the scraper (this updates the item and its relationships)
+        # We iterate to consume the generator
+        logger.debug(f"Worker processing item {item.id}. Initial State: {item.last_state}")
+        for _ in scraper.run(item):
+            pass
+
+        # Force state update to reflect new streams
+        item.store_state()
+            
+        session.commit()
+        session.refresh(item)
+
+        # Trigger downstream processing (Downloading) by adding an event
+        # We emit as 'Scraping' service so EventManager sees it as completing that step
+        program = di[Program]
+        if hasattr(program, "em") and program.em:
+            program.em.add_event(
+                Event(
+                    emitted_by=services.scraping,
+                    item_id=item.id,
+                )
+            )
+        
+        # Convert found streams to Pydantic models for return
+        streams = {}
+        for s in item.streams:
+            if s not in item.blacklisted_streams:
+                try:
+                    # Reconstruct ParsedData since it's not persisted
+                    if not hasattr(s, "parsed_data"):
+                        torrent = rtn.rank(
+                            raw_title=s.raw_title,
+                            infohash=s.infohash,
+                            correct_title=item.top_title,
+                        )
+                        s.parsed_data = torrent.data
+
+                    pyd_s = Stream.model_validate(s)
+                    streams[pyd_s.infohash] = pyd_s
+                except Exception as e:
+                    logger.error(f"Failed to convert stream: {e}")
+                    
+        return streams
+
+
+async def perform_season_scrape(
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    season_numbers: list[int] = [],
+) -> dict[str, Stream]:
+    """Helper to perform season scraping with state management."""
+    
+    if services := di[Program].services:
+        scraper = services.scraping
+    else:
+        raise HTTPException(status_code=412, detail="Scraping services not initialized")
+    
+    target_ids = []
+    
+    with db_session() as session:
+        # Get the show item
+        item = get_media_item(
+            session,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            imdb_id=imdb_id,
+            media_type="tv",
+        )
+
+        if not isinstance(item, Show):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Item found is not a Show, it is {type(item).__name__}",
+            )
+        
+        # Check and unpause parent Show if needed so child seasons aren't blocked
+        if item.last_state == States.Paused:
+            logger.debug(f"Unpausing parent Show {item.title} (ID: {item.id}) to allow season scrape")
+            item.store_state(States.Unknown)
+
+        # Pre-load/assign parent to avoid lazy load in threads
+        seasons = item.seasons 
+        for season in seasons:
+            season.parent = item
+            
+            if season.number in season_numbers:
+                logger.debug(f"Processing requested season {season.number} (ID: {season.id}). Current State: {season.last_state}")
+                # If specifically requested, ensure it's not paused
+                if season.last_state == States.Paused:
+                    logger.debug(f"Unpausing season {season.number}")
+                    season.store_state(States.Unknown) # Reset state to allow scraping
+                target_ids.append(season.id)
+            else:
+                # If not requested, pause it
+                if season.last_state != States.Paused:
+                    logger.debug(f"Pausing unrequested season {season.number}")
+                    season.store_state(States.Paused)
+        
+        session.commit() # Save state changes
+        logger.debug("Committed state changes in perform_season_scrape")
+
+    if not target_ids:
+        return {}
+
+    # Run scraping in parallel threads to ensure persistence via separate sessions
+    loop = asyncio.get_running_loop()
+    with concurrent.futures.ThreadPoolExecutor(thread_name_prefix="SeasonScrapeWorker_") as executor:
+        tasks = [
+            loop.run_in_executor(executor, _scrape_worker, tid)
+            for tid in target_ids
+        ]
+        results = await asyncio.gather(*tasks)
+        
+    all_streams = dict[str, Stream]()
+    for res in results:
+        all_streams.update(res)
+            
+    return all_streams
+
+
+@router.post(
+    "/seasons",
+    summary="Scrape specific seasons of a show",
+    operation_id="scrape_seasons",
+    response_model=ScrapeItemResponse,
+)
+async def scrape_seasons(
+    payload: ScrapeSeasonsRequest = Body(...),
+) -> ScrapeItemResponse:
+    """Scrape specific seasons of a show and pause unselected ones."""
+
+    all_streams = await perform_season_scrape(
+        tmdb_id=payload.tmdb_id,
+        tvdb_id=payload.tvdb_id,
+        imdb_id=payload.imdb_id,
+        season_numbers=payload.season_numbers,
+    )
+
+    return ScrapeItemResponse(
+        message="Scraping specific seasons",
+        streams=all_streams,
     )
 
 
