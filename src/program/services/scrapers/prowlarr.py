@@ -2,7 +2,7 @@
 
 import concurrent.futures
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
@@ -173,7 +173,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 if (
                     status
                     and status.disabled_till
-                    and status.disabled_till > datetime.now()
+                    and status.disabled_till > datetime.now(timezone.utc)
                 ):
                     disabled_until = status.disabled_till.strftime("%Y-%m-%d %H:%M")
 
@@ -276,7 +276,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 )
             )
 
-        self.last_indexer_scan = datetime.now()
+        self.last_indexer_scan = datetime.now(timezone.utc)
 
         return indexers
 
@@ -287,10 +287,11 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
         if (
             self.last_indexer_scan is None
-            or (datetime.now() - self.last_indexer_scan).total_seconds() > 1800
+            or (datetime.now(timezone.utc) - self.last_indexer_scan).total_seconds()
+            > 1800
         ):
             self.indexers = self.get_indexers()
-            self.last_indexer_scan = datetime.now()
+            self.last_indexer_scan = datetime.now(timezone.utc)
 
             if len(self.indexers) != previous_count:
                 logger.info(
