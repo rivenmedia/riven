@@ -23,11 +23,16 @@ def bearer_auth(
     return bearer and bearer.credentials == settings_manager.settings.api_key
 
 
+def query_auth(api_key: Annotated[str | None, Query()] = None):
+    return api_key and api_key == settings_manager.settings.api_key
+
+
 def resolve_api_key(
-    header: str | None = Security(header_auth),
-    bearer: HTTPAuthorizationCredentials | None = Security(bearer_auth),
+    header: bool = Security(header_auth),
+    bearer: bool = Security(bearer_auth),
+    query: bool = Security(query_auth),
 ):
-    if not (header or bearer):
+    if not (header or bearer or query):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
