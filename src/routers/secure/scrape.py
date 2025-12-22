@@ -645,6 +645,55 @@ class ScrapeSeasonsRequest(BaseModel):
     season_numbers: list[int]
 
 
+class AutoScrapeRequestPayload(BaseModel):
+    item_id: Annotated[
+        int | None,
+        Field(
+            default=None,
+            description="The ID of the media item",
+        ),
+    ] = None
+    tmdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TMDB ID of the media item",
+        ),
+    ] = None
+    tvdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The TVDB ID of the media item",
+        ),
+    ] = None
+    imdb_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="The IMDB ID of the media item",
+        ),
+    ] = None
+    media_type: Annotated[
+        Literal["movie", "tv"] | None,
+        Field(
+            default=None,
+            description="The media type",
+        ),
+    ] = None
+    ranking_overrides: Annotated[
+        RankingOverrides | None,
+        Field(description="Ranking overrides for the media item"),
+    ] = None
+
+    @model_validator(mode="after")
+    def check_at_least_one_id_provided(self) -> Self:
+        if not any([self.item_id, self.tvdb_id, self.tmdb_id, self.imdb_id]):
+            raise ValueError("At least one ID must be provided")
+
+        return self
+
+
 def _scrape_worker(item_id: int) -> dict[str, Stream]:
     """Worker function to run scraper in a separate thread/session."""
     
@@ -668,12 +717,19 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
         logger.debug(f"Worker processing item {item.id}. Initial State: {item.last_state}")
         for _ in scraper.run(item):
             pass
+        
+        # Refresh the item and streams relationship to ensure is_scraped() works correctly
+        session.refresh(item, attribute_names=["streams", "blacklisted_streams"])
 
         # Force state update to reflect new streams
-        item.store_state()
+        previous_state, new_state = item.store_state()
+        
+        logger.debug(f"Worker scraped item {item.id}. Streams: {len(item.streams)}, Previous: {previous_state}, New: {new_state}, is_scraped: {item.is_scraped()}")
             
         session.commit()
         session.refresh(item)
+        
+        logger.debug(f"Worker committed item {item.id}. Final State: {item.last_state}")
 
         # Trigger downstream processing (Downloading) by adding an event
         # We emit as 'Scraping' service so EventManager sees it as completing that step
@@ -1521,55 +1577,6 @@ async def overseerr_requests(
             )
 
     return MessageResponse(message="No new overseerr requests to process")
-
-
-class AutoScrapeRequestPayload(BaseModel):
-    item_id: Annotated[
-        int | None,
-        Field(
-            default=None,
-            description="The ID of the media item",
-        ),
-    ] = None
-    tmdb_id: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description="The TMDB ID of the media item",
-        ),
-    ] = None
-    tvdb_id: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description="The TVDB ID of the media item",
-        ),
-    ] = None
-    imdb_id: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description="The IMDB ID of the media item",
-        ),
-    ] = None
-    media_type: Annotated[
-        Literal["movie", "tv"] | None,
-        Field(
-            default=None,
-            description="The media type",
-        ),
-    ] = None
-    ranking_overrides: Annotated[
-        RankingOverrides | None,
-        Field(description="Ranking overrides for the media item"),
-    ] = None
-
-    @model_validator(mode="after")
-    def check_at_least_one_id_provided(self) -> Self:
-        if not any([self.item_id, self.tvdb_id, self.tmdb_id, self.imdb_id]):
-            raise ValueError("At least one ID must be provided")
-
-        return self
 
 
 @router.post(
