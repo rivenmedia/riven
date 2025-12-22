@@ -3,6 +3,8 @@ import logging
 from datetime import datetime
 from typing import Annotated
 
+import httpx
+
 from fastapi import APIRouter, HTTPException, Path, Request
 from fastapi.responses import StreamingResponse
 from kink import di
@@ -91,10 +93,10 @@ def _get_media_info(item_id: int) -> tuple[str, str, str]:
         if not url:
             raise HTTPException(status_code=404, detail="Item has no valid stream URL")
 
-        return url, item.media_entry.provider, item.media_entry.original_filename
+        return url, item.media_entry.provider or "", item.media_entry.original_filename
 
 
-def _get_client(provider: str) -> AsyncClient:
+def _get_client(provider: str) -> httpx.AsyncClient:
     """Get the appropriate HTTP client based on provider requirements."""
     use_proxy = (
         provider in PROXY_REQUIRED_PROVIDERS
@@ -105,15 +107,15 @@ def _get_client(provider: str) -> AsyncClient:
 
 def _build_forward_headers(request: Request) -> dict[str, str]:
     """Build headers to forward to upstream."""
-    headers = {}
+    headers: dict[str, str] = {}
     if "range" in request.headers:
         headers["Range"] = request.headers["range"]
     return headers
 
 
-def _extract_response_headers(upstream_response, filename: str) -> dict[str, str]:
+def _extract_response_headers(upstream_response: httpx.Response, filename: str) -> dict[str, str]:
     """Extract relevant headers from upstream response."""
-    headers = {}
+    headers: dict[str, str] = {}
     for key in ["content-type", "content-length", "content-range", "accept-ranges"]:
         if key in upstream_response.headers:
             headers[key] = upstream_response.headers[key]
@@ -121,7 +123,7 @@ def _extract_response_headers(upstream_response, filename: str) -> dict[str, str
     return headers
 
 
-async def _handle_upstream_error(upstream_response) -> None:
+async def _handle_upstream_error(upstream_response: httpx.Response) -> None:
     """Log and close failed upstream response."""
     try:
         content = await upstream_response.aread()
@@ -158,7 +160,7 @@ async def stream_file(
     client = _get_client(provider)
     forward_headers = _build_forward_headers(request)
 
-    upstream_response = None
+    upstream_response: httpx.Response | None = None
     try:
         req = client.build_request("GET", url, headers=forward_headers)
 
