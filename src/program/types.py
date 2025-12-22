@@ -1,6 +1,7 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generator, Optional, Union
+from typing import Literal
 
 from program.media.item import MediaItem
 from program.services.content import (
@@ -10,40 +11,49 @@ from program.services.content import (
     PlexWatchlist,
     TraktContent,
 )
-from program.services.downloaders import (
-    RealDebridDownloader,
-)
+from program.services.downloaders import Downloader
 from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.services.filesystem import FilesystemService
+from program.media.state import States
+from program.services.indexers import IndexerService
+from program.services.post_processing import PostProcessing
 
-# Typehint classes
-Scraper = Union[Scraping]
-Content = Union[Overseerr, PlexWatchlist, Listrr, Mdblist, TraktContent]
-Downloader = Union[RealDebridDownloader,]
+# Type aliases for various service types
+Scraper = Scraping
+Content = Overseerr | PlexWatchlist | Listrr | Mdblist | TraktContent
+Service = (
+    Content
+    | Scraper
+    | FilesystemService
+    | Updater
+    | IndexerService
+    | PostProcessing
+    | Downloader
+)
 
-Service = Union[Content, Scraper, Downloader, FilesystemService, Updater]
-MediaItemGenerator = Generator[MediaItem, None, MediaItem | None]
 
-
+@dataclass
 class ProcessedEvent:
-    service: Service
-    related_media_items: list[MediaItem]
+    service: Service | None
+    related_media_items: Sequence[MediaItem] | None
 
 
 @dataclass
 class Event:
-    emitted_by: Service
-    item_id: Optional[str] = None
+    emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str
+    item_id: int | None = None
     content_item: "MediaItem | None" = None
     run_at: datetime = datetime.now()
-    item_state: Optional[str] = None  # Cached state for priority sorting
+    item_state: States | None = None  # Cached state for priority sorting
 
     @property
     def log_message(self) -> str:
         """Human-friendly description of the event target for logging."""
+
         if self.content_item:
             return self.content_item.log_string
         elif self.item_id:
             return f"Item ID {self.item_id}"
+
         return "Unknown Event"

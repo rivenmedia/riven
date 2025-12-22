@@ -1,12 +1,19 @@
-from typing import Annotated, Optional
+from typing import Annotated, Any
 
 from fastapi import HTTPException, Query, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 
 
-def header_auth(header=Security(APIKeyHeader(name="x-api-key", auto_error=False))):
+def header_auth(
+    header: Any = Security(
+        APIKeyHeader(
+            name="x-api-key",
+            auto_error=False,
+        ),
+    ),
+):
     return header == settings_manager.settings.api_key
 
 
@@ -16,11 +23,16 @@ def bearer_auth(
     return bearer and bearer.credentials == settings_manager.settings.api_key
 
 
+def query_auth(api_key: Annotated[str | None, Query()] = None):
+    return api_key and api_key == settings_manager.settings.api_key
+
+
 def resolve_api_key(
-    header: Optional[str] = Security(header_auth),
-    bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_auth),
+    header: bool = Security(header_auth),
+    bearer: bool = Security(bearer_auth),
+    query: bool = Security(query_auth),
 ):
-    if not (header or bearer):
+    if not (header or bearer or query):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",

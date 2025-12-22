@@ -1,36 +1,39 @@
 """Jackett scraper module"""
 
 import concurrent.futures
-from typing import Dict, List, Optional
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from requests import ReadTimeout
 
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.utils.torrent import extract_infohash, normalize_infohash
+from program.settings.models import JackettConfig
 
 
-class JackettIndexer(BaseModel):
-    """Indexer model for Jackett"""
+class JackettScrapeResponse(BaseModel):
+    """Model for Jackett scrape response"""
 
-    title: Optional[str] = None
-    id: Optional[str] = None
-    link: Optional[str] = None
-    type: Optional[str] = None
-    language: Optional[str] = None
-    tv_search_capabilities: Optional[List[str]] = None
-    movie_search_capabilities: Optional[List[str]] = None
+    class JackettTorrentResult(BaseModel):
+        """Model for a single Jackett torrent result"""
+
+        title: str = Field(alias="Title")
+        link: str | None = Field(alias="Link")
+        info_hash: str | None = Field(alias="InfoHash")
+        magnet_uri: str | None = Field(alias="MagnetUri")
+
+    results: list[JackettTorrentResult] = Field(alias="Results")
 
 
-class Jackett(ScraperService):
+class Jackett(ScraperService[JackettConfig]):
     """Scraper for `Jackett`"""
 
     def __init__(self):
-        super().__init__("jackett")
+        super().__init__()
+
         self.api_key = None
         self.indexers = None
         self.settings = settings_manager.settings.scraping.jackett
@@ -39,34 +42,30 @@ class Jackett(ScraperService):
 
     def validate(self) -> bool:
         """Validate Jackett settings."""
+
         if not self.settings.enabled:
             return False
+
         if self.settings.url and self.settings.api_key:
             self.api_key = self.settings.api_key
-            try:
-                if (
-                    not isinstance(self.settings.timeout, int)
-                    or self.settings.timeout <= 0
-                ):
-                    logger.error("Jackett timeout is not set or invalid.")
-                    return False
-                if not isinstance(self.settings.ratelimit, bool):
-                    logger.error("Jackett ratelimit must be a valid boolean.")
-                    return False
 
-                if self.settings.ratelimit:
-                    rate_limits = {
-                        get_hostname_from_url(self.settings.url): {
-                            "rate": 300 / 60,
-                            "capacity": 300,
-                        }
-                    }
-                else:
-                    rate_limits = {}
+            try:
+                if self.settings.timeout <= 0:
+                    logger.error("Jackett timeout must be a positive integer")
+                    return False
 
                 self.session = SmartSession(
                     base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
-                    rate_limits=rate_limits,
+                    rate_limits=(
+                        {
+                            get_hostname_from_url(self.settings.url): {
+                                "rate": 300 / 60,
+                                "capacity": 300,
+                            }
+                        }
+                        if self.settings.ratelimit
+                        else None
+                    ),
                     retries=self.settings.retries,
                     backoff_factor=0.3,
                 )
@@ -80,12 +79,17 @@ class Jackett(ScraperService):
             except Exception as e:
                 logger.error(f"Jackett failed to initialize with API Key: {e}")
                 return False
+
         logger.warning("Jackett is not configured and will not be used.")
+
         return False
 
-    def run(self, item: MediaItem) -> Dict[str, str]:
-        """Scrape the Jackett site for the given media items
-        and update the object with scraped streams"""
+    def run(self, item: MediaItem) -> dict[str, str]:
+        """
+        Scrape the Jackett site for the given media items
+        and update the object with scraped streams
+        """
+
         try:
             return self.scrape(item)
         except Exception as e:
@@ -93,43 +97,53 @@ class Jackett(ScraperService):
                 logger.debug(f"Jackett ratelimit exceeded for item: {item.log_string}")
             else:
                 logger.error(f"Jackett failed to scrape item with error: {e}")
+
         return {}
 
-    def scrape(self, item: MediaItem) -> Dict[str, str]:
+    def scrape(self, item: MediaItem) -> dict[str, str]:
         """Scrape the given media item"""
 
-        torrents: Dict[str, str] = {}
+        torrents = dict[str, str]()
         query = item.log_string
-        if item.type == "movie":
+
+        if isinstance(item, Movie) and item.aired_at:
             query = f"{query} ({item.aired_at.year})"
 
         logger.debug(f"Searching for '{query}' in Jackett")
+
         response = f"/indexers/test:passed/results?apikey={self.api_key}&Query={query}"
         response = self.session.get(response, timeout=self.settings.timeout)
-        if not response.ok or not hasattr(response, "data"):
+
+        if not response.ok:
             return torrents
 
-        if hasattr(response.data, "Results"):
-            urls_to_fetch = []  # List of (result, title) tuples that need URL fetching
+        data = JackettScrapeResponse.model_validate(response.json())
+
+        if data.results:
+            # list of (result, title) tuples that need URL fetching
+            urls_to_fetch = list[
+                tuple[JackettScrapeResponse.JackettTorrentResult, str]
+            ]()
 
             # First pass: extract infohashes from available fields and collect URLs that need fetching
-            for result in response.data.Results:
+            for result in data.results:
                 infohash = None
 
                 # Priority 1: Use InfoHash field directly if available (normalize to handle base32)
-                if hasattr(result, "InfoHash") and result.InfoHash:
-                    infohash = normalize_infohash(result.InfoHash)
+                if result.info_hash:
+                    infohash = normalize_infohash(result.info_hash)
 
                 # Priority 2: Check if MagnetUri is available and extract from it
-                if not infohash and hasattr(result, "MagnetUri") and result.MagnetUri:
-                    infohash = extract_infohash(result.MagnetUri)
+                if not infohash and result.magnet_uri:
+                    infohash = extract_infohash(result.magnet_uri)
 
                 # Priority 3: Collect URLs that need fetching
-                if not infohash and hasattr(result, "Link") and result.Link:
-                    urls_to_fetch.append((result, result.Title))
+                if not infohash and result.link:
+                    urls_to_fetch.append((result, result.title))
+
                 elif infohash:
                     # We already have an infohash, add it directly
-                    torrents[infohash] = result.Title
+                    torrents[infohash] = result.title
 
             # Fetch URLs in parallel
             if urls_to_fetch:
@@ -137,32 +151,39 @@ class Jackett(ScraperService):
                     thread_name_prefix="JackettHashExtract", max_workers=10
                 ) as executor:
                     future_to_result = {
-                        executor.submit(self.get_infohash_from_url, result.Link): (
+                        executor.submit(self.get_infohash_from_url, result.link): (
                             result,
                             title,
                         )
                         for result, title in urls_to_fetch
+                        if result.link
                     }
 
                     done, pending = concurrent.futures.wait(
                         future_to_result.keys(),
                         timeout=self.settings.infohash_fetch_timeout,
                     )
+
                     # Process completed futures
                     for future in done:
                         result, title = future_to_result[future]
+
                         try:
                             infohash = future.result()
+
                             if infohash:
                                 torrents[infohash] = title
                         except Exception as e:
                             logger.debug(
                                 f"Failed to get infohash from Link for {title}: {e}"
                             )
+
                     # Cancel and log timeouts for pending futures
                     for future in pending:
                         result, title = future_to_result[future]
+
                         future.cancel()
+
                         logger.debug(f"Timeout getting infohash from Link for {title}")
 
         if torrents:

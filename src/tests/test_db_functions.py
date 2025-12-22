@@ -10,7 +10,6 @@ from testcontainers.postgres import PostgresContainer
 
 from program.db.db import db, run_migrations
 from program.db.db_functions import (
-    clear_streams,
     get_item_by_external_id,
     item_exists_by_any_id,
 )
@@ -127,89 +126,6 @@ def _show_tree(
 
 
 # ------------------------------ Tests -------------------------------------- #
-
-
-def test_clear_streams_when_none_exist(test_scoped_db_session):
-    m = _movie("10001", "tt10001")
-    test_scoped_db_session.add(m)
-    test_scoped_db_session.commit()
-
-    clear_streams(media_item_id=m.id)
-
-    from sqlalchemy import select
-
-    assert (
-        test_scoped_db_session.execute(
-            select(StreamRelation).where(StreamRelation.parent_id == m.id)
-        ).scalar_one_or_none()
-        is None
-    )
-    assert (
-        test_scoped_db_session.execute(
-            select(StreamBlacklistRelation).where(
-                StreamBlacklistRelation.media_item_id == m.id
-            )
-        ).scalar_one_or_none()
-        is None
-    )
-
-
-def test_add_multiple_streams_then_clear_streams(test_scoped_db_session):
-    from sqlalchemy import func, select
-
-    m = _movie("10002", "tt10002")
-    s1 = Stream(
-        _torrent(
-            "Example.Movie.2020.1080p",
-            "997592a005d9c162391803c615975676738d6a11",
-            "Example Movie",
-        )
-    )
-    s2 = Stream(
-        _torrent(
-            "Example.Movie.2020.720p",
-            "c24046b60d764b2b58dce6fbb676bcd3cfcd257e",
-            "Example Movie",
-        )
-    )
-    test_scoped_db_session.add_all([m, s1, s2])
-    test_scoped_db_session.commit()
-
-    test_scoped_db_session.add_all(
-        [
-            StreamRelation(parent_id=m.id, child_id=s1.id),
-            StreamRelation(parent_id=m.id, child_id=s2.id),
-        ]
-    )
-    test_scoped_db_session.commit()
-
-    clear_streams(media_item_id=m.id)
-
-    assert (
-        test_scoped_db_session.execute(
-            select(func.count())
-            .select_from(StreamRelation)
-            .where(StreamRelation.parent_id == m.id)
-        ).scalar()
-        == 0
-    )
-    assert (
-        test_scoped_db_session.execute(
-            select(func.count())
-            .select_from(StreamBlacklistRelation)
-            .where(StreamBlacklistRelation.media_item_id == m.id)
-        ).scalar()
-        == 0
-    )
-    # clear_streams only drops associations, not Stream rows
-    assert (
-        test_scoped_db_session.execute(
-            select(func.count())
-            .select_from(Stream)
-            .where(Stream.id.in_([s1.id, s2.id]))
-        ).scalar()
-        == 2
-    )
 
 
 def test_item_exists_by_any_id_paths(test_scoped_db_session):

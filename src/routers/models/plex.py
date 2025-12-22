@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -33,12 +31,12 @@ class Metadata(BaseModel):
     librarySectionKey: str
     contentRating: str
     summary: str
-    rating: Optional[float] = Field(None, description="Rating of the media")
-    audienceRating: Optional[float] = Field(
+    rating: float | None = Field(None, description="Rating of the media")
+    audienceRating: float | None = Field(
         None, description="Audience rating of the media"
     )
     year: int
-    tagline: Optional[str] = Field(None, description="Tagline of the media")
+    tagline: str | None = Field(None, description="Tagline of the media")
     thumb: str
 
 

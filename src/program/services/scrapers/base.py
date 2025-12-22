@@ -1,15 +1,19 @@
 import hashlib
-from abc import ABC, abstractmethod
-from typing import Dict, Optional, Tuple
+from abc import abstractmethod
+from typing import Literal, TypeVar, cast
 
 import bencodepy
 from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.utils.request import SmartSession
 from program.utils.torrent import extract_infohash
+from program.core.runner import Runner
+from program.settings.models import Observable
+
+T = TypeVar("T", bound=Observable, covariant=True)
 
 
-class ScraperService(ABC):
+class ScraperService(Runner[T, "ScraperService", dict[str, str]]):
     """Base class for all scraper services.
 
     Implementations should set:
@@ -21,11 +25,7 @@ class ScraperService(ABC):
     - requires_imdb_id: whether the scraper needs an IMDb id to function
     """
 
-    requires_imdb_id: bool = False
-
-    def __init__(self, service_name):
-        self.key = service_name
-        self.initialized = False
+    requires_imdb_id = False
 
     def _initialize(self) -> None:
         try:
@@ -39,19 +39,19 @@ class ScraperService(ABC):
     def validate(self) -> bool: ...
 
     @abstractmethod
-    def run(self, item: MediaItem) -> Dict[str, str]: ...
-
-    @abstractmethod
-    def scrape(self, item: MediaItem) -> Dict[str, str]: ...
+    def scrape(self, item: MediaItem) -> dict[str, str]: ...
 
     @staticmethod
-    def get_stremio_identifier(item: MediaItem) -> Tuple[str | None, str, str]:
+    def get_stremio_identifier(
+        item: MediaItem,
+    ) -> tuple[str | None, Literal["series", "movie"], str | None]:
         """
         Get the Stremio identifier for a given item.
 
         Returns:
             Tuple[str | None, str, str]: (identifier, scrape_type, imdb_id)
         """
+
         if isinstance(item, Show):
             identifier, scrape_type, imdb_id = ":1:1", "series", item.imdb_id
         elif isinstance(item, Season):
@@ -69,11 +69,12 @@ class ScraperService(ABC):
         elif isinstance(item, Movie):
             identifier, scrape_type, imdb_id = None, "movie", item.imdb_id
         else:
-            return None, None, None
+            raise ValueError("Unsupported MediaItem type")
+
         return identifier, scrape_type, imdb_id
 
     @staticmethod
-    def get_infohash_from_url(url: str) -> Optional[str]:
+    def get_infohash_from_url(url: str) -> str | None:
         """
         Get infohash from a URL that could be:
         1. A direct torrent file download
@@ -102,9 +103,10 @@ class ScraperService(ABC):
             # If it's a successful response, try to parse as torrent file
             if r.status_code == 200:
                 try:
-                    torrent_dict = bencodepy.decode(r.content)
+                    torrent_dict = cast(dict[bytes, bytes], bencodepy.decode(r.content))
                     info = torrent_dict[b"info"]
                     infohash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
+
                     return infohash.lower()
                 except Exception:
                     # Not a valid torrent file, try to extract from URL

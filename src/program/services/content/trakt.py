@@ -1,89 +1,124 @@
 """Trakt content module"""
 
 from datetime import datetime, timedelta
+from typing import Any, Literal, TypeIs
 
 from kink import di
 from loguru import logger
 from requests import RequestException
 
-from program.apis.trakt_api import TraktAPI
+from program.apis.trakt_api import TraktAPI, Watchlist
 from program.db.db_functions import item_exists_by_any_id
 from program.media.item import MediaItem
-from program.settings.manager import settings_manager
+from program.settings import settings_manager
+from program.settings.models import TraktModel
+
+from schemas.trakt import (
+    GetCollection200ResponseInner,
+    GetMovies200ResponseInnerMovie,
+    GetMovies200ResponseInnerMovieIds,
+    GetPopularMovies200ResponseInner,
+    GetPopularShows200ResponseInner,
+    GetShows200ResponseInnerShow,
+    GetShows200ResponseInnerShowIds,
+    GetTheMostPlayedMovies200ResponseInner,
+    GetTheMostPlayedShows200ResponseInner,
+    GetTrendingMovies200ResponseInner,
+    GetTrendingShows200ResponseInner,
+)
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 
-class TraktContent:
+class TraktContent(Runner[TraktModel]):
     """Content class for Trakt"""
 
+    is_content_service = True
+
     def __init__(self):
-        self.key = "trakt"
+        super().__init__()
+
         self.settings = settings_manager.settings.content.trakt
+
+        if not self.enabled:
+            return
+
         self.api = di[TraktAPI]
         self.initialized = self.validate()
+
         if not self.initialized:
             return
+
         self.last_update = None
         logger.success("Trakt initialized!")
 
+    @classmethod
+    def get_key(cls) -> str:
+        return "trakt"
+
     def validate(self) -> bool:
         """Validate Trakt settings."""
+
         try:
             if not self.settings.enabled:
                 return False
+
             if not self.settings.api_key:
                 logger.error("Trakt API key is not set.")
                 return False
-            response = self.api.validate()
-            if not getattr(response.data, "name", None):
-                logger.error("Invalid user settings received from Trakt.")
-                return False
-            return True
+
+            return self.api.validate()
         except ConnectionError:
             logger.error("Connection error during Trakt validation.")
-            return False
         except TimeoutError:
             logger.error("Timeout error during Trakt validation.")
-            return False
         except RequestException as e:
             logger.error(f"Request exception during Trakt validation: {str(e)}")
-            return False
         except Exception as e:
             logger.error(f"Exception during Trakt validation: {str(e)}")
-            return False
 
-    def run(self):
+        return False
+
+    def run(self, item: MediaItem) -> MediaItemGenerator:
         """Fetch media from Trakt and yield Movie, Show, or MediaItem instances."""
+
         watchlist_ids = (
             self._get_watchlist(self.settings.watchlist)
             if self.settings.watchlist
             else []
         )
+
         collection_ids = (
             self._get_collection(self.settings.collection)
             if self.settings.collection
             else []
         )
+
         user_list_ids = (
             self._get_list(self.settings.user_lists) if self.settings.user_lists else []
         )
 
         # Check if it's the first run or if a day has passed since the last update
         current_time = datetime.now()
+
         if self.last_update is None or (current_time - self.last_update) > timedelta(
             days=1
         ):
             trending_ids = (
                 self._get_trending_items() if self.settings.fetch_trending else []
             )
+
             popular_ids = (
                 self._get_popular_items() if self.settings.fetch_popular else []
             )
+
             most_watched_ids = (
                 self._get_most_watched_items()
                 if self.settings.fetch_most_watched
                 else []
             )
+
             self.last_update = current_time
+
             logger.log("TRAKT", "Updated trending, popular, and most watched items.")
         else:
             trending_ids = []
@@ -104,133 +139,206 @@ class TraktContent:
             + most_watched_ids
         )
 
-        items_to_yield = []
+        items_to_yield = list[MediaItem]()
+
         for _id, _type in all_ids:
-            if _type == "movie" and not item_exists_by_any_id(tmdb_id=_id):
+            if _type == "movie" and not item_exists_by_any_id(tmdb_id=str(_id)):
                 items_to_yield.append(
-                    MediaItem({"tmdb_id": _id, "requested_by": self.key})
+                    MediaItem(
+                        {
+                            "tmdb_id": _id,
+                            "requested_by": self.key,
+                        }
+                    )
                 )
-            elif _type == "show" and not item_exists_by_any_id(tvdb_id=_id):
+            elif _type == "show" and not item_exists_by_any_id(tvdb_id=str(_id)):
                 items_to_yield.append(
-                    MediaItem({"tvdb_id": _id, "requested_by": self.key})
+                    MediaItem(
+                        {
+                            "tvdb_id": _id,
+                            "requested_by": self.key,
+                        }
+                    )
                 )
 
         if not items_to_yield:
             return
 
         logger.info(f"Fetched {len(items_to_yield)} new items from trakt")
-        yield items_to_yield
 
-    def _get_watchlist(self, watchlist_users: list) -> list:
+        yield RunnerResult(media_items=items_to_yield)
+
+    def _get_watchlist(self, watchlist_users: list[str]) -> list[tuple[int, str]]:
         """Get IDs and types from Trakt watchlist"""
+
         if not watchlist_users:
             return []
-        _ids = []
+
+        ids = list[tuple[int, str]]()
+
         for user in watchlist_users:
             items = self.api.get_watchlist_items(user)
-            _ids.extend(self._extract_ids(items))
-        return _ids
+            ids.extend(self._extract_ids(items))
 
-    def _get_collection(self, collection_users: list) -> list:
+        return ids
+
+    def _get_collection(self, collection_users: list[str]) -> list[tuple[int, str]]:
         """Get IDs and types from Trakt collection"""
+
         if not collection_users:
             return []
-        _ids = []
+
+        ids = list[tuple[int, str]]()
+
         for user in collection_users:
             items = self.api.get_collection_items(user, "movies")
             items.extend(self.api.get_collection_items(user, "shows"))
-            _ids.extend(self._extract_ids(items))
-        return _ids
+            ids.extend(self._extract_ids(items))
 
-    def _get_list(self, list_items: list) -> list[tuple[str, str]]:
+        return ids
+
+    def _get_list(self, list_items: list[str]) -> list[tuple[str, str]]:
         """Get IDs and types from Trakt user list"""
+
         if not list_items or not any(list_items):
             return []
-        _ids = []
+
+        ids = list[tuple[str, str]]()
+
         for url in list_items:
             user, list_name = self.api.extract_user_list_from_url(url)
+
             if not user or not list_name:
                 logger.error(f"Invalid list URL: {url}")
                 continue
 
             items = self.api.get_user_list(user, list_name)
-            for item in items:
-                if hasattr(item, "movie"):
-                    tmdb_id = getattr(item.movie.ids, "tmdb", None)
-                    if tmdb_id:
-                        _ids.append((tmdb_id, "movie"))
-                elif hasattr(item, "show"):
-                    tvdb_id = getattr(item.show.ids, "tvdb", None)
-                    if tvdb_id:
-                        _ids.append((tvdb_id, "show"))
-        return _ids
 
-    def _get_trending_items(self) -> list[tuple[str, str]]:
+            for item in items:
+                if item.movie:
+                    tmdb_id = str(item.movie.ids.tmdb) if item.movie.ids else None
+
+                    if tmdb_id:
+                        ids.append((tmdb_id, "movie"))
+                elif item.show:
+                    tvdb_id = str(item.show.ids.tvdb) if item.show.ids else None
+
+                    if tvdb_id:
+                        ids.append((tvdb_id, "show"))
+
+        return ids
+
+    def _get_trending_items(self) -> list[tuple[int, Literal["show", "movie"]]]:
         """Get IDs and types from Trakt trending items"""
-        trending_movies = self.api.get_trending_items(
-            "movies", self.settings.trending_count
-        )
-        trending_shows = self.api.get_trending_items(
-            "shows", self.settings.trending_count
-        )
+
+        trending_movies = self.api.get_trending_movies(self.settings.trending_count)
+        trending_shows = self.api.get_trending_shows(self.settings.trending_count)
+
         return self._extract_ids(
             trending_movies[: self.settings.trending_count]
             + trending_shows[: self.settings.trending_count]
         )
 
-    def _get_popular_items(self) -> list[tuple[str, str]]:
+    def _get_popular_items(self) -> list[tuple[int, Literal["show", "movie"]]]:
         """Get IDs and types from Trakt popular items"""
-        popular_movies = self.api.get_popular_items(
-            "movies", self.settings.popular_count
-        )
-        popular_shows = self.api.get_popular_items("shows", self.settings.popular_count)
+
+        popular_movies = self.api.get_popular_movies(self.settings.popular_count)
+        popular_shows = self.api.get_popular_shows(self.settings.popular_count)
+
         return self._extract_ids(
             popular_movies[: self.settings.popular_count]
             + popular_shows[: self.settings.popular_count]
         )
 
-    def _get_most_watched_items(self) -> list[tuple[str, str]]:
+    def _get_most_watched_items(self):
         """Get IDs and types from Trakt popular items"""
-        most_watched_movies = self.api.get_most_watched_items(
-            "movies",
+
+        most_played_movies = self.api.get_most_played_movies(
             self.settings.most_watched_period,
             self.settings.most_watched_count,
         )
-        most_watched_shows = self.api.get_most_watched_items(
-            "shows", self.settings.most_watched_period, self.settings.most_watched_count
-        )
-        return self._extract_ids(
-            most_watched_movies[: self.settings.most_watched_count]
-            + most_watched_shows[: self.settings.most_watched_count]
+        most_played_shows = self.api.get_most_played_shows(
+            self.settings.most_watched_period,
+            self.settings.most_watched_count,
         )
 
-    def _extract_ids(self, items: list) -> list[tuple[str, str]]:
+        return self._extract_ids(
+            most_played_movies[: self.settings.most_watched_count]
+            + most_played_shows[: self.settings.most_watched_count]
+        )
+
+    def _extract_ids(
+        self,
+        items: (
+            list[
+                GetTheMostPlayedMovies200ResponseInner
+                | GetTheMostPlayedShows200ResponseInner
+            ]
+            | list[Watchlist]
+            | list[GetCollection200ResponseInner]
+            | list[GetTrendingShows200ResponseInner | GetTrendingMovies200ResponseInner]
+            | list[GetPopularShows200ResponseInner | GetPopularMovies200ResponseInner]
+        ),
+    ) -> list[tuple[int, Literal["show", "movie"]]]:
         """Extract IDs and types from a list of items"""
-        _ids = []
+
+        class ItemWithShow:
+            show: GetShows200ResponseInnerShow
+
+            @staticmethod
+            def is_type_of(item: Any) -> TypeIs["ItemWithShow"]:
+                return hasattr(item, "show")
+
+        class ItemWithMovie:
+            movie: GetMovies200ResponseInnerMovie
+
+            @staticmethod
+            def is_type_of(item: Any) -> TypeIs["ItemWithMovie"]:
+                return hasattr(item, "movie")
+
+        class ItemWithIDs:
+            ids: GetShows200ResponseInnerShowIds | GetMovies200ResponseInnerMovieIds
+
+            @staticmethod
+            def is_type_of(item: Any) -> TypeIs["ItemWithIDs"]:
+                return hasattr(item, "ids")
+
+        _ids = list[tuple[int, Literal["show", "movie"]]]()
+
         for item in items:
-            if hasattr(item, "show"):
-                ids = getattr(item.show, "ids", None)
+            if ItemWithShow.is_type_of(item):
+                assert item.show
+
+                ids = item.show.ids
+
+                if ids and ids.tvdb:
+                    _ids.append((int(ids.tvdb), "show"))
+
+            elif ItemWithMovie.is_type_of(item):
+                assert item.movie
+
+                ids = item.movie.ids
+
+                if ids and ids.tmdb:
+                    _ids.append((int(ids.tmdb), "movie"))
+
+            # namespace doesn't have type, so we need to infer it from the ids
+            elif ItemWithIDs.is_type_of(item):
+                ids = item.ids
+
                 if ids:
                     tvdb_id = getattr(ids, "tvdb", None)
+
                     if tvdb_id:
-                        _ids.append((tvdb_id, "show"))
-            elif hasattr(item, "movie"):
-                ids = getattr(item.movie, "ids", None)
-                if ids:
+                        _ids.append((int(tvdb_id), "show"))
+
                     tmdb_id = getattr(ids, "tmdb", None)
+
                     if tmdb_id:
-                        _ids.append((tmdb_id, "movie"))
-            # namespace doesnt have type, so we need to infer it from the ids
-            elif hasattr(item, "ids"):
-                ids = getattr(item, "ids", None)
-                if ids:
-                    tvdb_id = getattr(ids, "tvdb", None)
-                    if tvdb_id:
-                        _ids.append((tvdb_id, "show"))
-                    tmdb_id = getattr(ids, "tmdb", None)
-                    if tmdb_id:
-                        _ids.append((tmdb_id, "movie"))
+                        _ids.append((int(tmdb_id), "movie"))
             else:
                 logger.error(f"Unknown item type: {item}")
+
                 continue
+
         return _ids
