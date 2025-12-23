@@ -1310,15 +1310,13 @@ def _update_item_fs_entry(
         download_url = data.download_url
 
         # If download_url is missing, try to refresh torrent info to get it
-        if not download_url and torrent_id and scraping_session.service:
+        if not download_url and torrent_id and service_instance:
             logger.debug(
                 f"Refreshing torrent info for {torrent_id} to resolve download_url"
             )
 
             if new_url := resolve_download_url(
-                scraping_session.service,
-                torrent_id,
-                data.filename,
+                service_instance, torrent_id, data.filename
             ):
                 download_url = new_url
                 logger.debug(
@@ -1336,7 +1334,9 @@ def _update_item_fs_entry(
                 )
                 return
             else:
-                logger.warning(f"Failed to resolve download_url for {data.filename}")
+                logger.warning(
+                    f"Failed to resolve download_url for {data.filename}"
+                )
 
         # Parse filename to create metadata
         media_metadata = None
@@ -1351,7 +1351,6 @@ def _update_item_fs_entry(
             logger.warning(
                 f"Failed to parse filename '{data.filename}' for metadata: {e}"
             )
-
         # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
         fs_entry = MediaEntry.create_placeholder_entry(
             original_filename=data.filename,
