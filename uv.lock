@@ -1155,12 +1155,12 @@ wheels = [
 
 [[package]]
 name = "pyfuse3"
-version = "3.4.0"
+version = "3.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "trio" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/1e/0f8f285a65e2e64f2f0c4accce4ee67d9ac66ee9684492a4327e48d68d87/pyfuse3-3.4.0.tar.gz", hash = "sha256:793493f4d5e2b3bc10e13b3421d426a6e2e3365264c24376a50b8cbc69762d39", size = 962992, upload-time = "2024-08-28T21:59:28.939Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/db/39003f19d6eb00fafc8210a8ee2703e58553c4c588f71ca413155fd43e32/pyfuse3-3.4.1.tar.gz", hash = "sha256:602f9c5f944bcdbd5e7f526c0e7f44af41970abedabc72d94ac16563e1b49209", size = 1185901, upload-time = "2025-12-22T21:22:27.019Z" }
 
 [[package]]
 name = "pygments"
@@ -1545,7 +1545,7 @@ dependencies = [
     { name = "psutil" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
-    { name = "pyfuse3" },
+    { name = "pyfuse3", marker = "sys_platform == 'linux'" },
     { name = "python-dotenv" },
     { name = "rank-torrent-name" },
     { name = "requests", extra = ["socks"] },
@@ -1610,7 +1610,7 @@ requires-dist = [
     { name = "psutil", specifier = ">=7.1.0,<8" },
     { name = "psycopg2-binary", specifier = ">=2.9.9,<3" },
     { name = "pydantic", specifier = ">=2.12.0,<3" },
-    { name = "pyfuse3", specifier = ">=3.4.0,<4" },
+    { name = "pyfuse3", marker = "sys_platform == 'linux'", specifier = ">=3.4.0,<4" },
     { name = "python-dotenv", specifier = ">=1.0.1,<2" },
     { name = "rank-torrent-name", specifier = ">=1.9.3,<2" },
     { name = "requests", extras = ["socks"], specifier = ">=2.32.5,<3" },
