@@ -781,12 +781,7 @@ async def remove_item(
                 logger.warning(f"Item {item_id} not found, skipping")
                 continue
 
-            # Allow any MediaItem instance to be removed
-            if not isinstance(item, MediaItem):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Only media items can be removed. Item {item_id} is a {type(item).__name__}",
-                )
+
 
             logger.debug(f"Removing item with ID {item.id} (type: {item.type})")
 

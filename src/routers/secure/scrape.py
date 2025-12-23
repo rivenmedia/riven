@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 import concurrent.futures
 import threading
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Optional, Self
 from uuid import uuid4
 
 from RTN import ParsedData, Torrent
@@ -768,9 +768,12 @@ async def perform_season_scrape(
     tmdb_id: str | None = None,
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
-    season_numbers: list[int] = [],
+    season_numbers: Optional[list[int]] = None,
 ) -> dict[str, Stream]:
     """Helper to perform season scraping with state management."""
+
+    if season_numbers is None:
+        season_numbers = []
     
     if services := di[Program].services:
         scraper = services.scraping
@@ -1310,13 +1313,13 @@ def _update_item_fs_entry(
         download_url = data.download_url
 
         # If download_url is missing, try to refresh torrent info to get it
-        if not download_url and torrent_id and service_instance:
+        if not download_url and torrent_id and scraping_session.service:
             logger.debug(
                 f"Refreshing torrent info for {torrent_id} to resolve download_url"
             )
 
             if new_url := resolve_download_url(
-                service_instance, torrent_id, data.filename
+                scraping_session.service, torrent_id, data.filename
             ):
                 download_url = new_url
                 logger.debug(
