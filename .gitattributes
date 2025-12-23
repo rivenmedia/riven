@@ -1,0 +1,16 @@
+# Auto detect text files and normalize line endings to LF
+* text=auto
+
+# Shell scripts and other bash files must have Unix line endings and no BOM
+*.sh eol=lf text working-tree-encoding=UTF-8
+entrypoint.sh eol=lf text working-tree-encoding=UTF-8
+makefile eol=lf text working-tree-encoding=UTF-8
+Dockerfile eol=lf text working-tree-encoding=UTF-8
+
+# Python files
+*.py eol=lf text working-tree-encoding=UTF-8
+
+# Windows batch files keep CRLF
+*.bat eol=crlf text working-tree-encoding=UTF-8
+*.cmd eol=crlf text working-tree-encoding=UTF-8
+*.ps1 eol=crlf text working-tree-encoding=UTF-8

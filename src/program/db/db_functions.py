@@ -12,6 +12,7 @@ from program.utils.logging import logger
 from sqlalchemy import func, inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
 
 from program.media.state import States
 from program.core.runner import MediaItemGenerator
@@ -334,14 +335,28 @@ def run_thread_with_db_item(
 
     from program.media.item import Episode, Season
 
-    if event:
-        with db_session() as session:
-            if event.item_id:
-                input_item = get_item_by_id(event.item_id, session=session)
+    try:
+        import threading
+        current_thread = threading.current_thread()
+        logger.debug(f"run_thread_with_db_item: EXECUTOR THREAD STARTED for service {service.__class__.__name__} - Thread: {current_thread.name} (ID: {current_thread.ident})")
+        logger.debug(f"run_thread_with_db_item: Starting for service {service.__class__.__name__}")
+        
+        if event:
+            logger.debug(f"run_thread_with_db_item: Event detected, about to open db_session for service {service.__class__.__name__}")
+            logger.debug(f"run_thread_with_db_item: Attempting to acquire db connection for {service.__class__.__name__}...")
+            with db_session() as session:
+                logger.debug(f"run_thread_with_db_item: db_session opened successfully for service {service.__class__.__name__}")
+                input_item = None
+                if event.item_id:
+                    logger.debug(f"Loading item {event.item_id} for service {service.__class__.__name__}")
+                    input_item = get_item_by_id(event.item_id, session=session)
+                    logger.debug(f"Loaded item {event.item_id}, executing service {service.__class__.__name__}")
 
                 if input_item:
                     input_item = session.merge(input_item)
+                    logger.debug(f"Calling {service.__class__.__name__}.run() for item {input_item.id}")
                     runner_result = next(fn(input_item), None)
+                    logger.debug(f"Service {service.__class__.__name__}.run() completed for item {input_item.id}")
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:
@@ -351,6 +366,10 @@ def run_thread_with_db_item(
 
                         item = runner_result.media_items[0]
                         run_at = runner_result.run_at
+                        # Save the item_id before commit in case we need it in exception handling
+                        # or after session operations that may detach the object
+                        input_item_id = input_item.id
+                        item_id = item.id
 
                         if not cancellation_event.is_set():
                             # Update parent item based on type
@@ -361,73 +380,117 @@ def run_thread_with_db_item(
                             else:
                                 item.store_state()
 
-                            session.commit()
+                            try:
+                                session.commit()
+                            except StaleDataError as e:
+                                # Handle case where relationship rows have been deleted
+                                # This can happen when a stream is blacklisted and the relationship
+                                # row has already been deleted by another process or cascade
+                                logger.warning(
+                                    f"StaleDataError during commit for item {input_item_id}: {e}. Rolling back and retrying with fresh session."
+                                )
+                                session.rollback()
+                                session.expunge_all()
 
+                                # Reload the item fresh from database after rollback
+                                input_item = get_item_by_id(input_item_id, session=session)
+
+                                if input_item:
+                                    # Retry the store_state and commit with the refreshed item
+                                    logger.debug(f"Retrying store_state for item {input_item_id} with refreshed session")
+                                    if isinstance(input_item, Episode):
+                                        input_item.parent.parent.store_state()
+                                    elif isinstance(input_item, Season):
+                                        input_item.parent.store_state()
+                                    else:
+                                        input_item.store_state()
+
+                                    try:
+                                        session.commit()
+                                        logger.debug(f"Successfully committed after StaleDataError for item {input_item_id}")
+                                    except StaleDataError as retry_e:
+                                        logger.error(
+                                            f"StaleDataError persisted after retry for item {input_item_id}: {retry_e}. Giving up."
+                                        )
+                                        session.rollback()
+                                        session.expunge_all()
+                                        # Don't raise, just log - the download succeeded even if DB commit failed
+                                        # The state will be eventually consistent
+                                else:
+                                    logger.error(f"Failed to reload item {input_item_id} after StaleDataError")
+                                    session.rollback()
+                                    session.expunge_all()
+                                    raise e
+
+                        # Use saved item_id to avoid DetachedInstanceError after session operations
                         if run_at:
-                            return (item.id, run_at)
+                            return (item_id, run_at)
 
-                        return item.id
+                        return item_id
 
-            if event.content_item:
-                runner_result = next(fn(event.content_item), None)
+                if event.content_item:
+                    runner_result = next(fn(event.content_item), None)
 
-                if runner_result is None:
-                    msg = event.content_item.log_string or event.content_item.imdb_id
+                    if runner_result is None:
+                        msg = event.content_item.log_string or event.content_item.imdb_id
 
-                    logger.debug(f"Unable to index {msg}")
+                        logger.debug(f"Unable to index {msg}")
 
-                    return None
+                        return None
 
-                if len(runner_result.media_items) > 1:
-                    logger.warning(
-                        f"Service {service.__class__.__name__} emitted multiple items for input item {event.content_item}, only the first will be processed."
-                    )
+                    if len(runner_result.media_items) > 1:
+                        logger.warning(
+                            f"Service {service.__class__.__name__} emitted multiple items for input item {event.content_item}, only the first will be processed."
+                        )
 
-                indexed_item = runner_result.media_items[0]
+                    indexed_item = runner_result.media_items[0]
 
-                # Idempotent insert: skip if any known ID already exists
-                if item_exists_by_any_id(
-                    item_id=indexed_item.id,
-                    tvdb_id=indexed_item.tvdb_id,
-                    tmdb_id=indexed_item.tmdb_id,
-                    imdb_id=indexed_item.imdb_id,
-                    session=session,
-                ):
-                    logger.debug(
-                        f"Item with ID {indexed_item.id} already exists, skipping save"
-                    )
+                    # Idempotent insert: skip if any known ID already exists
+                    if item_exists_by_any_id(
+                        item_id=indexed_item.id,
+                        tvdb_id=indexed_item.tvdb_id,
+                        tmdb_id=indexed_item.tmdb_id,
+                        imdb_id=indexed_item.imdb_id,
+                        session=session,
+                    ):
+                        logger.debug(
+                            f"Item with ID {indexed_item.id} already exists, skipping save"
+                        )
+
+                        return indexed_item.id
+
+                    indexed_item.store_state()
+
+                    session.add(indexed_item)
+
+                    if not cancellation_event.is_set():
+                        try:
+                            session.commit()
+                        except IntegrityError as e:
+                            if "duplicate key value violates unique constraint" in str(e):
+                                logger.debug(
+                                    f"Item with ID {event.item_id} was added by another process, skipping"
+                                )
+
+                                session.rollback()
+
+                                return None
+
+                            raise
 
                     return indexed_item.id
+        else:
+            # Content services dont pass events
+            runner_result = next(fn(None), None)
 
-                indexed_item.store_state()
+            if runner_result:
+                for item in runner_result.media_items:
+                    program.em.add_item(item, service=service.__class__.__name__)
 
-                session.add(indexed_item)
-
-                if not cancellation_event.is_set():
-                    try:
-                        session.commit()
-                    except IntegrityError as e:
-                        if "duplicate key value violates unique constraint" in str(e):
-                            logger.debug(
-                                f"Item with ID {event.item_id} was added by another process, skipping"
-                            )
-
-                            session.rollback()
-
-                            return None
-
-                        raise
-
-                return indexed_item.id
-    else:
-        # Content services dont pass events
-        runner_result = next(fn(None), None)
-
-        if runner_result:
-            for item in runner_result.media_items:
-                program.em.add_item(item, service=service.__class__.__name__)
-
-    return None
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error in run_thread_with_db_item for {service.__class__.__name__}: {type(e).__name__}: {e}", exc_info=True)
+        raise
 
 
 def hard_reset_database() -> None:

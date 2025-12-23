@@ -104,6 +104,8 @@ class EventManager:
             service (type): The service class associated with the future.
         """
 
+        logger.debug(f"_process_future callback invoked for service {service.__class__.__name__}")
+
         if future_with_event.future.cancelled():
             if future_with_event.event:
                 logger.debug(
@@ -147,18 +149,29 @@ class EventManager:
                     Event(emitted_by=service, item_id=item_id, run_at=timestamp)
                 )
         except Exception as e:
-            logger.error(f"Error in future for {future_with_event}: {e}")
+            error_type = type(e).__name__
+            logger.error(f"Error ({error_type}) in future for {future_with_event}: {e}")
             logger.exception(traceback.format_exc())
 
-            # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
-            # self.remove_event_from_queue(future.event)
+            # Ensure future is removed from tracking even on error
+            if future_with_event in self._futures:
+                self._futures.remove(future_with_event)
 
-        log_message = f"Service {service.__class__.__name__} executed"
+            # Remove the event from running events when an exception occurs
+            if future_with_event.event:
+                self.remove_event_from_running(future_with_event.event)
+                logger.debug(
+                    f"Removed {future_with_event.event.log_message} from running events due to {error_type}."
+                )
+                # Don't re-queue automatically - let the user manually retry if needed
+                # Re-queueing can cause infinite loops if the error is consistent
+        finally:
+            log_message = f"Service {service.__class__.__name__} executed"
 
-        if future_with_event.event:
-            log_message += f" with {future_with_event.event.log_message}"
+            if future_with_event.event:
+                log_message += f" with {future_with_event.event.log_message}"
 
-        logger.debug(log_message)
+            logger.debug(log_message)
 
     def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
@@ -253,8 +266,11 @@ class EventManager:
         """
 
         with self.mutex:
-            self._running_events.append(event)
-            logger.debug(f"Added {event.log_message} to running events.")
+            if event not in self._running_events:
+                self._running_events.append(event)
+                logger.debug(f"Added {event.log_message} to running events.")
+            else:
+                logger.debug(f"Event {event.log_message} already in running events.")
 
     def remove_id_from_running(self, item_id: int):
         """
@@ -294,6 +310,10 @@ class EventManager:
             item (Event, optional): The event item to process. Defaults to None.
         """
 
+        # Add event to running events BEFORE logging and submitting
+        if event:
+            self.add_event_to_running(event)
+
         log_message = f"Submitting service {service.__class__.__name__} to be executed"
 
         # Content services dont provide an event.
@@ -302,39 +322,106 @@ class EventManager:
 
         logger.debug(log_message)
 
+        import sys
+        import threading
+        
         cancellation_event = threading.Event()
 
         executor = self._find_or_create_executor(service)
 
         assert program.services
 
+        logger.debug(f"About to access program.services[{service.get_key()}] for {service.__class__.__name__}")
         runner = program.services[service.get_key()]
+        logger.debug(f"Successfully accessed runner for {service.__class__.__name__}: {runner}")
 
-        future = executor.submit(
-            db_functions.run_thread_with_db_item,
-            runner.run,
-            service,
-            program,
-            event,
-            cancellation_event,
-        )
+        logger.debug(f"Executor.submit() - About to submit {service.__class__.__name__} to executor")
+        
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
+        # Special handling for Downloader: use direct threading if it's the Downloader service
+        # because ThreadPoolExecutor seems to have issues with it
+        if service.__class__.__name__ == "Downloader":
+            logger.warning(f"Using direct threading for Downloader service due to executor issues")
+            
+            from concurrent.futures import Future
+            future = Future()
+            
+            # Create the FutureWithEvent BEFORE starting the thread so callback can be registered first
+            future_with_event = FutureWithEvent(
+                future=future,
+                event=event,
+                cancellation_event=cancellation_event,
+            )
+            
+            self._futures.append(future_with_event)
+            logger.debug(f"Executor.submit() - Added {service.__class__.__name__} to futures list")
+            
+            # Register callback BEFORE starting the thread
+            future.add_done_callback(
+                lambda f: self._process_future(future_with_event, service),
+            )
+            
+            def _run_in_thread():
+                try:
+                    logger.debug(f"Direct thread started for Downloader")
+                    result = db_functions.run_thread_with_db_item(
+                        runner.run,
+                        service,
+                        program,
+                        event,
+                        cancellation_event,
+                    )
+                    # Set the result to complete the future AFTER thread finishes
+                    # Pass the actual result (item_id) from run_thread_with_db_item
+                    future.set_result(result)
+                except Exception as e:
+                    logger.error(f"Downloader direct thread exception: {type(e).__name__}: {e}", exc_info=True)
+                    # Set exception on the future so callback can handle it
+                    future.set_exception(e)
+            
+            thread = threading.Thread(
+                target=_run_in_thread,
+                name=f"Downloader_direct",
+                daemon=False
+            )
+            thread.start()
+            logger.debug(f"Direct thread for Downloader started: {thread.name}")
+        else:
+            try:
+                future = executor.submit(
+                    db_functions.run_thread_with_db_item,
+                    runner.run,
+                    service,
+                    program,
+                    event,
+                    cancellation_event,
+                )
+                sys.stdout.flush()
+                sys.stderr.flush()
+                logger.debug(f"Executor.submit() - Successfully submitted {service.__class__.__name__}, future={future}")
+            except Exception as e:
+                logger.error(f"Executor.submit() - EXCEPTION submitting {service.__class__.__name__}: {type(e).__name__}: {e}", exc_info=True)
+                raise
 
-        future_with_event = FutureWithEvent(
-            future=future,
-            event=event,
-            cancellation_event=cancellation_event,
-        )
+            future_with_event = FutureWithEvent(
+                future=future,
+                event=event,
+                cancellation_event=cancellation_event,
+            )
 
-        self._futures.append(future_with_event)
+            self._futures.append(future_with_event)
+            logger.debug(f"Executor.submit() - Added {service.__class__.__name__} to futures list")
 
-        sse_manager.publish_event(
-            "event_update",
-            json.dumps(self.get_event_updates()),
-        )
+            sse_manager.publish_event(
+                "event_update",
+                json.dumps(self.get_event_updates()),
+            )
 
-        future.add_done_callback(
-            lambda f: self._process_future(future_with_event, service),
-        )
+            future.add_done_callback(
+                lambda f: self._process_future(future_with_event, service),
+            )
 
     def cancel_job(self, item_id: int, suppress_logs: bool = False):
         """
