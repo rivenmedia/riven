@@ -13,7 +13,7 @@ from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
     TorrentContainer,
     TorrentFile,
     TorrentInfo,
@@ -226,7 +226,8 @@ class RealDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None = None,
+        limit_bitrate: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
@@ -244,15 +245,15 @@ class RealDebridDownloader(DownloaderBase):
                 torrent_id,
                 infohash,
                 item_type,
-                limit_filesize,
+                runtime,
+                limit_bitrate,
             )
 
             if container is None and reason:
-                # Failed validation - delete the torrent
-
-                if reason != "File size above set limit":
+                if reason != "Bitrate above set limit":
                     logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
+                # Failed validation - delete the torrent
                 if torrent_id:
                     try:
                         self.delete_torrent(torrent_id)
@@ -261,8 +262,8 @@ class RealDebridDownloader(DownloaderBase):
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
 
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
+                if reason == "Bitrate above set limit":
+                    raise BitrateLimitExceededException("Bitrate above set limit")
 
                 return None
 
@@ -297,7 +298,7 @@ class RealDebridDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
+        except BitrateLimitExceededException:
             raise
         except InvalidDebridFileException as e:
             logger.debug(
@@ -339,7 +340,8 @@ class RealDebridDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None,
+        limit_bitrate: bool,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -381,44 +383,32 @@ class RealDebridDownloader(DownloaderBase):
 
         if info.status == "downloaded":
             files = list[DebridFile]()
-            filesize_limit_reached = False
 
-            for file_id, meta in info.files.items():
-                if meta.selected != 1:
-                    continue
+            bitrate_limit_reached = False
 
-                try:
-                    df = DebridFile.create(
-                        path=meta.path,
-                        filename=meta.filename,
-                        filesize_bytes=meta.bytes,
-                        filetype=item_type,
-                        file_id=file_id,
-                        limit_filesize=limit_filesize,
-                    )
-
-                    # Download URL is already available from get_torrent_info()
-                    if (
-                        download_url := meta.download_url
-                    ):  # Empty string is falsy, so this works
-                        df.download_url = download_url
-                        logger.debug(
-                            f"Using correlated download URL for {meta.filename}"
+            # Process files
+            for file in info.files.values():
+                if file.selected:
+                    try:
+                        df = DebridFile.create(
+                            path=file.path,
+                            filename=file.filename,
+                            filesize_bytes=file.bytes,
+                            filetype=item_type,
+                            file_id=file.id,
+                            runtime=runtime,
+                            limit_bitrate=limit_bitrate,
                         )
-                    else:
-                        logger.warning(f"No download URL available for {meta.filename}")
-
-                    files.append(df)
-                except FilesizeLimitExceededException as e:
-                    filesize_limit_reached = True
-                    logger.debug(f"{infohash}: {e}")
-                except InvalidDebridFileException as e:
-                    # noisy per-file details kept at debug
-                    logger.debug(f"{infohash}: {e}")
+                        files.append(df)
+                    except BitrateLimitExceededException as e:
+                        bitrate_limit_reached = True
+                        logger.debug(f"{infohash}: {e}")
+                    except InvalidDebridFileException as e:
+                        logger.debug(f"{infohash}: {e}")
 
             if not files:
-                if filesize_limit_reached:
-                    return None, "File size above set limit", None
+                if bitrate_limit_reached:
+                    return None, "Bitrate above set limit", None
                 return None, "no valid files after validation", None
 
             # Return container WITH the TorrentInfo to avoid re-fetching in download phase

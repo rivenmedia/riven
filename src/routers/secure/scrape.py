@@ -32,7 +32,7 @@ from program.services.downloaders.models import (
     DebridFile,
     TorrentContainer,
     TorrentInfo,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
 )
 from program.services.downloaders.shared import (
     DownloaderBase,
@@ -1012,9 +1012,9 @@ async def start_manual_session(
         Literal["movie", "tv"] | None,
         Query(description="The media type"),
     ] = None,
-    disable_filesize_check: Annotated[
+    disable_bitrate_check: Annotated[
         bool,
-        Query(description="Disable filesize check"),
+        Query(description="Disable bitrate check"),
     ] = False,
 ) -> StartSessionResponse:
     scraping_session_manager.cleanup_expired(background_tasks)
@@ -1048,23 +1048,26 @@ async def start_manual_session(
 
     container = None
     used_service = None
-    filesize_error = False
+    bitrate_error = False
 
     for service in downloader.initialized_services:
         try:
             if container := service.get_instant_availability(
-                info_hash, item.type, limit_filesize=not disable_filesize_check
+                info_hash,
+                item.type,
+                runtime=item.runtime,
+                limit_bitrate=not disable_bitrate_check,
             ):
                 if container.cached:
                     used_service = service
                     break
-        except FilesizeLimitExceededException:
-            filesize_error = True
+        except BitrateLimitExceededException:
+            bitrate_error = True
             continue
 
     if not container or not container.cached:
-        if filesize_error:
-            raise HTTPException(status_code=400, detail="File size above set limit")
+        if bitrate_error:
+            raise HTTPException(status_code=400, detail="Bitrate above/below set limit")
         raise HTTPException(
             status_code=400, detail="Torrent is not cached, please try another stream"
         )

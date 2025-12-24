@@ -35,20 +35,20 @@ VALID_VIDEO_EXTENSIONS = (
     ]
 ) or DEFAULT_VIDEO_EXTENSIONS
 
-movie_min_filesize = settings_manager.settings.downloaders.movie_filesize_mb_min
-movie_max_filesize = settings_manager.settings.downloaders.movie_filesize_mb_max
-episode_min_filesize = settings_manager.settings.downloaders.episode_filesize_mb_min
-episode_max_filesize = settings_manager.settings.downloaders.episode_filesize_mb_max
+movie_min_bitrate = settings_manager.settings.downloaders.movie_bitrate_mbps_min
+movie_max_bitrate = settings_manager.settings.downloaders.movie_bitrate_mbps_max
+episode_min_bitrate = settings_manager.settings.downloaders.episode_bitrate_mbps_min
+episode_max_bitrate = settings_manager.settings.downloaders.episode_bitrate_mbps_max
 
-# constraints for filesizes, follows the format tuple(min, max)
-(MOVIE_MIN_FILESIZE, MOVIE_MAX_FILESIZE) = (
-    movie_min_filesize if movie_min_filesize >= 0 else 0,
-    movie_max_filesize if movie_max_filesize > 0 else float("inf"),
+# constraints for bitrates, follows the format tuple(min, max)
+(MOVIE_MIN_BITRATE, MOVIE_MAX_BITRATE) = (
+    movie_min_bitrate if movie_min_bitrate >= 0 else 0,
+    movie_max_bitrate if movie_max_bitrate > 0 else float("inf"),
 )
 
-(EPISODE_MIN_FILESIZE, EPISODE_MAX_FILESIZE) = (
-    episode_min_filesize if episode_min_filesize >= 0 else 0,
-    episode_max_filesize if episode_max_filesize > 0 else float("inf"),
+(EPISODE_MIN_BITRATE, EPISODE_MAX_BITRATE) = (
+    episode_min_bitrate if episode_min_bitrate >= 0 else 0,
+    episode_max_bitrate if episode_max_bitrate > 0 else float("inf"),
 )
 
 
@@ -64,8 +64,8 @@ class InvalidDebridFileException(Exception):
     """Exception raised for errors creating a DebridFile"""
 
 
-class FilesizeLimitExceededException(InvalidDebridFileException):
-    """Exception raised when a file is outside the allowed size range"""
+class BitrateLimitExceededException(InvalidDebridFileException):
+    """Exception raised when a file is outside the allowed bitrate range"""
 
 
 class DebridFile(BaseModel):
@@ -84,7 +84,8 @@ class DebridFile(BaseModel):
         filetype: ProcessedItemType,
         path: str | None = None,
         file_id: int | None = None,
-        limit_filesize: bool = True,
+        runtime: int | None = None,
+        limit_bitrate: bool = True,
     ) -> "DebridFile":
         """Factory method to validate and create a DebridFile"""
 
@@ -99,18 +100,21 @@ class DebridFile(BaseModel):
         if path and ANIME_SPECIALS_PATTERN.search(path):
             raise InvalidDebridFileException(f"Skipping anime special: '{path}'")
 
-        if limit_filesize:
+        if limit_bitrate and runtime:
             filesize_mb = filesize_bytes / 1_000_000
+            filesize_bits = filesize_bytes * 8
+            runtime_seconds = runtime * 60
+            bitrate_mbps = (filesize_bits / runtime_seconds) / 1_000_000
 
             if filetype == "movie":
-                if not (MOVIE_MIN_FILESIZE <= filesize_mb <= MOVIE_MAX_FILESIZE):
-                    raise FilesizeLimitExceededException(
-                        f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {MOVIE_MIN_FILESIZE}MB to {MOVIE_MAX_FILESIZE}MB"
+                if not (MOVIE_MIN_BITRATE <= bitrate_mbps <= MOVIE_MAX_BITRATE):
+                    raise BitrateLimitExceededException(
+                        f"Skipping movie file: '{filename}' - bitrate: {round(bitrate_mbps, 2)}Mbps is outside the allowed range of {MOVIE_MIN_BITRATE}Mbps to {MOVIE_MAX_BITRATE}Mbps"
                     )
             elif filetype in ["show", "season", "episode"]:
-                if not (EPISODE_MIN_FILESIZE <= filesize_mb <= EPISODE_MAX_FILESIZE):
-                    raise FilesizeLimitExceededException(
-                        f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {EPISODE_MIN_FILESIZE}MB to {EPISODE_MAX_FILESIZE}MB"
+                if not (EPISODE_MIN_BITRATE <= bitrate_mbps <= EPISODE_MAX_BITRATE):
+                    raise BitrateLimitExceededException(
+                        f"Skipping episode file: '{filename}' - bitrate: {round(bitrate_mbps, 2)}Mbps is outside the allowed range of {EPISODE_MIN_BITRATE}Mbps to {EPISODE_MAX_BITRATE}Mbps"
                     )
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)

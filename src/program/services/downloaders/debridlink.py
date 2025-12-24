@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
     TorrentContainer,
     TorrentFile,
     TorrentInfo,
@@ -234,7 +234,8 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None = None,
+        limit_bitrate: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
@@ -253,11 +254,12 @@ class DebridLinkDownloader(DownloaderBase):
                 torrent_id,
                 infohash,
                 item_type,
-                limit_filesize,
+                runtime,
+                limit_bitrate,
             )
 
             if container is None and reason:
-                if reason != "File size above set limit":
+                if reason != "Bitrate above/below set limit":
                     logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 # Failed validation - delete the torrent
@@ -269,8 +271,8 @@ class DebridLinkDownloader(DownloaderBase):
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
 
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
+                if reason == "Bitrate above/below set limit":
+                    raise BitrateLimitExceededException("Bitrate above/below set limit")
 
                 return None
 
@@ -301,7 +303,7 @@ class DebridLinkDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
+        except BitrateLimitExceededException:
             raise
         except InvalidDebridFileException as e:
             logger.debug(
@@ -331,7 +333,8 @@ class DebridLinkDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None,
+        limit_bitrate: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -363,7 +366,8 @@ class DebridLinkDownloader(DownloaderBase):
                         filesize_bytes=file.bytes,
                         filetype=item_type,
                         file_id=file_id,
-                        limit_filesize=limit_filesize,
+                        runtime=runtime,
+                        limit_bitrate=limit_bitrate,
                     )
 
                     # Store download URL if available
@@ -377,7 +381,7 @@ class DebridLinkDownloader(DownloaderBase):
                         )
 
                     files.append(df)
-                except FilesizeLimitExceededException as e:
+                except BitrateLimitExceededException as e:
                     filesize_limit_reached = True
                     logger.debug(f"{infohash}: {e}")
                 except InvalidDebridFileException as e:
@@ -385,7 +389,7 @@ class DebridLinkDownloader(DownloaderBase):
 
             if not files:
                 if filesize_limit_reached:
-                    return None, "File size above set limit", None
+                    return None, "Bitrate above set limit", None
                 return None, "no valid files after validation", None
 
             # Return container WITH the TorrentInfo to avoid re-fetching in download phase

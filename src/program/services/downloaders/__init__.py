@@ -307,7 +307,12 @@ class Downloader(Runner[None, DownloaderBase]):
 
             return None
 
-        container = service.get_instant_availability(stream.infohash, item.type)
+        container = service.get_instant_availability(
+            stream.infohash,
+            item.type,
+            runtime=item.runtime,
+            limit_bitrate=True,
+        )
 
         if not container:
             logger.debug(
@@ -664,7 +669,8 @@ class Downloader(Runner[None, DownloaderBase]):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None = None,
+        limit_bitrate: bool = True,
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
@@ -680,7 +686,8 @@ class Downloader(Runner[None, DownloaderBase]):
         return self.service.get_instant_availability(
             infohash,
             item_type,
-            limit_filesize,
+            runtime,
+            limit_bitrate,
         )
 
     def add_torrent(self, infohash: str) -> int | str:

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
     TorrentContainer,
     TorrentInfo,
     UserInfo,
@@ -288,7 +288,8 @@ class AllDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None = None,
+        limit_bitrate: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -306,11 +307,12 @@ class AllDebridDownloader(DownloaderBase):
                 torrent_id,
                 infohash,
                 item_type,
-                limit_filesize,
+                runtime,
+                limit_bitrate,
             )
 
             if container is None and reason:
-                if reason != "File size above set limit":
+                if reason != "Bitrate above/below set limit":
                     logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 # Failed validation - delete the torrent
@@ -322,8 +324,8 @@ class AllDebridDownloader(DownloaderBase):
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
 
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
+                if reason == "Bitrate above/below set limit":
+                    raise BitrateLimitExceededException("Bitrate above/below set limit")
 
                 return None
 
@@ -354,7 +356,7 @@ class AllDebridDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
+        except BitrateLimitExceededException:
             raise
         except InvalidDebridFileException as e:
             logger.debug(
@@ -384,7 +386,8 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None,
+        limit_bitrate: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -421,13 +424,14 @@ class AllDebridDownloader(DownloaderBase):
             files,
             infohash,
             "",
-            limit_filesize,
+            runtime,
+            limit_bitrate,
             errors,
         )
 
         if not files:
-            if "filesize_limit" in errors:
-                return None, "File size above set limit", None
+            if "bitrate_limit" in errors:
+                return None, "Bitrate above set limit", None
             return None, "no valid files after validation", None
 
         # Return container WITH the TorrentInfo to avoid re-fetching in download phase
@@ -475,7 +479,8 @@ class AllDebridDownloader(DownloaderBase):
         files: list[DebridFile],
         infohash: str,
         path_prefix: str = "",
-        limit_filesize: bool = True,
+        runtime: int | None = None,
+        limit_bitrate: bool = True,
         errors: list[str] | None = None,
     ) -> None:
         """
@@ -505,15 +510,16 @@ class AllDebridDownloader(DownloaderBase):
                     filesize_bytes=size,
                     filetype=item_type,
                     file_id=None,
-                    limit_filesize=limit_filesize,
+                    runtime=runtime,
+                    limit_bitrate=limit_bitrate,
                 )
 
                 df.download_url = link
                 files.append(df)
-            except FilesizeLimitExceededException as e:
+            except BitrateLimitExceededException as e:
                 logger.debug(f"Validation failed for {name}: {e}")
                 if errors is not None:
-                    errors.append("filesize_limit")
+                    errors.append("bitrate_limit")
             except InvalidDebridFileException as e:
                 logger.debug(f"Validation failed for {name}: {e}")
                 pass
