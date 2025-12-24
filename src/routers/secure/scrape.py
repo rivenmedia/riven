@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
 import concurrent.futures
 import threading
-from typing import Annotated, Any, Literal, Optional, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import uuid4
 
 from RTN import ParsedData, Torrent
@@ -21,6 +21,7 @@ from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 from sqlalchemy.orm import object_session, Session
+from sqlalchemy.exc import InvalidRequestError
 
 from program.db import db_functions
 from program.db.db import db_session
@@ -46,7 +47,6 @@ from program.media.models import ActiveStream
 from program.media.state import States
 from program.services.scrapers.models import RankingOverrides
 from ..models.shared import MessageResponse
-from program.services.scrapers import Scraping
 
 
 class Stream(BaseModel):
@@ -527,6 +527,63 @@ async def execute_scrape(
     )
 
 
+def apply_custom_scrape_params(
+    session: Session,
+    item: MediaItem,
+    custom_title: str | None,
+    custom_imdb_id: str | None,
+) -> None:
+    """
+    Apply custom scrape parameters to the item by detaching it from the session
+    and modifying it in-memory. This prevents changes from being committed to the DB.
+    """
+    if not (custom_title or custom_imdb_id):
+        return
+
+    # 1. Expunge children if it's a Show
+    if isinstance(item, Show):
+        for s in item.seasons:
+            for e in s.episodes:
+                try:
+                    session.expunge(e)
+                except InvalidRequestError:
+                    pass
+            try:
+                session.expunge(s)
+            except InvalidRequestError:
+                pass
+
+    # 2. Expunge parents/grandparents if it's Season/Episode
+    target_item = item
+    if isinstance(item, Season):
+        if item.parent:
+            try:
+                session.expunge(item.parent)
+            except InvalidRequestError:
+                pass
+            target_item = item.parent
+    elif isinstance(item, Episode):
+        if item.parent and item.parent.parent:
+            try:
+                session.expunge(item.parent)
+                session.expunge(item.parent.parent)
+            except InvalidRequestError:
+                pass
+            target_item = item.parent.parent
+
+    # 3. Expunge the item itself
+    try:
+        session.expunge(item)
+    except InvalidRequestError:
+        pass
+
+    # 4. Apply changes
+    if custom_title:
+        target_item.title = custom_title
+    if custom_imdb_id:
+        target_item.imdb_id = custom_imdb_id
+
+
 @router.get(
     "/scrape",
     summary="Get streams for an item",
@@ -558,6 +615,14 @@ async def scrape_item(
         Literal["movie", "tv"] | None,
         Query(description="The media type"),
     ] = None,
+    custom_title: Annotated[
+        str | None,
+        Query(description="Custom title to use for scraping"),
+    ] = None,
+    custom_imdb_id: Annotated[
+        str | None,
+        Query(description="Custom IMDB ID to use for scraping"),
+    ] = None,
 ) -> ScrapeItemResponse:
     """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
 
@@ -570,6 +635,8 @@ async def scrape_item(
         item, targets = setup_scrape_request(
             session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
         )
+
+        apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
 
         all_streams = dict[str, Stream]()
 
@@ -609,6 +676,14 @@ async def scrape_item_stream(
         Literal["movie", "tv"] | None,
         Query(description="The media type"),
     ] = None,
+    custom_title: Annotated[
+        str | None,
+        Query(description="Custom title to use for scraping"),
+    ] = None,
+    custom_imdb_id: Annotated[
+        str | None,
+        Query(description="Custom IMDB ID to use for scraping"),
+    ] = None,
 ) -> StreamingResponse:
     """Stream scraping results via SSE."""
 
@@ -622,6 +697,8 @@ async def scrape_item_stream(
             item, targets = setup_scrape_request(
                 session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
             )
+
+            apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
 
             async for event in execute_scrape(item, scraper, targets):
                 yield f"data: {event.model_dump_json()}\n\n"
@@ -742,7 +819,7 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
             )
         
         # Convert found streams to Pydantic models for return
-        streams = {}
+        streams: dict[str, Stream] = {}
         for s in item.streams:
             if s not in item.blacklisted_streams:
                 try:
@@ -767,7 +844,7 @@ async def perform_season_scrape(
     tmdb_id: str | None = None,
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
-    season_numbers: Optional[list[int]] = None,
+    season_numbers: list[int] | None = None,
 ) -> dict[str, Stream]:
     """Helper to perform season scraping with state management."""
 
@@ -777,7 +854,7 @@ async def perform_season_scrape(
     if not di[Program].services:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
     
-    target_ids = []
+    target_ids: list[int] = []
     
     with db_session() as session:
         # Get the show item
