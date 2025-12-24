@@ -222,6 +222,11 @@ class TVDBIndexer(BaseIndexer):
             return True
 
         except Exception as e:
+            from program.apis.tvdb_api import TVDBConnectionError
+
+            if isinstance(e, TVDBConnectionError):
+                raise
+
             logger.error(f"Error updating show metadata: {str(e)}")
             return False
 
@@ -275,6 +280,11 @@ class TVDBIndexer(BaseIndexer):
                         return None
 
         except Exception as e:
+            from program.apis.tvdb_api import TVDBConnectionError
+
+            if isinstance(e, TVDBConnectionError):
+                raise
+
             logger.error(f"Error creating show from TVDB ID: {e}")
 
         return None
