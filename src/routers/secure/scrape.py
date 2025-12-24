@@ -561,7 +561,7 @@ def apply_custom_scrape_params(
                 session.expunge(item.parent)
             except InvalidRequestError:
                 pass
-        target_item = item.parent
+            target_item = item.parent
     elif isinstance(item, Episode):
         if item.parent and item.parent.parent:
             try:
@@ -569,8 +569,7 @@ def apply_custom_scrape_params(
                 session.expunge(item.parent.parent)
             except InvalidRequestError:
                 pass
-        if item.parent and item.parent.parent:
-             target_item = item.parent.parent
+            target_item = item.parent.parent
 
     # 3. Expunge the item itself
     try:
@@ -578,12 +577,11 @@ def apply_custom_scrape_params(
     except InvalidRequestError:
         pass
 
-    # 4. Apply changes (only if target_item is found/valid)
-    if target_item:
-        if custom_title:
-            target_item.title = custom_title
-        if custom_imdb_id:
-            target_item.imdb_id = custom_imdb_id
+    # 4. Apply changes
+    if custom_title:
+        target_item.title = custom_title
+    if custom_imdb_id:
+        target_item.imdb_id = custom_imdb_id
 
 
 @router.get(
