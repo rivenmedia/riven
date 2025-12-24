@@ -188,6 +188,7 @@ class TMDBIndexer(BaseIndexer):
             movie.aliases = aliases
             movie.rating = rating
             movie.content_rating = content_rating
+            movie.runtime = movie_details.runtime
 
             return True
 
@@ -321,6 +322,7 @@ class TMDBIndexer(BaseIndexer):
                     "aliases": aliases,
                     "rating": rating,
                     "content_rating": content_rating,
+                    "runtime": movie_details.runtime,
                 }
             )
         except Exception as e:

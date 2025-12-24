@@ -6,6 +6,9 @@ from RTN import ParsedData, parse
 
 from program.media.stream import Stream
 from program.services.downloaders.models import (
+    DebridFile,
+    InvalidDebridFileException,
+    BitrateLimitExceededException,
     TorrentContainer,
     TorrentInfo,
     UserInfo,
@@ -38,7 +41,8 @@ class DownloaderBase(ABC):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
+        runtime: int | None = None,
+        limit_bitrate: bool = True,
     ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash

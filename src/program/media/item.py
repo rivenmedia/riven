@@ -102,6 +102,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     aired_at: Mapped[datetime | None]
     year: Mapped[int | None]
     genres: Mapped[list[str] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
+    runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=None)
 
     # Rating metadata (normalized for filtering)
 
@@ -187,6 +188,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.is_anime = item.get("is_anime", False)
         self.rating = item.get("rating")
         self.content_rating = item.get("content_rating")
+        self.runtime = item.get("runtime")
 
         # Media server related
         self.updated = item.get("updated", False)
