@@ -337,9 +337,10 @@ def get_media_item(
         )
 
     if prepared_item:
-        if result := next(indexer.run(prepared_item), None):
-            if result.media_items:
-                indexed = result.media_items[0]
+        try:
+            if result := next(indexer.run(prepared_item), None):
+                if result.media_items:
+                    indexed = result.media_items[0]
 
                 # Check directly if item exists in DB by external IDs to avoid unique constraint error
                 try:
@@ -358,6 +359,21 @@ def get_media_item(
                 session.commit()
                 session.refresh(item)
                 return item
+        except Exception as e:
+            from program.apis.tvdb_api import TVDBConnectionError
+            from program.apis.tmdb_api import TMDBConnectionError
+
+            if isinstance(e, TVDBConnectionError):
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"TVDB Service Unavailable: {str(e)}",
+                )
+            if isinstance(e, TMDBConnectionError):
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"TMDB Service Unavailable: {str(e)}",
+                )
+            raise e
 
     raise HTTPException(status_code=404, detail="Item not found")
 

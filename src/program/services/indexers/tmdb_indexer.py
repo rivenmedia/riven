@@ -193,6 +193,11 @@ class TMDBIndexer(BaseIndexer):
             return True
 
         except Exception as e:
+            from program.apis.tmdb_api import TMDBConnectionError
+
+            if isinstance(e, TMDBConnectionError):
+                raise
+
             logger.error(f"Error updating movie metadata: {str(e)}")
             return False
 
@@ -326,6 +331,11 @@ class TMDBIndexer(BaseIndexer):
                 }
             )
         except Exception as e:
+            from program.apis.tmdb_api import TMDBConnectionError
+
+            if isinstance(e, TMDBConnectionError):
+                raise
+
             logger.error(f"Error mapping TMDB movie data: {e}")
 
         return None
