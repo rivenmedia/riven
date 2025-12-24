@@ -46,7 +46,6 @@ from program.media.models import ActiveStream
 from program.media.state import States
 from program.services.scrapers.models import RankingOverrides
 from ..models.shared import MessageResponse
-from program.types import Event
 from program.services.scrapers import Scraping
 
 
@@ -709,8 +708,8 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
             
         # Fail-safe: Ensure item is not paused in this session before scraping
         if item.last_state == States.Paused:
-             logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
-             item.store_state(States.Unknown)
+            logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
+            item.store_state(States.Unknown)
 
         # Run the scraper (this updates the item and its relationships)
         # We iterate to consume the generator
@@ -775,9 +774,7 @@ async def perform_season_scrape(
     if season_numbers is None:
         season_numbers = []
     
-    if services := di[Program].services:
-        scraper = services.scraping
-    else:
+    if not di[Program].services:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
     
     target_ids = []
