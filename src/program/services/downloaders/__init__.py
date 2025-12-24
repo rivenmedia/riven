@@ -311,7 +311,7 @@ class Downloader(Runner[None, DownloaderBase]):
             stream.infohash,
             item.type,
             runtime=item.runtime,
-            limit_bitrate=True,
+            limit_bitrate=not item.ignore_bitrate_limit,
         )
 
         if not container:
