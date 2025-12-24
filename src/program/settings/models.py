@@ -76,20 +76,24 @@ class DownloadersModel(Observable):
         description="list of video file extensions to consider for downloads",
     )
     movie_bitrate_mbps_min: float = Field(
-        default=1, ge=0.4, description="Minimum bitrate in Mbps for movies (0 for no limit)"
+        default=1,
+        ge=0.4,
+        description="Minimum bitrate in Mbps for movies (-1 for no limit)",
     )
     movie_bitrate_mbps_max: float = Field(
         default=-1,
         ge=-1,
-        description="Maximum bitrate in Mbps for movies (0 for no limit)",
+        description="Maximum bitrate in Mbps for movies (-1 for no limit)",
     )
     episode_bitrate_mbps_min: float = Field(
-        default=1, ge=0.4, description="Minimum bitrate in Mbps for episodes (0 for no limit)"
+        default=1,
+        ge=0.4,
+        description="Minimum bitrate in Mbps for episodes (-1 for no limit)",
     )
     episode_bitrate_mbps_max: float = Field(
         default=-1,
         ge=-1,
-        description="Maximum bitrate in Mbps for episodes (0 for no limit)",
+        description="Maximum bitrate in Mbps for episodes (-1 for no limit)",
     )
     proxy_url: EmptyOrUrl = Field(
         default="", description="Proxy URL for downloaders (optional)"
