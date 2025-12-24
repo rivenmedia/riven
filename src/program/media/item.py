@@ -103,6 +103,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     year: Mapped[int | None]
     genres: Mapped[list[str] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
     runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=None)
+    ignore_bitrate_limit: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False)
 
     # Rating metadata (normalized for filtering)
 

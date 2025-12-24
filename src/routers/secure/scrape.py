@@ -729,6 +729,18 @@ class AutoScrapeRequestPayload(BaseModel):
             description="The ID of the media item",
         ),
     ] = None
+    disable_bitrate_check: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Disable bitrate check for this scrape",
+        ),
+    ] = False
+
+
+async def auto_scrape_item(
+    body: Annotated[AutoScrapeRequestPayload, Body()],
+) -> MessageResponse:
     tmdb_id: Annotated[
         str | None,
         Field(
@@ -1689,6 +1701,11 @@ async def auto_scrape_item(
             imdb_id=body.imdb_id,
             media_type=body.media_type,
         )
+
+        if item and body.disable_bitrate_check:
+            item.ignore_bitrate_limit = True
+            session.add(item)
+            session.commit()
 
         # Scrape with overrides
         streams = scraper.scrape(
