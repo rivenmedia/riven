@@ -171,6 +171,16 @@ class LibraryProfileMatcher:
             ):
                 return False
 
+        # Resolution filter with exclusion support
+        if rules.resolutions:
+            if not self._matches_list_filter(
+                self._get_normalized_resolutions(item),
+                rules.resolutions,
+                "resolutions",
+                item.log_string,
+            ):
+                return False
+
         # All rules matched
         return True
 
@@ -296,6 +306,38 @@ class LibraryProfileMatcher:
         """
 
         return self._normalize_str_list(item.language)
+
+    def _get_normalized_resolutions(self, item: MediaItem) -> list[str]:
+        """
+        Get normalized resolution list (lowercase) from MediaItem's MediaEntry.
+
+        Resolution is extracted from the media_metadata.video.resolution_label
+        of the item's filesystem_entry (MediaEntry).
+
+        Returns:
+            list with single resolution string (e.g., ['1080p', '4k']) or empty list
+            if no resolution metadata is available.
+        """
+        from program.media.media_entry import MediaEntry
+
+        # Get the MediaEntry from the item
+        entry = item.filesystem_entry
+
+        if not entry or not isinstance(entry, MediaEntry):
+            return []
+
+        # Get resolution from media_metadata
+        metadata = entry.media_metadata
+
+        if not metadata or not metadata.video:
+            return []
+
+        resolution = metadata.video.resolution_label
+
+        if not resolution:
+            return []
+
+        return [resolution.lower()]
 
     def _normalize_str_list(self, value: Any) -> list[str]:
         """Normalize a string or iterable of strings into a lowercase list.
