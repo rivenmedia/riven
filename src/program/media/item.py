@@ -798,7 +798,7 @@ class Show(MediaItem):
     seasons: Mapped[list["Season"]] = relationship(
         back_populates="parent",
         foreign_keys="Season.parent_id",
-        lazy="joined",
+        lazy="selectin",
         cascade="all, delete-orphan",
         order_by="Season.number",
     )
@@ -972,7 +972,7 @@ class Season(MediaItem):
     episodes: Mapped[list["Episode"]] = relationship(
         back_populates="parent",
         foreign_keys="Episode.parent_id",
-        lazy="joined",
+        lazy="selectin",
         cascade="all, delete-orphan",
         order_by="Episode.number",
     )
@@ -1018,10 +1018,6 @@ class Season(MediaItem):
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
 
-            if any(episode.state == States.Unreleased for episode in self.episodes):
-                if any(episode.state != States.Unreleased for episode in self.episodes):
-                    return States.Ongoing
-
             if any(episode.state == States.Completed for episode in self.episodes):
                 return States.PartiallyCompleted
 
@@ -1031,8 +1027,15 @@ class Season(MediaItem):
             if any(episode.state == States.Downloaded for episode in self.episodes):
                 return States.Downloaded
 
+            # Check is_scraped BEFORE returning Ongoing so seasons with streams
+            # proceed to downloading even if some episodes are unreleased
             if self.is_scraped():
                 return States.Scraped
+
+            # Now check for Ongoing (mix of released and unreleased episodes)
+            if any(episode.state == States.Unreleased for episode in self.episodes):
+                if any(episode.state != States.Unreleased for episode in self.episodes):
+                    return States.Ongoing
 
             if any(episode.state == States.Indexed for episode in self.episodes):
                 return States.Indexed

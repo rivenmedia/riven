@@ -1,6 +1,6 @@
 from kink import di
 from pydantic import BaseModel
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, BackgroundTasks
 from loguru import logger
 
 from program.media.item import MediaItem
@@ -8,6 +8,7 @@ from program.services.content.overseerr import Overseerr
 from program.program import Program
 
 from ..models.overseerr import OverseerrWebhook
+from .scrape import perform_season_scrape
 
 router = APIRouter(
     prefix="/webhook",
@@ -24,7 +25,9 @@ class OverseerrWebhookResponse(BaseModel):
     "/overseerr",
     response_model=OverseerrWebhookResponse,
 )
-async def overseerr(request: Request) -> OverseerrWebhookResponse:
+async def overseerr(
+    request: Request, background_tasks: BackgroundTasks
+) -> OverseerrWebhookResponse:
     """Webhook for Overseerr"""
 
     try:
@@ -59,6 +62,17 @@ async def overseerr(request: Request) -> OverseerrWebhookResponse:
             )
 
         item_type = req.media.media_type
+        if item_type == "tv" and (requested_seasons := req.requested_seasons):
+            logger.info(f"Received partial season request for {req.media.tmdbId}: {requested_seasons}")
+            
+            background_tasks.add_task(
+                perform_season_scrape,
+                tmdb_id=str(req.media.tmdbId),
+                tvdb_id=str(req.media.tvdbId) if req.media.tvdbId else None,
+                season_numbers=requested_seasons,
+            )
+            
+            return OverseerrWebhookResponse(success=True)
 
         new_item = None
 

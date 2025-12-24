@@ -27,6 +27,7 @@ from program.services.downloaders.shared import (
     DownloaderBase,
     sort_streams_by_quality,
     parse_filename,
+    resolve_download_url,
 )
 from RTN import ParsedData
 from program.services.downloaders.shared import parse_filename
@@ -80,6 +81,10 @@ class Downloader(Runner[None, DownloaderBase]):
         )
 
         return True
+
+    def get_service(self, service_key: str) -> DownloaderBase | None:
+        """Get a specific downloader service by its key"""
+        return next((s for s in self.initialized_services if s.key == service_key), None)
 
     def run(self, item: MediaItem) -> MediaItemGenerator:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
@@ -634,11 +639,32 @@ class Downloader(Runner[None, DownloaderBase]):
                 logger.debug(
                     f"Matched library profiles for {item.log_string}: {library_profiles}"
                 )
+        elif download_result.info.id and service:
+            logger.debug(
+                f"Refreshing torrent info for {download_result.info.id} to resolve download_url"
+            )
+
+            if new_url := resolve_download_url(
+                service, download_result.info.id, debrid_file.filename
+            ):
+                logger.debug(
+                    f"Resolved download_url for {debrid_file.filename}: {new_url}"
+                )
+                debrid_file.download_url = new_url
+                # Recursively call with updated file
+                self._update_attributes(
+                    item, debrid_file, download_result, service, file_data
+                )
+            else:
+                logger.warning(
+                    f"Failed to resolve download_url for {debrid_file.filename}"
+                )
 
     def get_instant_availability(
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
@@ -651,7 +677,11 @@ class Downloader(Runner[None, DownloaderBase]):
 
         assert self.service
 
-        return self.service.get_instant_availability(infohash, item_type)
+        return self.service.get_instant_availability(
+            infohash,
+            item_type,
+            limit_filesize,
+        )
 
     def add_torrent(self, infohash: str) -> int | str:
         """Add a torrent by infohash"""
@@ -667,12 +697,19 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.get_torrent_info(torrent_id)
 
-    def select_files(self, torrent_id: int | str, container: list[int]) -> None:
+    def select_files(
+        self,
+        torrent_id: int | str,
+        container: list[int],
+        service: DownloaderBase | None = None,
+    ) -> None:
         """Select files from a torrent"""
 
-        assert self.service
+        target_service = service or self.service
 
-        self.service.select_files(torrent_id, container)
+        assert target_service
+
+        target_service.select_files(torrent_id, container)
 
     def delete_torrent(self, torrent_id: int | str) -> None:
         """Delete a torrent"""
