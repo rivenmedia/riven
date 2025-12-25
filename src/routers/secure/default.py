@@ -1,3 +1,5 @@
+import platform
+import psutil
 from typing import Annotated, Any, Literal
 
 import requests
@@ -13,15 +15,23 @@ from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.program import Program
 from program.settings import settings_manager
 from program.utils import generate_api_key
-from program.program import Program
 
 from ..models.shared import MessageResponse
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
+
+
+def get_size(bytes, suffix="B"):
+    factor = 1024
+    for unit in ["", "K", "M", "G", "T", "P"]:
+        if bytes < factor:
+            return f"{bytes:.2f}{unit}{suffix}"
+        bytes /= factor
 
 
 @router.get("/health", operation_id="health")
@@ -255,6 +265,7 @@ async def get_stats() -> StatsResponse:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
             from sqlalchemy import exists
+
             from program.media.filesystem_entry import FilesystemEntry
 
             movies_symlinks = conn.execute(
@@ -565,6 +576,10 @@ class DebugResponse(BaseModel):
         str | None,
         Field(description="Filename of the database backup"),
     ]
+    system_info: Annotated[
+        dict[str, Any],
+        Field(description="System information"),
+    ]
     errors: Annotated[
         list[str],
         Field(description="List of any errors that occurred"),
@@ -585,6 +600,7 @@ async def generate_debug_bundle() -> DebugResponse:
     This endpoint:
     1. Uploads the current log file to paste.c-net.org
     2. Creates a database backup snapshot
+    3. Returns system information
 
     Returns the log URL and backup filename.
     """
@@ -594,7 +610,6 @@ async def generate_debug_bundle() -> DebugResponse:
     log_url: HttpUrl | None = None
     db_backup_filename: str | None = None
 
-    # Upload logs
     try:
         log_url = _upload_logs_to_paste()
     except HTTPException as e:
@@ -603,7 +618,6 @@ async def generate_debug_bundle() -> DebugResponse:
         logger.error(f"Debug: Failed to upload logs: {e}")
         errors.append(f"Failed to upload logs: {str(e)}")
 
-    # Create database backup
     try:
         db_backup_filename = snapshot_database()
         if db_backup_filename:
@@ -616,9 +630,20 @@ async def generate_debug_bundle() -> DebugResponse:
 
     success = log_url is not None and db_backup_filename is not None
 
+    system_info = {
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "cpu_count": psutil.cpu_count(),
+        "load avg": psutil.getloadavg(),
+        "memory": get_size(psutil.virtual_memory().total),
+        "swap": get_size(psutil.swap_memory().total),
+        "disk": get_size(psutil.disk_usage("/").total),
+    }
+
     return DebugResponse(
         success=success,
         log_url=log_url,
         db_backup_filename=db_backup_filename,
+        system_info=system_info,
         errors=errors,
     )
