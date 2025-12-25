@@ -7,7 +7,10 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from program.utils import data_dir_path
-from program.utils.cli import restore_database, snapshot_database
+from program.utils.cli import (
+    restore_database as restore_database_from_file,
+    snapshot_database,
+)
 from program.utils.logging import logger
 
 router = APIRouter(
@@ -158,7 +161,7 @@ async def restore_database(
                 )
 
         # If no file or filename provided, restore_database will use latest.sql
-        success = restore_database(snapshot_path)
+        success = restore_database_from_file(snapshot_path)
 
         if temp_file_path and temp_file_path.exists():
             temp_file_path.unlink()
