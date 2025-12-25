@@ -120,9 +120,9 @@ async def restore_database(
 
     If neither is provided, restores from 'latest.sql'.
     """
+    temp_file_path: Path | None = None
     try:
         snapshot_path: Path | None = None
-        temp_file_path: Path | None = None
 
         if file and filename:
             raise HTTPException(
