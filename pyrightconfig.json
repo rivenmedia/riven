@@ -1,5 +1,6 @@
 {
   "ignore": ["src/schemas", "src/tests", "src/alembic"],
+  "stubPath": "src/typings",
   "deprecateTypingAliases": true,
   "typeCheckingMode": "strict",
   "reportMissingTypeStubs": false,
