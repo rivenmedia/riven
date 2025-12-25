@@ -8,8 +8,11 @@ from pydantic import BaseModel
 
 from program.utils import data_dir_path
 from program.utils.cli import (
-    restore_database as restore_database_from_file,
+    clean_snapshots,
     snapshot_database,
+)
+from program.utils.cli import (
+    restore_database as restore_database_from_file,
 )
 from program.utils.logging import logger
 
@@ -209,8 +212,6 @@ async def clean_snapshots_endpoint(
     If filename is provided, deletes only that specific snapshot.
     If no filename is provided, deletes all snapshots.
     """
-    from program.utils.cli import clean_snapshots
-
     try:
         # Validate filename if provided
         if filename:
