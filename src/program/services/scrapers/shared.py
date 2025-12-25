@@ -57,6 +57,10 @@ def parse_results(
             if hasattr(overridden_settings.resolutions, res_key):
                 setattr(overridden_settings.resolutions, res_key, True)
 
+        # Clear exclude and require lists
+        overridden_settings.require = []
+        overridden_settings.exclude = []
+
         # Enable all custom ranks
         for category in CustomRanksConfig.model_fields:
             category_settings: BaseModel = getattr(
