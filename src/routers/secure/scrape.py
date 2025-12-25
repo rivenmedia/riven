@@ -714,6 +714,10 @@ async def scrape_item_stream(
         str | None,
         Query(description="Custom IMDB ID to use for scraping"),
     ] = None,
+    ranking_overrides: Annotated[
+        str | None,
+        Query(description="JSON string of ranking overrides"),
+    ] = None,
 ) -> StreamingResponse:
     """Stream scraping results via SSE."""
 
@@ -728,9 +732,16 @@ async def scrape_item_stream(
                 session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
             )
 
+            overrides: RankingOverrides | None = None
+            if ranking_overrides:
+                try:
+                    overrides = RankingOverrides.model_validate_json(ranking_overrides)
+                except Exception as e:
+                    logger.error(f"Failed to parse ranking_overrides: {e}")
+            
             apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
 
-            async for event in execute_scrape(item, scraper, targets):
+            async for event in execute_scrape(item, scraper, targets, ranking_overrides=overrides):
                 yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(
@@ -828,11 +839,36 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
             logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
             item.store_state(States.Unknown)
 
-        # Run the scraper (this updates the item and its relationships)
-        # We iterate to consume the generator
+        # Pre-load relationships to avoid lazy loading in threads
+        # This is critical to prevent "session is provisioning a new connection" errors
+        # when multiple scraper threads try to access lazy attributes of the same session-attached item.
+        _ = item.streams
+        _ = item.blacklisted_streams
+        if item.type == "show":
+            # For shows, make sure seasons and episodes are loaded
+            # We access them to trigger loading if they are lazy
+            for season in getattr(item, "seasons", []):
+                _ = season.episodes
+        elif item.type == "season":
+             _ = getattr(item, "episodes", [])
+             if parent := getattr(item, "parent", None):
+                 _ = parent.id
+        elif item.type == "episode":
+             if parent_season := getattr(item, "parent", None):
+                 _ = parent_season.id
+                 if parent_show := getattr(parent_season, "parent", None):
+                     _ = parent_show.id
+
+        # Detach item from session so threads can read it safely without session concurrency issues
+        session.expunge(item)
+
+        # Run the scraper (this updates the detached item and its relationships in memory)
         logger.debug(f"Worker processing item {item.id}. Initial State: {item.last_state}")
         for _ in scraper.run(item):
             pass
+        
+        # Merge item back into session to persist changes
+        item = session.merge(item)
         
         # Refresh the item and streams relationship to ensure is_scraped() works correctly
         session.refresh(item, attribute_names=["streams", "blacklisted_streams"])
