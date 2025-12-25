@@ -184,3 +184,56 @@ async def restore_database(
         raise HTTPException(
             status_code=500, detail=f"Failed to restore database: {str(e)}"
         )
+
+
+class CleanSnapshotsResponse(BaseModel):
+    success: bool
+    message: str
+    deleted_files: list[str]
+
+
+@router.delete(
+    "/backup/clean",
+    operation_id="clean_snapshots",
+    response_model=CleanSnapshotsResponse,
+)
+async def clean_snapshots_endpoint(
+    filename: str | None = None,
+) -> CleanSnapshotsResponse:
+    """
+    Clean database snapshot files.
+
+    If filename is provided, deletes only that specific snapshot.
+    If no filename is provided, deletes all snapshots.
+    """
+    from program.utils.cli import clean_snapshots
+
+    try:
+        # Validate filename if provided
+        if filename:
+            if "/" in filename or "\\" in filename or ".." in filename:
+                raise HTTPException(status_code=400, detail="Invalid filename")
+
+        success, deleted_files = clean_snapshots(filename)
+
+        if success:
+            if filename:
+                message = f"Deleted snapshot: {filename}"
+            else:
+                message = f"Deleted {len(deleted_files)} snapshot(s)"
+
+            logger.info(f"Snapshots cleaned via API: {deleted_files}")
+            return CleanSnapshotsResponse(
+                success=True,
+                message=message,
+                deleted_files=deleted_files,
+            )
+        else:
+            raise HTTPException(status_code=500, detail="Failed to clean snapshots")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cleaning snapshots via API: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to clean snapshots: {str(e)}"
+        )
