@@ -8,6 +8,7 @@ from program.db.db_functions import (
     hard_reset_database,
 )
 from program.utils.logging import log_cleaner, logger
+import contextlib
 
 
 def _parse_db_connection(db_url: str) -> tuple[str, str, str, str, str] | None:
@@ -93,6 +94,8 @@ def _run_pg_dump(
         dbname,
         "-f",
         str(output_file),
+        "--no-owner",
+        "--no-privileges",
         "--clean",
         "--if-exists",
     ]
@@ -153,7 +156,7 @@ def _run_psql(
 def snapshot_database(
     snapshot_dir: Path | None = None,
     snapshot_name: str | None = None,
-):
+) -> str | None:
     """
     Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
 
@@ -165,7 +168,7 @@ def snapshot_database(
         snapshot_name (str | None): Custom name for the snapshot file. If None, uses timestamped name.
 
     Returns:
-        bool: `True` if the snapshot was created and the `latest.sql` symlink updated, `False` otherwise.
+        str | None: The snapshot filename if successful, None otherwise.
     """
     from program.settings import settings_manager
 
@@ -181,7 +184,7 @@ def snapshot_database(
         # Parse connection details
         parsed = _parse_db_connection(db_url)
         if not parsed:
-            return False
+            return None
         user, password, host, port, dbname = parsed
 
         # Create snapshot filename
@@ -205,13 +208,13 @@ def snapshot_database(
                 latest_link.unlink()
             latest_link.symlink_to(snapshot_file.name)
             logger.info(f"Latest snapshot link updated: {latest_link}")
-            return True
+            return snapshot_file.name
         else:
-            return False
+            return None
 
     except Exception as e:
         logger.error(f"Error creating database snapshot: {e}")
-        return False
+        return None
 
 
 def restore_database(snapshot_file: Path | None = None):
@@ -257,6 +260,73 @@ def restore_database(snapshot_file: Path | None = None):
     except Exception as e:
         logger.error(f"Error restoring database: {e}")
         return False
+
+
+def clean_snapshots(snapshot_name: str | None = None) -> tuple[bool, list[str]]:
+    """
+    Clean database snapshot files.
+
+    Parameters:
+        snapshot_name (str | None): Specific snapshot file to delete. If None, deletes all snapshots.
+
+    Returns:
+        tuple[bool, list[str]]: (success, list of deleted filenames)
+    """
+    snapshot_dir = Path("./data/db_snapshot")
+
+    if not snapshot_dir.exists():
+        logger.info("No snapshot directory found, nothing to clean")
+        return True, []
+
+    deleted_files: list[str] = []
+
+    try:
+        if snapshot_name:
+            if "/" in snapshot_name or "\\" in snapshot_name or ".." in snapshot_name:
+                logger.error(f"Invalid snapshot name: {snapshot_name}")
+                return False, []
+
+            if not snapshot_name.endswith(".sql"):
+                snapshot_name = f"{snapshot_name}.sql"
+
+            snapshot_file = snapshot_dir / snapshot_name
+
+            if not snapshot_file.exists():
+                logger.error(f"Snapshot file not found: {snapshot_name}")
+                return False, []
+
+            # Check if latest.sql points to a file that is being deleted
+            latest_link = snapshot_dir / "latest.sql"
+            symlink_points_to_deleted = False
+            if latest_link.is_symlink():
+                with contextlib.suppress(Exception):
+                    symlink_points_to_deleted = (
+                        latest_link.resolve().name == snapshot_name
+                    )
+
+            snapshot_file.unlink()
+            deleted_files.append(snapshot_name)
+            logger.success(f"Deleted snapshot: {snapshot_name}")
+
+            if symlink_points_to_deleted:
+                latest_link.unlink()
+                logger.info("Removed latest.sql symlink (pointed to deleted file)")
+        else:
+            for snapshot_file in snapshot_dir.glob("*.sql"):
+                if snapshot_file.is_symlink():
+                    snapshot_file.unlink()
+                    deleted_files.append(f"{snapshot_file.name} (symlink)")
+                elif snapshot_file.is_file():
+                    snapshot_file.unlink()
+                    deleted_files.append(snapshot_file.name)
+
+            logger.success(f"Deleted {len(deleted_files)} snapshot(s)")
+
+        return True, deleted_files
+
+    except Exception as e:
+        logger.error(f"Error cleaning snapshots: {e}")
+        return False, deleted_files
 
 
 def handle_args():
@@ -307,6 +377,14 @@ def handle_args():
         default=8080,
         help="Port to run the server on (default: 8080)",
     )
+    parser.add_argument(
+        "--clean_snapshots",
+        type=str,
+        metavar="SNAPSHOT_FILE",
+        nargs="?",
+        const=True,
+        help="Clean database snapshots. If no filename provided, deletes all snapshots.",
+    )
 
     args = parser.parse_args()
 
@@ -331,6 +409,15 @@ def handle_args():
         else:
             snapshot_file = Path(args.restore_db)
         success = restore_database(snapshot_file)
+        exit(0 if success else 1)
+
+    if args.clean_snapshots:
+        snapshot_name = (
+            args.clean_snapshots if isinstance(args.clean_snapshots, str) else None
+        )
+        success, deleted = clean_snapshots(snapshot_name)
+        if deleted:
+            logger.info(f"Deleted files: {', '.join(deleted)}")
         exit(0 if success else 1)
 
     return args

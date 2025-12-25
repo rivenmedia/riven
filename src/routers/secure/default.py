@@ -1,3 +1,5 @@
+import platform
+import psutil
 from typing import Annotated, Any, Literal
 
 import requests
@@ -13,15 +15,23 @@ from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
+from program.program import Program
 from program.settings import settings_manager
 from program.utils import generate_api_key
-from program.program import Program
 
 from ..models.shared import MessageResponse
 
 router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
+
+
+def get_size(size_bytes: float, suffix: str = "B") -> str | None:
+    factor = 1024
+    for unit in ["", "K", "M", "G", "T", "P"]:
+        if size_bytes < factor:
+            return f"{size_bytes:.2f}{unit}{suffix}"
+        size_bytes /= factor
 
 
 @router.get("/health", operation_id="health")
@@ -255,6 +265,7 @@ async def get_stats() -> StatsResponse:
         # Ensure the connection is open for the entire duration of the session
         with session.connection().execution_options(stream_results=True) as conn:
             from sqlalchemy import exists
+
             from program.media.filesystem_entry import FilesystemEntry
 
             movies_symlinks = conn.execute(
@@ -441,19 +452,19 @@ class UploadLogsResponse(BaseModel):
     ]
 
 
-@router.post(
-    "/upload_logs",
-    operation_id="upload_logs",
-    response_model=UploadLogsResponse,
-)
-async def upload_logs() -> UploadLogsResponse:
-    """Upload the latest log file to paste.c-net.org"""
+def _upload_logs_to_paste() -> HttpUrl:
+    """
+    Upload the current log file to paste.c-net.org.
 
+    Returns:
+        HttpUrl: The URL of the uploaded log file.
+
+    Raises:
+        HTTPException: If log file not found or upload fails.
+    """
     log_file_path: str | None = None
 
-    for (
-        handler
-    ) in (  # pyright: ignore[reportUnknownVariableType]
+    for handler in (  # pyright: ignore[reportUnknownVariableType]
         logger._core.handlers.values()  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
     ):
         if ".log" in handler._name:
@@ -465,29 +476,40 @@ async def upload_logs() -> UploadLogsResponse:
     if not log_file_path:
         raise HTTPException(status_code=500, detail="Log file handler not found")
 
+    with open(
+        log_file_path,  # pyright: ignore[reportUnknownArgumentType]
+        "r",
+    ) as log_file:
+        log_contents = log_file.read()
+
+    response = requests.post(
+        "https://paste.c-net.org/",
+        data=log_contents.encode("utf-8"),
+        headers={"Content-Type": "text/plain", "x-uuid": ""},
+        timeout=30,
+    )
+
+    if response.status_code == 200:
+        url = HttpUrl(url=response.text.strip())
+        logger.info(f"Uploaded log file to {url}")
+        return url
+    else:
+        logger.error(f"Failed to upload log file: {response.status_code}")
+        raise HTTPException(status_code=500, detail="Failed to upload log file")
+
+
+@router.post(
+    "/upload_logs",
+    operation_id="upload_logs",
+    response_model=UploadLogsResponse,
+)
+async def upload_logs() -> UploadLogsResponse:
+    """Upload the latest log file to paste.c-net.org"""
     try:
-        with open(
-            log_file_path,  # pyright: ignore[reportUnknownArgumentType]
-            "r",
-        ) as log_file:
-            log_contents = log_file.read()
-
-        response = requests.post(
-            "https://paste.c-net.org/",
-            data=log_contents.encode("utf-8"),
-            headers={"Content-Type": "text/plain", "x-uuid": ""},
-        )
-
-        if response.status_code == 200:
-            logger.info(f"Uploaded log file to {response.text.strip()}")
-
-            return UploadLogsResponse(
-                success=True, url=HttpUrl(url=response.text.strip())
-            )
-        else:
-            logger.error(f"Failed to upload log file: {response.status_code}")
-            raise HTTPException(status_code=500, detail="Failed to upload log file")
-
+        url = _upload_logs_to_paste()
+        return UploadLogsResponse(success=True, url=url)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to read or upload log file: {e}")
         raise HTTPException(status_code=500, detail="Failed to read or upload log file")
@@ -542,3 +564,86 @@ async def get_vfs_stats() -> VFSStatsResponse:
     assert vfs
 
     return VFSStatsResponse(stats=vfs.opener_stats)
+
+
+class DebugResponse(BaseModel):
+    success: bool
+    log_url: Annotated[
+        HttpUrl | None,
+        Field(description="URL to the uploaded log file"),
+    ]
+    db_backup_filename: Annotated[
+        str | None,
+        Field(description="Filename of the database backup"),
+    ]
+    system_info: Annotated[
+        dict[str, Any],
+        Field(description="System information"),
+    ]
+    errors: Annotated[
+        list[str],
+        Field(description="List of any errors that occurred"),
+    ] = []
+
+
+@router.post(
+    "/debug",
+    summary="Generate Debug Bundle",
+    description="Upload logs and create database backup for debugging purposes",
+    operation_id="generate_debug_bundle",
+    response_model=DebugResponse,
+)
+async def generate_debug_bundle() -> DebugResponse:
+    """
+    Generate a debug bundle containing uploaded logs and database backup.
+
+    This endpoint:
+    1. Uploads the current log file to paste.c-net.org
+    2. Creates a database backup snapshot
+    3. Returns system information
+
+    Returns the log URL and backup filename.
+    """
+    from program.utils.cli import snapshot_database
+
+    errors = list[str]()
+    log_url: HttpUrl | None = None
+    db_backup_filename: str | None = None
+
+    try:
+        log_url = _upload_logs_to_paste()
+    except HTTPException as e:
+        errors.append(e.detail)
+    except Exception as e:
+        logger.error(f"Debug: Failed to upload logs: {e}")
+        errors.append(f"Failed to upload logs: {str(e)}")
+
+    try:
+        db_backup_filename = snapshot_database()
+        if db_backup_filename:
+            logger.info(f"Debug: Created database backup: {db_backup_filename}")
+        else:
+            errors.append("Failed to create database backup")
+    except Exception as e:
+        logger.error(f"Debug: Failed to create database backup: {e}")
+        errors.append(f"Failed to create database backup: {str(e)}")
+
+    success = log_url is not None and db_backup_filename is not None
+
+    system_info = {
+        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "cpu_count": psutil.cpu_count(),
+        "load_avg": psutil.getloadavg(),
+        "memory": get_size(psutil.virtual_memory().total),
+        "swap": get_size(psutil.swap_memory().total),
+        "disk": get_size(psutil.disk_usage("/").total),
+    }
+
+    return DebugResponse(
+        success=success,
+        log_url=log_url,
+        db_backup_filename=db_backup_filename,
+        system_info=system_info,
+        errors=errors,
+    )
