@@ -102,6 +102,13 @@ def parse_results(
                     # Fetch if key in selected keys
                     rank_obj.fetch = key in selected_keys
 
+        # 3. Require / Exclude
+        if ranking_overrides.require is not None:
+            overridden_settings.require = ranking_overrides.require
+        
+        if ranking_overrides.exclude is not None:
+            overridden_settings.exclude = ranking_overrides.exclude
+
         rtn_instance = RTN(overridden_settings, ranking_model)
 
     for infohash, raw_title in results.items():
