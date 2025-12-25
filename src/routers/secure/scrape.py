@@ -1367,12 +1367,22 @@ async def manual_update_attributes(
                             States.Downloaded,
                         ]:
                             continue
-
-                        episode.store_state(States.Paused)
-                        session.merge(episode)
-                        logger.debug(
-                            f"Paused episode {episode.log_string} (ID: {episode.id})"
-                        )
+                        
+                        # If show is ongoing, reset unselected episodes so they can be auto-scraped later
+                        if item.tvdb_status and item.tvdb_status.lower() in [
+                            "continuing",
+                            "upcoming",
+                        ]:
+                            episode.reset()
+                            logger.debug(
+                                f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
+                            )
+                        else:
+                            episode.store_state(States.Paused)
+                            session.merge(episode)
+                            logger.debug(
+                                f"Paused episode {episode.log_string} (ID: {episode.id})"
+                            )
         elif isinstance(item, Season):
             logger.debug(
                 f"Checking {len(item.episodes)} episodes in season {item.number} to pause"
@@ -1385,12 +1395,22 @@ async def manual_update_attributes(
                         States.Downloaded,
                     ]:
                         continue
-
-                    episode.store_state(States.Paused)
-                    session.merge(episode)
-                    logger.debug(
-                        f"Paused episode {episode.log_string} (ID: {episode.id})"
-                    )
+                        
+                    # If show is ongoing, reset unselected episodes so they can be auto-scraped later
+                    if item.parent.tvdb_status and item.parent.tvdb_status.lower() in [
+                        "continuing",
+                        "upcoming",
+                    ]:
+                        episode.reset()
+                        logger.debug(
+                            f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
+                        )
+                    else:
+                        episode.store_state(States.Paused)
+                        session.merge(episode)
+                        logger.debug(
+                            f"Paused episode {episode.log_string} (ID: {episode.id})"
+                        )
 
         item.store_state()
 
