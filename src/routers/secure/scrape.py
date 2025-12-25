@@ -42,6 +42,7 @@ from program.services.downloaders.shared import (
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
+from program.utils.request import CircuitBreakerOpen
 from program.program import Program
 from program.media.models import ActiveStream
 from program.media.state import States
@@ -491,6 +492,19 @@ async def execute_scrape(
                     )
 
                 asyncio.run_coroutine_threadsafe(event_queue.put(event), loop)
+
+        except CircuitBreakerOpen:
+            logger.debug(f"Circuit breaker OPEN during scrape of {target_name}, skipping remaining services")
+            error_event = ScrapeStreamEvent(
+                event="progress",
+                message=f"Circuit breaker OPEN for {target_name}, skipping remaining services",
+                services_completed=services_completed,
+                total_services=total_services,
+                streams={},
+                total_streams=0,
+                service="circuit_breaker",
+            )
+            asyncio.run_coroutine_threadsafe(event_queue.put(error_event), loop)
 
         except Exception as e:
             logger.error(f"Error scraping {target_name}: {e}")
@@ -1503,6 +1517,8 @@ def _update_item_fs_entry(
 
     if isinstance(item, Episode):
         updated_episode_ids.add(item.id)
+
+    item.store_state()
 
 
 @router.post(

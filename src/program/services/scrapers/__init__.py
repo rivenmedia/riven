@@ -24,6 +24,7 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import Observable, ScraperModel
 from program.services.scrapers.base import ScraperService
 from program.services.scrapers.models import RankingOverrides
+from program.utils.request import CircuitBreakerOpen
 
 
 class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
@@ -162,6 +163,9 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                     results_queue.put((svc.key, service_results))
                 else:
                     results_queue.put((svc.key, {}))
+            except CircuitBreakerOpen:
+                logger.debug(f"Circuit breaker OPEN for {svc.key}")
+                results_queue.put((svc.key, {}))
             except Exception as e:
                 logger.error(f"Error running {svc.key}: {e}")
                 results_queue.put((svc.key, {}))
