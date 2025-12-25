@@ -8,6 +8,7 @@ from program.db.db_functions import (
     hard_reset_database,
 )
 from program.utils.logging import log_cleaner, logger
+import contextlib
 
 
 def _parse_db_connection(db_url: str) -> tuple[str, str, str, str, str] | None:
@@ -294,21 +295,22 @@ def clean_snapshots(snapshot_name: str | None = None) -> tuple[bool, list[str]]:
                 logger.error(f"Snapshot file not found: {snapshot_name}")
                 return False, []
 
+            # Check if latest.sql points to a file that is being deleted
+            latest_link = snapshot_dir / "latest.sql"
+            symlink_points_to_deleted = False
+            if latest_link.is_symlink():
+                with contextlib.suppress(Exception):
+                    symlink_points_to_deleted = (
+                        latest_link.resolve().name == snapshot_name
+                    )
+
             snapshot_file.unlink()
             deleted_files.append(snapshot_name)
             logger.success(f"Deleted snapshot: {snapshot_name}")
 
-            # Update latest.sql symlink if it pointed to deleted file
-            latest_link = snapshot_dir / "latest.sql"
-            if latest_link.is_symlink():
-                try:
-                    if latest_link.resolve().name == snapshot_name:
-                        latest_link.unlink()
-                        logger.info(
-                            "Removed latest.sql symlink (pointed to deleted file)"
-                        )
-                except Exception:
-                    pass
+            if symlink_points_to_deleted:
+                latest_link.unlink()
+                logger.info("Removed latest.sql symlink (pointed to deleted file)")
         else:
             for snapshot_file in snapshot_dir.glob("*.sql"):
                 if snapshot_file.is_symlink():

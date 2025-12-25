@@ -135,6 +135,9 @@ async def restore_database(
                     status_code=400, detail="Uploaded file must be a .sql file"
                 )
 
+            if "/" in file.filename or "\\" in file.filename or ".." in file.filename:
+                raise HTTPException(status_code=400, detail="Invalid filename")
+
             SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
             temp_file_path = SNAPSHOT_DIR / f"_uploaded_{file.filename}"
 

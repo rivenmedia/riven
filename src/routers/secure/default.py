@@ -26,12 +26,12 @@ router = APIRouter(
 )
 
 
-def get_size(bytes: float, suffix: str = "B") -> str | None:
+def get_size(size_bytes: float, suffix: str = "B") -> str | None:
     factor = 1024
     for unit in ["", "K", "M", "G", "T", "P"]:
-        if bytes < factor:
-            return f"{bytes:.2f}{unit}{suffix}"
-        bytes /= factor
+        if size_bytes < factor:
+            return f"{size_bytes:.2f}{unit}{suffix}"
+        size_bytes /= factor
 
 
 @router.get("/health", operation_id="health")
@@ -634,7 +634,7 @@ async def generate_debug_bundle() -> DebugResponse:
         "platform": platform.platform(),
         "python_version": platform.python_version(),
         "cpu_count": psutil.cpu_count(),
-        "load avg": psutil.getloadavg(),
+        "load_avg": psutil.getloadavg(),
         "memory": get_size(psutil.virtual_memory().total),
         "swap": get_size(psutil.swap_memory().total),
         "disk": get_size(psutil.disk_usage("/").total),
