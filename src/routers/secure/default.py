@@ -26,7 +26,7 @@ router = APIRouter(
 )
 
 
-def get_size(bytes, suffix="B"):
+def get_size(bytes: float, suffix: str = "B") -> str | None:
     factor = 1024
     for unit in ["", "K", "M", "G", "T", "P"]:
         if bytes < factor:

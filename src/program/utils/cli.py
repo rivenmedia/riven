@@ -277,7 +277,7 @@ def clean_snapshots(snapshot_name: str | None = None) -> tuple[bool, list[str]]:
         logger.info("No snapshot directory found, nothing to clean")
         return True, []
 
-    deleted_files = []
+    deleted_files: list[str] = []
 
     try:
         if snapshot_name:
