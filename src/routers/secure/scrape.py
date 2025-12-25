@@ -768,9 +768,7 @@ class AutoScrapeRequestPayload(BaseModel):
     ] = False
 
 
-async def auto_scrape_item(
-    body: Annotated[AutoScrapeRequestPayload, Body()],
-) -> MessageResponse:
+
     tmdb_id: Annotated[
         str | None,
         Field(
