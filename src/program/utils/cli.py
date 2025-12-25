@@ -93,6 +93,8 @@ def _run_pg_dump(
         dbname,
         "-f",
         str(output_file),
+        "--no-owner",
+        "--no-privileges",
         "--clean",
         "--if-exists",
     ]
@@ -153,7 +155,7 @@ def _run_psql(
 def snapshot_database(
     snapshot_dir: Path | None = None,
     snapshot_name: str | None = None,
-):
+) -> str | None:
     """
     Create a timestamped SQL dump of the configured PostgreSQL database and update a `latest.sql` symlink.
 
@@ -165,7 +167,7 @@ def snapshot_database(
         snapshot_name (str | None): Custom name for the snapshot file. If None, uses timestamped name.
 
     Returns:
-        bool: `True` if the snapshot was created and the `latest.sql` symlink updated, `False` otherwise.
+        str | None: The snapshot filename if successful, None otherwise.
     """
     from program.settings import settings_manager
 
@@ -181,7 +183,7 @@ def snapshot_database(
         # Parse connection details
         parsed = _parse_db_connection(db_url)
         if not parsed:
-            return False
+            return None
         user, password, host, port, dbname = parsed
 
         # Create snapshot filename
@@ -205,13 +207,13 @@ def snapshot_database(
                 latest_link.unlink()
             latest_link.symlink_to(snapshot_file.name)
             logger.info(f"Latest snapshot link updated: {latest_link}")
-            return True
+            return snapshot_file.name
         else:
-            return False
+            return None
 
     except Exception as e:
         logger.error(f"Error creating database snapshot: {e}")
-        return False
+        return None
 
 
 def restore_database(snapshot_file: Path | None = None):
