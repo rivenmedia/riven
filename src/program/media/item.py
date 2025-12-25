@@ -1133,7 +1133,10 @@ class Season(MediaItem):
         session = object_session(self)
 
         if session and session.is_active:
-            session.refresh(self, ["parent"])
+            try:
+                session.refresh(self, ["parent"])
+            except sqlalchemy.exc.InvalidRequestError:
+                pass
 
         return self.parent.title
 
