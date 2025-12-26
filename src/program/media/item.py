@@ -102,6 +102,8 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     aired_at: Mapped[datetime | None]
     year: Mapped[int | None]
     genres: Mapped[list[str] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
+    runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=None)
+    ignore_bitrate_limit: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False)
 
     # Rating metadata (normalized for filtering)
 
@@ -187,6 +189,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.is_anime = item.get("is_anime", False)
         self.rating = item.get("rating")
         self.content_rating = item.get("content_rating")
+        self.runtime = item.get("runtime")
 
         # Media server related
         self.updated = item.get("updated", False)
@@ -1130,7 +1133,10 @@ class Season(MediaItem):
         session = object_session(self)
 
         if session and session.is_active:
-            session.refresh(self, ["parent"])
+            try:
+                session.refresh(self, ["parent"])
+            except sqlalchemy.exc.InvalidRequestError:
+                pass
 
         return self.parent.title
 

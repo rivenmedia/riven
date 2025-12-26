@@ -32,7 +32,7 @@ from program.services.downloaders.models import (
     DebridFile,
     TorrentContainer,
     TorrentInfo,
-    FilesizeLimitExceededException,
+    BitrateLimitExceededException,
 )
 from program.services.downloaders.shared import (
     DownloaderBase,
@@ -42,6 +42,7 @@ from program.services.downloaders.shared import (
 from program.services.scrapers.shared import rtn
 from program.types import Event
 from program.utils.torrent import extract_infohash
+from program.utils.request import CircuitBreakerOpen
 from program.program import Program
 from program.media.models import ActiveStream
 from program.media.state import States
@@ -337,9 +338,10 @@ def get_media_item(
         )
 
     if prepared_item:
-        if result := next(indexer.run(prepared_item), None):
-            if result.media_items:
-                indexed = result.media_items[0]
+        try:
+            if result := next(indexer.run(prepared_item), None):
+                if result.media_items:
+                    indexed = result.media_items[0]
 
                 # Check directly if item exists in DB by external IDs to avoid unique constraint error
                 try:
@@ -358,6 +360,21 @@ def get_media_item(
                 session.commit()
                 session.refresh(item)
                 return item
+        except Exception as e:
+            from program.apis.tvdb_api import TVDBConnectionError
+            from program.apis.tmdb_api import TMDBConnectionError
+
+            if isinstance(e, TVDBConnectionError):
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"TVDB Service Unavailable: {str(e)}",
+                )
+            if isinstance(e, TMDBConnectionError):
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"TMDB Service Unavailable: {str(e)}",
+                )
+            raise e
 
     raise HTTPException(status_code=404, detail="Item not found")
 
@@ -475,6 +492,19 @@ async def execute_scrape(
                     )
 
                 asyncio.run_coroutine_threadsafe(event_queue.put(event), loop)
+
+        except CircuitBreakerOpen:
+            logger.debug(f"Circuit breaker OPEN during scrape of {target_name}, skipping remaining services")
+            error_event = ScrapeStreamEvent(
+                event="progress",
+                message=f"Circuit breaker OPEN for {target_name}, skipping remaining services",
+                services_completed=services_completed,
+                total_services=total_services,
+                streams={},
+                total_streams=0,
+                service="circuit_breaker",
+            )
+            asyncio.run_coroutine_threadsafe(event_queue.put(error_event), loop)
 
         except Exception as e:
             logger.error(f"Error scraping {target_name}: {e}")
@@ -684,6 +714,10 @@ async def scrape_item_stream(
         str | None,
         Query(description="Custom IMDB ID to use for scraping"),
     ] = None,
+    ranking_overrides: Annotated[
+        str | None,
+        Query(description="JSON string of ranking overrides"),
+    ] = None,
 ) -> StreamingResponse:
     """Stream scraping results via SSE."""
 
@@ -698,9 +732,16 @@ async def scrape_item_stream(
                 session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
             )
 
+            overrides: RankingOverrides | None = None
+            if ranking_overrides:
+                try:
+                    overrides = RankingOverrides.model_validate_json(ranking_overrides)
+                except Exception as e:
+                    logger.error(f"Failed to parse ranking_overrides: {e}")
+            
             apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
 
-            async for event in execute_scrape(item, scraper, targets):
+            async for event in execute_scrape(item, scraper, targets, ranking_overrides=overrides):
                 yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(
@@ -729,6 +770,16 @@ class AutoScrapeRequestPayload(BaseModel):
             description="The ID of the media item",
         ),
     ] = None
+    disable_bitrate_check: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Disable bitrate check for this scrape",
+        ),
+    ] = False
+
+
+
     tmdb_id: Annotated[
         str | None,
         Field(
@@ -788,11 +839,36 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
             logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
             item.store_state(States.Unknown)
 
-        # Run the scraper (this updates the item and its relationships)
-        # We iterate to consume the generator
+        # Pre-load relationships to avoid lazy loading in threads
+        # This is critical to prevent "session is provisioning a new connection" errors
+        # when multiple scraper threads try to access lazy attributes of the same session-attached item.
+        _ = item.streams
+        _ = item.blacklisted_streams
+        if item.type == "show":
+            # For shows, make sure seasons and episodes are loaded
+            # We access them to trigger loading if they are lazy
+            for season in getattr(item, "seasons", []):
+                _ = season.episodes
+        elif item.type == "season":
+             _ = getattr(item, "episodes", [])
+             if parent := getattr(item, "parent", None):
+                 _ = parent.id
+        elif item.type == "episode":
+             if parent_season := getattr(item, "parent", None):
+                 _ = parent_season.id
+                 if parent_show := getattr(parent_season, "parent", None):
+                     _ = parent_show.id
+
+        # Detach item from session so threads can read it safely without session concurrency issues
+        session.expunge(item)
+
+        # Run the scraper (this updates the detached item and its relationships in memory)
         logger.debug(f"Worker processing item {item.id}. Initial State: {item.last_state}")
         for _ in scraper.run(item):
             pass
+        
+        # Merge item back into session to persist changes
+        item = session.merge(item)
         
         # Refresh the item and streams relationship to ensure is_scraped() works correctly
         session.refresh(item, attribute_names=["streams", "blacklisted_streams"])
@@ -1012,9 +1088,9 @@ async def start_manual_session(
         Literal["movie", "tv"] | None,
         Query(description="The media type"),
     ] = None,
-    disable_filesize_check: Annotated[
+    disable_bitrate_check: Annotated[
         bool,
-        Query(description="Disable filesize check"),
+        Query(description="Disable bitrate check"),
     ] = False,
 ) -> StartSessionResponse:
     scraping_session_manager.cleanup_expired(background_tasks)
@@ -1048,23 +1124,26 @@ async def start_manual_session(
 
     container = None
     used_service = None
-    filesize_error = False
+    bitrate_error = False
 
     for service in downloader.initialized_services:
         try:
             if container := service.get_instant_availability(
-                info_hash, item.type, limit_filesize=not disable_filesize_check
+                info_hash,
+                item.type,
+                runtime=item.runtime,
+                limit_bitrate=not disable_bitrate_check,
             ):
                 if container.cached:
                     used_service = service
                     break
-        except FilesizeLimitExceededException:
-            filesize_error = True
+        except BitrateLimitExceededException:
+            bitrate_error = True
             continue
 
     if not container or not container.cached:
-        if filesize_error:
-            raise HTTPException(status_code=400, detail="File size above set limit")
+        if bitrate_error:
+            raise HTTPException(status_code=400, detail="Bitrate above/below set limit")
         raise HTTPException(
             status_code=400, detail="Torrent is not cached, please try another stream"
         )
@@ -1288,12 +1367,22 @@ async def manual_update_attributes(
                             States.Downloaded,
                         ]:
                             continue
-
-                        episode.store_state(States.Paused)
-                        session.merge(episode)
-                        logger.debug(
-                            f"Paused episode {episode.log_string} (ID: {episode.id})"
-                        )
+                        
+                        # If show is ongoing, reset unselected episodes so they can be auto-scraped later
+                        if item.tvdb_status and item.tvdb_status.lower() in [
+                            "continuing",
+                            "upcoming",
+                        ]:
+                            episode.reset()
+                            logger.debug(
+                                f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
+                            )
+                        else:
+                            episode.store_state(States.Paused)
+                            session.merge(episode)
+                            logger.debug(
+                                f"Paused episode {episode.log_string} (ID: {episode.id})"
+                            )
         elif isinstance(item, Season):
             logger.debug(
                 f"Checking {len(item.episodes)} episodes in season {item.number} to pause"
@@ -1306,12 +1395,22 @@ async def manual_update_attributes(
                         States.Downloaded,
                     ]:
                         continue
-
-                    episode.store_state(States.Paused)
-                    session.merge(episode)
-                    logger.debug(
-                        f"Paused episode {episode.log_string} (ID: {episode.id})"
-                    )
+                        
+                    # If show is ongoing, reset unselected episodes so they can be auto-scraped later
+                    if item.parent.tvdb_status and item.parent.tvdb_status.lower() in [
+                        "continuing",
+                        "upcoming",
+                    ]:
+                        episode.reset()
+                        logger.debug(
+                            f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
+                        )
+                    else:
+                        episode.store_state(States.Paused)
+                        session.merge(episode)
+                        logger.debug(
+                            f"Paused episode {episode.log_string} (ID: {episode.id})"
+                        )
 
         item.store_state()
 
@@ -1472,6 +1571,8 @@ def _update_item_fs_entry(
 
     if isinstance(item, Episode):
         updated_episode_ids.add(item.id)
+
+    item.store_state()
 
 
 @router.post(
@@ -1686,6 +1787,11 @@ async def auto_scrape_item(
             imdb_id=body.imdb_id,
             media_type=body.media_type,
         )
+
+        if item and body.disable_bitrate_check:
+            item.ignore_bitrate_limit = True
+            session.add(item)
+            session.commit()
 
         # Scrape with overrides
         streams = scraper.scrape(

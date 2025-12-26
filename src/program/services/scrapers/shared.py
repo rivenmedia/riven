@@ -57,6 +57,10 @@ def parse_results(
             if hasattr(overridden_settings.resolutions, res_key):
                 setattr(overridden_settings.resolutions, res_key, True)
 
+        # Clear exclude and require lists
+        overridden_settings.require = []
+        overridden_settings.exclude = []
+
         # Enable all custom ranks
         for category in CustomRanksConfig.model_fields:
             category_settings: BaseModel = getattr(
@@ -75,7 +79,7 @@ def parse_results(
         overridden_settings = ranking_settings.model_copy(deep=True)
 
         # 1. Resolutions
-        if resolutions_list := ranking_overrides.resolutions:
+        if (resolutions_list := ranking_overrides.resolutions) is not None:
             # Reset all to False
             for res_key in ResolutionConfig.model_fields:
                 setattr(overridden_settings.resolutions, res_key, False)
@@ -87,7 +91,7 @@ def parse_results(
 
         # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
         for category in CustomRanksConfig.model_fields:
-            if selected_keys := getattr(ranking_overrides, category):
+            if (selected_keys := getattr(ranking_overrides, category)) is not None:
                 category_settings: BaseModel = getattr(
                     overridden_settings.custom_ranks, category
                 )
@@ -97,6 +101,13 @@ def parse_results(
 
                     # Fetch if key in selected keys
                     rank_obj.fetch = key in selected_keys
+
+        # 3. Require / Exclude
+        if ranking_overrides.require is not None:
+            overridden_settings.require = ranking_overrides.require
+        
+        if ranking_overrides.exclude is not None:
+            overridden_settings.exclude = ranking_overrides.exclude
 
         rtn_instance = RTN(overridden_settings, ranking_model)
 

@@ -63,6 +63,10 @@ class TVDBApiError(Exception):
     """Base exception for TVDB API related errors"""
 
 
+class TVDBConnectionError(TVDBApiError):
+    """Raised when unable to connect to TVDB API (DNS, Timeout, etc)"""
+
+
 class TVDBToken(BaseModel):
     """TVDB API token model"""
 
@@ -146,7 +150,11 @@ class TVDBApi:
             assert validated_response.data
 
             return SeriesRelease.model_validate(validated_response.data.model_dump())
+        except TVDBConnectionError:
+            raise
         except Exception as e:
+            if "Name does not resolve" in str(e) or "nodename nor servname provided" in str(e):
+                raise TVDBConnectionError(f"Connection failed: {str(e)}")
             logger.error(f"Error getting series details: {str(e)}")
 
             return None
@@ -173,7 +181,11 @@ class TVDBApi:
             assert validated_response
 
             return validated_response.data
+        except TVDBConnectionError:
+            raise
         except Exception as e:
+            if "Name does not resolve" in str(e) or "nodename nor servname provided" in str(e):
+                raise TVDBConnectionError(f"Connection failed: {str(e)}")
             logger.error(f"Error searching by IMDB ID: {str(e)}")
             return None
 
