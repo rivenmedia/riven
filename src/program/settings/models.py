@@ -177,6 +177,14 @@ class LibraryProfileFilterRules(BaseModel):
         "Common ratings: G, PG, PG-13, R, NC-17, TV-Y, TV-PG, TV-14, TV-MA. "
         "None/omit = no rating filter",
     )
+    resolutions: list[str] | None = Field(
+        default=None,
+        description="Video resolutions to include/exclude. Prefix with '!' to exclude. "
+        "Examples: ['4K', '1080p'], ['1080p', '!720p']. "
+        "Valid resolutions: 4K, 1440p, 1080p, 720p, 480p. "
+        "None/omit = no resolution filter. "
+        "Note: Resolution is determined from the downloaded file's media metadata.",
+    )
 
     @model_validator(mode="after")
     def migrate_exclude_genres(self):
