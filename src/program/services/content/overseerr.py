@@ -66,7 +66,7 @@ class Overseerr(Runner[OverseerrModel]):
                 "Webhook is enabled. Running Overseerr once before switching to webhook only mode"
             )
 
-            self.run_once = True
+        self.run_once = True
 
         if overseerr_items:
             overseerr_items = [
