@@ -44,7 +44,7 @@ def parse_results(
         else {}
     )
 
-    logger.debug(f"Processing {len(results)} results for {item.log_string}")
+    logger.debug(f"Processing {len(results)} results for {item.log_string} (manual={manual}, has_overrides={ranking_overrides is not None})")
 
     rtn_instance = rtn
 
@@ -75,6 +75,10 @@ def parse_results(
 
     # Use overrides if provided, otherwise use global settings
     if ranking_overrides:
+        logger.debug(
+            f"Applying ranking overrides for {item.log_string}: "
+            f"quality={ranking_overrides.quality}"
+        )
         # Create a copy of settings with overrides
         overridden_settings = ranking_settings.model_copy(deep=True)
 
@@ -90,17 +94,23 @@ def parse_results(
                     setattr(overridden_settings.resolutions, res_key, True)
 
         # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
+        # When overrides are provided, disable ALL custom ranks first,
+        # then enable only the explicitly specified ones.
+        # This prevents unwanted formats (like WEB-DL) from being included
+        # when user doesn't specify them.
         for category in CustomRanksConfig.model_fields:
-            if (selected_keys := getattr(ranking_overrides, category)) is not None:
-                category_settings: BaseModel = getattr(
-                    overridden_settings.custom_ranks, category
-                )
+            selected_keys = getattr(ranking_overrides, category)
+            category_settings: BaseModel = getattr(
+                overridden_settings.custom_ranks, category
+            )
 
-                for key in category_settings.__class__.model_fields:
-                    rank_obj: CustomRank = getattr(category_settings, key)
+            for key in category_settings.__class__.model_fields:
+                rank_obj: CustomRank = getattr(category_settings, key)
 
-                    # Fetch if key in selected keys
+                if selected_keys is not None:
+                    # User explicitly specified this category - only enable selected keys
                     rank_obj.fetch = key in selected_keys
+                # If selected_keys is None, keep the user's base settings for that category
 
         # 3. Require / Exclude
         if ranking_overrides.require is not None:
@@ -278,6 +288,26 @@ def parse_results(
 
             if not torrent.fetch:
                 continue
+
+            # Enforce exclusive quality type filtering when overrides specify quality
+            # If quality list is provided and torrent's quality type is NOT in the list, skip it
+            # Note: torrent.data.quality can be a combined string like "BluRay REMUX"
+            if (
+                ranking_overrides
+                and ranking_overrides.quality is not None
+                and torrent.data.quality
+            ):
+                parsed_quality = torrent.data.quality.lower()
+                allowed_qualities = [q.lower() for q in ranking_overrides.quality]
+                
+                # Check if any allowed quality is contained in the parsed quality string
+                quality_match = any(allowed in parsed_quality for allowed in allowed_qualities)
+                
+                if not quality_match:
+                    logger.debug(
+                        f"Quality filter: Skipping '{torrent.data.quality}' torrent (allowed: {ranking_overrides.quality}): {raw_title}"
+                    )
+                    continue
 
             torrents.add(torrent)
             processed_infohashes.add(infohash)

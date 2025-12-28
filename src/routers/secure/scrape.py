@@ -966,10 +966,10 @@ async def perform_season_scrape(
                     season.store_state(States.Unknown) # Reset state to allow scraping
                 target_ids.append(season.id)
             else:
-                # If not requested, pause it
-                if season.last_state != States.Paused:
-                    logger.debug(f"Pausing unrequested season {season.number}")
-                    season.store_state(States.Paused)
+                # If not requested, mark as partially scraped to prevent re-indexing
+                if season.last_state not in [States.Paused, States.PartiallyScraped]:
+                    logger.debug(f"Marking unrequested season {season.number} as PartiallyScraped")
+                    season.store_state(States.PartiallyScraped)
         
         session.commit() # Save state changes
         logger.debug("Committed state changes in perform_season_scrape")
@@ -977,14 +977,24 @@ async def perform_season_scrape(
     if not target_ids:
         return {}
 
-    # Run scraping in parallel threads to ensure persistence via separate sessions
+    # Run scraping with limited concurrency to avoid overwhelming APIs
     loop = asyncio.get_running_loop()
-    with concurrent.futures.ThreadPoolExecutor(thread_name_prefix="SeasonScrapeWorker_") as executor:
-        tasks = [
-            loop.run_in_executor(executor, _scrape_worker, tid)
-            for tid in target_ids
-        ]
-        results = await asyncio.gather(*tasks)
+    max_workers = min(len(target_ids), 3)  # Limit concurrent workers
+    
+    async def staggered_scrape():
+        """Run scrape workers with staggered start times to avoid API flooding."""
+        tasks = []
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="SeasonScrapeWorker_"
+        ) as executor:
+            for i, tid in enumerate(target_ids):
+                if i > 0:
+                    await asyncio.sleep(0.5)  # Stagger requests by 0.5s
+                tasks.append(loop.run_in_executor(executor, _scrape_worker, tid))
+            return await asyncio.gather(*tasks)
+    
+    results = await staggered_scrape()
         
     all_streams = dict[str, Stream]()
     for res in results:
@@ -1033,20 +1043,38 @@ async def auto_scrape_item_stream(
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
     async def sse_generator():
-        with db_session() as session:
-            item, targets = setup_scrape_request(
-                session,
-                body.item_id,
-                body.tmdb_id,
-                body.tvdb_id,
-                body.imdb_id,
-                body.media_type,
-            )
+        try:
+            with db_session() as session:
+                item, targets = setup_scrape_request(
+                    session,
+                    body.item_id,
+                    body.tmdb_id,
+                    body.tvdb_id,
+                    body.imdb_id,
+                    body.media_type,
+                )
 
-            async for event in execute_scrape(
-                item, scraper, targets, ranking_overrides=body.ranking_overrides
-            ):
-                yield f"data: {event.model_dump_json()}\n\n"
+                async for event in execute_scrape(
+                    item, scraper, targets, ranking_overrides=body.ranking_overrides
+                ):
+                    yield f"data: {event.model_dump_json()}\n\n"
+        except HTTPException as e:
+            error_event = ScrapeStreamEvent(
+                event="error",
+                message=e.detail if isinstance(e.detail, str) else str(e.detail),
+                services_completed=0,
+                total_services=0,
+            )
+            yield f"data: {error_event.model_dump_json()}\n\n"
+        except Exception as e:
+            logger.error(f"Error in auto_scrape_item_stream: {e}")
+            error_event = ScrapeStreamEvent(
+                event="error",
+                message=f"Scraping error: {str(e)}",
+                services_completed=0,
+                total_services=0,
+            )
+            yield f"data: {error_event.model_dump_json()}\n\n"
 
     return StreamingResponse(
         sse_generator(),
@@ -1378,10 +1406,10 @@ async def manual_update_attributes(
                                 f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
                             )
                         else:
-                            episode.store_state(States.Paused)
+                            episode.store_state(States.PartiallyScraped)
                             session.merge(episode)
                             logger.debug(
-                                f"Paused episode {episode.log_string} (ID: {episode.id})"
+                                f"Marked episode {episode.log_string} (ID: {episode.id}) as PartiallyScraped"
                             )
         elif isinstance(item, Season):
             logger.debug(
@@ -1406,10 +1434,10 @@ async def manual_update_attributes(
                             f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
                         )
                     else:
-                        episode.store_state(States.Paused)
+                        episode.store_state(States.PartiallyScraped)
                         session.merge(episode)
                         logger.debug(
-                            f"Paused episode {episode.log_string} (ID: {episode.id})"
+                            f"Marked episode {episode.log_string} (ID: {episode.id}) as PartiallyScraped"
                         )
 
         item.store_state()
@@ -1788,12 +1816,39 @@ async def auto_scrape_item(
             media_type=body.media_type,
         )
 
-        if item and body.disable_bitrate_check:
-            item.ignore_bitrate_limit = True
-            session.add(item)
-            session.commit()
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
 
-        # Scrape with overrides
+        if body.disable_bitrate_check:
+            item.ignore_bitrate_limit = True
+
+        # Store ranking overrides on the item and all child items
+        # so automated scraping uses these preferences
+        if body.ranking_overrides:
+            overrides_dict = body.ranking_overrides.model_dump()
+            items_to_update: list[MediaItem] = [item]
+            
+            if isinstance(item, Show):
+                for season in item.seasons:
+                    items_to_update.append(season)
+                    for episode in season.episodes:
+                        items_to_update.append(episode)
+            elif isinstance(item, Season):
+                for episode in item.episodes:
+                    items_to_update.append(episode)
+            
+            for update_item in items_to_update:
+                update_item.ranking_overrides = overrides_dict
+                session.add(update_item)
+            
+            logger.debug(
+                f"Stored ranking_overrides on {len(items_to_update)} items for {item.log_string}"
+            )
+
+        session.commit()
+
+        # Scrape the main item with overrides
+        logger.debug(f"Auto scrape for {item.log_string}: ranking_overrides={body.ranking_overrides}")
         streams = scraper.scrape(
             item,
             ranking_overrides=body.ranking_overrides,
@@ -1824,16 +1879,13 @@ async def auto_scrape_item(
 
         if new_streams:
             item.streams.extend(new_streams)
-
-            item.store_state(States.Scraped)  # Force state update to trigger downloader
+            item.store_state(States.Scraped)
+            session.add(item)
+            session.commit()
 
             logger.info(
                 f"Auto scrape found {len(new_streams)} new streams for {item.log_string}"
             )
-
-            # Commit changes to DB
-            session.add(item)
-            session.commit()
 
             # Emit event to trigger downloader
             di[Program].em.add_event(Event("Scraping", item_id=item.id))

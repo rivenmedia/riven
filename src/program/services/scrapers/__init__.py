@@ -64,7 +64,13 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     def run(self, item: MediaItem) -> MediaItemGenerator:
         """Scrape an item."""
 
-        sorted_streams = self.scrape(item)
+        # Check if item has stored ranking overrides (set via auto scrape)
+        ranking_overrides = None
+        if item.ranking_overrides:
+            ranking_overrides = RankingOverrides.model_validate(item.ranking_overrides)
+            logger.debug(f"Using stored ranking_overrides for {item.log_string}: quality={ranking_overrides.quality}")
+
+        sorted_streams = self.scrape(item, ranking_overrides=ranking_overrides)
         new_streams = [
             stream
             for stream in sorted_streams.values()

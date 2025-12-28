@@ -45,11 +45,11 @@ class Observable(MigratableBaseModel):
     def set_notify_observers(cls, notify_observers_callable: Callable[..., Any]):
         cls._notify_observers = notify_observers_callable
 
-    def __setattr__(self, name: str, value: Any):
-        super().__setattr__(name, value)
-
-        if self.__class__._notify_observers:
-            self.__class__._notify_observers()
+    # NOTE: Do NOT override __setattr__ to call notify_observers on every attribute set.
+    # This causes massive performance issues by triggering full service reinitialization
+    # on every single attribute assignment (including during model construction).
+    # The SettingsManager.load() method already calls notify_observers() explicitly
+    # after settings are loaded, which is the correct trigger point.
 
 
 # Download Services
