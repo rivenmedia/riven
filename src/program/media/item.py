@@ -105,6 +105,12 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     genres: Mapped[list[str] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
     runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=None)
     ignore_bitrate_limit: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False)
+    
+    # User's ranking overrides for scraping (stored as JSON, propagated to child items)
+    ranking_overrides: Mapped[dict | None] = mapped_column(
+        sqlalchemy.JSON,
+        default=None,
+    )
 
     # Rating metadata (normalized for filtering)
 
@@ -381,6 +387,10 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         return self._determine_state()
 
     def _determine_state(self) -> States:
+        # PartiallyScraped state takes priority - prevents unrequested items from being re-indexed
+        if self.last_state == States.PartiallyScraped:
+            return States.PartiallyScraped
+
         if self.last_state == States.Paused:
             return States.Paused
 

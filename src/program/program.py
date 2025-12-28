@@ -120,6 +120,15 @@ class Program(threading.Thread):
         # Instantiate services fresh on each settings change; settings_manager observers handle reinit
         _downloader = Downloader()
 
+        # Preserve existing filesystem service if mounted to avoid creating multiple VFS instances
+        existing_filesystem = None
+        if self.services and self.services.filesystem and self.services.filesystem.riven_vfs:
+            if self.services.filesystem.riven_vfs.mounted:
+                existing_filesystem = self.services.filesystem
+                # Sync with updated settings instead of recreating
+                existing_filesystem.riven_vfs.sync()
+                logger.debug("Preserving existing RivenVFS instance, syncing with updated settings")
+
         self.services = Services(
             overseerr=Overseerr(),
             plex_watchlist=PlexWatchlist(),
@@ -130,7 +139,7 @@ class Program(threading.Thread):
             scraping=Scraping(),
             updater=Updater(),
             downloader=_downloader,
-            filesystem=FilesystemService(_downloader),
+            filesystem=existing_filesystem if existing_filesystem else FilesystemService(_downloader),
             post_processing=PostProcessing(),
             notifications=NotificationService(),
         )
