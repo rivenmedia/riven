@@ -1,5 +1,6 @@
 """Shared functions for scrapers."""
 
+import re
 from datetime import datetime
 from loguru import logger
 from RTN import (
@@ -23,6 +24,28 @@ scraping_settings: ScraperModel = settings_manager.settings.scraping
 ranking_settings: RTNSettingsModel = settings_manager.settings.ranking
 ranking_model: BaseRankingModel = DefaultRanking()
 rtn = RTN(ranking_settings, ranking_model)
+
+
+def tokenize_quality(quality_string: str) -> set[str]:
+    """
+    Tokenize a quality string into normalized tokens for exact matching.
+    
+    Splits on spaces, punctuation (-, _, /, .), and non-alphanumeric boundaries,
+    then lowercases all tokens.
+    
+    Examples:
+        "WEB-DL" -> {"web", "dl"}
+        "BluRay REMUX" -> {"bluray", "remux"}
+        "WEBDL" -> {"webdl"}
+        "WEB DL" -> {"web", "dl"}
+    """
+    if not quality_string:
+        return set()
+    
+    # Split on common delimiters: space, dash, underscore, slash, dot
+    # Then filter out empty strings and lowercase
+    tokens = re.split(r'[\s\-_/\.]+', quality_string.lower())
+    return {token for token in tokens if token}
 
 
 def parse_results(
@@ -291,21 +314,25 @@ def parse_results(
 
             # Enforce exclusive quality type filtering when overrides specify quality
             # If quality list is provided and torrent's quality type is NOT in the list, skip it
-            # Note: torrent.data.quality can be a combined string like "BluRay REMUX"
+            # Uses tokenized exact matching to avoid substring issues (e.g., "web" matching "WEB-DL")
             if (
                 ranking_overrides
                 and ranking_overrides.quality is not None
                 and torrent.data.quality
             ):
-                parsed_quality = torrent.data.quality.lower()
-                allowed_qualities = [q.lower() for q in ranking_overrides.quality]
+                # Tokenize the torrent's quality into normalized tokens
+                quality_tokens = tokenize_quality(torrent.data.quality)
+                # Tokenize allowed qualities (each override item is also tokenized)
+                allowed_tokens = set()
+                for q in ranking_overrides.quality:
+                    allowed_tokens.update(tokenize_quality(q))
                 
-                # Check if any allowed quality is contained in the parsed quality string
-                quality_match = any(allowed in parsed_quality for allowed in allowed_qualities)
+                # Check if any quality token matches an allowed token exactly
+                quality_match = bool(quality_tokens & allowed_tokens)
                 
                 if not quality_match:
                     logger.debug(
-                        f"Quality filter: Skipping '{torrent.data.quality}' torrent (allowed: {ranking_overrides.quality}): {raw_title}"
+                        f"Quality filter: Skipping '{torrent.data.quality}' (tokens: {quality_tokens}) torrent (allowed tokens: {allowed_tokens}): {raw_title}"
                     )
                     continue
 
