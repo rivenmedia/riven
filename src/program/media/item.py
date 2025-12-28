@@ -15,6 +15,7 @@ from sqlalchemy.orm import (
     validates,
     MappedAsDataclass,
 )
+from sqlalchemy.orm.exc import DetachedInstanceError
 
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
@@ -1124,7 +1125,10 @@ class Season(MediaItem):
 
     @property
     def log_string(self):
-        return self.parent.log_string + " S" + str(self.number).zfill(2)
+        try:
+            return self.parent.log_string + " S" + str(self.number).zfill(2)
+        except DetachedInstanceError:
+            return f"Season {self.number}"
 
     @property
     def top_title(self) -> str:
@@ -1231,7 +1235,10 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        return f"{self.parent.log_string}E{self.number:02}"
+        try:
+            return f"{self.parent.log_string}E{self.number:02}"
+        except DetachedInstanceError:
+            return f"Episode {self.number}"
 
     @property
     def top_title(self) -> str:
