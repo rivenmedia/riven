@@ -388,10 +388,6 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         return self._determine_state()
 
     def _determine_state(self) -> States:
-        # PartiallyScraped state takes priority - prevents unrequested items from being re-indexed
-        if self.last_state == States.PartiallyScraped:
-            return States.PartiallyScraped
-
         if self.last_state == States.Paused:
             return States.Paused
 

@@ -966,10 +966,10 @@ async def perform_season_scrape(
                     season.store_state(States.Unknown) # Reset state to allow scraping
                 target_ids.append(season.id)
             else:
-                # If not requested, mark as partially scraped to prevent re-indexing
-                if season.last_state not in [States.Paused, States.PartiallyScraped]:
-                    logger.debug(f"Marking unrequested season {season.number} as PartiallyScraped")
-                    season.store_state(States.PartiallyScraped)
+                # If not requested, pause it
+                if season.last_state != States.Paused:
+                    logger.debug(f"Pausing unrequested season {season.number}")
+                    season.store_state(States.Paused)
         
         session.commit() # Save state changes
         logger.debug("Committed state changes in perform_season_scrape")
@@ -1378,15 +1378,12 @@ async def manual_update_attributes(
                                 episode_data,
                             )
 
-        # Set unselected episodes to paused
+        # Set unselected episodes to Paused
         if isinstance(item, Show):
             logger.debug(
                 f"Checking {len(item.seasons)} seasons for unselected episodes to pause"
             )
             for season in item.seasons:
-                logger.debug(
-                    f"Season {season.number} has {len(season.episodes)} episodes"
-                )
                 for episode in season.episodes:
                     if episode.id not in updated_episode_ids:
                         if episode.state in [
@@ -1406,15 +1403,12 @@ async def manual_update_attributes(
                                 f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
                             )
                         else:
-                            episode.store_state(States.PartiallyScraped)
+                            episode.store_state(States.Paused)
                             session.merge(episode)
                             logger.debug(
-                                f"Marked episode {episode.log_string} (ID: {episode.id}) as PartiallyScraped"
+                                f"Paused episode {episode.log_string} (ID: {episode.id})"
                             )
         elif isinstance(item, Season):
-            logger.debug(
-                f"Checking {len(item.episodes)} episodes in season {item.number} to pause"
-            )
             for episode in item.episodes:
                 if episode.id not in updated_episode_ids:
                     if episode.state in [
@@ -1434,10 +1428,10 @@ async def manual_update_attributes(
                             f"Reset episode {episode.log_string} (ID: {episode.id}) for ongoing show"
                         )
                     else:
-                        episode.store_state(States.PartiallyScraped)
+                        episode.store_state(States.Paused)
                         session.merge(episode)
                         logger.debug(
-                            f"Marked episode {episode.log_string} (ID: {episode.id}) as PartiallyScraped"
+                            f"Paused episode {episode.log_string} (ID: {episode.id})"
                         )
 
         item.store_state()
