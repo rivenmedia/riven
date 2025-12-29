@@ -104,6 +104,13 @@ def parse_results(
         if infohash in processed_infohashes:
             continue
 
+        if infohash in settings_manager.settings.filesystem.excluded_items.infohashes:
+            logger.trace(
+                f"Skipping torrent for {item.log_string} due to excluded infohash: {infohash}"
+            )
+
+            continue
+
         try:
 
             torrent = rtn_instance.rank(
