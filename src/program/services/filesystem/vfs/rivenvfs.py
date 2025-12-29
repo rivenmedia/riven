@@ -859,15 +859,32 @@ class RivenVFS(pyfuse3.Operations):
         """
         Individual sync: Re-register a specific item (unregister + register).
 
-        This is used when an item's VFS representation needs to be updated without
-        doing a full rebuild. For example:
-        - After adding subtitles to an existing item
-        - After metadata changes that affect paths
+        For Shows and Seasons, recursively syncs all child items individually.
+        For Episodes and Movies, performs the actual remove + add operation.
+
+        This targeted approach only touches items that have media entries,
+        avoiding unnecessary operations on parent containers.
 
         Args:
             item: MediaItem to re-sync
         """
+        from program.media.item import Season, Show
 
+        # For Shows and Seasons, recursively sync each child individually
+        # This is more efficient than removing/adding the entire tree
+        if isinstance(item, Show):
+            logger.debug(f"Individual sync: recursively syncing {len(item.seasons)} seasons for show {item.id}")
+            for season in item.seasons:
+                self._sync_individual(season)
+            return
+
+        if isinstance(item, Season):
+            logger.debug(f"Individual sync: recursively syncing {len(item.episodes)} episodes for season {item.id}")
+            for episode in item.episodes:
+                self._sync_individual(episode)
+            return
+
+        # For leaf items (Episodes/Movies), do the actual remove + add
         from sqlalchemy.orm import object_session
         from program.db.db import db_session
 
