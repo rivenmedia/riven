@@ -70,79 +70,74 @@ def parse_results(
     logger.debug(f"Processing {len(results)} results for {item.log_string} (manual={manual}, has_overrides={ranking_overrides is not None})")
 
     rtn_instance = rtn
+    overridden_settings = None
 
-    if manual and not ranking_overrides:
-        # If manual and no overrides, use permissive settings (show everything)
+    # Determine if we need custom settings
+    if manual or ranking_overrides:
         overridden_settings = ranking_settings.model_copy(deep=True)
 
-        # Enable all resolutions
-        for res_key in ResolutionConfig.model_fields:
-            if hasattr(overridden_settings.resolutions, res_key):
-                setattr(overridden_settings.resolutions, res_key, True)
-
-        # Clear exclude and require lists
-        overridden_settings.require = []
-        overridden_settings.exclude = []
-
-        # Enable all custom ranks
-        for category in CustomRanksConfig.model_fields:
-            category_settings: BaseModel = getattr(
-                overridden_settings.custom_ranks, category
-            )
-
-            for key in category_settings.__class__.model_fields:
-                rank_obj = getattr(category_settings, key)
-                rank_obj.fetch = True
-
-        rtn_instance = RTN(overridden_settings, ranking_model)
-
-    # Use overrides if provided, otherwise use global settings
-    if ranking_overrides:
-        logger.debug(
-            f"Applying ranking overrides for {item.log_string}: "
-            f"quality={ranking_overrides.quality}"
-        )
-        # Create a copy of settings with overrides
-        overridden_settings = ranking_settings.model_copy(deep=True)
-
-        # 1. Resolutions
-        if (resolutions_list := ranking_overrides.resolutions) is not None:
-            # Reset all to False
+        if manual and not ranking_overrides:
+            # If manual and no overrides, use permissive settings (show everything)
+            # Enable all resolutions
             for res_key in ResolutionConfig.model_fields:
-                setattr(overridden_settings.resolutions, res_key, False)
-
-            # Enable selected
-            for res_key in resolutions_list:
                 if hasattr(overridden_settings.resolutions, res_key):
                     setattr(overridden_settings.resolutions, res_key, True)
 
-        # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
-        # When overrides are provided, disable ALL custom ranks first,
-        # then enable only the explicitly specified ones.
-        # This prevents unwanted formats (like WEB-DL) from being included
-        # when user doesn't specify them.
-        for category in CustomRanksConfig.model_fields:
-            selected_keys = getattr(ranking_overrides, category)
-            category_settings: BaseModel = getattr(
-                overridden_settings.custom_ranks, category
+            # Clear exclude and require lists
+            overridden_settings.require = []
+            overridden_settings.exclude = []
+
+            # Enable all custom ranks
+            for category in CustomRanksConfig.model_fields:
+                category_settings: BaseModel = getattr(
+                    overridden_settings.custom_ranks, category
+                )
+                for key in category_settings.__class__.model_fields:
+                    rank_obj = getattr(category_settings, key)
+                    rank_obj.fetch = True
+
+        elif ranking_overrides:
+            # Use overrides if provided
+            logger.debug(
+                f"Applying ranking overrides for {item.log_string}: "
+                f"quality={ranking_overrides.quality}"
             )
 
-            for key in category_settings.__class__.model_fields:
-                rank_obj: CustomRank = getattr(category_settings, key)
+            # 1. Resolutions
+            if (resolutions_list := ranking_overrides.resolutions) is not None:
+                # Reset all to False
+                for res_key in ResolutionConfig.model_fields:
+                    setattr(overridden_settings.resolutions, res_key, False)
+                # Enable selected
+                for res_key in resolutions_list:
+                    if hasattr(overridden_settings.resolutions, res_key):
+                        setattr(overridden_settings.resolutions, res_key, True)
 
-                if selected_keys is not None:
-                    # User explicitly specified this category - only enable selected keys
-                    rank_obj.fetch = key in selected_keys
-                # If selected_keys is None, keep the user's base settings for that category
+            # 2. Custom Ranks (quality, rips, hdr, audio, extras, trash)
+            for category in CustomRanksConfig.model_fields:
+                selected_keys = getattr(ranking_overrides, category)
+                category_settings: BaseModel = getattr(
+                    overridden_settings.custom_ranks, category
+                )
+                for key in category_settings.__class__.model_fields:
+                    rank_obj: CustomRank = getattr(category_settings, key)
+                    if selected_keys is not None:
+                        rank_obj.fetch = key in selected_keys
 
-        # 3. Require / Exclude
-        if ranking_overrides.require is not None:
-            overridden_settings.require = ranking_overrides.require
-        
-        if ranking_overrides.exclude is not None:
-            overridden_settings.exclude = ranking_overrides.exclude
+            # 3. Require / Exclude
+            if ranking_overrides.require is not None:
+                overridden_settings.require = ranking_overrides.require
+            if ranking_overrides.exclude is not None:
+                overridden_settings.exclude = ranking_overrides.exclude
 
+        # Create RTN instance once with final settings
         rtn_instance = RTN(overridden_settings, ranking_model)
+
+    # Pre-compute allowed quality tokens ONCE before the loop
+    allowed_quality_tokens: set[str] = set()
+    if ranking_overrides and ranking_overrides.quality is not None:
+        for q in ranking_overrides.quality:
+            allowed_quality_tokens.update(tokenize_quality(q))
 
     for infohash, raw_title in results.items():
         if infohash in processed_infohashes:
@@ -312,27 +307,12 @@ def parse_results(
             if not torrent.fetch:
                 continue
 
-            # Enforce exclusive quality type filtering when overrides specify quality
-            # If quality list is provided and torrent's quality type is NOT in the list, skip it
-            # Uses tokenized exact matching to avoid substring issues (e.g., "web" matching "WEB-DL")
-            if (
-                ranking_overrides
-                and ranking_overrides.quality is not None
-                and torrent.data.quality
-            ):
-                # Tokenize the torrent's quality into normalized tokens
+            # Enforce quality type filtering using pre-computed allowed_quality_tokens
+            if allowed_quality_tokens and torrent.data.quality:
                 quality_tokens = tokenize_quality(torrent.data.quality)
-                # Tokenize allowed qualities (each override item is also tokenized)
-                allowed_tokens = set()
-                for q in ranking_overrides.quality:
-                    allowed_tokens.update(tokenize_quality(q))
-                
-                # Check if any quality token matches an allowed token exactly
-                quality_match = bool(quality_tokens & allowed_tokens)
-                
-                if not quality_match:
+                if not (quality_tokens & allowed_quality_tokens):
                     logger.debug(
-                        f"Quality filter: Skipping '{torrent.data.quality}' (tokens: {quality_tokens}) torrent (allowed tokens: {allowed_tokens}): {raw_title}"
+                        f"Quality filter: Skipping '{torrent.data.quality}' (tokens: {quality_tokens}) (allowed: {allowed_quality_tokens}): {raw_title}"
                     )
                     continue
 

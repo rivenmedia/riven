@@ -977,7 +977,7 @@ class Season(MediaItem):
         sqlalchemy.Integer,
     )
     parent_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
+        sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True, index=True
     )
     parent: Mapped["Show"] = relationship(
         lazy="selectin",
@@ -1136,10 +1136,10 @@ class Season(MediaItem):
 
     @property
     def log_string(self):
-        try:
-            return self.parent.log_string + " S" + str(self.number).zfill(2)
-        except DetachedInstanceError:
+        from sqlalchemy import inspect
+        if inspect(self).detached:
             return f"Season {self.number}"
+        return self.parent.log_string + " S" + str(self.number).zfill(2)
 
     @property
     def top_title(self) -> str:
@@ -1165,7 +1165,7 @@ class Episode(MediaItem):
     )
     number: Mapped[int]
     parent_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True
+        sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True, index=True
     )
     parent: Mapped["Season"] = relationship(
         back_populates="episodes",
@@ -1246,10 +1246,10 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        try:
-            return f"{self.parent.log_string}E{self.number:02}"
-        except DetachedInstanceError:
+        from sqlalchemy import inspect
+        if inspect(self).detached:
             return f"Episode {self.number}"
+        return f"{self.parent.log_string}E{self.number:02}"
 
     @property
     def top_title(self) -> str:
