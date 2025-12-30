@@ -1,12 +1,11 @@
 import asyncio
-from collections.abc import AsyncGenerator
-from datetime import datetime, timedelta
 import concurrent.futures
 import threading
+from collections.abc import AsyncGenerator
+from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, Self
 from uuid import uuid4
 
-from RTN import ParsedData, Torrent
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -20,33 +19,35 @@ from kink import di
 from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
-from sqlalchemy.orm import object_session, Session
+from RTN import ParsedData, Torrent
 from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.orm import Session, object_session
 
 from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Season, Show
+from program.media.models import ActiveStream
+from program.media.state import States
 from program.media.stream import Stream as ItemStream
+from program.program import Program
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
+    BitrateLimitExceededException,
     DebridFile,
     TorrentContainer,
     TorrentInfo,
-    BitrateLimitExceededException,
 )
 from program.services.downloaders.shared import (
     DownloaderBase,
     parse_filename,
     resolve_download_url,
 )
+from program.services.scrapers.models import RankingOverrides
 from program.services.scrapers.shared import rtn
 from program.types import Event
-from program.utils.torrent import extract_infohash
 from program.utils.request import CircuitBreakerOpen
-from program.program import Program
-from program.media.models import ActiveStream
-from program.media.state import States
-from program.services.scrapers.models import RankingOverrides
+from program.utils.torrent import extract_infohash
+
 from ..models.shared import MessageResponse
 
 
@@ -159,7 +160,7 @@ class ScrapingSession:
 
 class ScrapingSessionManager:
     def __init__(self):
-        self.sessions = dict[str, ScrapingSession]()
+        self.sessions: dict[str, ScrapingSession] = {}
         self.downloader: Downloader | None = None
 
     def set_downloader(self, downloader: Downloader):
@@ -361,8 +362,8 @@ def get_media_item(
                 session.refresh(item)
                 return item
         except Exception as e:
-            from program.apis.tvdb_api import TVDBConnectionError
             from program.apis.tmdb_api import TMDBConnectionError
+            from program.apis.tvdb_api import TVDBConnectionError
 
             if isinstance(e, TVDBConnectionError):
                 raise HTTPException(
@@ -446,7 +447,7 @@ async def execute_scrape(
             for service_name, parsed_streams in scraper.scrape_streaming(
                 target, ranking_overrides=ranking_overrides, manual=True
             ):
-                current_streams = dict[str, Stream]()
+                current_streams: dict[str, Stream] = {}
 
                 with all_streams_lock:
                     # Update global streams
@@ -494,7 +495,9 @@ async def execute_scrape(
                 asyncio.run_coroutine_threadsafe(event_queue.put(event), loop)
 
         except CircuitBreakerOpen:
-            logger.debug(f"Circuit breaker OPEN during scrape of {target_name}, skipping remaining services")
+            logger.debug(
+                f"Circuit breaker OPEN during scrape of {target_name}, skipping remaining services"
+            )
             error_event = ScrapeStreamEvent(
                 event="progress",
                 message=f"Circuit breaker OPEN for {target_name}, skipping remaining services",
@@ -668,7 +671,7 @@ async def scrape_item(
 
         apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
 
-        all_streams = dict[str, Stream]()
+        all_streams: dict[str, Stream] = {}
 
         async for event in execute_scrape(item, scraper, targets):
             if event.streams:
@@ -738,10 +741,12 @@ async def scrape_item_stream(
                     overrides = RankingOverrides.model_validate_json(ranking_overrides)
                 except Exception as e:
                     logger.error(f"Failed to parse ranking_overrides: {e}")
-            
+
             apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
 
-            async for event in execute_scrape(item, scraper, targets, ranking_overrides=overrides):
+            async for event in execute_scrape(
+                item, scraper, targets, ranking_overrides=overrides
+            ):
                 yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(
@@ -777,9 +782,6 @@ class AutoScrapeRequestPayload(BaseModel):
             description="Disable bitrate check for this scrape",
         ),
     ] = False
-
-
-
     tmdb_id: Annotated[
         str | None,
         Field(
@@ -823,7 +825,7 @@ class AutoScrapeRequestPayload(BaseModel):
 
 def _scrape_worker(item_id: int) -> dict[str, Stream]:
     """Worker function to run scraper in a separate thread/session."""
-    
+
     if services := di[Program].services:
         scraper = services.scraping
     else:
@@ -833,7 +835,7 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
         item = session.get(MediaItem, item_id)
         if not item:
             return {}
-            
+
         # Fail-safe: Ensure item is not paused in this session before scraping
         if item.last_state == States.Paused:
             logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
@@ -850,37 +852,41 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
             for season in getattr(item, "seasons", []):
                 _ = season.episodes
         elif item.type == "season":
-             _ = getattr(item, "episodes", [])
-             if parent := getattr(item, "parent", None):
-                 _ = parent.id
+            _ = getattr(item, "episodes", [])
+            if parent := getattr(item, "parent", None):
+                _ = parent.id
         elif item.type == "episode":
-             if parent_season := getattr(item, "parent", None):
-                 _ = parent_season.id
-                 if parent_show := getattr(parent_season, "parent", None):
-                     _ = parent_show.id
+            if parent_season := getattr(item, "parent", None):
+                _ = parent_season.id
+                if parent_show := getattr(parent_season, "parent", None):
+                    _ = parent_show.id
 
         # Detach item from session so threads can read it safely without session concurrency issues
         session.expunge(item)
 
         # Run the scraper (this updates the detached item and its relationships in memory)
-        logger.debug(f"Worker processing item {item.id}. Initial State: {item.last_state}")
+        logger.debug(
+            f"Worker processing item {item.id}. Initial State: {item.last_state}"
+        )
         for _ in scraper.run(item):
             pass
-        
+
         # Merge item back into session to persist changes
         item = session.merge(item)
-        
+
         # Refresh the item and streams relationship to ensure is_scraped() works correctly
         session.refresh(item, attribute_names=["streams", "blacklisted_streams"])
 
         # Force state update to reflect new streams
         previous_state, new_state = item.store_state()
-        
-        logger.debug(f"Worker scraped item {item.id}. Streams: {len(item.streams)}, Previous: {previous_state}, New: {new_state}, is_scraped: {item.is_scraped()}")
-            
+
+        logger.debug(
+            f"Worker scraped item {item.id}. Streams: {len(item.streams)}, Previous: {previous_state}, New: {new_state}, is_scraped: {item.is_scraped()}"
+        )
+
         session.commit()
         session.refresh(item)
-        
+
         logger.debug(f"Worker committed item {item.id}. Final State: {item.last_state}")
 
         # Trigger downstream processing (Downloading) by adding an event
@@ -893,7 +899,7 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
                     item_id=item.id,
                 )
             )
-        
+
         # Convert found streams to Pydantic models for return
         streams: dict[str, Stream] = {}
         for s in item.streams:
@@ -912,7 +918,7 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
                     streams[pyd_s.infohash] = pyd_s
                 except Exception as e:
                     logger.error(f"Failed to convert stream: {e}")
-                    
+
         return streams
 
 
@@ -926,12 +932,12 @@ async def perform_season_scrape(
 
     if season_numbers is None:
         season_numbers = []
-    
+
     if not di[Program].services:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
-    
+
     target_ids: list[int] = []
-    
+
     with db_session() as session:
         # Get the show item
         item = get_media_item(
@@ -947,31 +953,35 @@ async def perform_season_scrape(
                 status_code=400,
                 detail=f"Item found is not a Show, it is {type(item).__name__}",
             )
-        
+
         # Check and unpause parent Show if needed so child seasons aren't blocked
         if item.last_state == States.Paused:
-            logger.debug(f"Unpausing parent Show {item.title} (ID: {item.id}) to allow season scrape")
+            logger.debug(
+                f"Unpausing parent Show {item.title} (ID: {item.id}) to allow season scrape"
+            )
             item.store_state(States.Unknown)
 
         # Pre-load/assign parent to avoid lazy load in threads
-        seasons = item.seasons 
+        seasons = item.seasons
         for season in seasons:
             season.parent = item
-            
+
             if season.number in season_numbers:
-                logger.debug(f"Processing requested season {season.number} (ID: {season.id}). Current State: {season.last_state}")
+                logger.debug(
+                    f"Processing requested season {season.number} (ID: {season.id}). Current State: {season.last_state}"
+                )
                 # If specifically requested, ensure it's not paused
                 if season.last_state == States.Paused:
                     logger.debug(f"Unpausing season {season.number}")
-                    season.store_state(States.Unknown) # Reset state to allow scraping
+                    season.store_state(States.Unknown)  # Reset state to allow scraping
                 target_ids.append(season.id)
             else:
                 # If not requested, pause it
                 if season.last_state != States.Paused:
                     logger.debug(f"Pausing unrequested season {season.number}")
                     season.store_state(States.Paused)
-        
-        session.commit() # Save state changes
+
+        session.commit()  # Save state changes
         logger.debug("Committed state changes in perform_season_scrape")
 
     if not target_ids:
@@ -980,26 +990,25 @@ async def perform_season_scrape(
     # Run scraping with limited concurrency to avoid overwhelming APIs
     loop = asyncio.get_running_loop()
     max_workers = min(len(target_ids), 3)  # Limit concurrent workers
-    
+
     async def staggered_scrape():
         """Run scrape workers with staggered start times to avoid API flooding."""
         tasks = []
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=max_workers,
-            thread_name_prefix="SeasonScrapeWorker_"
+            max_workers=max_workers, thread_name_prefix="SeasonScrapeWorker_"
         ) as executor:
             for i, tid in enumerate(target_ids):
                 if i > 0:
                     await asyncio.sleep(0.5)  # Stagger requests by 0.5s
                 tasks.append(loop.run_in_executor(executor, _scrape_worker, tid))
             return await asyncio.gather(*tasks)
-    
+
     results = await staggered_scrape()
-        
-    all_streams = dict[str, Stream]()
+
+    all_streams: dict[str, Stream] = {}
     for res in results:
         all_streams.update(res)
-            
+
     return all_streams
 
 
@@ -1292,24 +1301,8 @@ async def manual_update_attributes(
         ),
     ],
 ) -> MessageResponse:
-    """
-    Apply selected file attributes from a scraping session to the referenced media item(s).
-
-    Locate the media item referenced by the given scraping session, create or reuse a staging FilesystemEntry for the provided file data, attach the file as the item's active stream (or attach to matching episodes for TV items), persist the changes to the database, and enqueue post-processing events for affected items.
-
-    Parameters:
-        session_id (str): Identifier of the scraping session containing item and torrent context.
-        data (DebridFile | ShowFileData): File metadata for a single movie (`DebridFile`) or a mapping of seasons/episodes to file metadata (`ShowFileData`) for TV content.
-
-    Returns:
-        dict: A message indicating which item(s) were updated, including the item's log string.
-
-    Raises:
-        HTTPException: 404 if the session or target item cannot be found; 500 if the session lacks an associated item ID.
-    """
-
+    """Apply selected file attributes from a scraping session to the referenced media item(s)."""
     scraping_session = scraping_session_manager.get_session(session_id)
-    log_string = None
 
     if not scraping_session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
@@ -1317,9 +1310,6 @@ async def manual_update_attributes(
     if not scraping_session.item_id:
         scraping_session_manager.abort_session(session_id)
         raise HTTPException(status_code=500, detail="No item ID found")
-
-    item = None
-    item_ids_to_submit = None
 
     with db_session() as session:
         item = get_media_item(
@@ -1332,8 +1322,8 @@ async def manual_update_attributes(
         )
 
         item = session.merge(item)
-        item_ids_to_submit = set[int]()
-        updated_episode_ids = set[int]()
+        item_ids_to_submit: set[int] = set()
+        updated_episode_ids: set[int] = set()
 
         if isinstance(data, DebridFile):
             _update_item_fs_entry(
@@ -1347,7 +1337,7 @@ async def manual_update_attributes(
         else:
             for season_number, episodes in data.root.items():
                 for episode_number, episode_data in episodes.items():
-                    if isinstance(item, Show) or isinstance(item, Season):
+                    if isinstance(item, (Show, Season)):
                         show = item if isinstance(item, Show) else item.parent
                         if episode := show.get_absolute_episode(
                             episode_number, season_number
@@ -1392,7 +1382,7 @@ async def manual_update_attributes(
                             States.Downloaded,
                         ]:
                             continue
-                        
+
                         # If show is ongoing, reset unselected episodes so they can be auto-scraped later
                         if item.tvdb_status and item.tvdb_status.lower() in [
                             "continuing",
@@ -1417,7 +1407,7 @@ async def manual_update_attributes(
                         States.Downloaded,
                     ]:
                         continue
-                        
+
                     # If show is ongoing, reset unselected episodes so they can be auto-scraped later
                     if item.parent.tvdb_status and item.parent.tvdb_status.lower() in [
                         "continuing",
@@ -1469,16 +1459,7 @@ def _update_item_fs_entry(
     item: MediaItem,
     data: DebridFile,
 ):
-    """
-    Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
-
-    Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
-
-    Parameters:
-        item (MediaItem): The media item to update; will be merged into the active DB session as needed.
-        data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
-    """
-
+    """Prepare and attach a filesystem entry and stream to a MediaItem."""
     di[Program].em.cancel_job(item.id)
 
     if item.last_state == States.Paused:
@@ -1532,9 +1513,7 @@ def _update_item_fs_entry(
                 )
                 return
             else:
-                logger.warning(
-                    f"Failed to resolve download_url for {data.filename}"
-                )
+                logger.warning(f"Failed to resolve download_url for {data.filename}")
 
         # Parse filename to create metadata
         media_metadata = None
@@ -1666,7 +1645,7 @@ async def parse_torrent_titles(
         Body(description="List of torrent titles to parse"),
     ],
 ) -> ParseTorrentTitleResponse:
-    parsed_titles = list[dict[str, Any]]()
+    parsed_titles: list[dict[str, Any]] = []
 
     if titles:
         for title in titles:
@@ -1717,8 +1696,9 @@ async def overseerr_requests(
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""
 
-    from program.db.db_functions import item_exists_by_any_id
     from kink import di
+
+    from program.db.db_functions import item_exists_by_any_id
 
     if services := di[Program].services:
         if not services.overseerr.enabled:
@@ -1758,7 +1738,7 @@ async def overseerr_requests(
 
         if overseerr_items:
             # Persist first, then enqueue
-            persisted_items = list[MediaItem]()
+            persisted_items: list[MediaItem] = []
 
             for item in overseerr_items:
                 persisted = session.merge(item)
@@ -1821,7 +1801,7 @@ async def auto_scrape_item(
         if body.ranking_overrides:
             overrides_dict = body.ranking_overrides.model_dump()
             items_to_update: list[MediaItem] = [item]
-            
+
             if isinstance(item, Show):
                 for season in item.seasons:
                     items_to_update.append(season)
@@ -1830,11 +1810,11 @@ async def auto_scrape_item(
             elif isinstance(item, Season):
                 for episode in item.episodes:
                     items_to_update.append(episode)
-            
+
             for update_item in items_to_update:
                 update_item.ranking_overrides = overrides_dict
                 session.add(update_item)
-            
+
             logger.debug(
                 f"Stored ranking_overrides on {len(items_to_update)} items for {item.log_string}"
             )
@@ -1842,7 +1822,9 @@ async def auto_scrape_item(
         session.commit()
 
         # Scrape the main item with overrides
-        logger.debug(f"Auto scrape for {item.log_string}: ranking_overrides={body.ranking_overrides}")
+        logger.debug(
+            f"Auto scrape for {item.log_string}: ranking_overrides={body.ranking_overrides}"
+        )
         streams = scraper.scrape(
             item,
             ranking_overrides=body.ranking_overrides,
@@ -1853,7 +1835,7 @@ async def auto_scrape_item(
         existing_infohashes = {s.infohash for s in item.streams}
         blacklisted_infohashes = {s.infohash for s in item.blacklisted_streams}
 
-        new_streams = list[ItemStream]()
+        new_streams: list[ItemStream] = []
 
         for stream in streams.values():
             if (
@@ -1891,4 +1873,3 @@ async def auto_scrape_item(
             return MessageResponse(
                 message="Auto scrape completed. No new streams found."
             )
-
