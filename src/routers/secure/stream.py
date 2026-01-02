@@ -117,7 +117,10 @@ def _build_forward_headers(request: Request) -> dict[str, str]:
     return headers
 
 
-def _extract_response_headers(upstream_response: httpx.Response, filename: str) -> dict[str, str]:
+def _extract_response_headers(
+    upstream_response: httpx.Response,
+    filename: str,
+) -> dict[str, str]:
     """Extract relevant headers from upstream response."""
     headers: dict[str, str] = {}
     for key in ["content-type", "content-length", "content-range", "accept-ranges"]:
@@ -143,6 +146,7 @@ async def _handle_upstream_error(upstream_response: httpx.Response) -> None:
         status_code=upstream_response.status_code,
         detail=f"Upstream error: {upstream_response.status_code}",
     )
+
 
 @router.get("/file/{item_id}")
 async def stream_file(
@@ -208,25 +212,31 @@ async def stream_file(
         logger.exception(f"Unexpected error in stream_file: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
 def _get_video_duration(path: str) -> float:
     try:
         result = subprocess.run(
             [
-                "ffprobe", 
-                "-v", "error", 
-                "-show_entries", "format=duration", 
-                "-of", "default=noprint_wrappers=1:nokey=1", 
-                path
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
             ],
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT
+            stderr=subprocess.STDOUT,
         )
         return float(result.stdout)
     except Exception:
         return 0.0
 
+
 # ... imports ...
 from fastapi import Query
+
 
 # 1. Playlist: Defaults are now None (Original Quality)
 @router.get("/hls/{item_id}/index.m3u8")
@@ -236,22 +246,29 @@ async def get_hls_playlist(
     pix_fmt: str | None = None,
     video_profile: str | None = Query(None, alias="profile"),
     level: str | None = None,
-    resolution: str | None = None
+    resolution: str | None = None,
 ):
-    url, provider, filename = _get_media_info(item_id)
+    url, _provider, _filename = _get_media_info(item_id)
     duration = _get_video_duration(url)
-    
+
     segment_duration = 12
-    if duration == 0: num_segments = 10 
-    else: num_segments = math.ceil(duration / segment_duration)
+    if duration == 0:
+        num_segments = 10
+    else:
+        num_segments = math.ceil(duration / segment_duration)
 
     # Build query params ONLY if they exist
-    params = []
-    if pix_fmt: params.append(f"pix_fmt={pix_fmt}")
-    if video_profile: params.append(f"profile={video_profile}")
-    if level: params.append(f"level={level}")
-    if resolution: params.append(f"resolution={resolution}")
-    
+    params = list[str]()
+
+    if pix_fmt:
+        params.append(f"pix_fmt={pix_fmt}")
+    if video_profile:
+        params.append(f"profile={video_profile}")
+    if level:
+        params.append(f"level={level}")
+    if resolution:
+        params.append(f"resolution={resolution}")
+
     query_string = f"?{'&'.join(params)}" if params else ""
 
     m3u8_lines = [
@@ -269,26 +286,28 @@ async def get_hls_playlist(
         m3u8_lines.append(f"segment/{i}.ts{query_string}")
 
     m3u8_lines.append("#EXT-X-ENDLIST")
-    
-    return Response(content="\n".join(m3u8_lines), media_type="application/vnd.apple.mpegurl")
+
+    return Response(
+        content="\n".join(m3u8_lines), media_type="application/vnd.apple.mpegurl"
+    )
 
 
 # 2. Segment: Defaults are None, apply flags only if requested
 @router.get("/hls/{item_id}/segment/{seq}.ts")
 async def get_hls_segment(
-    item_id: int, 
+    item_id: int,
     seq: int,
     pix_fmt: str | None = None,
     video_profile: str | None = Query(None, alias="profile"),
     level: str | None = None,
-    resolution: str | None = None
+    resolution: str | None = None,
 ):
     url, _, _ = _get_media_info(item_id)
-    
+
     segment_duration = 12
     start_time = seq * segment_duration
 
-# Define vf_filter safely to avoid "UnboundLocalError"
+    # Define vf_filter safely to avoid "UnboundLocalError"
     vf_filter = ""
     if resolution:
         if "x" in resolution:
@@ -301,26 +320,26 @@ async def get_hls_segment(
     # Removed: -output_ts_offset (It caused the crash)
     # Added: -muxdelay 0 (Reduces latency/overhead)
     cmd = (
-        f'ffmpeg -analyzeduration 0 -probesize 5000000 ' 
+        f"ffmpeg -analyzeduration 0 -probesize 5000000 "
         f'-ss {start_time} -t {segment_duration} -i "{url}" '
-        f'{vf_filter} '
-        '-c:v libx264 -preset ultrafast -crf 23 '
+        f"{vf_filter} "
+        "-c:v libx264 -preset ultrafast -crf 23 "
         # Apply strict formatting only if requested
         f'{f"-pix_fmt {pix_fmt}" if pix_fmt else ""} '
         f'{f"-profile:v {video_profile}" if video_profile else ""} '
         f'{f"-level {level}" if level else ""} '
-        '-c:a aac -b:a 128k '
-        '-muxdelay 0 '  # Important for small chunks
-        '-f mpegts -'
+        "-c:a aac -b:a 128k "
+        "-muxdelay 0 "  # Important for small chunks
+        "-f mpegts -"
     )
-    
+
     # Debugging: Uncomment this line to see the exact command in your terminal
     # logger.info(f"FFmpeg CMD: {cmd}")
-    
+
     process = await asyncio.create_subprocess_shell(
         cmd,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE # OR DEVNULL
+        stderr=asyncio.subprocess.PIPE,  # OR DEVNULL
     )
 
     async def stream_output():
@@ -331,10 +350,10 @@ async def get_hls_segment(
             if not chunk:
                 # If no data, check for errors
                 if process.returncode and process.returncode != 0:
-                     err = await process.stderr.read()
-                     logger.error(f"FFmpeg Error: {err.decode()}")
+                    err = await process.stderr.read()
+                    logger.error(f"FFmpeg Error: {err.decode()}")
                 break
-            yield chunk        
+            yield chunk
         await process.wait()
 
     return StreamingResponse(stream_output(), media_type="video/mp2t")

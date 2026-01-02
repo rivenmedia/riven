@@ -770,14 +770,7 @@ async def remove_item(
                 logger.warning(f"Item {item_id} not found, skipping")
                 continue
 
-            # Only allow movies and shows to be removed
-            if not isinstance(item, (Movie, Show)):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
-                )
-
-            logger.debug(f"Removing item with ID {item.id}")
+            logger.debug(f"Removing item with ID {item.id} (type: {item.type})")
 
             # 1. Cancel active jobs (EventManager cancels children too)
             di[Program].em.cancel_job(item.id)
