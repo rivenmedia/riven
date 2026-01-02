@@ -772,7 +772,7 @@ class AutoScrapeRequestPayload(BaseModel):
 
 def _scrape_worker(item_id: int) -> dict[str, Stream]:
     """Worker function to run scraper in a separate thread/session."""
-    
+
     if services := di[Program].services:
         scraper = services.scraping
     else:
@@ -782,7 +782,7 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
         item = session.get(MediaItem, item_id)
         if not item:
             return {}
-            
+
         # Fail-safe: Ensure item is not paused in this session before scraping
         if item.last_state == States.Paused:
             logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
@@ -790,21 +790,25 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
 
         # Run the scraper (this updates the item and its relationships)
         # We iterate to consume the generator
-        logger.debug(f"Worker processing item {item.id}. Initial State: {item.last_state}")
+        logger.debug(
+            f"Worker processing item {item.id}. Initial State: {item.last_state}"
+        )
         for _ in scraper.run(item):
             pass
-        
+
         # Refresh the item and streams relationship to ensure is_scraped() works correctly
         session.refresh(item, attribute_names=["streams", "blacklisted_streams"])
 
         # Force state update to reflect new streams
         previous_state, new_state = item.store_state()
-        
-        logger.debug(f"Worker scraped item {item.id}. Streams: {len(item.streams)}, Previous: {previous_state}, New: {new_state}, is_scraped: {item.is_scraped()}")
-            
+
+        logger.debug(
+            f"Worker scraped item {item.id}. Streams: {len(item.streams)}, Previous: {previous_state}, New: {new_state}, is_scraped: {item.is_scraped()}"
+        )
+
         session.commit()
         session.refresh(item)
-        
+
         logger.debug(f"Worker committed item {item.id}. Final State: {item.last_state}")
 
         # Trigger downstream processing (Downloading) by adding an event
@@ -817,7 +821,7 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
                     item_id=item.id,
                 )
             )
-        
+
         # Convert found streams to Pydantic models for return
         streams: dict[str, Stream] = {}
         for s in item.streams:
@@ -836,7 +840,7 @@ def _scrape_worker(item_id: int) -> dict[str, Stream]:
                     streams[pyd_s.infohash] = pyd_s
                 except Exception as e:
                     logger.error(f"Failed to convert stream: {e}")
-                    
+
         return streams
 
 
@@ -850,12 +854,12 @@ async def perform_season_scrape(
 
     if season_numbers is None:
         season_numbers = []
-    
+
     if not di[Program].services:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
-    
+
     target_ids: list[int] = []
-    
+
     with db_session() as session:
         # Get the show item
         item = get_media_item(
@@ -871,31 +875,35 @@ async def perform_season_scrape(
                 status_code=400,
                 detail=f"Item found is not a Show, it is {type(item).__name__}",
             )
-        
+
         # Check and unpause parent Show if needed so child seasons aren't blocked
         if item.last_state == States.Paused:
-            logger.debug(f"Unpausing parent Show {item.title} (ID: {item.id}) to allow season scrape")
+            logger.debug(
+                f"Unpausing parent Show {item.title} (ID: {item.id}) to allow season scrape"
+            )
             item.store_state(States.Unknown)
 
         # Pre-load/assign parent to avoid lazy load in threads
-        seasons = item.seasons 
+        seasons = item.seasons
         for season in seasons:
             season.parent = item
-            
+
             if season.number in season_numbers:
-                logger.debug(f"Processing requested season {season.number} (ID: {season.id}). Current State: {season.last_state}")
+                logger.debug(
+                    f"Processing requested season {season.number} (ID: {season.id}). Current State: {season.last_state}"
+                )
                 # If specifically requested, ensure it's not paused
                 if season.last_state == States.Paused:
                     logger.debug(f"Unpausing season {season.number}")
-                    season.store_state(States.Unknown) # Reset state to allow scraping
+                    season.store_state(States.Unknown)  # Reset state to allow scraping
                 target_ids.append(season.id)
             else:
                 # If not requested, pause it
                 if season.last_state != States.Paused:
                     logger.debug(f"Pausing unrequested season {season.number}")
                     season.store_state(States.Paused)
-        
-        session.commit() # Save state changes
+
+        session.commit()  # Save state changes
         logger.debug("Committed state changes in perform_season_scrape")
 
     if not target_ids:
@@ -903,17 +911,18 @@ async def perform_season_scrape(
 
     # Run scraping in parallel threads to ensure persistence via separate sessions
     loop = asyncio.get_running_loop()
-    with concurrent.futures.ThreadPoolExecutor(thread_name_prefix="SeasonScrapeWorker_") as executor:
+    with concurrent.futures.ThreadPoolExecutor(
+        thread_name_prefix="SeasonScrapeWorker_"
+    ) as executor:
         tasks = [
-            loop.run_in_executor(executor, _scrape_worker, tid)
-            for tid in target_ids
+            loop.run_in_executor(executor, _scrape_worker, tid) for tid in target_ids
         ]
         results = await asyncio.gather(*tasks)
-        
+
     all_streams = dict[str, Stream]()
     for res in results:
         all_streams.update(res)
-            
+
     return all_streams
 
 
@@ -1411,9 +1420,7 @@ def _update_item_fs_entry(
                 )
                 return
             else:
-                logger.warning(
-                    f"Failed to resolve download_url for {data.filename}"
-                )
+                logger.warning(f"Failed to resolve download_url for {data.filename}")
 
         # Parse filename to create metadata
         media_metadata = None
@@ -1739,4 +1746,3 @@ async def auto_scrape_item(
             return MessageResponse(
                 message="Auto scrape completed. No new streams found."
             )
-
