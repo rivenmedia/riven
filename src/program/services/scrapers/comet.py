@@ -19,7 +19,7 @@ class CometScrapeResponse(BaseModel):
     class CometStream(BaseModel):
         """Represents a single stream in the Comet response."""
 
-        info_hash: str | None = Field(alias="infoHash")
+        info_hash: str | None = Field(alias="infoHash", default=None)
         description: str
 
     streams: list[CometStream]
