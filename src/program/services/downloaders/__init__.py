@@ -84,7 +84,9 @@ class Downloader(Runner[None, DownloaderBase]):
 
     def get_service(self, service_key: str) -> DownloaderBase | None:
         """Get a specific downloader service by its key"""
-        return next((s for s in self.initialized_services if s.key == service_key), None)
+        return next(
+            (s for s in self.initialized_services if s.key == service_key), None
+        )
 
     def run(self, item: MediaItem) -> MediaItemGenerator:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")

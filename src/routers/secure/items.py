@@ -781,8 +781,6 @@ async def remove_item(
                 logger.warning(f"Item {item_id} not found, skipping")
                 continue
 
-
-
             logger.debug(f"Removing item with ID {item.id} (type: {item.type})")
 
             # 1. Cancel active jobs (EventManager cancels children too)

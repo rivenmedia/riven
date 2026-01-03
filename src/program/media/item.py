@@ -1132,10 +1132,10 @@ class Season(MediaItem):
 
     @property
     def log_string(self):
-        from sqlalchemy import inspect
-        if inspect(self).detached:
+        try:
+            return self.parent.log_string + " S" + str(self.number).zfill(2)
+        except DetachedInstanceError:
             return f"Season {self.number}"
-        return self.parent.log_string + " S" + str(self.number).zfill(2)
 
     @property
     def top_title(self) -> str:
@@ -1242,10 +1242,10 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        from sqlalchemy import inspect
-        if inspect(self).detached:
+        try:
+            return f"{self.parent.log_string}E{self.number:02}"
+        except DetachedInstanceError:
             return f"Episode {self.number}"
-        return f"{self.parent.log_string}E{self.number:02}"
 
     @property
     def top_title(self) -> str:

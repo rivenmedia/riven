@@ -464,7 +464,9 @@ def _upload_logs_to_paste() -> HttpUrl:
     """
     log_file_path: str | None = None
 
-    for handler in (  # pyright: ignore[reportUnknownVariableType]
+    for (
+        handler
+    ) in (  # pyright: ignore[reportUnknownVariableType]
         logger._core.handlers.values()  # pyright: ignore[reportAttributeAccessIssue, reportUnknownVariableType]
     ):
         if ".log" in handler._name:

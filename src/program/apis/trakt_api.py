@@ -202,9 +202,14 @@ class TraktAPI:
 
         from schemas.trakt import GetItemsOnAPersonalList200ResponseInner
 
+        class GetUserListResponse(GetItemsOnAPersonalList200ResponseInner):
+            # Fixes a schema issue that caused validation errors
+            # when a list contains no shows
+            show: GetShows200ResponseInnerShow | None = None  # type: ignore
+
         return self._fetch_data(
             url=f"{self.BASE_URL}/users/{user}/lists/{list_name}/items",
-            model_validator=GetItemsOnAPersonalList200ResponseInner.from_dict,
+            model_validator=GetUserListResponse.from_dict,
         )
 
     def get_collection_items(self, user: str, media_type: MediaType):
