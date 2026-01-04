@@ -2,17 +2,12 @@ from copy import copy
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Body, HTTPException, Path, Query
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from program.settings import settings_manager
 from program.settings.models import AppModel
 
 from ..models.shared import MessageResponse
-
-
-class SetSettings(BaseModel):
-    key: str
-    value: Any
 
 
 router = APIRouter(
@@ -197,45 +192,57 @@ async def set_all_settings(
 
 
 @router.post(
-    "/set",
+    "/set/{paths}",
     operation_id="set_settings",
     response_model=MessageResponse,
 )
 async def set_settings(
-    settings: Annotated[
-        list[SetSettings],
-        Body(description="List of settings to update"),
+    paths: Annotated[
+        str,
+        Path(
+            description="Comma-separated list of settings paths to update",
+            min_length=1,
+        ),
+    ],
+    values: Annotated[
+        dict[str, Any],
+        Body(description="Dictionary mapping paths to their new values"),
     ],
 ) -> MessageResponse:
     current_settings = settings_manager.settings.model_dump()
+    requested_paths = [p.strip() for p in paths.split(",") if p.strip()]
 
-    for setting in settings:
-        keys = setting.key.split(".")
+    missing_values = [p for p in requested_paths if p not in values]
+    if missing_values:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing values for paths: {', '.join(missing_values)}",
+        )
+
+    for path in requested_paths:
+        keys = path.split(".")
         current_obj = current_settings
 
-        # Navigate to the last key's parent object, ensuring all keys exist.
+        # Navigate to the parent object
         for k in keys[:-1]:
             if k not in current_obj:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Path '{'.'.join(keys[:-1])}' does not exist.",
+                    detail=f"Path '{path}' does not exist.",
                 )
             current_obj = current_obj[k]
 
-        # Ensure the final key exists before setting the value.
-        if keys[-1] in current_obj:
-            current_obj[keys[-1]] = setting.value
-        else:
+        if keys[-1] not in current_obj:
             raise HTTPException(
                 status_code=400,
-                detail=f"Key '{keys[-1]}' does not exist in path '{'.'.join(keys[:-1])}'.",
+                detail=f"Key '{keys[-1]}' does not exist in path '{'.'.join(keys[:-1]) or 'root'}'.",
             )
+        current_obj[keys[-1]] = values[path]
 
-    # Validate and apply the updated settings to the AppModel instance
     try:
         updated_settings = settings_manager.settings.__class__(**current_settings)
         settings_manager.load(settings_dict=updated_settings.model_dump())
-        settings_manager.save()  # Ensure the changes are persisted
+        settings_manager.save()
     except ValidationError as e:
         raise HTTPException(
             status_code=400,
