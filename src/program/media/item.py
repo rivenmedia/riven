@@ -103,6 +103,14 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     aired_at: Mapped[datetime | None]
     year: Mapped[int | None]
     genres: Mapped[list[str] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
+    runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=None)
+    ignore_bitrate_limit: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False)
+    
+    # User's ranking overrides for scraping (stored as JSON, propagated to child items)
+    ranking_overrides: Mapped[dict | None] = mapped_column(
+        sqlalchemy.JSON,
+        default=None,
+    )
 
     # Rating metadata (normalized for filtering)
 
@@ -188,6 +196,8 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.is_anime = item.get("is_anime", False)
         self.rating = item.get("rating")
         self.content_rating = item.get("content_rating")
+        self.runtime = item.get("runtime")
+        self.ignore_bitrate_limit = item.get("ignore_bitrate_limit", False)
 
         # Media server related
         self.updated = item.get("updated", False)
@@ -963,7 +973,7 @@ class Season(MediaItem):
         sqlalchemy.Integer,
     )
     parent_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
+        sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True, index=True
     )
     parent: Mapped["Show"] = relationship(
         lazy="selectin",
@@ -1134,7 +1144,10 @@ class Season(MediaItem):
         session = object_session(self)
 
         if session and session.is_active:
-            session.refresh(self, ["parent"])
+            try:
+                session.refresh(self, ["parent"])
+            except sqlalchemy.exc.InvalidRequestError:
+                pass
 
         return self.parent.title
 
@@ -1148,7 +1161,7 @@ class Episode(MediaItem):
     )
     number: Mapped[int]
     parent_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True
+        sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True, index=True
     )
     parent: Mapped["Season"] = relationship(
         back_populates="episodes",

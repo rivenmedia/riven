@@ -188,10 +188,16 @@ class TMDBIndexer(BaseIndexer):
             movie.aliases = aliases
             movie.rating = rating
             movie.content_rating = content_rating
+            movie.runtime = movie_details.runtime
 
             return True
 
         except Exception as e:
+            from program.apis.tmdb_api import TMDBConnectionError
+
+            if isinstance(e, TMDBConnectionError):
+                raise
+
             logger.error(f"Error updating movie metadata: {str(e)}")
             return False
 
@@ -321,9 +327,15 @@ class TMDBIndexer(BaseIndexer):
                     "aliases": aliases,
                     "rating": rating,
                     "content_rating": content_rating,
+                    "runtime": movie_details.runtime,
                 }
             )
         except Exception as e:
+            from program.apis.tmdb_api import TMDBConnectionError
+
+            if isinstance(e, TMDBConnectionError):
+                raise
+
             logger.error(f"Error mapping TMDB movie data: {e}")
 
         return None

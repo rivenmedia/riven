@@ -45,11 +45,11 @@ class Observable(MigratableBaseModel):
     def set_notify_observers(cls, notify_observers_callable: Callable[..., Any]):
         cls._notify_observers = notify_observers_callable
 
-    def __setattr__(self, name: str, value: Any):
-        super().__setattr__(name, value)
-
-        if self.__class__._notify_observers:
-            self.__class__._notify_observers()
+    # NOTE: Do NOT override __setattr__ to call notify_observers on every attribute set.
+    # This causes massive performance issues by triggering full service reinitialization
+    # on every single attribute assignment (including during model construction).
+    # The SettingsManager.load() method already calls notify_observers() explicitly
+    # after settings are loaded, which is the correct trigger point.
 
 
 # Download Services
@@ -75,21 +75,25 @@ class DownloadersModel(Observable):
         default_factory=lambda: list[str](["mp4", "mkv", "avi"]),
         description="list of video file extensions to consider for downloads",
     )
-    movie_filesize_mb_min: int = Field(
-        default=700, ge=1, description="Minimum file size in MB for movies"
+    movie_bitrate_mbps_min: float = Field(
+        default=1,
+        ge=0.4,
+        description="Minimum bitrate in Mbps for movies (-1 for no limit)",
     )
-    movie_filesize_mb_max: int = Field(
+    movie_bitrate_mbps_max: float = Field(
         default=-1,
         ge=-1,
-        description="Maximum file size in MB for movies (-1 for no limit)",
+        description="Maximum bitrate in Mbps for movies (-1 for no limit)",
     )
-    episode_filesize_mb_min: int = Field(
-        default=100, ge=1, description="Minimum file size in MB for episodes"
+    episode_bitrate_mbps_min: float = Field(
+        default=1,
+        ge=0.4,
+        description="Minimum bitrate in Mbps for episodes (-1 for no limit)",
     )
-    episode_filesize_mb_max: int = Field(
+    episode_bitrate_mbps_max: float = Field(
         default=-1,
         ge=-1,
-        description="Maximum file size in MB for episodes (-1 for no limit)",
+        description="Maximum bitrate in Mbps for episodes (-1 for no limit)",
     )
     proxy_url: EmptyOrUrl = Field(
         default="", description="Proxy URL for downloaders (optional)"

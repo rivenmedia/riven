@@ -222,6 +222,11 @@ class TVDBIndexer(BaseIndexer):
             return True
 
         except Exception as e:
+            from program.apis.tvdb_api import TVDBConnectionError
+
+            if isinstance(e, TVDBConnectionError):
+                raise
+
             logger.error(f"Error updating show metadata: {str(e)}")
             return False
 
@@ -275,6 +280,11 @@ class TVDBIndexer(BaseIndexer):
                         return None
 
         except Exception as e:
+            from program.apis.tvdb_api import TVDBConnectionError
+
+            if isinstance(e, TVDBConnectionError):
+                raise
+
             logger.error(f"Error creating show from TVDB ID: {e}")
 
         return None
@@ -595,6 +605,7 @@ class TVDBIndexer(BaseIndexer):
             episode.aired_at = aired_at
             episode.year = year
             episode.absolute_number = episode_data.absolute_number
+            episode.runtime = episode_data.runtime
 
             # Note: is_anime and other attributes are inherited from show via __getattribute__
 
@@ -638,6 +649,7 @@ class TVDBIndexer(BaseIndexer):
                     "is_anime": season.is_anime,
                     "requested_at": datetime.now(),
                     "absolute_number": episode_data.absolute_number,
+                    "runtime": episode_data.runtime,
                 }
             )
 
