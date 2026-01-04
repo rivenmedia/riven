@@ -221,10 +221,15 @@ async def set_settings(
 
     for path in requested_paths:
         keys = path.split(".")
-        current_obj = current_settings
+        current_obj: Any = current_settings
 
         # Navigate to the parent object
         for k in keys[:-1]:
+            if not isinstance(current_obj, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot traverse path '{path}': intermediate value is not an object.",
+                )
             if k not in current_obj:
                 raise HTTPException(
                     status_code=400,
@@ -232,6 +237,11 @@ async def set_settings(
                 )
             current_obj = current_obj[k]
 
+        if not isinstance(current_obj, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot set value at '{path}': parent is not an object.",
+            )
         if keys[-1] not in current_obj:
             raise HTTPException(
                 status_code=400,
