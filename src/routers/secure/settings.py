@@ -1,8 +1,8 @@
 from copy import copy
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Body, HTTPException, Path
-from pydantic import BaseModel, ValidationError
+from fastapi import APIRouter, Body, HTTPException, Path, Query
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from program.settings import settings_manager
 from program.settings.models import AppModel
@@ -31,6 +31,73 @@ async def get_settings_schema() -> dict[str, Any]:
     """Get the JSON schema for the settings."""
 
     return settings_manager.settings.model_json_schema()
+
+
+@router.get(
+    "/schema/keys",
+    operation_id="get_settings_schema_for_keys",
+    response_model=dict[str, Any],
+)
+async def get_settings_schema_for_keys(
+    keys: Annotated[
+        str,
+        Query(
+            description="Comma-separated list of top-level keys to get schema for (e.g., 'version,api_key,updaters')",
+            min_length=1,
+        ),
+    ],
+    title: Annotated[
+        str,
+        Query(
+            description="Title of the schema",
+        ),
+    ] = "FilteredSettings",
+) -> dict[str, Any]:
+    model_fields = settings_manager.settings.model_fields
+    requested_keys = [k.strip() for k in keys.split(",") if k.strip()]
+
+    if not requested_keys:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one key must be provided",
+        )
+
+    valid_keys = set(model_fields.keys())
+    invalid_keys = [k for k in requested_keys if k not in valid_keys]
+    if invalid_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid keys: {', '.join(invalid_keys)}. Valid keys are: {', '.join(sorted(valid_keys))}",
+        )
+
+    all_defs: dict[str, Any] = {}
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+
+    for key in requested_keys:
+        field_info = model_fields[key]
+        adapter = TypeAdapter(field_info.annotation)
+        field_schema = adapter.json_schema(ref_template="#/$defs/{model}")
+
+        if "$defs" in field_schema:
+            all_defs.update(field_schema.pop("$defs"))
+
+        properties[key] = field_schema
+
+        if field_info.is_required():
+            required.append(key)
+
+    filtered_schema: dict[str, Any] = {
+        "properties": properties,
+        "required": required,
+        "title": title,
+        "type": "object",
+    }
+
+    if all_defs:
+        filtered_schema["$defs"] = all_defs
+
+    return filtered_schema
 
 
 @router.get(
