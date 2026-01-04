@@ -48,7 +48,7 @@ async def get_settings_schema_for_keys(
         ),
     ] = "FilteredSettings",
 ) -> dict[str, Any]:
-    model_fields = settings_manager.settings.model_fields
+    model_fields = AppModel.model_fields
     requested_keys = [k.strip() for k in keys.split(",") if k.strip()]
 
     if not requested_keys:
@@ -71,7 +71,7 @@ async def get_settings_schema_for_keys(
 
     for key in requested_keys:
         field_info = model_fields[key]
-        adapter = TypeAdapter(field_info.annotation)
+        adapter: TypeAdapter[Any] = TypeAdapter(field_info.annotation)
         field_schema = adapter.json_schema(ref_template="#/$defs/{model}")
 
         if "$defs" in field_schema:
