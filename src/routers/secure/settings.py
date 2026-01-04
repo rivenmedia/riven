@@ -9,7 +9,6 @@ from program.settings.models import AppModel
 
 from ..models.shared import MessageResponse
 
-
 router = APIRouter(
     prefix="/settings",
     tags=["settings"],
@@ -235,7 +234,7 @@ async def set_settings(
                     status_code=400,
                     detail=f"Path '{path}' does not exist.",
                 )
-            current_obj = current_obj[k]
+            current_obj = cast(Any, current_obj[k])
 
         if not isinstance(current_obj, dict):
             raise HTTPException(
