@@ -236,7 +236,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                         parsed_streams = parse_results(
                             item,
                             all_raw_results,
-                            log_msg=False,
+                            ranking_overrides=ranking_overrides,
                             manual=manual,
                             rtn_settings_override=rtn_settings_override,
                         )
