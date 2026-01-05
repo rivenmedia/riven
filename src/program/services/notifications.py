@@ -119,6 +119,9 @@ class NotificationService(Runner[NotificationsModel, None, None]):
                 "last_state": previous_state.name,
                 "new_state": new_state.name,
                 "item_id": item.id,
+                "imdb_id": item.imdb_id,
+                "tmdb_id": item.tmdb_id,
+                "tvdb_id": item.tvdb_id,
             }
             sse_manager.publish_event("item_update", json.dumps(state_change_data))
             logger.debug(
