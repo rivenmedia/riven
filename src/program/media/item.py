@@ -15,6 +15,7 @@ from sqlalchemy.orm import (
     validates,
     MappedAsDataclass,
 )
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm.exc import DetachedInstanceError
 
 from program.media.state import States
@@ -198,7 +199,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.content_rating = item.get("content_rating")
         self.runtime = item.get("runtime")
         self.ignore_bitrate_limit = item.get("ignore_bitrate_limit", False)
-        self.ranking_overrides = item.get("ranking_overrides", {})
+        self.ranking_overrides = item.get("ranking_overrides")
 
         # Media server related
         self.updated = item.get("updated", False)
@@ -1147,7 +1148,7 @@ class Season(MediaItem):
         if session and session.is_active:
             try:
                 session.refresh(self, ["parent"])
-            except sqlalchemy.exc.InvalidRequestError:
+            except InvalidRequestError:
                 pass
 
         return self.parent.title

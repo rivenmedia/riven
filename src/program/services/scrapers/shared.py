@@ -125,9 +125,9 @@ def parse_results(
 
             # 3. Require / Exclude
             if ranking_overrides.require is not None:
-                overridden_settings.require = ranking_overrides.require
+                overridden_settings.require = list(ranking_overrides.require)  # type: ignore[assignment]
             if ranking_overrides.exclude is not None:
-                overridden_settings.exclude = ranking_overrides.exclude
+                overridden_settings.exclude = list(ranking_overrides.exclude)  # type: ignore[assignment]
 
         # Create RTN instance once with final settings
         rtn_instance = RTN(overridden_settings, ranking_model)
