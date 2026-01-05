@@ -454,8 +454,8 @@ class TraktAPI:
 
             token_data = OAuthTokenResponse.model_validate(response.json())
 
-            self.settings.oauth.access_token = token_data.access_token
-            self.settings.oauth.refresh_token = token_data.refresh_token
+            self.settings.access_token = token_data.access_token
+            self.settings.refresh_token = token_data.refresh_token
 
             settings_manager.save()  # Save the tokens to settings
 

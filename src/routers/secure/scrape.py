@@ -369,13 +369,13 @@ def get_media_item(
                 raise HTTPException(
                     status_code=503,
                     detail=f"TVDB Service Unavailable: {str(e)}",
-                )
+                ) from e
             if isinstance(e, TMDBConnectionError):
                 raise HTTPException(
                     status_code=503,
                     detail=f"TMDB Service Unavailable: {str(e)}",
-                )
-            raise e
+                ) from e
+            raise
 
     raise HTTPException(status_code=404, detail="Item not found")
 
