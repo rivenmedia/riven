@@ -277,12 +277,17 @@ def get_media_item(
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
     media_type: str | None = None,
+    persist: bool = True,
 ) -> MediaItem:
     """
     Get or create a MediaItem based on provided IDs.
 
     Tries to fetch authentication item by item_id, then by external IDs.
     If not found, tries to fetch from indexer and create/merge into DB.
+    
+    Args:
+        persist: If True, new items are saved to DB. If False, returns in-memory item
+                 without persisting (useful for read-only scrape queries).
     """
     item = None
 
@@ -357,10 +362,15 @@ def get_media_item(
                     except ValueError:
                         pass
 
-                    item = session.merge(indexed)
-                    session.commit()
-                    session.refresh(item)
-                    return item
+                    # Only persist to DB if persist=True
+                    if persist:
+                        item = session.merge(indexed)
+                        session.commit()
+                        session.refresh(item)
+                        return item
+                    else:
+                        # Return in-memory item without persisting
+                        return indexed
         except Exception as e:
             from program.apis.tmdb_api import TMDBConnectionError
             from program.apis.tvdb_api import TVDBConnectionError
@@ -387,8 +397,14 @@ def setup_scrape_request(
     tvdb_id: str | None,
     imdb_id: str | None,
     media_type: Literal["movie", "tv"] | None,
+    persist: bool = True,
 ) -> tuple[MediaItem, list[MediaItem]]:
-    """Helper to retrieve item and scrape targets."""
+    """Helper to retrieve item and scrape targets.
+    
+    Args:
+        persist: If True, new items are saved to DB. If False, returns in-memory item
+                 without persisting (useful for read-only scrape queries).
+    """
 
     item = get_media_item(
         session,
@@ -397,6 +413,7 @@ def setup_scrape_request(
         tvdb_id=tvdb_id,
         imdb_id=imdb_id,
         media_type=media_type,
+        persist=persist,
     )
 
     targets = [item]
@@ -666,7 +683,7 @@ async def scrape_item(
 
     with db_session() as session:
         item, targets = setup_scrape_request(
-            session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
+            session, item_id, tmdb_id, tvdb_id, imdb_id, media_type, persist=False
         )
 
         apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
@@ -676,6 +693,8 @@ async def scrape_item(
         async for event in execute_scrape(item, scraper, targets):
             if event.streams:
                 all_streams.update(event.streams)
+
+        session.rollback()
 
         return ScrapeItemResponse(
             message=f"Manually scraped streams for item {item.log_string}",
@@ -732,7 +751,7 @@ async def scrape_item_stream(
     async def sse_generator():
         with db_session() as session:
             item, targets = setup_scrape_request(
-                session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
+                session, item_id, tmdb_id, tvdb_id, imdb_id, media_type, persist=False
             )
 
             overrides: RankingOverrides | None = None
@@ -748,6 +767,8 @@ async def scrape_item_stream(
                 item, scraper, targets, ranking_overrides=overrides
             ):
                 yield f"data: {event.model_dump_json()}\n\n"
+            
+            session.rollback()
 
     return StreamingResponse(
         sse_generator(),
@@ -1154,7 +1175,9 @@ async def start_manual_session(
             tvdb_id=tvdb_id,
             imdb_id=imdb_id,
             media_type=media_type,
+            persist=False,
         )
+        session.rollback()
 
     if item.type == "mediaitem":
         raise HTTPException(status_code=500, detail="Incorrect item type found")
