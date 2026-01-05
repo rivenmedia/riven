@@ -198,6 +198,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.content_rating = item.get("content_rating")
         self.runtime = item.get("runtime")
         self.ignore_bitrate_limit = item.get("ignore_bitrate_limit", False)
+        self.ranking_overrides = item.get("ranking_overrides", {})
 
         # Media server related
         self.updated = item.get("updated", False)
