@@ -101,7 +101,6 @@ class DebridFile(BaseModel):
             raise InvalidDebridFileException(f"Skipping anime special: '{path}'")
 
         if limit_bitrate and runtime:
-            filesize_mb = filesize_bytes / 1_000_000
             filesize_bits = filesize_bytes * 8
             runtime_seconds = runtime * 60
             bitrate_mbps = (filesize_bits / runtime_seconds) / 1_000_000

@@ -16,7 +16,6 @@ from sqlalchemy.orm import (
     MappedAsDataclass,
 )
 from sqlalchemy.exc import InvalidRequestError
-from sqlalchemy.orm.exc import DetachedInstanceError
 
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry

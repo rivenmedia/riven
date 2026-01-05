@@ -344,23 +344,23 @@ def get_media_item(
                 if result.media_items:
                     indexed = result.media_items[0]
 
-                # Check directly if item exists in DB by external IDs to avoid unique constraint error
-                try:
-                    existing = db_functions.get_item_by_external_id(
-                        tmdb_id=indexed.tmdb_id,
-                        tvdb_id=indexed.tvdb_id,
-                        imdb_id=indexed.imdb_id,
-                        session=session,
-                    )
-                    if existing:
-                        return existing
-                except ValueError:
-                    pass
+                    # Check directly if item exists in DB by external IDs to avoid unique constraint error
+                    try:
+                        existing = db_functions.get_item_by_external_id(
+                            tmdb_id=indexed.tmdb_id,
+                            tvdb_id=indexed.tvdb_id,
+                            imdb_id=indexed.imdb_id,
+                            session=session,
+                        )
+                        if existing:
+                            return existing
+                    except ValueError:
+                        pass
 
-                item = session.merge(indexed)
-                session.commit()
-                session.refresh(item)
-                return item
+                    item = session.merge(indexed)
+                    session.commit()
+                    session.refresh(item)
+                    return item
         except Exception as e:
             from program.apis.tmdb_api import TMDBConnectionError
             from program.apis.tvdb_api import TVDBConnectionError
