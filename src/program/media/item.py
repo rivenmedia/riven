@@ -108,7 +108,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     ignore_bitrate_limit: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False)
     
     # User's ranking overrides for scraping (stored as JSON, propagated to child items)
-    ranking_overrides: Mapped[dict | None] = mapped_column(
+    ranking_overrides: Mapped[dict[str, Any] | None] = mapped_column(
         sqlalchemy.JSON,
         default=None,
     )
