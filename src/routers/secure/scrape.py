@@ -991,9 +991,9 @@ async def perform_season_scrape(
     loop = asyncio.get_running_loop()
     max_workers = min(len(target_ids), 3)  # Limit concurrent workers
 
-    async def staggered_scrape():
+    async def staggered_scrape() -> list[dict[str, Stream]]:
         """Run scrape workers with staggered start times to avoid API flooding."""
-        tasks = []
+        tasks: list[asyncio.Future[dict[str, Stream]]] = []
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="SeasonScrapeWorker_"
         ) as executor:
@@ -1070,7 +1070,7 @@ async def auto_scrape_item_stream(
         except HTTPException as e:
             error_event = ScrapeStreamEvent(
                 event="error",
-                message=e.detail if isinstance(e.detail, str) else str(e.detail),
+                message=str(e.detail),
                 services_completed=0,
                 total_services=0,
             )

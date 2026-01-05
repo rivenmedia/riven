@@ -126,7 +126,8 @@ class Program(threading.Thread):
             if self.services.filesystem.riven_vfs.mounted:
                 existing_filesystem = self.services.filesystem
                 # Sync with updated settings instead of recreating
-                existing_filesystem.riven_vfs.sync()
+                if existing_filesystem.riven_vfs:
+                    existing_filesystem.riven_vfs.sync()
                 logger.debug("Preserving existing RivenVFS instance, syncing with updated settings")
 
         self.services = Services(
