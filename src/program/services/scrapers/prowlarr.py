@@ -4,6 +4,8 @@ import concurrent.futures
 import time
 from datetime import datetime, timedelta, timezone
 
+import defusedxml.ElementTree as ET
+import requests as http_requests
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field
 from requests import ReadTimeout, RequestException
@@ -11,17 +13,16 @@ from requests import ReadTimeout, RequestException
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
+from program.settings.models import ProwlarrConfig
 from program.utils.request import SmartSession
 from program.utils.torrent import extract_infohash, normalize_infohash
-from program.settings.models import ProwlarrConfig
-
 from schemas.prowlarr import (
     IndexerResource,
     IndexerStatusResource,
-    SearchParam,
-    TvSearchParam,
     MovieSearchParam,
     ReleaseResource,
+    SearchParam,
+    TvSearchParam,
 )
 
 
@@ -56,6 +57,7 @@ class Indexer(BaseModel):
     name: str | None
     enable: bool
     protocol: str
+    implementation: str | None  # "Torznab", "Newznab", or native type
     capabilities: Capabilities
 
 
@@ -69,6 +71,7 @@ class Params(BaseModel):
     limit: int | None = None
     season: int | None = None
     ep: int | None = None
+    imdbid: str | None = None  # lowercase to match Prowlarr/Torznab API
 
 
 class ScrapeResponse(BaseModel):
@@ -96,14 +99,16 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         }
         self.timeout = self.settings.timeout
         self.session = None
+        self.base_url = ""  # Store base URL for Newznab endpoint access
         self.last_indexer_scan = None
         self._initialize()
 
     def _create_session(self, base_url: str) -> SmartSession:
         """Create a session for Prowlarr"""
+        self.base_url = base_url.rstrip('/')
 
         return SmartSession(
-            base_url=f"{base_url.rstrip('/')}/api/v1",
+            base_url=f"{self.base_url}/api/v1",
             retries=self.settings.retries,
             backoff_factor=0.3,
         )
@@ -137,19 +142,19 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 self.indexers = self.get_indexers()
 
                 if not self.indexers:
-                    logger.debug(
+                    logger.warning(
                         f"No Prowlarr indexers found for {instance.url}, trying next..."
                     )
                     continue
 
                 return True
             except ReadTimeout:
-                logger.debug(
+                logger.warning(
                     f"Prowlarr request timed out for {instance.url}. Trying next instance..."
                 )
                 continue
             except Exception as e:
-                logger.debug(f"Prowlarr failed to initialize with {instance.url}: {e}")
+                logger.warning(f"Prowlarr failed to initialize with {instance.url}: {e}")
                 continue
 
         logger.error("Prowlarr failed to initialize: all instances failed")
@@ -198,6 +203,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
             name = indexer_data.name
             enable = indexer_data.enable
+            implementation = indexer_data.implementation
 
             if not enable:
                 logger.debug(f"Indexer {name} is disabled, skipping")
@@ -285,6 +291,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                     name=name,
                     enable=enable,
                     protocol=protocol,
+                    implementation=implementation,
                     capabilities=capabilities,
                 )
             )
@@ -381,21 +388,27 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         search_type = None
         season = None
         episode = None
+        imdbid = None
 
         item_title = item.top_title
 
         search_params = indexer.capabilities.search_params
 
-        def set_query_and_type(_query: str, _type: str):
-            nonlocal search_query, search_type
+        def set_query_and_type(
+            _query: str | None, _type: str, _imdbid: str | None = None
+        ):
+            nonlocal search_query, search_type, imdbid
 
             search_query = _query
             search_type = _type
+            imdbid = _imdbid
 
         if isinstance(item, Movie):
             if "imdbId" in search_params.movie and item.imdb_id:
-                set_query_and_type(item.imdb_id, "movie-search")
-            if "q" in search_params.movie:
+                # Prowlarr expects type='movie' and imdbid as a separate parameter (without 'tt' prefix)
+                imdb_numeric = item.imdb_id.lstrip("t")
+                set_query_and_type(None, "movie", imdb_numeric)
+            elif "q" in search_params.movie:
                 set_query_and_type(item_title, "movie-search")
             elif "q" in search_params.search:
                 set_query_and_type(item_title, "search")
@@ -406,7 +419,9 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
         elif isinstance(item, Show):
             if "imdbId" in search_params.tv and item.imdb_id:
-                set_query_and_type(item.imdb_id, "tv-search")
+                # Prowlarr expects type='tvsearch' and imdbid as a separate parameter
+                imdb_numeric = item.imdb_id.lstrip("t")
+                set_query_and_type(None, "tvsearch", imdb_numeric)
             elif "q" in search_params.tv:
                 set_query_and_type(item_title, "tv-search")
             elif "q" in search_params.search:
@@ -415,14 +430,18 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 raise ValueError(f"Indexer {indexer.name} does not support show search")
 
         elif isinstance(item, Season):
-            if "q" in search_params.tv:
+            show_imdb_id = item.parent.imdb_id if item.parent else None
+            logger.debug(f"Show IMDB ID for {item.log_string}: {show_imdb_id}")
+            if "imdbId" in search_params.tv and show_imdb_id:
+                imdb_numeric = show_imdb_id.lstrip("t")
+                set_query_and_type(None, "tvsearch", imdb_numeric)
+                season = item.number
+            elif "q" in search_params.tv:
                 set_query_and_type(f"{item_title} S{item.number}", "tv-search")
-
                 if "season" in search_params.tv:
                     season = item.number
             elif "q" in search_params.search:
                 query = f"{item_title} S{item.number}"
-
                 set_query_and_type(query, "search")
             else:
                 raise ValueError(
@@ -430,18 +449,23 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
                 )
 
         elif isinstance(item, Episode):
-            if "q" in search_params.tv:
+            show_imdb_id = item.parent.parent.imdb_id if item.parent and item.parent.parent else None
+            logger.debug(f"Show IMDB ID for {item.log_string}: {show_imdb_id}")
+            if "imdbId" in search_params.tv and show_imdb_id:
+                imdb_numeric = show_imdb_id.lstrip("t")
+                set_query_and_type(None, "tvsearch", imdb_numeric)
+                season = item.parent.number
+                episode = item.number
+            elif "q" in search_params.tv:
                 if "ep" in search_params.tv:
                     query = f"{item_title}"
                     season = item.parent.number
                     episode = item.number
                 else:
                     query = f"{item.log_string}"
-
                 set_query_and_type(query, "tv-search")
             elif "q" in search_params.search:
                 query = f"{item.log_string}"
-
                 set_query_and_type(query, "search")
             else:
                 raise ValueError(
@@ -467,7 +491,62 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
             categories=list(categories),
             indexer_ids=indexer_ids,
             limit=limit,
+            imdbid=imdbid,
         )
+
+    def _parse_newznab_response(self, xml_text: str) -> list[ReleaseResource]:
+        """Parse Newznab XML (RSS) response into ReleaseResource objects."""
+        releases = []
+        try:
+            root = ET.fromstring(xml_text)
+            # Newznab RSS format: /rss/channel/item
+            channel = root.find("channel")
+            if channel is None:
+                logger.debug("No channel found in Newznab response")
+                return releases
+
+            for item in channel.findall("item"):
+                title = item.findtext("title", "")
+                link = item.findtext("link", "")
+                guid = item.findtext("guid", "")
+
+                # Extract infohash from torznab:attr elements
+                info_hash = None
+                magnet_url = None
+                download_url = None
+
+                # Handle namespaced attributes (torznab:attr)
+                for attr in item.findall(".//{http://torznab.com/schemas/2015/feed}attr"):
+                    name = attr.get("name", "")
+                    value = attr.get("value", "")
+                    if name == "infohash":
+                        info_hash = value
+                    elif name == "magneturl":
+                        magnet_url = value
+
+                # Also check for enclosure (download URL)
+                enclosure = item.find("enclosure")
+                if enclosure is not None:
+                    download_url = enclosure.get("url", "")
+
+                # Use link as fallback for download URL
+                if not download_url and link:
+                    download_url = link
+
+                releases.append(ReleaseResource(
+                    title=title,
+                    guid=guid or magnet_url,
+                    info_hash=info_hash,
+                    download_url=download_url,
+                    magnet_url=magnet_url,
+                ))
+
+        except ET.ParseError as e:
+            logger.error(f"Failed to parse Newznab XML response: {e}")
+        except Exception as e:
+            logger.error(f"Error processing Newznab response: {e}")
+
+        return releases
 
     def scrape_indexer(self, indexer: Indexer, item: MediaItem) -> dict[str, str]:
         """Scrape from a single indexer"""
@@ -490,17 +569,50 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
         assert self.session
 
-        response = self.session.get(
-            "/search",
-            params=params.model_dump(),
-            timeout=self.timeout,
-            headers=self.headers,
-        )
+        request_params = params.model_dump(by_alias=True, exclude_none=True)
+
+        # Use Newznab proxy endpoint when searching by IMDB ID on Torznab indexers
+        # The /api/v1/search endpoint doesn't support imdbid parameter
+        # Only Torznab indexers support the /{id}/api proxy endpoint for IMDB searches
+        is_torznab = indexer.implementation and indexer.implementation.lower() == "torznab"
+        use_newznab = params.imdbid and indexer.id and is_torznab
+        if use_newznab:
+            # Build Newznab-style params for the /{id}/api endpoint
+            newznab_params = {
+                "t": params.type,
+                "imdbid": params.imdbid,
+                "limit": params.limit,
+                "extended": 1,
+                "apikey": self.api_key,
+            }
+            if params.categories:
+                newznab_params["cat"] = ",".join(str(c) for c in params.categories)
+            if params.season:
+                newznab_params["season"] = params.season
+            if params.ep:
+                newznab_params["ep"] = params.ep
+
+            # Make request to Newznab proxy endpoint (outside /api/v1)
+            response = http_requests.get(
+                f"{self.base_url}/{indexer.id}/api",
+                params=newznab_params,
+                timeout=self.timeout,
+                headers=self.headers,
+            )
+        else:
+            response = self.session.get(
+                "/search",
+                params=request_params,
+                timeout=self.timeout,
+                headers=self.headers,
+            )
 
         if not response.ok:
-            data = ScrapeErrorResponse.model_validate(response.json())
-
-            message = data.message or "Unknown error"
+            try:
+                data = ScrapeErrorResponse.model_validate(response.json())
+                message = data.message or "Unknown error"
+            except Exception:
+                message = response.text or "Unknown error"
 
             logger.debug(
                 f"Failed to scrape {indexer.name}: [{response.status_code}] {message}"
@@ -514,7 +626,11 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
 
             return {}
 
-        data = ScrapeResponse.model_validate({"items": response.json()}).items
+        if use_newznab:
+            # Newznab returns XML (RSS format), parse it
+            data = self._parse_newznab_response(response.text)
+        else:
+            data = ScrapeResponse.model_validate({"items": response.json()}).items
         streams = dict[str, str]()
 
         # List of (torrent, title) tuples that need URL fetching
