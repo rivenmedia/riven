@@ -635,8 +635,9 @@ class TorrentioConfig(Observable):
         default="sort=qualitysize%7Cqualityfilter=480p,scr,cam",
         description="Torrentio filter parameters",
     )
-    url: EmptyOrUrl = Field(
-        default="http://torrentio.strem.fun", description="Torrentio URL"
+    urls: list[EmptyOrUrl] = Field(
+        default_factory=lambda: ["http://torrentio.strem.fun"],
+        description="Torrentio URLs (failover order - tries each URL until one succeeds)",
     )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
@@ -647,37 +648,84 @@ class TorrentioConfig(Observable):
         default="", description="Proxy URL for Torrentio requests"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_url_to_urls(cls, data: Any) -> Any:
+        """Migrate legacy 'url' field to 'urls' list."""
+        if isinstance(data, dict) and "url" in data and "urls" not in data:
+            url = data.pop("url")
+            if url:
+                data["urls"] = [url]
+        return data
+
 
 class CometConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Comet scraper")
-    url: EmptyOrUrl = Field(default="http://localhost:8000", description="Comet URL")
+    urls: list[EmptyOrUrl] = Field(
+        default_factory=lambda: ["http://localhost:8000"],
+        description="Comet URLs (failover order - tries each URL until one succeeds)",
+    )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
         default=1, ge=0, description="Number of retries for failed requests"
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_url_to_urls(cls, data: Any) -> Any:
+        """Migrate legacy 'url' field to 'urls' list."""
+        if isinstance(data, dict) and "url" in data and "urls" not in data:
+            url = data.pop("url")
+            if url:
+                data["urls"] = [url]
+        return data
 
 
 class ZileanConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Zilean scraper")
-    url: EmptyOrUrl = Field(default="http://localhost:8181", description="Zilean URL")
+    urls: list[EmptyOrUrl] = Field(
+        default_factory=lambda: ["http://localhost:8181"],
+        description="Zilean URLs (failover order - tries each URL until one succeeds)",
+    )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
         default=1, ge=0, description="Number of retries for failed requests"
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_url_to_urls(cls, data: Any) -> Any:
+        """Migrate legacy 'url' field to 'urls' list."""
+        if isinstance(data, dict) and "url" in data and "urls" not in data:
+            url = data.pop("url")
+            if url:
+                data["urls"] = [url]
+        return data
 
 
 class MediafusionConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Mediafusion scraper")
-    url: EmptyOrUrl = Field(
-        default="http://localhost:8000", description="Mediafusion URL"
+    urls: list[EmptyOrUrl] = Field(
+        default_factory=lambda: ["http://localhost:8000"],
+        description="Mediafusion URLs (failover order - tries each URL until one succeeds)",
     )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
         default=1, ge=0, description="Number of retries for failed requests"
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_url_to_urls(cls, data: Any) -> Any:
+        """Migrate legacy 'url' field to 'urls' list."""
+        if isinstance(data, dict) and "url" in data and "urls" not in data:
+            url = data.pop("url")
+            if url:
+                data["urls"] = [url]
+        return data
 
 
 class OrionoidConfigParametersDict(Observable):
@@ -703,10 +751,21 @@ class OrionoidConfig(Observable):
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
+class IndexerInstance(Observable):
+    """Configuration for a single indexer instance (URL + API key pair)."""
+
+    url: EmptyOrUrl = Field(default="", description="Indexer URL")
+    api_key: str = Field(default="", description="Indexer API key")
+
+
 class JackettConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Jackett scraper")
-    url: EmptyOrUrl = Field(default="http://localhost:9117", description="Jackett URL")
-    api_key: str = Field(default="", description="Jackett API key")
+    instances: list[IndexerInstance] = Field(
+        default_factory=lambda: [
+            IndexerInstance(url="http://localhost:9117", api_key="")
+        ],
+        description="Jackett instances (URL + API key pairs, tried in failover order)",
+    )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
         default=1, ge=0, description="Number of retries for failed requests"
@@ -718,11 +777,37 @@ class JackettConfig(Observable):
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_fields(cls, data: Any) -> Any:
+        """Migrate legacy 'url'/'urls' + 'api_key' fields to 'instances' list."""
+        if isinstance(data, dict) and "instances" not in data:
+            # Handle legacy url/urls + api_key
+            api_key = data.pop("api_key", "")
+            urls = []
+
+            if "url" in data:
+                url = data.pop("url")
+                if url:
+                    urls.append(url)
+            elif "urls" in data:
+                urls = data.pop("urls")
+
+            if urls:
+                data["instances"] = [
+                    {"url": url, "api_key": api_key} for url in urls if url
+                ]
+        return data
+
 
 class ProwlarrConfig(Observable):
     enabled: bool = Field(default=False, description="Enable Prowlarr scraper")
-    url: EmptyOrUrl = Field(default="http://localhost:9696", description="Prowlarr URL")
-    api_key: str = Field(default="", description="Prowlarr API key")
+    instances: list[IndexerInstance] = Field(
+        default_factory=lambda: [
+            IndexerInstance(url="http://localhost:9696", api_key="")
+        ],
+        description="Prowlarr instances (URL + API key pairs, tried in failover order)",
+    )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
         default=1, ge=0, description="Number of retries for failed requests"
@@ -737,15 +822,50 @@ class ProwlarrConfig(Observable):
         default=60, ge=1, description="Rate limiter cooldown in seconds"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_fields(cls, data: Any) -> Any:
+        """Migrate legacy 'url'/'urls' + 'api_key' fields to 'instances' list."""
+        if isinstance(data, dict) and "instances" not in data:
+            # Handle legacy url/urls + api_key
+            api_key = data.pop("api_key", "")
+            urls = []
+
+            if "url" in data:
+                url = data.pop("url")
+                if url:
+                    urls.append(url)
+            elif "urls" in data:
+                urls = data.pop("urls")
+
+            if urls:
+                data["instances"] = [
+                    {"url": url, "api_key": api_key} for url in urls if url
+                ]
+        return data
+
 
 class RarbgConfig(Observable):
     enabled: bool = Field(default=False, description="Enable RARBG scraper")
-    url: EmptyOrUrl = Field(default="https://therarbg.to", description="RARBG URL")
+    urls: list[EmptyOrUrl] = Field(
+        default_factory=lambda: ["https://therarbg.to"],
+        description="RARBG URLs (failover order - tries each URL until one succeeds)",
+    )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
         default=1, ge=0, description="Number of retries for failed requests"
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_url_to_urls(cls, data: Any) -> Any:
+        """Migrate legacy 'url' field to 'urls' list."""
+        if isinstance(data, dict) and "url" in data and "urls" not in data:
+            url = data.pop("url")
+            if url:
+                data["urls"] = [url]
+        return data
 
 
 class ScraperModel(Observable):

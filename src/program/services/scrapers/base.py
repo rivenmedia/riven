@@ -1,11 +1,12 @@
 import hashlib
 from abc import abstractmethod
-from typing import Literal, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 import bencodepy
+import requests
 from loguru import logger
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.utils.request import SmartSession
+from program.utils.request import CircuitBreakerOpen, SmartSession, SmartResponse
 from program.utils.torrent import extract_infohash
 from program.core.runner import Runner
 from program.settings.models import Observable
@@ -40,6 +41,93 @@ class ScraperService(Runner[T, "ScraperService", dict[str, str]]):
 
     @abstractmethod
     def scrape(self, item: MediaItem) -> dict[str, str]: ...
+
+    @staticmethod
+    def request_with_failover(
+        session: SmartSession,
+        urls: list[str],
+        path: str,
+        method: str = "GET",
+        **kwargs: Any,
+    ) -> SmartResponse | None:
+        """
+        Try each URL in order until one succeeds. Failover occurs on:
+        - 429 rate limit responses
+        - 5xx server errors
+        - Connection errors / timeouts
+        - Circuit breaker open
+
+        Args:
+            session: SmartSession instance to use for requests
+            urls: List of base URLs to try in order
+            path: Path to append to each URL
+            method: HTTP method (default: GET)
+            **kwargs: Additional arguments passed to session.request()
+
+        Returns:
+            SmartResponse if any URL succeeds, None if all fail
+        """
+        if not urls:
+            logger.error("No URLs configured for scraper")
+            return None
+
+        last_exception: Exception | None = None
+        last_response: SmartResponse | None = None
+
+        for i, base_url in enumerate(urls):
+            full_url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+            try:
+                response = session.request(method, full_url, **kwargs)
+
+                # Success - return immediately
+                if response.ok:
+                    if i > 0:
+                        logger.debug(f"Failover succeeded: using URL #{i + 1}")
+                    return response
+
+                # Check for failover conditions
+                if response.status_code == 429:
+                    logger.debug(f"Rate limited on URL #{i + 1}, trying next URL...")
+                    last_response = response
+                    continue
+                if response.status_code >= 500:
+                    logger.debug(
+                        f"Server error {response.status_code} on URL #{i + 1}, trying next URL..."
+                    )
+                    last_response = response
+                    continue
+
+                # Non-retryable error (4xx except 429) - return as-is
+                return response
+
+            except CircuitBreakerOpen as e:
+                logger.debug(f"Circuit breaker open for URL #{i + 1}, trying next URL...")
+                last_exception = e
+                continue
+            except requests.Timeout as e:
+                logger.debug(f"Timeout on URL #{i + 1}, trying next URL...")
+                last_exception = e
+                continue
+            except requests.ConnectionError as e:
+                logger.debug(f"Connection error on URL #{i + 1}, trying next URL...")
+                last_exception = e
+                continue
+            except Exception as e:
+                logger.debug(f"Unexpected error on URL #{i + 1}: {e}")
+                last_exception = e
+                continue
+
+        # All URLs failed
+        if last_exception:
+            logger.warning(f"All {len(urls)} URLs failed. Last error: {last_exception}")
+        elif last_response:
+            logger.warning(
+                f"All {len(urls)} URLs failed. Last status: {last_response.status_code}"
+            )
+            return last_response
+
+        return None
 
     @staticmethod
     def get_stremio_identifier(

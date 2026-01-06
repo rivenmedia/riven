@@ -46,42 +46,53 @@ class Jackett(ScraperService[JackettConfig]):
         if not self.settings.enabled:
             return False
 
-        if self.settings.url and self.settings.api_key:
-            self.api_key = self.settings.api_key
+        if not self.settings.instances or not any(
+            inst.url and inst.api_key for inst in self.settings.instances
+        ):
+            logger.warning(
+                "No valid Jackett instances configured (need URL + API key). Will not be used."
+            )
+            return False
 
+        if self.settings.timeout <= 0:
+            logger.error("Jackett timeout must be a positive integer")
+            return False
+
+        # Build rate limits for all configured URLs
+        rate_limits = None
+        if self.settings.ratelimit:
+            rate_limits = {
+                get_hostname_from_url(inst.url): {
+                    "rate": 300 / 60,
+                    "capacity": 300,
+                }
+                for inst in self.settings.instances
+                if inst.url
+            }
+
+        # Try to find a working instance
+        for instance in self.settings.instances:
+            if not instance.url or not instance.api_key:
+                continue
             try:
-                if self.settings.timeout <= 0:
-                    logger.error("Jackett timeout must be a positive integer")
-                    return False
-
+                self.api_key = instance.api_key
                 self.session = SmartSession(
-                    base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
-                    rate_limits=(
-                        {
-                            get_hostname_from_url(self.settings.url): {
-                                "rate": 300 / 60,
-                                "capacity": 300,
-                            }
-                        }
-                        if self.settings.ratelimit
-                        else None
-                    ),
+                    base_url=f"{instance.url.rstrip('/')}/api/v2.0",
+                    rate_limits=rate_limits,
                     retries=self.settings.retries,
                     backoff_factor=0.3,
                 )
-
                 return True
             except ReadTimeout:
-                logger.error(
-                    "Jackett request timed out. Check your indexers, they may be too slow to respond."
+                logger.debug(
+                    f"Jackett request timed out for {instance.url}. Trying next instance..."
                 )
-                return False
+                continue
             except Exception as e:
-                logger.error(f"Jackett failed to initialize with API Key: {e}")
-                return False
+                logger.debug(f"Jackett failed to initialize with {instance.url}: {e}")
+                continue
 
-        logger.warning("Jackett is not configured and will not be used.")
-
+        logger.error("Jackett failed to initialize: all instances failed")
         return False
 
     def run(self, item: MediaItem) -> dict[str, str]:

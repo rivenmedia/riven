@@ -89,22 +89,21 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         super().__init__()
 
         self.settings = settings_manager.settings.scraping.prowlarr
-        self.api_key = self.settings.api_key
+        self.api_key = ""  # Will be set during validation from first working instance
         self.indexers = []
         self.headers = {
             "Content-Type": "application/json",
-            "X-Api-Key": self.api_key,
         }
         self.timeout = self.settings.timeout
         self.session = None
         self.last_indexer_scan = None
         self._initialize()
 
-    def _create_session(self) -> SmartSession:
+    def _create_session(self, base_url: str) -> SmartSession:
         """Create a session for Prowlarr"""
 
         return SmartSession(
-            base_url=f"{self.settings.url.rstrip('/')}/api/v1",
+            base_url=f"{base_url.rstrip('/')}/api/v1",
             retries=self.settings.retries,
             backoff_factor=0.3,
         )
@@ -115,31 +114,45 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         if not self.settings.enabled:
             return False
 
-        if self.settings.url and self.settings.api_key:
-            self.api_key = self.settings.api_key
+        if not self.settings.instances or not any(
+            inst.url and inst.api_key for inst in self.settings.instances
+        ):
+            logger.warning(
+                "No valid Prowlarr instances configured (need URL + API key). Will not be used."
+            )
+            return False
 
+        if self.timeout <= 0:
+            logger.error("Prowlarr timeout must be a positive integer.")
+            return False
+
+        # Try to find a working instance
+        for instance in self.settings.instances:
+            if not instance.url or not instance.api_key:
+                continue
             try:
-                if self.timeout <= 0:
-                    logger.error("Prowlarr timeout must be a positive integer.")
-                    return False
-
-                self.session = self._create_session()
+                self.api_key = instance.api_key
+                self.headers["X-Api-Key"] = self.api_key
+                self.session = self._create_session(instance.url)
                 self.indexers = self.get_indexers()
 
                 if not self.indexers:
-                    logger.error("No Prowlarr indexers configured.")
-                    return False
+                    logger.debug(
+                        f"No Prowlarr indexers found for {instance.url}, trying next..."
+                    )
+                    continue
 
                 return True
             except ReadTimeout:
-                logger.error(
-                    "Prowlarr request timed out. Check your indexers, they may be too slow to respond."
+                logger.debug(
+                    f"Prowlarr request timed out for {instance.url}. Trying next instance..."
                 )
-                return False
+                continue
             except Exception as e:
-                logger.error(f"Prowlarr failed to initialize with API Key: {e}")
-                return False
-        logger.warning("Prowlarr is not configured and will not be used.")
+                logger.debug(f"Prowlarr failed to initialize with {instance.url}: {e}")
+                continue
+
+        logger.error("Prowlarr failed to initialize: all instances failed")
         return False
 
     def get_indexers(self) -> list[Indexer]:

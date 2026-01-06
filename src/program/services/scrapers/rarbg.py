@@ -31,18 +31,20 @@ class Rarbg(ScraperService[RarbgConfig]):
         self.settings = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout
 
+        # Build rate limits for all configured URLs
+        rate_limits = None
+        if self.settings.ratelimit and self.settings.urls:
+            rate_limits = {
+                get_hostname_from_url(url): {
+                    "rate": 350 / 60,
+                    "capacity": 350,
+                }  # 350 calls per minute
+                for url in self.settings.urls
+                if url
+            }
+
         self.session = SmartSession(
-            base_url=self.settings.url,
-            rate_limits=(
-                {
-                    get_hostname_from_url(self.settings.url): {
-                        "rate": 350 / 60,
-                        "capacity": 350,
-                    }  # 350 calls per minute
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limits=rate_limits,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )
@@ -55,23 +57,29 @@ class Rarbg(ScraperService[RarbgConfig]):
         if not self.settings.enabled:
             return False
 
-        if not self.settings.url:
-            logger.error("TheRARBG URL is not configured and will not be used.")
+        if not self.settings.urls or not any(self.settings.urls):
+            logger.error("TheRARBG URLs are not configured and will not be used.")
             return False
 
         if self.timeout <= 0:
             logger.error("TheRARBG timeout must be a positive integer.")
             return False
 
-        try:
-            url = "/get-posts/keywords:Game%20of%20Thrones:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
-            response = self.session.get(url, timeout=10)
-            if response.ok:
-                return True
-        except Exception as e:
-            logger.error(f"TheRARBG failed to initialize: {e}", exc_info=True)
-            return False
-        return True
+        # Try to validate at least one URL works
+        for url in self.settings.urls:
+            if not url:
+                continue
+            try:
+                test_path = "/get-posts/keywords:Game%20of%20Thrones:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
+                response = self.session.get(f"{url.rstrip('/')}{test_path}", timeout=10)
+                if response.ok:
+                    return True
+            except Exception as e:
+                logger.debug(f"TheRARBG validation failed for {url}: {e}")
+                continue
+
+        logger.error("TheRARBG failed to initialize: all URLs failed validation")
+        return False
 
     def run(self, item: MediaItem) -> dict[str, str]:
         """Scrape TheRARBG with the given media item for streams"""
@@ -96,16 +104,22 @@ class Rarbg(ScraperService[RarbgConfig]):
             else f"{item.log_string} ({item.aired_at.year})"
         )
 
-        url = f"/get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
+        path = f"get-posts/keywords:{search_string}:category:Movies:category:TV:category:Anime:ncategory:XXX/?format=json"
 
         torrents = dict[str, str]()
-        current_url = url
         page = 1
+        next_path = path
 
-        while current_url:
-            response = self.session.get(current_url, timeout=self.timeout)
+        while next_path:
+            # Use failover across all configured URLs
+            response = self.request_with_failover(
+                self.session,
+                self.settings.urls,
+                next_path,
+                timeout=self.timeout,
+            )
 
-            if not response.ok or not response.data:
+            if not response or not response.ok or not response.data:
                 break
 
             data = RarbgScrapeResponse.model_validate(response.json())
@@ -122,11 +136,18 @@ class Rarbg(ScraperService[RarbgConfig]):
             if page == 4:  # 50 results per page, 400 results max
                 break
 
-            current_url = None
-
+            next_path = None
             if data.links and data.links.next:
-                if next_url := data.links.next:
-                    current_url = next_url
+                # Extract just the path from the next URL
+                next_url = data.links.next
+                if next_url:
+                    # Handle if it's a full URL or just a path
+                    if next_url.startswith("http"):
+                        from urllib.parse import urlparse
+                        parsed = urlparse(next_url)
+                        next_path = f"{parsed.path}?{parsed.query}" if parsed.query else parsed.path
+                    else:
+                        next_path = next_url.lstrip("/")
                     page += 1
 
         if torrents:
@@ -137,3 +158,4 @@ class Rarbg(ScraperService[RarbgConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 
         return torrents
+

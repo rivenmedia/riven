@@ -41,19 +41,20 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         self.timeout = self.settings.timeout
         self.encrypted_string = None
 
+        # Build rate limits for all configured URLs
+        rate_limits = None
+        if self.settings.ratelimit and self.settings.urls:
+            rate_limits = {
+                get_hostname_from_url(url): {
+                    "rate": 1000 / 60,
+                    "capacity": 1000,
+                }  # 1000 calls per minute
+                for url in self.settings.urls
+                if url
+            }
+
         self.session = SmartSession(
-            base_url=self.settings.url.rstrip("/"),
-            rate_limits=(
-                {
-                    # 1000 calls per minute
-                    get_hostname_from_url(self.settings.url): {
-                        "rate": 1000 / 60,
-                        "capacity": 1000,
-                    }
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limits=rate_limits,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )
@@ -65,15 +66,17 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         if not self.settings.enabled:
             return False
 
-        if not self.settings.url:
-            logger.error("Mediafusion URL is not configured and will not be used.")
+        if not self.settings.urls or not any(self.settings.urls):
+            logger.error("Mediafusion URLs are not configured and will not be used.")
             return False
 
-        if "elfhosted" in self.settings.url.lower():
-            logger.warning(
-                "Elfhosted Mediafusion instance is no longer supported. Please use a different instance."
-            )
-            return False
+        # Check for elfhosted in any URL
+        for url in self.settings.urls:
+            if url and "elfhosted" in url.lower():
+                logger.warning(
+                    "Elfhosted Mediafusion instance is no longer supported. Please use a different instance."
+                )
+                return False
 
         if self.timeout <= 0:
             logger.error("Mediafusion timeout is not set or invalid.")
@@ -90,35 +93,47 @@ class Mediafusion(ScraperService[MediafusionConfig]):
 
         headers = {"Content-Type": "application/json"}
 
-        try:
-            response = self.session.post(
-                "/encrypt-user-data", json=payload, headers=headers
-            )
+        # Try to validate at least one URL works
+        for url in self.settings.urls:
+            if not url:
+                continue
+            try:
+                base_url = url.rstrip("/")
 
-            if not response.ok:
-                logger.error(
-                    f"Mediafusion encrypt user data request failed with status code {response.status_code}"
+                # Get encrypted string for this URL
+                response = self.session.post(
+                    f"{base_url}/encrypt-user-data", json=payload, headers=headers
                 )
-                return False
 
-            data = MediaFusionEncryptUserDataResponse.model_validate(response.json())
+                if not response.ok:
+                    logger.debug(
+                        f"Mediafusion encrypt user data request failed for {url}"
+                    )
+                    continue
 
-            if data.status != "success":
-                logger.error(f"Failed to encrypt user data: {data.message}")
-                return False
+                data = MediaFusionEncryptUserDataResponse.model_validate(
+                    response.json()
+                )
 
-            self.encrypted_string = data.encrypted_str
-        except Exception as e:
-            logger.error(f"Failed to encrypt user data: {e}")
-            return False
+                if data.status != "success":
+                    logger.debug(f"Failed to encrypt user data for {url}: {data.message}")
+                    continue
 
-        try:
-            response = self.session.get("/manifest.json", timeout=self.timeout)
+                # Check manifest
+                manifest_response = self.session.get(
+                    f"{base_url}/manifest.json", timeout=self.timeout
+                )
 
-            return response.ok
-        except Exception as e:
-            logger.error(f"Mediafusion failed to initialize: {e}")
-            return False
+                if manifest_response.ok:
+                    self.encrypted_string = data.encrypted_str
+                    return True
+
+            except Exception as e:
+                logger.debug(f"Mediafusion validation failed for {url}: {e}")
+                continue
+
+        logger.error("Mediafusion failed to initialize: all URLs failed validation")
+        return False
 
     def run(self, item: MediaItem) -> dict[str, str]:
         """
@@ -148,17 +163,25 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         if not imdb_id:
             return {}
 
-        url = f"/{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
-
+        # Build path with encrypted string and identifier
+        path = f"{self.encrypted_string}/stream/{scrape_type}/{imdb_id}"
         if identifier:
-            url += identifier
+            path += identifier
+        path += ".json"
 
-        response = self.session.get(f"{url}.json", timeout=self.timeout)
+        # Use failover across all configured URLs
+        response = self.request_with_failover(
+            self.session,
+            self.settings.urls,
+            path,
+            timeout=self.timeout,
+        )
 
-        if not response.ok:
-            logger.debug(
-                f"Mediafusion scrape request failed with status code {response.status_code} for {item.log_string}"
-            )
+        if not response or not response.ok:
+            if response:
+                logger.debug(
+                    f"Mediafusion scrape request failed with status code {response.status_code} for {item.log_string}"
+                )
             return {}
 
         data = MediaFusionScrapeResponse.model_validate(response.json())
@@ -214,3 +237,4 @@ class Mediafusion(ScraperService[MediafusionConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 
         return torrents
+

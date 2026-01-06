@@ -54,19 +54,20 @@ class Comet(ScraperService[CometConfig]):
             ).encode("utf-8")
         ).decode("utf-8")
 
+        # Build rate limits for all configured URLs
+        rate_limits = None
+        if self.settings.ratelimit and self.settings.urls:
+            rate_limits = {
+                get_hostname_from_url(url): {
+                    "rate": 300 / 60,
+                    "capacity": 300,
+                }  # 300 calls per minute
+                for url in self.settings.urls
+                if url
+            }
+
         self.session = SmartSession(
-            base_url=self.settings.url.rstrip("/"),
-            rate_limits=(
-                {
-                    # 300 calls per minute
-                    get_hostname_from_url(self.settings.url): {
-                        "rate": 300 / 60,
-                        "capacity": 300,
-                    }
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limits=rate_limits,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )
@@ -78,25 +79,33 @@ class Comet(ScraperService[CometConfig]):
         if not self.settings.enabled:
             return False
 
-        if not self.settings.url:
-            logger.error("Comet URL is not configured and will not be used.")
+        if not self.settings.urls or not any(self.settings.urls):
+            logger.error("Comet URLs are not configured and will not be used.")
             return False
 
-        if "elfhosted" in self.settings.url.lower():
-            logger.warning(
-                "Elfhosted Comet instance is no longer supported. Please use a different instance."
-            )
-            return False
+        # Check for elfhosted in any URL
+        for url in self.settings.urls:
+            if url and "elfhosted" in url.lower():
+                logger.warning(
+                    "Elfhosted Comet instance is no longer supported. Please use a different instance."
+                )
+                return False
 
-        try:
-            response = self.session.get("/manifest.json", timeout=self.timeout)
-            if response.ok:
-                return True
-        except Exception as e:
-            logger.error(
-                f"Comet failed to initialize: {e}",
-            )
+        # Try to validate at least one URL works
+        for url in self.settings.urls:
+            if not url:
+                continue
+            try:
+                response = self.session.get(
+                    f"{url.rstrip('/')}/manifest.json", timeout=self.timeout
+                )
+                if response.ok:
+                    return True
+            except Exception as e:
+                logger.debug(f"Comet validation failed for {url}: {e}")
+                continue
 
+        logger.error("Comet failed to initialize: all URLs failed validation")
         return False
 
     def run(self, item: MediaItem) -> dict[str, str]:
@@ -125,11 +134,20 @@ class Comet(ScraperService[CometConfig]):
         if not imdb_id:
             return {}
 
-        url = f"/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
-        response = self.session.get(url, timeout=self.timeout)
+        # Build path with encoded string and identifier
+        path = f"{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
 
-        if not response.ok:
-            logger.error(f"Comet scrape failed for {item.log_string}")
+        # Use failover across all configured URLs
+        response = self.request_with_failover(
+            self.session,
+            self.settings.urls,
+            path,
+            timeout=self.timeout,
+        )
+
+        if not response or not response.ok:
+            if response:
+                logger.error(f"Comet scrape failed for {item.log_string}")
             return {}
 
         data = CometScrapeResponse.model_validate(response.json())
@@ -152,3 +170,4 @@ class Comet(ScraperService[CometConfig]):
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")
 
         return torrents
+
