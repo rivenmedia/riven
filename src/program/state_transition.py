@@ -27,7 +27,7 @@ def process_event(
     )
     items_to_submit = list[MediaItem]()
 
-    if existing_item and existing_item.is_parent_blocked():
+    if existing_item and existing_item.last_state in [States.Paused, States.Failed]:
         return no_further_processing
 
     if content_item or (existing_item and existing_item.last_state == States.Requested):

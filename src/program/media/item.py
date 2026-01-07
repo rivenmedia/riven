@@ -375,7 +375,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         return self._determine_state()
 
     def _determine_state(self) -> States:
-        if self.is_parent_blocked():
+        if self.last_state == States.Paused:
             return States.Paused
 
         if self.last_state == States.Failed:
@@ -637,13 +637,6 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             return self.parent.parent.aliases
         else:
             return self.aliases
-            
-    def reset_scraping_state(self):
-        """Reset scraping-related metadata to force a re-scrape."""
-        self.scraped_at = None
-        self.scraped_times = 0
-        self.failed_attempts = 0
-        self.store_state(States.Indexed)
         
     def __hash__(self):
         return hash(self.id)
@@ -848,12 +841,6 @@ class Show(MediaItem):
         super().__init__(item)
 
     def _determine_state(self):
-        if self.is_parent_blocked():
-            return States.Paused
-
-        if self.last_state == States.Failed:
-            return States.Failed
-
         if all(season.state == States.Paused for season in self.seasons):
             return States.Paused
 
@@ -907,9 +894,8 @@ class Show(MediaItem):
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
-        if given_state is not None:
-            for season in self.seasons:
-                season.store_state(given_state)
+        for season in self.seasons:
+            season.store_state(given_state)
 
         return super().store_state(given_state)
     def __repr__(self):
@@ -918,32 +904,7 @@ class Show(MediaItem):
     def __hash__(self):
         return super().__hash__()
 
-    def update_season_states(
-        self, active_season_numbers: list[int], emit_scraping_event: bool = True
-    ) -> None:
-        """
-        Update the states of the show's seasons based on active season numbers.
-        Seasons not in the active list that are not already Paused will be Paused.
-        Active seasons that were Paused will be reset to Unknown to trigger scraping.
-        """
-        from program.program import Program
-        from program.types import Event
 
-        # Unpause show if needed
-        if self.last_state == States.Paused:
-            self.store_state(States.Indexed)
-
-        for season in self.seasons:
-            if season.number in active_season_numbers:
-                season.reset_scraping_state()
-                # Emit event for background scraping if requested
-                if emit_scraping_event:
-                    di[Program].em.add_event(Event("Scraping", item_id=season.id))
-            else:
-                if season.last_state != States.Paused:
-                    season.store_state(States.Paused)
-
-        self.store_state()
 
     def copy(self, other: "Self") -> Self:
         super()._copy_common_attributes(other)
@@ -1039,9 +1000,8 @@ class Season(MediaItem):
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
-        if given_state is not None:
-            for episode in self.episodes:
-                episode.store_state(given_state)
+        for episode in self.episodes:
+            episode.store_state(given_state)
 
         return super().store_state(given_state)
 
@@ -1057,19 +1017,12 @@ class Season(MediaItem):
         super().__init__(item)
 
     def _determine_state(self):
-        if self.is_parent_blocked():
-            return States.Paused
-
-        if self.last_state == States.Failed:
-            return States.Failed
-
         if len(self.episodes) > 0:
             if all(episode.state == States.Paused for episode in self.episodes):
                 return States.Paused
 
             if all(episode.state == States.Failed for episode in self.episodes):
                 return States.Failed
-
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
 
@@ -1174,11 +1127,7 @@ class Season(MediaItem):
         episode.parent = self
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
-    def reset_scraping_state(self):
-        """Reset scraping state for season and all episodes."""
-        super().reset_scraping_state()
-        for episode in self.episodes:
-            episode.reset_scraping_state()
+
     @property
     def log_string(self):
         from sqlalchemy import inspect
