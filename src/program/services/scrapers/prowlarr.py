@@ -382,7 +382,7 @@ class Prowlarr(ScraperService[ProwlarrConfig]):
         if isinstance(item, Movie):
             if "imdbId" in search_params.movie and item.imdb_id:
                 set_query_and_type(item.imdb_id, "movie-search")
-            if "q" in search_params.movie:
+            elif "q" in search_params.movie:
                 set_query_and_type(item_title, "movie-search")
             elif "q" in search_params.search:
                 set_query_and_type(item_title, "search")
