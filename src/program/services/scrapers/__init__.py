@@ -12,6 +12,7 @@ from program.media.stream import Stream
 from program.services.scrapers.shared import parse_results
 from program.settings import settings_manager
 
+from program.services.scrapers.aio import AIO
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
@@ -37,6 +38,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         )
 
         self.services = {
+            AIO: AIO(),
             Comet: Comet(),
             Jackett: Jackett(),
             Mediafusion: Mediafusion(),
