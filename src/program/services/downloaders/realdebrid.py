@@ -227,7 +227,7 @@ class RealDebridDownloader(DownloaderBase):
         infohash: str,
         item_type: ProcessedItemType,
         runtime: int | None = None,
-        limit_bitrate: bool = True,
+        max_bitrate_override: int | None = None,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
@@ -246,7 +246,7 @@ class RealDebridDownloader(DownloaderBase):
                 infohash,
                 item_type,
                 runtime,
-                limit_bitrate,
+                max_bitrate_override,
             )
 
             if container is None and reason:
@@ -341,7 +341,7 @@ class RealDebridDownloader(DownloaderBase):
         infohash: str,
         item_type: ProcessedItemType,
         runtime: int | None,
-        limit_bitrate: bool,
+        max_bitrate_override: int | None = None,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -397,7 +397,7 @@ class RealDebridDownloader(DownloaderBase):
                             filetype=item_type,
                             file_id=file.id,
                             runtime=runtime,
-                            limit_bitrate=limit_bitrate,
+                            max_bitrate_override=max_bitrate_override,
                         )
                         files.append(df)
                     except BitrateLimitExceededException as e:

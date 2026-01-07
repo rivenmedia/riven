@@ -39,7 +39,7 @@ class DownloaderBase(ABC):
         infohash: str,
         item_type: ProcessedItemType,
         runtime: int | None = None,
-        limit_bitrate: bool = True,
+        max_bitrate_override: int | None = None,
     ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash

@@ -83,9 +83,9 @@ class DebridFile(BaseModel):
         filename: str,
         filetype: ProcessedItemType,
         path: str | None = None,
-        file_id: int | None = None,
         runtime: int | None = None,
-        limit_bitrate: bool = True,
+        max_bitrate_override: int | None = None,
+        file_id: int | None = None,
     ) -> "DebridFile":
         """Factory method to validate and create a DebridFile"""
 
@@ -100,21 +100,34 @@ class DebridFile(BaseModel):
         if path and ANIME_SPECIALS_PATTERN.search(path):
             raise InvalidDebridFileException(f"Skipping anime special: '{path}'")
 
-        if limit_bitrate and runtime:
+        if runtime:
             filesize_bits = filesize_bytes * 8
             runtime_seconds = runtime * 60
             bitrate_mbps = (filesize_bits / runtime_seconds) / 1_000_000
 
+            # Determine bitrate limits
+            effective_max_bitrate = float('inf')
+            min_bitrate = 0
+
             if filetype == "movie":
-                if not (MOVIE_MIN_BITRATE <= bitrate_mbps <= MOVIE_MAX_BITRATE):
-                    raise BitrateLimitExceededException(
-                        f"Skipping movie file: '{filename}' - bitrate: {round(bitrate_mbps, 2)}Mbps is outside the allowed range of {MOVIE_MIN_BITRATE}Mbps to {MOVIE_MAX_BITRATE}Mbps"
-                    )
+                min_bitrate = MOVIE_MIN_BITRATE
+                effective_max_bitrate = MOVIE_MAX_BITRATE
             elif filetype in ["show", "season", "episode"]:
-                if not (EPISODE_MIN_BITRATE <= bitrate_mbps <= EPISODE_MAX_BITRATE):
-                    raise BitrateLimitExceededException(
-                        f"Skipping episode file: '{filename}' - bitrate: {round(bitrate_mbps, 2)}Mbps is outside the allowed range of {EPISODE_MIN_BITRATE}Mbps to {EPISODE_MAX_BITRATE}Mbps"
-                    )
+                min_bitrate = EPISODE_MIN_BITRATE
+                effective_max_bitrate = EPISODE_MAX_BITRATE
+
+            # Apply override if present
+            if max_bitrate_override is not None:
+                 effective_max_bitrate = max_bitrate_override
+
+            # Use infinite for negative/zero limits unless explicitly overridden to a small positive value
+            if effective_max_bitrate <= 0:
+                effective_max_bitrate = float('inf')
+
+            if not (min_bitrate <= bitrate_mbps <= effective_max_bitrate):
+                 raise BitrateLimitExceededException(
+                    f"Skipping {filetype} file: '{filename}' - bitrate: {round(bitrate_mbps, 2)}Mbps is outside the allowed range of {min_bitrate}Mbps to {effective_max_bitrate}Mbps"
+                )
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 

@@ -289,7 +289,7 @@ class AllDebridDownloader(DownloaderBase):
         infohash: str,
         item_type: ProcessedItemType,
         runtime: int | None = None,
-        limit_bitrate: bool = True,
+        max_bitrate_override: int | None = None,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -308,7 +308,7 @@ class AllDebridDownloader(DownloaderBase):
                 infohash,
                 item_type,
                 runtime,
-                limit_bitrate,
+                max_bitrate_override,
             )
 
             if container is None and reason:
@@ -387,7 +387,7 @@ class AllDebridDownloader(DownloaderBase):
         infohash: str,
         item_type: ProcessedItemType,
         runtime: int | None,
-        limit_bitrate: bool = True,
+        max_bitrate_override: int | None = None,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -425,8 +425,8 @@ class AllDebridDownloader(DownloaderBase):
             infohash,
             "",
             runtime,
-            limit_bitrate,
             errors,
+            max_bitrate_override,
         )
 
         if not files:
@@ -480,8 +480,8 @@ class AllDebridDownloader(DownloaderBase):
         infohash: str,
         path_prefix: str = "",
         runtime: int | None = None,
-        limit_bitrate: bool = True,
         errors: list[str] | None = None,
+        max_bitrate_override: int | None = None,
     ) -> None:
         """
         Recursively extract files from AllDebrid's nested file structure.
@@ -511,7 +511,7 @@ class AllDebridDownloader(DownloaderBase):
                     filetype=item_type,
                     file_id=None,
                     runtime=runtime,
-                    limit_bitrate=limit_bitrate,
+                    max_bitrate_override=max_bitrate_override,
                 )
 
                 df.download_url = link

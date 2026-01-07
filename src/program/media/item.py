@@ -104,13 +104,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     year: Mapped[int | None]
     genres: Mapped[list[str] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
     runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=None)
-    ignore_bitrate_limit: Mapped[bool] = mapped_column(sqlalchemy.Boolean, default=False)
     
-    # User's ranking overrides for scraping (stored as JSON, propagated to child items)
-    ranking_overrides: Mapped[dict[str, Any] | None] = mapped_column(
-        sqlalchemy.JSON,
-        default=None,
-    )
 
     # Rating metadata (normalized for filtering)
 
@@ -197,8 +191,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.rating = item.get("rating")
         self.content_rating = item.get("content_rating")
         self.runtime = item.get("runtime")
-        self.ignore_bitrate_limit = item.get("ignore_bitrate_limit", False)
-        self.ranking_overrides = item.get("ranking_overrides")
+        self.max_bitrate_override = item.get("max_bitrate_override", None)
 
         # Media server related
         self.updated = item.get("updated", False)
@@ -282,10 +275,6 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             ):
                 return True
 
-        logger.debug(
-            f"Unable to find stream from item hierarchy for {self.log_string}, will not blacklist"
-        )
-
         return False
 
     def blacklist_stream(self, stream: Stream) -> bool:
@@ -367,9 +356,6 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
                 )
                 return True
         except IntegrityError:
-            logger.debug(
-                f"Schedule already exists for item {self.id} at {run_at.isoformat()} [{task_type}]"
-            )
             return False
         except Exception as e:
             logger.error(f"Failed to schedule task for {self.log_string}: {e}")
@@ -389,7 +375,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         return self._determine_state()
 
     def _determine_state(self) -> States:
-        if self.last_state == States.Paused:
+        if self.is_parent_blocked():
             return States.Paused
 
         if self.last_state == States.Failed:
@@ -425,7 +411,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
                 return len(self.streams) > 0 and any(
                     stream not in self.blacklisted_streams for stream in self.streams
                 )
-            except:
+            except Exception:
                 pass
 
         return False
@@ -651,7 +637,14 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             return self.parent.parent.aliases
         else:
             return self.aliases
-
+            
+    def reset_scraping_state(self):
+        """Reset scraping-related metadata to force a re-scrape."""
+        self.scraped_at = None
+        self.scraped_times = 0
+        self.failed_attempts = 0
+        self.store_state(States.Indexed)
+        
     def __hash__(self):
         return hash(self.id)
 
@@ -734,18 +727,28 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         return "Unknown"
 
     def is_parent_blocked(self) -> bool:
-        """Return True if self or any parent is paused using targeted lookups (no relationship refresh)."""
+        """Return True if self or any parent is paused."""
 
         if self.last_state == States.Paused:
             return True
 
+        # Use pre-loaded parent if available (works even when detached)
+        try:
+            parent = getattr(self, "parent", None)
+            if parent:
+                return parent.is_parent_blocked()
+        except Exception:
+            pass
+
+        # Fallback: if we have a session and aren't detached, refresh
         session = object_session(self)
-
         if session and session.is_active and isinstance(self, (Season, Episode)):
-            session.refresh(self, ["parent"])
-
-            if self.parent:
-                return self.parent.is_parent_blocked()
+            try:
+                session.refresh(self, ["parent"])
+                if self.parent:
+                    return self.parent.is_parent_blocked()
+            except Exception:
+                pass
 
         return False
 
@@ -845,6 +848,12 @@ class Show(MediaItem):
         super().__init__(item)
 
     def _determine_state(self):
+        if self.is_parent_blocked():
+            return States.Paused
+
+        if self.last_state == States.Failed:
+            return States.Failed
+
         if all(season.state == States.Paused for season in self.seasons):
             return States.Paused
 
@@ -898,16 +907,43 @@ class Show(MediaItem):
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
-        for season in self.seasons:
-            season.store_state(given_state)
+        if given_state is not None:
+            for season in self.seasons:
+                season.store_state(given_state)
 
         return super().store_state(given_state)
-
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
+
+    def update_season_states(
+        self, active_season_numbers: list[int], emit_scraping_event: bool = True
+    ) -> None:
+        """
+        Update the states of the show's seasons based on active season numbers.
+        Seasons not in the active list that are not already Paused will be Paused.
+        Active seasons that were Paused will be reset to Unknown to trigger scraping.
+        """
+        from program.program import Program
+        from program.types import Event
+
+        # Unpause show if needed
+        if self.last_state == States.Paused:
+            self.store_state(States.Indexed)
+
+        for season in self.seasons:
+            if season.number in active_season_numbers:
+                season.reset_scraping_state()
+                # Emit event for background scraping if requested
+                if emit_scraping_event:
+                    di[Program].em.add_event(Event("Scraping", item_id=season.id))
+            else:
+                if season.last_state != States.Paused:
+                    season.store_state(States.Paused)
+
+        self.store_state()
 
     def copy(self, other: "Self") -> Self:
         super()._copy_common_attributes(other)
@@ -1003,8 +1039,9 @@ class Season(MediaItem):
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
-        for episode in self.episodes:
-            episode.store_state(given_state)
+        if given_state is not None:
+            for episode in self.episodes:
+                episode.store_state(given_state)
 
         return super().store_state(given_state)
 
@@ -1020,6 +1057,12 @@ class Season(MediaItem):
         super().__init__(item)
 
     def _determine_state(self):
+        if self.is_parent_blocked():
+            return States.Paused
+
+        if self.last_state == States.Failed:
+            return States.Failed
+
         if len(self.episodes) > 0:
             if all(episode.state == States.Paused for episode in self.episodes):
                 return States.Paused
@@ -1131,6 +1174,11 @@ class Season(MediaItem):
         episode.parent = self
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
+    def reset_scraping_state(self):
+        """Reset scraping state for season and all episodes."""
+        super().reset_scraping_state()
+        for episode in self.episodes:
+            episode.reset_scraping_state()
     @property
     def log_string(self):
         from sqlalchemy import inspect

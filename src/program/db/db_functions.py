@@ -27,20 +27,19 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def _maybe_session(session: Session | None) -> Iterator[tuple[Session, bool]]:
+def _maybe_session(session: Session | None) -> Iterator[Session]:
     """
-    Yield a (session, owns_session) pair.
-
-    If `session` is None, create a new db.Session() and close it on exit.
+    Yield a session.
+    If `session` is None, create a new db_session() and close it on exit.
     Otherwise, yield the caller-provided session and do not close it.
     """
 
     if session:
-        yield session, False
+        yield session
         return
 
     with db_session() as s:
-        yield s, True
+        yield s
 
 
 def get_item_by_id(
@@ -60,10 +59,19 @@ def get_item_by_id(
         MediaItem | None: The matching MediaItem detached from the session, or `None` if no matching item exists.
     """
 
-    from program.media.item import MediaItem
+    from program.media.item import Episode, MediaItem, Season, Show
 
-    with _maybe_session(session) as (_s, _):
-        query = select(MediaItem).where(MediaItem.id == item_id)
+    with _maybe_session(session) as _s:
+        query = (
+            select(MediaItem)
+            .options(
+                selectinload(Episode.parent),
+                selectinload(Season.parent),
+                selectinload(Season.episodes),
+                selectinload(Show.seasons),
+            )
+            .where(MediaItem.id == item_id)
+        )
 
         if item_types:
             query = query.where(MediaItem.type.in_(item_types))
@@ -98,7 +106,7 @@ def get_item_by_external_id(
     Raises:
         ValueError: If none of `imdb_id`, `tvdb_id`, or `tmdb_id` are provided.
     """
-    from program.media.item import MediaItem, Season, Show
+    from program.media.item import Episode, MediaItem, Season, Show
 
     conditions = list[Any]()
 
@@ -114,10 +122,14 @@ def get_item_by_external_id(
     if not conditions:
         raise ValueError("At least one external ID must be provided")
 
-    with _maybe_session(session) as (_s, _owns):
+    with _maybe_session(session) as _s:
         query = (
             select(MediaItem)
-            .options(selectinload(Show.seasons).selectinload(Season.episodes))
+            .options(
+                selectinload(Episode.parent),
+                selectinload(Season.parent),
+                selectinload(Show.seasons).selectinload(Season.episodes),
+            )
             .where(MediaItem.type.in_(["movie", "show"]))
             .where(or_(*conditions))
         )
@@ -168,7 +180,7 @@ def item_exists_by_any_id(
     if imdb_id is not None:
         clauses.append(MediaItem.imdb_id == str(imdb_id))
 
-    with _maybe_session(session) as (_s, _owns):
+    with _maybe_session(session) as _s:
         count = _s.execute(
             select(func.count()).select_from(MediaItem).where(or_(*clauses)).limit(1)
         ).scalar_one()
@@ -238,7 +250,7 @@ def retry_library(session: Session | None = None) -> Sequence[int]:
 
     from program.media.item import MediaItem
 
-    with _maybe_session(session) as (s, _owns):
+    with _maybe_session(session) as s:
         ids = (
             s.execute(
                 select(MediaItem.id)
@@ -270,7 +282,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
 
     from program.media.item import MediaItem, Season, Show, Episode
 
-    with _maybe_session(session) as (s, _owns):
+    with _maybe_session(session) as s:
         result = s.execute(
             select(MediaItem)
             .options(selectinload(Show.seasons).selectinload(Season.episodes))
