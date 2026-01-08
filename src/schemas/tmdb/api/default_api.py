@@ -9774,6 +9774,7 @@ class DefaultApi:
     def credit_details(
         self,
         credit_id: StrictStr,
+        language: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -9792,6 +9793,8 @@ class DefaultApi:
 
         :param credit_id: (required)
         :type credit_id: str
+        :param language:
+        :type language: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -9816,6 +9819,7 @@ class DefaultApi:
 
         _param = self._credit_details_serialize(
             credit_id=credit_id,
+            language=language,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -9838,6 +9842,7 @@ class DefaultApi:
     def credit_details_with_http_info(
         self,
         credit_id: StrictStr,
+        language: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -9856,6 +9861,8 @@ class DefaultApi:
 
         :param credit_id: (required)
         :type credit_id: str
+        :param language:
+        :type language: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -9880,6 +9887,7 @@ class DefaultApi:
 
         _param = self._credit_details_serialize(
             credit_id=credit_id,
+            language=language,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -9902,6 +9910,7 @@ class DefaultApi:
     def credit_details_without_preload_content(
         self,
         credit_id: StrictStr,
+        language: Optional[StrictStr] = None,
         _request_timeout: Union[
             None,
             Annotated[StrictFloat, Field(gt=0)],
@@ -9920,6 +9929,8 @@ class DefaultApi:
 
         :param credit_id: (required)
         :type credit_id: str
+        :param language:
+        :type language: str
         :param _request_timeout: timeout setting for this request. If one
                                  number provided, it will be total request
                                  timeout. It can also be a pair (tuple) of
@@ -9944,6 +9955,7 @@ class DefaultApi:
 
         _param = self._credit_details_serialize(
             credit_id=credit_id,
+            language=language,
             _request_auth=_request_auth,
             _content_type=_content_type,
             _headers=_headers,
@@ -9961,6 +9973,7 @@ class DefaultApi:
     def _credit_details_serialize(
         self,
         credit_id,
+        language,
         _request_auth,
         _content_type,
         _headers,
@@ -9984,6 +9997,10 @@ class DefaultApi:
         if credit_id is not None:
             _path_params["credit_id"] = credit_id
         # process the query parameters
+        if language is not None:
+
+            _query_params.append(("language", language))
+
         # process the header parameters
         # process the form parameters
         # process the body parameter
