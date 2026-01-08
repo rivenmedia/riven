@@ -65,10 +65,6 @@ class Torrentio(ScraperService[TorrentioConfig]):
             logger.error("Torrentio URL is not configured and will not be used.")
             return False
 
-        if self.timeout <= 0:
-            logger.error("Torrentio timeout must be a positive integer.")
-            return False
-
         try:
             url = f"{self.settings.url}/{self.settings.filter}/manifest.json"
 

@@ -25,10 +25,19 @@ class AIOStreamsSearchData(BaseModel):
     results: list[AIOStreamsSearchResult]
 
 
+class AIOStreamsError(BaseModel):
+    """Model for AIOStreams error response"""
+
+    code: str | None = None
+    message: str = "Unknown error"
+
+
 class AIOStreamsSearchResponse(BaseModel):
     """Model for AIOStreams search response"""
 
     success: bool
+    detail: str | None = None
+    error: AIOStreamsError | None = None
     data: AIOStreamsSearchData | None = None
 
 
@@ -89,10 +98,6 @@ class AIOStreams(ScraperService[AIOStreamsConfig]):
             )
             return False
 
-        if self.timeout <= 0:
-            logger.error("AIOStreams timeout must be a positive integer.")
-            return False
-
         try:
             # Test connection with a simple search
             url = f"{self.settings.url.rstrip('/')}/api/v1/search"
@@ -114,10 +119,8 @@ class AIOStreams(ScraperService[AIOStreamsConfig]):
                 return False
 
             if not data.success:
-                error = data.get("error", {})
-                logger.error(
-                    f"AIOStreams validation failed: {error.get('message', 'Unknown error')}"
-                )
+                error_msg = data.error.message if data.error else "Unknown error"
+                logger.error(f"AIOStreams validation failed: {error_msg}")
                 return False
 
             return True
@@ -134,9 +137,9 @@ class AIOStreams(ScraperService[AIOStreamsConfig]):
             if http_err.response.status_code == 429:
                 logger.debug(f"AIOStreams rate limit exceeded for item: {item.log_string}")
             else:
-                logger.error(f"AIOStreams HTTP error for {item.log_string}: {str(http_err)}")
+                logger.error(f"AIO HTTP error for {item.log_string}: {http_err!s}")
         except Exception as e:
-            logger.exception(f"AIOStreams exception thrown: {str(e)}")
+            logger.exception(f"AIO exception thrown: {e!s}")
 
         return {}
 
@@ -207,7 +210,7 @@ class AIOStreams(ScraperService[AIOStreamsConfig]):
             if not result.info_hash:
                 continue
 
-            # Use filename or folder_name as the raw title
+            # Use folder_name or filename as the raw title
             raw_title = result.folder_name or result.filename
             if not raw_title:
                 continue
