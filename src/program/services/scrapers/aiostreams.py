@@ -1,40 +1,38 @@
-"""AIO scraper module"""
-
 import base64
 
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from requests import HTTPError
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
-from program.settings.models import AIOConfig
+from program.settings.models import AIOStreamsConfig
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
-class AIOSearchResult(BaseModel):
-    """Model for a single AIO search result"""
+class AIOStreamsSearchResult(BaseModel):
+    """Model for a single AIOStreams search result"""
 
     info_hash: str | None = Field(alias="infoHash")
     filename: str | None = None
     folder_name: str | None = Field(default=None, alias="folderName")
 
 
-class AIOSearchData(BaseModel):
-    """Model for AIO search response data"""
+class AIOStreamsSearchData(BaseModel):
+    """Model for AIOStreams search response data"""
 
-    results: list[AIOSearchResult]
+    results: list[AIOStreamsSearchResult]
 
 
-class AIOSearchResponse(BaseModel):
-    """Model for AIO search response"""
+class AIOStreamsSearchResponse(BaseModel):
+    """Model for AIOStreams search response"""
 
     success: bool
-    data: AIOSearchData | None = None
+    data: AIOStreamsSearchData | None = None
 
 
-class AIO(ScraperService[AIOConfig]):
+class AIOStreams(ScraperService[AIOStreamsConfig]):
     """Scraper for `AIOStreams`"""
 
     requires_imdb_id = True
@@ -42,8 +40,8 @@ class AIO(ScraperService[AIOConfig]):
     def __init__(self):
         super().__init__()
 
-        self.settings = settings_manager.settings.scraping.aio
-        self.timeout = self.settings.timeout or 30
+        self.settings = settings_manager.settings.scraping.aiostreams
+        self.timeout = self.settings.timeout
 
         self.session = SmartSession(
             rate_limits=(
@@ -76,23 +74,23 @@ class AIO(ScraperService[AIOConfig]):
         return {"Authorization": f"Basic {encoded}"}
 
     def validate(self) -> bool:
-        """Validate the AIO settings."""
+        """Validate the AIOStreams settings."""
 
         if not self.settings.enabled:
             return False
 
         if not self.settings.url:
-            logger.error("AIO URL is not configured and will not be used.")
+            logger.error("AIOStreams URL is not configured and will not be used.")
             return False
 
         if not self.settings.uuid or not self.settings.password:
             logger.error(
-                "AIO uuid and password are required for authentication and will not be used."
+                "AIOStreams uuid and password are required for authentication and will not be used."
             )
             return False
 
         if self.timeout <= 0:
-            logger.error("AIO timeout must be a positive integer.")
+            logger.error("AIOStreams timeout must be a positive integer.")
             return False
 
         try:
@@ -106,39 +104,44 @@ class AIO(ScraperService[AIOConfig]):
             )
 
             if not response.ok:
-                logger.error(f"AIO validation failed with status {response.status_code}")
+                logger.error(f"AIOStreams validation failed with status {response.status_code}")
                 return False
 
-            data = response.json()
-            if not data.get("success", False):
+            try:
+                data = AIOStreamsSearchResponse.model_validate(response.json())
+            except ValidationError as e:
+                logger.error(f"AIOStreams validation failed: {e}")
+                return False
+
+            if not data.success:
                 error = data.get("error", {})
                 logger.error(
-                    f"AIO validation failed: {error.get('message', 'Unknown error')}"
+                    f"AIOStreams validation failed: {error.get('message', 'Unknown error')}"
                 )
                 return False
 
             return True
         except Exception as e:
-            logger.error(f"AIO failed to initialize: {e}")
+            logger.error(f"AIOStreams failed to initialize: {e}")
             return False
 
     def run(self, item: MediaItem) -> dict[str, str]:
-        """Scrape AIO with the given media item for streams"""
+        """Scrape AIOStreams with the given media item for streams"""
 
         try:
             return self.scrape(item)
         except HTTPError as http_err:
             if http_err.response.status_code == 429:
-                logger.debug(f"AIO rate limit exceeded for item: {item.log_string}")
+                logger.debug(f"AIOStreams rate limit exceeded for item: {item.log_string}")
             else:
-                logger.error(f"AIO HTTP error for {item.log_string}: {str(http_err)}")
+                logger.error(f"AIOStreams HTTP error for {item.log_string}: {str(http_err)}")
         except Exception as e:
-            logger.exception(f"AIO exception thrown: {str(e)}")
+            logger.exception(f"AIOStreams exception thrown: {str(e)}")
 
         return {}
 
     def scrape(self, item: MediaItem) -> dict[str, str]:
-        """Wrapper for `AIO` scrape method"""
+        """Wrapper for `AIOStreams` scrape method"""
 
         if isinstance(item, Movie):
             imdb_id = item.imdb_id
@@ -159,7 +162,7 @@ class AIO(ScraperService[AIOConfig]):
         else:
             return {}
 
-        logger.trace(f"Scraping AIO for {item.log_string}, imdb_id: {imdb_id}, search_id: {search_id}, aio_type: {aio_type}")
+        logger.trace(f"Scraping AIOStreams for {item.log_string}, imdb_id: {imdb_id}, search_id: {search_id}, aio_type: {aio_type}")
 
         if not imdb_id:
             return {}
@@ -181,11 +184,14 @@ class AIO(ScraperService[AIOConfig]):
         )
 
         if not response.ok:
+            logger.error(f"AIOStreams request failed for {item.log_string}: {response.text}")
             response.raise_for_status()
-            logger.error(f"AIO request failed for {item.log_string}: {response.text}")
-            return {}
 
-        data = AIOSearchResponse.model_validate(response.json())
+        try:
+            data = AIOStreamsSearchResponse.model_validate(response.json())
+        except ValidationError as e:
+            logger.error(f"AIOStreams failed to parse response for {item.log_string}: {e}")
+            return {}
 
         if not data.success or not data.data:
             logger.log("NOT_FOUND", f"No streams found for {item.log_string}")

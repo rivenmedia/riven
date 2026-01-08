@@ -124,11 +124,10 @@ class Torrentio(ScraperService[TorrentioConfig]):
         )
 
         if not response.ok:
-            response.raise_for_status()
             logger.error(
                 f"Torrentio request failed for {item.log_string}: {response.text}"
             )
-            return {}
+            response.raise_for_status()
 
         data = TorrentioScrapeResponse.model_validate(response.json())
 

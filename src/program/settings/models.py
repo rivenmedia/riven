@@ -748,19 +748,19 @@ class RarbgConfig(Observable):
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
 
 
-class AIOConfig(Observable):
-    enabled: bool = Field(default=False, description="Enable AIO scraper")
+class AIOStreamsConfig(Observable):
+    enabled: bool = Field(default=False, description="Enable AIOStreams scraper")
     url: EmptyOrUrl = Field(
-        default="http://localhost:8000", description="AIO instance URL"
+        default="http://localhost:8000", description="AIOStreams instance URL"
     )
     timeout: int = Field(default=30, ge=1, description="Request timeout in seconds")
     retries: int = Field(
         default=1, ge=0, description="Number of retries for failed requests"
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
-    proxy_url: EmptyOrUrl = Field(default="", description="Proxy URL for AIO requests")
-    uuid: str = Field(default="", description="User UUID for AIO authentication")
-    password: str = Field(default="", description="User password for AIO authentication")
+    proxy_url: EmptyOrUrl = Field(default="", description="Proxy URL for AIOStreams requests")
+    uuid: str = Field(default="", description="User UUID for AIOStreams authentication")
+    password: str = Field(default="", description="User password for AIOStreams authentication")
 
 
 class ScraperModel(Observable):
@@ -813,8 +813,8 @@ class ScraperModel(Observable):
     rarbg: RarbgConfig = Field(
         default_factory=lambda: RarbgConfig(), description="RARBG configuration"
     )
-    aio: AIOConfig = Field(
-        default_factory=lambda: AIOConfig(), description="AIO configuration"
+    aiostreams: AIOStreamsConfig = Field(
+        default_factory=lambda: AIOStreamsConfig(), description="AIOStreams configuration"
     )
 
 
