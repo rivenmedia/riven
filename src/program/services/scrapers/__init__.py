@@ -2,28 +2,29 @@ import threading
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from queue import Queue, Empty
+from queue import Empty, Queue
 
 from loguru import logger
 from RTN.models import SettingsModel
 
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
-from program.services.scrapers.shared import parse_results
-from program.settings import settings_manager
-
+from program.services.scrapers.aiostreams import AIOStreams
+from program.services.scrapers.base import ScraperService
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
+from program.services.scrapers.models import RankingOverrides
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
+from program.services.scrapers.shared import parse_results
 from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
+from program.settings import settings_manager
 from program.settings.models import Observable, ScraperModel
-from program.services.scrapers.base import ScraperService
 
 
 class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
@@ -37,6 +38,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         )
 
         self.services = {
+            AIOStreams: AIOStreams(),
             Comet: Comet(),
             Jackett: Jackett(),
             Mediafusion: Mediafusion(),

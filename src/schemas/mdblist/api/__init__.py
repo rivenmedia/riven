@@ -4,7 +4,9 @@ if __import__("typing").TYPE_CHECKING:
     # import apis into api package
     from schemas.mdblist.api.external_lists_api import ExternalListsApi
     from schemas.mdblist.api.scrobble_api import ScrobbleApi
+    from schemas.mdblist.api.static_lists_api import StaticListsApi
     from schemas.mdblist.api.sync_api import SyncApi
+    from schemas.mdblist.api.updates_api import UpdatesApi
     from schemas.mdblist.api.watchlist_api import WatchlistApi
     from schemas.mdblist.api.default_api import DefaultApi
 
@@ -17,7 +19,9 @@ else:
             """# import apis into api package
 from schemas.mdblist.api.external_lists_api import ExternalListsApi
 from schemas.mdblist.api.scrobble_api import ScrobbleApi
+from schemas.mdblist.api.static_lists_api import StaticListsApi
 from schemas.mdblist.api.sync_api import SyncApi
+from schemas.mdblist.api.updates_api import UpdatesApi
 from schemas.mdblist.api.watchlist_api import WatchlistApi
 from schemas.mdblist.api.default_api import DefaultApi
 

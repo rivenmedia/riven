@@ -18,7 +18,7 @@ class MediaFusionEncryptUserDataResponse(BaseModel):
 
 class MediaFusionScrapeResponse(BaseModel):
     class MediaFusionStream(BaseModel):
-        title: str
+        name: str
         description: str
         info_hash: str | None = Field(alias="infoHash")
 
@@ -170,7 +170,7 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         torrents = dict[str, str]()
 
         for stream in data.streams:
-            if "rate-limit exceeded" in stream.title:
+            if "rate-limit exceeded" in stream.name:
                 raise Exception(
                     f"Mediafusion rate-limit exceeded for item: {item.log_string}"
                 )
