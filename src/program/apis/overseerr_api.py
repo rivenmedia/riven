@@ -1,4 +1,4 @@
-﻿"""Overseerr API client"""
+"""Overseerr API client"""
 
 from typing import TYPE_CHECKING, Literal
 
@@ -91,9 +91,12 @@ class OverseerrAPI:
 
                 return []
 
+            raw_json = response.json()
+            raw_results = raw_json.get("results", [])
+
             from schemas.overseerr import UserUserIdRequestsGet200Response
 
-            response_data = UserUserIdRequestsGet200Response.from_dict(response.json())
+            response_data = UserUserIdRequestsGet200Response.from_dict(raw_json)
 
             assert response_data
 
@@ -117,11 +120,57 @@ class OverseerrAPI:
                 if item.status == 2 and item.media and item.media.status == 3
             ]
 
+        # Build a lookup from request id to raw data to access the 'type' field
+        # which is not in the generated schema
+        raw_by_id = {item.get("id"): item for item in raw_results}
+
         media_items: list[MediaItem] = []
 
         for item in pending_items:
             tmdb_id = item.media and item.media.tmdb_id
             tvdb_id = item.media and item.media.tvdb_id
+
+            # Get media type from raw response ('movie' or 'tv')
+            # This field exists in Overseerr API but is missing from the generated schema
+            raw_item = raw_by_id.get(item.id, {})
+            media_type: str | None = raw_item.get("type")
+
+            # Use the appropriate ID based on media type:
+            # - Movies should use tmdb_id (TMDB is the primary movie database)
+            # - TV shows should use tvdb_id (TVDB is the primary TV database)
+            if media_type == "movie" and tmdb_id is not None:
+                media_items.append(
+                    MediaItem(
+                        {
+                            "tmdb_id": tmdb_id,
+                            "requested_by": service_key,
+                        }
+                    )
+                )
+                continue
+
+            if media_type == "tv" and tvdb_id is not None:
+                media_items.append(
+                    MediaItem(
+                        {
+                            "tvdb_id": tvdb_id,
+                            "requested_by": service_key,
+                        }
+                    )
+                )
+                continue
+
+            # Fallback: if media_type is not available, use tmdb_id first (safer default)
+            if tmdb_id is not None:
+                media_items.append(
+                    MediaItem(
+                        {
+                            "tmdb_id": tmdb_id,
+                            "requested_by": service_key,
+                        }
+                    )
+                )
+                continue
 
             if tvdb_id is not None:
                 media_items.append(
@@ -132,19 +181,6 @@ class OverseerrAPI:
                         }
                     )
                 )
-
-                continue
-
-            if tmdb_id is not None:
-                media_items.append(
-                    MediaItem(
-                        {
-                            "tmdb_id": tmdb_id,
-                            "requested_by": service_key,
-                        }
-                    )
-                )
-
                 continue
 
             logger.error(f"Could not determine ID for overseerr item: {item.id}")

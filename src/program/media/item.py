@@ -15,7 +15,7 @@ from sqlalchemy.orm import (
     validates,
     MappedAsDataclass,
 )
-from sqlalchemy.orm.exc import DetachedInstanceError
+from sqlalchemy.exc import InvalidRequestError
 
 from program.media.state import States
 from program.media.subtitle_entry import SubtitleEntry
@@ -103,6 +103,8 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     aired_at: Mapped[datetime | None]
     year: Mapped[int | None]
     genres: Mapped[list[str] | None] = mapped_column(sqlalchemy.JSON, nullable=True)
+    runtime: Mapped[int | None] = mapped_column(sqlalchemy.Integer, default=None)
+    
 
     # Rating metadata (normalized for filtering)
 
@@ -188,6 +190,8 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         self.is_anime = item.get("is_anime", False)
         self.rating = item.get("rating")
         self.content_rating = item.get("content_rating")
+        self.runtime = item.get("runtime")
+        self.max_bitrate_override = item.get("max_bitrate_override", None)
 
         # Media server related
         self.updated = item.get("updated", False)
@@ -271,10 +275,6 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             ):
                 return True
 
-        logger.debug(
-            f"Unable to find stream from item hierarchy for {self.log_string}, will not blacklist"
-        )
-
         return False
 
     def blacklist_stream(self, stream: Stream) -> bool:
@@ -356,9 +356,6 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
                 )
                 return True
         except IntegrityError:
-            logger.debug(
-                f"Schedule already exists for item {self.id} at {run_at.isoformat()} [{task_type}]"
-            )
             return False
         except Exception as e:
             logger.error(f"Failed to schedule task for {self.log_string}: {e}")
@@ -414,7 +411,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
                 return len(self.streams) > 0 and any(
                     stream not in self.blacklisted_streams for stream in self.streams
                 )
-            except:
+            except Exception:
                 pass
 
         return False
@@ -640,7 +637,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             return self.parent.parent.aliases
         else:
             return self.aliases
-
+        
     def __hash__(self):
         return hash(self.id)
 
@@ -723,18 +720,28 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         return "Unknown"
 
     def is_parent_blocked(self) -> bool:
-        """Return True if self or any parent is paused using targeted lookups (no relationship refresh)."""
+        """Return True if self or any parent is paused."""
 
         if self.last_state == States.Paused:
             return True
 
+        # Use pre-loaded parent if available (works even when detached)
+        try:
+            parent = getattr(self, "parent", None)
+            if parent:
+                return parent.is_parent_blocked()
+        except Exception:
+            pass
+
+        # Fallback: if we have a session and aren't detached, refresh
         session = object_session(self)
-
         if session and session.is_active and isinstance(self, (Season, Episode)):
-            session.refresh(self, ["parent"])
-
-            if self.parent:
-                return self.parent.is_parent_blocked()
+            try:
+                session.refresh(self, ["parent"])
+                if self.parent:
+                    return self.parent.is_parent_blocked()
+            except Exception:
+                pass
 
         return False
 
@@ -891,12 +898,13 @@ class Show(MediaItem):
             season.store_state(given_state)
 
         return super().store_state(given_state)
-
     def __repr__(self):
         return f"Show:{self.log_string}:{self.state.name}"
 
     def __hash__(self):
         return super().__hash__()
+
+
 
     def copy(self, other: "Self") -> Self:
         super()._copy_common_attributes(other)
@@ -963,7 +971,7 @@ class Season(MediaItem):
         sqlalchemy.Integer,
     )
     parent_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True
+        sqlalchemy.ForeignKey("Show.id", ondelete="CASCADE"), use_existing_column=True, index=True
     )
     parent: Mapped["Show"] = relationship(
         lazy="selectin",
@@ -1015,7 +1023,6 @@ class Season(MediaItem):
 
             if all(episode.state == States.Failed for episode in self.episodes):
                 return States.Failed
-
             if all(episode.state == States.Completed for episode in self.episodes):
                 return States.Completed
 
@@ -1120,12 +1127,13 @@ class Season(MediaItem):
         episode.parent = self
         self.episodes = sorted(self.episodes, key=lambda e: e.number)
 
+
     @property
     def log_string(self):
-        try:
-            return self.parent.log_string + " S" + str(self.number).zfill(2)
-        except DetachedInstanceError:
+        from sqlalchemy import inspect
+        if inspect(self).detached:
             return f"Season {self.number}"
+        return self.parent.log_string + " S" + str(self.number).zfill(2)
 
     @property
     def top_title(self) -> str:
@@ -1134,7 +1142,10 @@ class Season(MediaItem):
         session = object_session(self)
 
         if session and session.is_active:
-            session.refresh(self, ["parent"])
+            try:
+                session.refresh(self, ["parent"])
+            except InvalidRequestError:
+                pass
 
         return self.parent.title
 
@@ -1148,7 +1159,7 @@ class Episode(MediaItem):
     )
     number: Mapped[int]
     parent_id: Mapped[int] = mapped_column(
-        sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True
+        sqlalchemy.ForeignKey("Season.id", ondelete="CASCADE"), use_existing_column=True, index=True
     )
     parent: Mapped["Season"] = relationship(
         back_populates="episodes",
@@ -1229,10 +1240,10 @@ class Episode(MediaItem):
 
     @property
     def log_string(self):
-        try:
-            return f"{self.parent.log_string}E{self.number:02}"
-        except DetachedInstanceError:
+        from sqlalchemy import inspect
+        if inspect(self).detached:
             return f"Episode {self.number}"
+        return f"{self.parent.log_string}E{self.number:02}"
 
     @property
     def top_title(self) -> str:

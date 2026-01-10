@@ -1,51 +1,38 @@
 import asyncio
-from collections.abc import AsyncGenerator
-from datetime import datetime, timedelta
 import concurrent.futures
 import threading
+from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Annotated, Any, Literal, Self
-from uuid import uuid4
 
-from RTN import ParsedData, Torrent
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Body,
     HTTPException,
-    Path,
     Query,
 )
 from fastapi.responses import StreamingResponse
 from kink import di
 from loguru import logger
-from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
-from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
-from sqlalchemy.orm import object_session, Session
-from sqlalchemy.exc import InvalidRequestError
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from RTN import ParsedData
+from sqlalchemy.orm import Session
 
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import Episode, MediaItem, Season, Show
-from program.media.stream import Stream as ItemStream
-from program.services.downloaders import Downloader
+from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
+from program.program import Program
 from program.services.downloaders.models import (
     DebridFile,
     TorrentContainer,
     TorrentInfo,
-    FilesizeLimitExceededException,
 )
-from program.services.downloaders.shared import (
-    DownloaderBase,
-    parse_filename,
-    resolve_download_url,
-)
-from program.services.scrapers.shared import rtn
+from program.services.downloaders.shared import parse_filename
 from program.types import Event
+from program.utils.request import CircuitBreakerOpen
 from program.utils.torrent import extract_infohash
-from program.program import Program
-from program.media.models import ActiveStream
-from program.media.state import States
-from program.services.scrapers.models import RankingOverrides
+
 from ..models.shared import MessageResponse
 
 
@@ -73,199 +60,124 @@ class ScrapeStreamEvent(BaseModel):
     total_services: int = 0
 
 
-class ScrapeItemResponse(MessageResponse):
-    streams: dict[str, Stream]
 
 
-class StartSessionResponse(MessageResponse):
-    session_id: str
-    torrent_id: str | int
+class ManualScrapeReponse(MessageResponse):
+    magnet: str
     torrent_info: TorrentInfo
-    containers: TorrentContainer | None
-    expires_at: str
+    # We return raw dicts because frontend expects parsed structure not exactly DebridFile
+    # Each file dict now includes 'parsed_metadata'
+    parsed_files: list[dict[str, Any]] = Field(default_factory=list)
+
+class ManualData(BaseModel):
+    file_id: int
+    filename: str
+    filesize: int
+    download_url: str | None = None
+
+class ManualSelectFile(BaseModel):
+    filename: str
+    filesize: int
+    download_url: str | None = None
+
+class ManualDownloadRequest(BaseModel):
+    magnet: str
+    items: dict[int, ManualSelectFile] = Field(description="Map of file_id to file info")
+    item_id: int | None = None
+    # For creating new items when item_id is None
+    tmdb_id: str | None = None
+    tvdb_id: str | None = None
+    imdb_id: str | None = None
+    media_type: Literal["movie", "tv", "mediaitem"] | None = None
+    max_bitrate_override: int | None = Field(default=None, description="Max bitrate override in Mbps")
 
 
-class SelectFilesResponse(MessageResponse):
+class ManualDownloadResponse(MessageResponse):
     download_type: Literal["cached", "uncached"]
-
-
-class Container(RootModel[dict[str, DebridFile]]):
-    """
-    Root model for container mapping file IDs to file information.
-
-    Example:
-    {
-        "4": {
-            "filename": "show.s01e01.mkv",
-            "filesize": 30791392598
-        },
-        "5": {
-            "filename": "show.s01e02.mkv",
-            "filesize": 25573181861
-        }
-    }
-    """
-
-    root: dict[str, DebridFile]
-
-
-class ShowFileData(RootModel[dict[int, dict[int, DebridFile]]]):
-    """
-    Root model for show file data that maps seasons to episodes to file data.
-
-    Example:
-    {
-        1: {  # Season 1
-            1: {"filename": "path/to/s01e01.mkv"},  # Episode 1
-            2: {"filename": "path/to/s01e02.mkv"}   # Episode 2
-        },
-        2: {  # Season 2
-            1: {"filename": "path/to/s02e01.mkv"}   # Episode 1
-        }
-    }
-    """
-
-    root: dict[int, dict[int, DebridFile]]
-
-
-class ScrapingSession:
-    def __init__(
-        self,
-        id: str,
-        item_id: int,
-        media_type: Literal["movie", "tv"] | None = None,
-        imdb_id: str | None = None,
-        tmdb_id: str | None = None,
-        tvdb_id: str | None = None,
-        magnet: str | None = None,
-        service: DownloaderBase | None = None,
-    ):
-        self.id = id
-        self.item_id = item_id
-        self.media_type = media_type
-        self.imdb_id = imdb_id
-        self.tmdb_id = tmdb_id
-        self.tvdb_id = tvdb_id
-        self.magnet = magnet
-        self.service = service
-        self.torrent_id: int | str | None = None
-        self.torrent_info: TorrentInfo | None = None
-        self.containers: TorrentContainer | None = None
-        self.selected_files: dict[str, dict[str, str | int]] | None = None
-        self.created_at: datetime = datetime.now()
-        self.expires_at: datetime = datetime.now() + timedelta(minutes=5)
-
-
-class ScrapingSessionManager:
-    def __init__(self):
-        self.sessions = dict[str, ScrapingSession]()
-        self.downloader: Downloader | None = None
-
-    def set_downloader(self, downloader: Downloader):
-        """Set the downloader for the session manager"""
-        self.downloader = downloader
-
-    def create_session(
-        self,
-        item_id: int,
-        magnet: str,
-        media_type: Literal["movie", "tv"] | None = None,
-        imdb_id: str | None = None,
-        tmdb_id: str | None = None,
-        tvdb_id: str | None = None,
-        service: DownloaderBase | None = None,
-    ) -> ScrapingSession:
-        """Create a new scraping session"""
-        session_id = str(uuid4())
-        session = ScrapingSession(
-            session_id,
-            item_id,
-            media_type,
-            imdb_id,
-            tmdb_id,
-            tvdb_id,
-            magnet,
-            service,
-        )
-        self.sessions[session_id] = session
-        return session
-
-    def get_session(self, session_id: str) -> ScrapingSession | None:
-        """Get a scraping session by ID"""
-
-        session = self.sessions.get(session_id)
-
-        if not session:
-            return None
-
-        if datetime.now() > session.expires_at:
-            self.abort_session(session_id)
-            return None
-
-        return session
-
-    def update_session(self, session_id: str, **kwargs: Any) -> ScrapingSession | None:
-        """Update a scraping session"""
-
-        session = self.get_session(session_id)
-
-        if not session:
-            return None
-
-        for key, value in kwargs.items():
-            if hasattr(session, key):
-                setattr(session, key, value)
-
-        return session
-
-    def abort_session(self, session_id: str):
-        """Abort a scraping session"""
-
-        session = self.sessions.pop(session_id, None)
-
-        if session and session.torrent_id and self.downloader:
-            try:
-                self.downloader.delete_torrent(session.torrent_id)
-                logger.debug(f"Deleted torrent for aborted session {session_id}")
-            except Exception as e:
-                logger.error(f"Failed to delete torrent for session {session_id}: {e}")
-
-        if session:
-            logger.debug(f"Aborted session {session_id} for item {session.item_id}")
-
-    def complete_session(self, session_id: str):
-        """Complete a scraping session"""
-
-        session = self.get_session(session_id)
-        if not session:
-            return
-
-        logger.debug(f"Completing session {session_id} for item {session.item_id}")
-        self.sessions.pop(session_id)
-
-    def cleanup_expired(self, background_tasks: BackgroundTasks):
-        """Cleanup expired scraping sessions"""
-
-        current_time = datetime.now()
-        expired = [
-            session_id
-            for session_id, session in self.sessions.items()
-            if current_time > session.expires_at
-        ]
-        for session_id in expired:
-            background_tasks.add_task(self.abort_session, session_id)
-
-
-scraping_session_manager = ScrapingSessionManager()
 
 router = APIRouter(prefix="/scrape", tags=["scrape"])
 
 
-def initialize_downloader(downloader: Downloader):
-    """Initialize downloader if not already set"""
+async def resolve_torrent_container(
+    infohash: str,
+    services: list,
+    item_type: str = "movie",
+    runtime: int | None = None,
+    max_bitrate_override: int | None = None,
+) -> tuple["TorrentContainer | None", str | None]:
+    """
+    Resolve a magnet infohash to a TorrentContainer using available downloader services.
+    
+    First tries instant availability check on each service.
+    Falls back to adding/probing the torrent temporarily if not cached.
+    
+    Returns:
+        Tuple of (container, error_message). If container is None, error_message explains why.
+    """
+    from program.services.downloaders.models import TorrentContainer, DebridFile
+    from program.services.downloaders.models import InvalidDebridFileException, BitrateLimitExceededException
+    
+    # Try to find cached container from any service
+    container = None
+    last_error = None
+    for svc in services:
+        try:
+            container = await asyncio.to_thread(
+                svc.get_instant_availability, infohash, item_type, runtime, max_bitrate_override
+            )
+            if container and container.files:
+                return container, None
+        except BitrateLimitExceededException as e:
+            last_error = str(e)
+            logger.debug(f"Bitrate limit exceeded on {svc.key}: {e}")
+            continue
+        except InvalidDebridFileException as e:
+            last_error = str(e)
+            logger.debug(f"Invalid file on {svc.key}: {e}")
+            continue
+        except Exception as e:
+            last_error = f"Service error: {str(e)}"
+            logger.debug(f"Error on {svc.key}: {e}")
+            continue
 
-    if not scraping_session_manager.downloader:
-        scraping_session_manager.set_downloader(downloader)
+    # Fallback: probe torrent by adding temporarily
+    if not container or not container.files:
+        svc = services[0]
+        try:
+            tid = await asyncio.to_thread(svc.add_torrent, infohash)
+            try:
+                info = await asyncio.to_thread(svc.get_torrent_info, tid)
+                if info and info.files:
+                    valid_files = []
+                    for f in info.files.values():
+                        try:
+                            df = DebridFile.create(
+                                path=f.path, filename=f.filename,
+                                filesize_bytes=f.bytes, filetype="movie", file_id=f.id
+                            )
+                            valid_files.append(df)
+                        except (InvalidDebridFileException, BitrateLimitExceededException) as e:
+                            logger.debug(f"Skipping file {f.filename}: {e}")
+                            continue
+                    
+                    if valid_files:
+                        container = TorrentContainer(
+                            infohash=infohash,
+                            files=valid_files,
+                            torrent_id=tid
+                        )
+                    else:
+                        last_error = "No valid video files found (all files filtered by bitrate or type)"
+            finally:
+                await asyncio.to_thread(svc.delete_torrent, tid)
+        except Exception as e:
+            logger.error(f"Magnet resolution error: {e}")
+            return None, f"Unable to resolve magnet: {str(e)}"
+    
+    if container and container.files:
+        return container, None
+    
+    return None, last_error or "No files found in torrent"
 
 
 def get_media_item(
@@ -275,12 +187,17 @@ def get_media_item(
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
     media_type: str | None = None,
+    persist: bool = True,
 ) -> MediaItem:
     """
     Get or create a MediaItem based on provided IDs.
 
     Tries to fetch authentication item by item_id, then by external IDs.
     If not found, tries to fetch from indexer and create/merge into DB.
+    
+    Args:
+        persist: If True, new items are saved to DB. If False, returns in-memory item
+                 without persisting (useful for read-only scrape queries).
     """
     item = None
 
@@ -318,14 +235,17 @@ def get_media_item(
                 "requested_at": datetime.now(),
             }
         )
-    elif tvdb_id and media_type == "tv":
-        prepared_item = MediaItem(
-            {
-                "tvdb_id": tvdb_id,
-                "requested_by": "riven",
-                "requested_at": datetime.now(),
-            }
-        )
+    elif media_type == "tv" and (tvdb_id or tmdb_id):
+        params = {
+            "requested_by": "riven",
+            "requested_at": datetime.now(),
+        }
+        if tvdb_id:
+            params["tvdb_id"] = tvdb_id
+        if tmdb_id:
+            params["tmdb_id"] = tmdb_id
+            
+        prepared_item = MediaItem(params)
     elif imdb_id:
         prepared_item = MediaItem(
             {
@@ -337,40 +257,67 @@ def get_media_item(
         )
 
     if prepared_item:
-        if result := next(indexer.run(prepared_item), None):
-            if result.media_items:
-                indexed = result.media_items[0]
+        try:
+            if result := next(indexer.run(prepared_item), None):
+                if result.media_items:
+                    indexed = result.media_items[0]
 
-                # Check directly if item exists in DB by external IDs to avoid unique constraint error
-                try:
-                    existing = db_functions.get_item_by_external_id(
-                        tmdb_id=indexed.tmdb_id,
-                        tvdb_id=indexed.tvdb_id,
-                        imdb_id=indexed.imdb_id,
-                        session=session,
-                    )
-                    if existing:
-                        return existing
-                except ValueError:
-                    pass
+                    # Check directly if item exists in DB by external IDs to avoid unique constraint error
+                    try:
+                        existing = db_functions.get_item_by_external_id(
+                            tmdb_id=indexed.tmdb_id,
+                            tvdb_id=indexed.tvdb_id,
+                            imdb_id=indexed.imdb_id,
+                            session=session,
+                        )
+                        if existing:
+                            return existing
+                    except ValueError:
+                        pass
 
-                item = session.merge(indexed)
-                session.commit()
-                session.refresh(item)
-                return item
+                    # Only persist to DB if persist=True
+                    if persist:
+                        item = session.merge(indexed)
+                        session.commit()
+                        session.refresh(item)
+                        return item
+                    else:
+                        # Return in-memory item without persisting
+                        return indexed
+        except Exception as e:
+            from program.apis.tmdb_api import TMDBConnectionError
+            from program.apis.tvdb_api import TVDBConnectionError
+
+            if isinstance(e, TVDBConnectionError):
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"TVDB Service Unavailable: {str(e)}",
+                ) from e
+            if isinstance(e, TMDBConnectionError):
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"TMDB Service Unavailable: {str(e)}",
+                ) from e
+            raise
 
     raise HTTPException(status_code=404, detail="Item not found")
 
 
 def setup_scrape_request(
     session: Any,
-    item_id: int | None,
-    tmdb_id: str | None,
-    tvdb_id: str | None,
-    imdb_id: str | None,
-    media_type: Literal["movie", "tv"] | None,
+    item_id: int | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: Literal["movie", "tv"] | None = None,
+    persist: bool = True,
 ) -> tuple[MediaItem, list[MediaItem]]:
-    """Helper to retrieve item and scrape targets."""
+    """Helper to retrieve item and scrape targets.
+    
+    Args:
+        persist: If True, new items are saved to DB. If False, returns in-memory item
+                 without persisting (useful for read-only scrape queries).
+    """
 
     item = get_media_item(
         session,
@@ -379,6 +326,7 @@ def setup_scrape_request(
         tvdb_id=tvdb_id,
         imdb_id=imdb_id,
         media_type=media_type,
+        persist=persist,
     )
 
     targets = [item]
@@ -397,7 +345,8 @@ async def execute_scrape(
     item: MediaItem,
     scraper: Any,
     targets: list[MediaItem],
-    ranking_overrides: RankingOverrides | None = None,
+    ranking_overrides: dict[str, Any] | None = None,
+    relaxed: bool = False,
 ) -> AsyncGenerator[ScrapeStreamEvent, None]:
     """
     Execute scrape for multiple targets in parallel and yield events.
@@ -427,25 +376,16 @@ async def execute_scrape(
 
         try:
             for service_name, parsed_streams in scraper.scrape_streaming(
-                target, ranking_overrides=ranking_overrides, manual=True
+                target, relaxed=relaxed, overrides=ranking_overrides
             ):
-                current_streams = dict[str, Stream]()
+                current_streams: dict[str, Stream] = {}
 
                 with all_streams_lock:
-                    # Update global streams
+                    # Update global streams - use streams directly from scrape_streaming
                     for infohash, stream in parsed_streams.items():
                         if infohash not in all_streams:
-                            s = Stream(
-                                infohash=stream.infohash,
-                                raw_title=stream.raw_title,
-                                parsed_title=stream.parsed_title,
-                                parsed_data=stream.parsed_data,
-                                rank=stream.rank,
-                                lev_ratio=stream.lev_ratio,
-                                resolution=stream.resolution,
-                            )
-                            all_streams[infohash] = s
-                            current_streams[infohash] = s
+                            all_streams[infohash] = stream
+                            current_streams[infohash] = stream
 
                     total_count = len(all_streams)
 
@@ -475,6 +415,21 @@ async def execute_scrape(
                     )
 
                 asyncio.run_coroutine_threadsafe(event_queue.put(event), loop)
+
+        except CircuitBreakerOpen:
+            logger.debug(
+                f"Circuit breaker OPEN during scrape of {target_name}, skipping remaining services"
+            )
+            error_event = ScrapeStreamEvent(
+                event="progress",
+                message=f"Circuit breaker OPEN for {target_name}, skipping remaining services",
+                services_completed=services_completed,
+                total_services=total_services,
+                streams={},
+                total_streams=0,
+                service="circuit_breaker",
+            )
+            asyncio.run_coroutine_threadsafe(event_queue.put(error_event), loop)
 
         except Exception as e:
             logger.error(f"Error scraping {target_name}: {e}")
@@ -584,70 +539,6 @@ def apply_custom_scrape_params(
         target_item.imdb_id = custom_imdb_id
 
 
-@router.get(
-    "/scrape",
-    summary="Get streams for an item",
-    operation_id="scrape_item",
-    response_model=ScrapeItemResponse,
-)
-@router.post(
-    "/scrape",
-    response_model=ScrapeItemResponse,
-)
-async def scrape_item(
-    item_id: Annotated[
-        int | None,
-        Query(description="The ID of the media item"),
-    ] = None,
-    tmdb_id: Annotated[
-        str | None,
-        Query(description="The TMDB ID of the media item"),
-    ] = None,
-    tvdb_id: Annotated[
-        str | None,
-        Query(description="The TVDB ID of the media item"),
-    ] = None,
-    imdb_id: Annotated[
-        str | None,
-        Query(description="The IMDB ID of the media item"),
-    ] = None,
-    media_type: Annotated[
-        Literal["movie", "tv"] | None,
-        Query(description="The media type"),
-    ] = None,
-    custom_title: Annotated[
-        str | None,
-        Query(description="Custom title to use for scraping"),
-    ] = None,
-    custom_imdb_id: Annotated[
-        str | None,
-        Query(description="Custom IMDB ID to use for scraping"),
-    ] = None,
-) -> ScrapeItemResponse:
-    """Get streams for an item by any supported ID (item_id, tmdb_id, tvdb_id, imdb_id)"""
-
-    if services := di[Program].services:
-        scraper = services.scraping
-    else:
-        raise HTTPException(status_code=412, detail="Scraping services not initialized")
-
-    with db_session() as session:
-        item, targets = setup_scrape_request(
-            session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
-        )
-
-        apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
-
-        all_streams = dict[str, Stream]()
-
-        async for event in execute_scrape(item, scraper, targets):
-            if event.streams:
-                all_streams.update(event.streams)
-
-        return ScrapeItemResponse(
-            message=f"Manually scraped streams for item {item.log_string}",
-            streams=all_streams,
-        )
 
 
 @router.get(
@@ -684,6 +575,10 @@ async def scrape_item_stream(
         str | None,
         Query(description="Custom IMDB ID to use for scraping"),
     ] = None,
+    ranking_overrides: Annotated[
+        str | None,
+        Query(description="JSON string of ranking overrides"),
+    ] = None,
 ) -> StreamingResponse:
     """Stream scraping results via SSE."""
 
@@ -695,12 +590,22 @@ async def scrape_item_stream(
     async def sse_generator():
         with db_session() as session:
             item, targets = setup_scrape_request(
-                session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
+                session, item_id, tmdb_id, tvdb_id, imdb_id, media_type, persist=False
             )
+
+            overrides: dict[str, Any] | None = None
+            if ranking_overrides:
+                try:
+                    import json
+                    overrides = json.loads(ranking_overrides)
+                except Exception as e:
+                    logger.error(f"Failed to parse ranking_overrides: {e}")
 
             apply_custom_scrape_params(session, item, custom_title, custom_imdb_id)
 
-            async for event in execute_scrape(item, scraper, targets):
+            async for event in execute_scrape(
+                item, scraper, targets, ranking_overrides=overrides, relaxed=True
+            ):
                 yield f"data: {event.model_dump_json()}\n\n"
 
     return StreamingResponse(
@@ -714,11 +619,7 @@ async def scrape_item_stream(
     )
 
 
-class ScrapeSeasonsRequest(BaseModel):
-    tvdb_id: str | None = None
-    tmdb_id: str | None = None
-    imdb_id: str | None = None
-    season_numbers: list[int]
+
 
 
 class AutoScrapeRequestPayload(BaseModel):
@@ -727,6 +628,14 @@ class AutoScrapeRequestPayload(BaseModel):
         Field(
             default=None,
             description="The ID of the media item",
+        ),
+    ] = None
+
+    max_bitrate_override: Annotated[
+        int | None,
+        Field(
+            default=None,
+            description="Override max bitrate in Mbps for this scrape",
         ),
     ] = None
     tmdb_id: Annotated[
@@ -758,7 +667,7 @@ class AutoScrapeRequestPayload(BaseModel):
         ),
     ] = None
     ranking_overrides: Annotated[
-        RankingOverrides | None,
+        dict[str, Any] | None,
         Field(description="Ranking overrides for the media item"),
     ] = None
 
@@ -770,78 +679,12 @@ class AutoScrapeRequestPayload(BaseModel):
         return self
 
 
-def _scrape_worker(item_id: int) -> dict[str, Stream]:
-    """Worker function to run scraper in a separate thread/session."""
-
-    if services := di[Program].services:
-        scraper = services.scraping
-    else:
-        return {}
-
-    with db_session() as session:
-        item = session.get(MediaItem, item_id)
-        if not item:
-            return {}
-
-        # Fail-safe: Ensure item is not paused in this session before scraping
-        if item.last_state == States.Paused:
-            logger.debug(f"Worker found item {item.id} still Paused. Forcing Unpause.")
-            item.store_state(States.Unknown)
-
-        # Run the scraper (this updates the item and its relationships)
-        # We iterate to consume the generator
-        logger.debug(
-            f"Worker processing item {item.id}. Initial State: {item.last_state}"
-        )
-        for _ in scraper.run(item):
-            pass
-
-        # Refresh the item and streams relationship to ensure is_scraped() works correctly
-        session.refresh(item, attribute_names=["streams", "blacklisted_streams"])
-
-        # Force state update to reflect new streams
-        previous_state, new_state = item.store_state()
-
-        logger.debug(
-            f"Worker scraped item {item.id}. Streams: {len(item.streams)}, Previous: {previous_state}, New: {new_state}, is_scraped: {item.is_scraped()}"
-        )
-
-        session.commit()
-        session.refresh(item)
-
-        logger.debug(f"Worker committed item {item.id}. Final State: {item.last_state}")
-
-        # Trigger downstream processing (Downloading) by adding an event
-        # We emit as 'Scraping' service so EventManager sees it as completing that step
-        program = di[Program]
-        if hasattr(program, "em") and program.em:
-            program.em.add_event(
-                Event(
-                    emitted_by=services.scraping,
-                    item_id=item.id,
-                )
-            )
-
-        # Convert found streams to Pydantic models for return
-        streams: dict[str, Stream] = {}
-        for s in item.streams:
-            if s not in item.blacklisted_streams:
-                try:
-                    # Reconstruct ParsedData since it's not persisted
-                    if not hasattr(s, "parsed_data"):
-                        torrent = rtn.rank(
-                            raw_title=s.raw_title,
-                            infohash=s.infohash,
-                            correct_title=item.top_title,
-                        )
-                        s.parsed_data = torrent.data
-
-                    pyd_s = Stream.model_validate(s)
-                    streams[pyd_s.infohash] = pyd_s
-                except Exception as e:
-                    logger.error(f"Failed to convert stream: {e}")
-
-        return streams
+class SeasonScrapeRequest(BaseModel):
+    tmdb_id: str | None = None
+    tvdb_id: str | None = None
+    imdb_id: str | None = None
+    season_numbers: list[int]
+    ranking_overrides: dict[str, Any] | None = None
 
 
 async def perform_season_scrape(
@@ -849,727 +692,269 @@ async def perform_season_scrape(
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
     season_numbers: list[int] | None = None,
-) -> dict[str, Stream]:
-    """Helper to perform season scraping with state management."""
-
+    ranking_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Helper to scrape specific seasons of a show.
+    Used by both the /seasons endpoint and webhooks.
+    """
     if season_numbers is None:
         season_numbers = []
 
-    if not di[Program].services:
-        raise HTTPException(status_code=412, detail="Scraping services not initialized")
-
-    target_ids: list[int] = []
-
-    with db_session() as session:
-        # Get the show item
-        item = get_media_item(
-            session,
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-            imdb_id=imdb_id,
-            media_type="tv",
-        )
-
-        if not isinstance(item, Show):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Item found is not a Show, it is {type(item).__name__}",
-            )
-
-        # Check and unpause parent Show if needed so child seasons aren't blocked
-        if item.last_state == States.Paused:
-            logger.debug(
-                f"Unpausing parent Show {item.title} (ID: {item.id}) to allow season scrape"
-            )
-            item.store_state(States.Unknown)
-
-        # Pre-load/assign parent to avoid lazy load in threads
-        seasons = item.seasons
-        for season in seasons:
-            season.parent = item
-
-            if season.number in season_numbers:
-                logger.debug(
-                    f"Processing requested season {season.number} (ID: {season.id}). Current State: {season.last_state}"
-                )
-                # If specifically requested, ensure it's not paused
-                if season.last_state == States.Paused:
-                    logger.debug(f"Unpausing season {season.number}")
-                    season.store_state(States.Unknown)  # Reset state to allow scraping
-                target_ids.append(season.id)
-            else:
-                # If not requested, pause it
-                if season.last_state != States.Paused:
-                    logger.debug(f"Pausing unrequested season {season.number}")
-                    season.store_state(States.Paused)
-
-        session.commit()  # Save state changes
-        logger.debug("Committed state changes in perform_season_scrape")
-
-    if not target_ids:
+    if not any([tmdb_id, tvdb_id, imdb_id]):
+        logger.error("perform_season_scrape called without any IDs")
         return {}
 
-    # Run scraping in parallel threads to ensure persistence via separate sessions
-    loop = asyncio.get_running_loop()
-    with concurrent.futures.ThreadPoolExecutor(
-        thread_name_prefix="SeasonScrapeWorker_"
-    ) as executor:
-        tasks = [
-            loop.run_in_executor(executor, _scrape_worker, tid) for tid in target_ids
-        ]
-        results = await asyncio.gather(*tasks)
+    with db_session() as session:
+        # Get or create the show
+        try:
+            item = get_media_item(
+                session,
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                imdb_id=imdb_id,
+                media_type="tv",
+                persist=True
+            )
+        except Exception as e:
+            logger.error(f"Error resolving show: {e}")
+            return {}
 
-    all_streams = dict[str, Stream]()
-    for res in results:
-        all_streams.update(res)
+        if not isinstance(item, Show):
+             logger.error(f"Item {item.log_string} is not a TV Show")
+             return {}
 
-    return all_streams
+        # Delegate logic to the model method to ensure consistency with standard state machine
+        try:
+            item.update_season_states(season_numbers)
+        except Exception as e:
+            logger.error(f"Failed to update season states for {item.log_string}: {e}")
+            return {}
+
+        session.commit()
+        
+        return {"triggered": season_numbers}
 
 
 @router.post(
     "/seasons",
-    summary="Scrape specific seasons of a show",
+    summary="Scrape specific seasons",
     operation_id="scrape_seasons",
-    response_model=ScrapeItemResponse,
+    response_model=MessageResponse,
 )
 async def scrape_seasons(
-    payload: ScrapeSeasonsRequest = Body(...),
-) -> ScrapeItemResponse:
-    """Scrape specific seasons of a show and pause unselected ones."""
-
-    all_streams = await perform_season_scrape(
+    payload: SeasonScrapeRequest,
+) -> MessageResponse:
+    """
+    Scrape specific seasons of a show.
+    """
+    result = await perform_season_scrape(
         tmdb_id=payload.tmdb_id,
         tvdb_id=payload.tvdb_id,
         imdb_id=payload.imdb_id,
         season_numbers=payload.season_numbers,
+        ranking_overrides=payload.ranking_overrides,
     )
-
-    return ScrapeItemResponse(
-        message="Scraping specific seasons",
-        streams=all_streams,
-    )
-
-
-@router.post(
-    "/scrape_stream/auto",
-    summary="Stream auto scraping results via SSE",
-    operation_id="auto_scrape_item_stream",
-)
-async def auto_scrape_item_stream(
-    body: Annotated[AutoScrapeRequestPayload, Body()],
-) -> StreamingResponse:
-    """Stream auto scraping results via SSE."""
-
-    if services := di[Program].services:
-        scraper = services.scraping
-    else:
-        raise HTTPException(status_code=412, detail="Scraping services not initialized")
-
-    async def sse_generator():
-        with db_session() as session:
-            item, targets = setup_scrape_request(
-                session,
-                body.item_id,
-                body.tmdb_id,
-                body.tvdb_id,
-                body.imdb_id,
-                body.media_type,
-            )
-
-            async for event in execute_scrape(
-                item, scraper, targets, ranking_overrides=body.ranking_overrides
-            ):
-                yield f"data: {event.model_dump_json()}\n\n"
-
-    return StreamingResponse(
-        sse_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+    
+    return MessageResponse(
+        message=f"Triggered scrape for seasons: {result.get('triggered', [])}"
     )
 
 
 @router.post(
     "/start_session",
-    summary="Start a manual scraping session",
+    summary="Preview a manual scraping magnet",
     operation_id="start_manual_session",
-    response_model=StartSessionResponse,
+    response_model=ManualScrapeReponse,
 )
 async def start_manual_session(
-    background_tasks: BackgroundTasks,
     magnet: str,
-    item_id: Annotated[
-        int | None,
-        Query(description="The ID of the media item"),
-    ] = None,
-    tmdb_id: Annotated[
-        str | None,
-        Query(description="The TMDB ID of the media item"),
-    ] = None,
-    tvdb_id: Annotated[
-        str | None,
-        Query(description="The TVDB ID of the media item"),
-    ] = None,
-    imdb_id: Annotated[
-        str | None,
-        Query(description="The IMDB ID of the media item"),
-    ] = None,
-    media_type: Annotated[
-        Literal["movie", "tv"] | None,
-        Query(description="The media type"),
-    ] = None,
-    disable_filesize_check: Annotated[
-        bool,
-        Query(description="Disable filesize check"),
-    ] = False,
-) -> StartSessionResponse:
-    scraping_session_manager.cleanup_expired(background_tasks)
+    max_bitrate_override: int | None = None,
+    item_id: int | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: Literal["movie", "tv"] | None = None,
+) -> ManualScrapeReponse:
+    """
+    Stateless preview of a magnet link.
+    Returns torrent info and files without creating a server-side session.
+    """
+    infohash = extract_infohash(magnet)
+    if not infohash:
+        raise HTTPException(status_code=400, detail="Invalid magnet link")
 
-    info_hash = extract_infohash(magnet)
+    services = di[Program].services.downloader.initialized_services
+    if not services:
+        raise HTTPException(status_code=500, detail="No downloader services enabled")
 
-    if not info_hash:
-        raise HTTPException(status_code=400, detail="Invalid magnet URI")
-
-    if services := di[Program].services:
-        downloader = services.downloader
-    else:
-        raise HTTPException(status_code=412, detail="Required services not initialized")
-
-    initialize_downloader(downloader)
-
-    item = None
-
+    runtime = None
     with db_session() as session:
-        item = get_media_item(
+        if item := get_media_item(
             session,
             item_id=item_id,
             tmdb_id=tmdb_id,
             tvdb_id=tvdb_id,
             imdb_id=imdb_id,
             media_type=media_type,
-        )
+        ):
+            runtime = item.runtime
 
-    if item.type == "mediaitem":
-        raise HTTPException(status_code=500, detail="Incorrect item type found")
-
-    container = None
-    used_service = None
-    filesize_error = False
-
-    for service in downloader.initialized_services:
-        try:
-            if container := service.get_instant_availability(
-                info_hash, item.type, limit_filesize=not disable_filesize_check
-            ):
-                if container.cached:
-                    used_service = service
-                    break
-        except FilesizeLimitExceededException:
-            filesize_error = True
-            continue
-
-    if not container or not container.cached:
-        if filesize_error:
-            raise HTTPException(status_code=400, detail="File size above set limit")
-        raise HTTPException(
-            status_code=400, detail="Torrent is not cached, please try another stream"
-        )
-
-    if not used_service:
-        raise HTTPException(
-            status_code=500,
-            detail="Downloader service not initialized",
-        )
-
-    session = scraping_session_manager.create_session(
-        item.id,
-        info_hash,
-        media_type=media_type,
-        imdb_id=imdb_id,
-        tmdb_id=tmdb_id,
-        tvdb_id=tvdb_id,
-        service=used_service,
+    # Resolve torrent container using shared helper
+    item_type = item.type if item else "movie"
+    container, error_msg = await resolve_torrent_container(
+        infohash, services, item_type, runtime, max_bitrate_override
     )
 
-    logger.debug(f"Created session {session.id} with item ID: {session.item_id}")
+    if not container or not container.files:
+        raise HTTPException(status_code=404, detail=error_msg or "No files found in torrent")
 
-    try:
-        torrent_id = used_service.add_torrent(info_hash)
-        torrent_info = used_service.get_torrent_info(torrent_id)
-        scraping_session_manager.update_session(
-            session_id=session.id,
-            torrent_id=torrent_id,
-            torrent_info=torrent_info,
-            containers=container,
-        )
-    except Exception as e:
-        background_tasks.add_task(scraping_session_manager.abort_session, session.id)
-        raise HTTPException(status_code=500, detail=str(e))
+    # Build response with parsed metadata
+    parsed_files = [
+        {
+            "file_id": f.file_id,
+            "filename": f.filename,
+            "filesize": f.filesize,
+            "parsed_metadata": parse_filename(f.filename).model_dump() if f.filename else None
+        }
+        for f in container.files
+    ]
 
-    return StartSessionResponse(
-        message="Started manual scraping session",
-        session_id=session.id,
-        torrent_id=torrent_id,
-        torrent_info=torrent_info,
-        containers=container,
-        expires_at=session.expires_at.isoformat(),
+    return ManualScrapeReponse(
+        message="Magnet resolved",
+        magnet=magnet,
+        torrent_info=TorrentInfo(
+            id=container.torrent_id or infohash,
+            infohash=infohash,
+            name="Torrent",
+            bytes=sum(f["filesize"] for f in parsed_files),
+            original_title="Torrent"
+        ),
+        parsed_files=parsed_files
     )
+
+
+
+def _create_stream_from_manual_selection(infohash: str, items: dict) -> "Stream":
+    """Helper to create a Stream object from manually selected files."""
+    from RTN import Torrent
+    from program.services.downloaders.shared import parse_filename
+    from program.media.stream import Stream
+
+    files_list = list(items.values())
+    main_file = max(files_list, key=lambda x: x.filesize) if files_list else None
+    
+    if not main_file:
+            raise HTTPException(status_code=400, detail="No files selected")
+
+    parsed_data = parse_filename(main_file.filename)
+    
+    torrent = Torrent(
+        raw_title=main_file.filename,
+        infohash=infohash,
+        data=parsed_data,
+        rank=0, 
+        lev_ratio=1.0
+    )
+
+    return Stream(torrent)
+
 
 
 @router.post(
-    "/select_files/{session_id}",
-    summary="Select files for torrent id, for this to be instant it requires files to be one of /manual/instant_availability response containers",
-    operation_id="manual_select",
-    response_model=SelectFilesResponse,
+    "/select_files",
+    summary="Start download for manual scrape",
+    operation_id="manual_select_files",
+    response_model=ManualDownloadResponse,
 )
-def manual_select_files(
-    session_id: Annotated[
-        str,
-        Path(
-            description="Identifier of the scraping session containing item and torrent context."
-        ),
-    ],
-    files: Annotated[
-        Container,
-        Body(description="The files to select"),
-    ],
-) -> SelectFilesResponse:
-    if services := di[Program].services:
-        downloader = services.downloader
-    else:
-        raise HTTPException(status_code=412, detail="Required services not initialized")
-
-    session = scraping_session_manager.get_session(session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found or expired")
-
-    if not session.torrent_id:
-        scraping_session_manager.abort_session(session_id)
-
-        raise HTTPException(status_code=500, detail="No torrent ID found")
-
-    download_type = "uncached"
-
-    if files.model_dump() in session.containers:
-        download_type = "cached"
-
-    try:
-        downloader.select_files(
-            session.torrent_id,
-            [int(file_id) for file_id in files.root.keys()],
-            service=session.service,
-        )
-
-        session.selected_files = files.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return SelectFilesResponse(
-        message=f"Selected files for {session.item_id}",
-        download_type=download_type,
-    )
-
-
-@router.post(
-    "/update_attributes/{session_id}",
-    summary="Match container files to item",
-    operation_id="manual_update_attributes",
-    response_model=MessageResponse,
-)
-async def manual_update_attributes(
-    session_id: Annotated[
-        str,
-        Path(
-            description="Identifier of the scraping session containing item and torrent context."
-        ),
-    ],
-    data: Annotated[
-        DebridFile | ShowFileData,
-        Body(
-            description="File metadata for a single movie (`DebridFile`) or a mapping of seasons/episodes to file metadata (`ShowFileData`) for TV content."
-        ),
-    ],
-) -> MessageResponse:
+async def manual_select_files(
+    payload: ManualDownloadRequest,
+) -> ManualDownloadResponse:
     """
-    Apply selected file attributes from a scraping session to the referenced media item(s).
-
-    Locate the media item referenced by the given scraping session, create or reuse a staging FilesystemEntry for the provided file data, attach the file as the item's active stream (or attach to matching episodes for TV items), persist the changes to the database, and enqueue post-processing events for affected items.
-
-    Parameters:
-        session_id (str): Identifier of the scraping session containing item and torrent context.
-        data (DebridFile | ShowFileData): File metadata for a single movie (`DebridFile`) or a mapping of seasons/episodes to file metadata (`ShowFileData`) for TV content.
-
-    Returns:
-        dict: A message indicating which item(s) were updated, including the item's log string.
-
-    Raises:
-        HTTPException: 404 if the session or target item cannot be found; 500 if the session lacks an associated item ID.
+    Stateless download start.
+    Adds the magnet and selects the specified files using the best available service.
     """
 
-    scraping_session = scraping_session_manager.get_session(session_id)
-    log_string = None
+    infohash = extract_infohash(payload.magnet)
+    if not infohash:
+        raise HTTPException(status_code=400, detail="Invalid magnet link")
 
-    if not scraping_session:
-        raise HTTPException(status_code=404, detail="Session not found or expired")
+    services = di[Program].services.downloader.initialized_services
+    if not services:
+        raise HTTPException(status_code=500, detail="No services available")
 
-    if not scraping_session.item_id:
-        scraping_session_manager.abort_session(session_id)
-        raise HTTPException(status_code=500, detail="No item ID found")
+    # Use first available service
+    svc = services[0]
 
-    item = None
-    item_ids_to_submit = None
-
-    with db_session() as session:
-        item = get_media_item(
-            session,
-            item_id=scraping_session.item_id,
-            tmdb_id=scraping_session.tmdb_id,
-            tvdb_id=scraping_session.tvdb_id,
-            imdb_id=scraping_session.imdb_id,
-            media_type=scraping_session.media_type,
-        )
-
-        item = session.merge(item)
-        item_ids_to_submit = set[int]()
-        updated_episode_ids = set[int]()
-
-        if isinstance(data, DebridFile):
-            _update_item_fs_entry(
+    # State Machine Logic - handle both existing items and new items
+    if payload.item_id or payload.tmdb_id or payload.tvdb_id or payload.imdb_id:
+        with db_session() as session:
+            from program.media.item import Movie, Show
+            
+            item = None
+            
+            # 1. Try to find or create item using standardized helper
+            item = get_media_item(
                 session,
-                updated_episode_ids,
-                item_ids_to_submit,
-                scraping_session,
-                item,
-                data,
-            )
-        else:
-            for season_number, episodes in data.root.items():
-                for episode_number, episode_data in episodes.items():
-                    if isinstance(item, Show) or isinstance(item, Season):
-                        show = item if isinstance(item, Show) else item.parent
-                        if episode := show.get_absolute_episode(
-                            episode_number, season_number
-                        ):
-                            _update_item_fs_entry(
-                                session,
-                                updated_episode_ids,
-                                item_ids_to_submit,
-                                scraping_session,
-                                episode,
-                                episode_data,
-                            )
-                        else:
-                            logger.error(
-                                f"Failed to find episode {episode_number} in season {season_number} for {item.log_string}"
-                            )
-                    elif isinstance(item, Episode):
-                        if (
-                            season_number == item.parent.number
-                            and episode_number == item.number
-                        ):
-                            _update_item_fs_entry(
-                                session,
-                                updated_episode_ids,
-                                item_ids_to_submit,
-                                scraping_session,
-                                item,
-                                episode_data,
-                            )
-
-        # Set unselected episodes to paused
-        if isinstance(item, Show):
-            logger.debug(
-                f"Checking {len(item.seasons)} seasons for unselected episodes to pause"
-            )
-            for season in item.seasons:
-                logger.debug(
-                    f"Season {season.number} has {len(season.episodes)} episodes"
-                )
-                for episode in season.episodes:
-                    if episode.id not in updated_episode_ids:
-                        if episode.state in [
-                            States.Completed,
-                            States.Symlinked,
-                            States.Downloaded,
-                        ]:
-                            continue
-
-                        episode.store_state(States.Paused)
-                        session.merge(episode)
-                        logger.debug(
-                            f"Paused episode {episode.log_string} (ID: {episode.id})"
-                        )
-        elif isinstance(item, Season):
-            logger.debug(
-                f"Checking {len(item.episodes)} episodes in season {item.number} to pause"
-            )
-            for episode in item.episodes:
-                if episode.id not in updated_episode_ids:
-                    if episode.state in [
-                        States.Completed,
-                        States.Symlinked,
-                        States.Downloaded,
-                    ]:
-                        continue
-
-                    episode.store_state(States.Paused)
-                    session.merge(episode)
-                    logger.debug(
-                        f"Paused episode {episode.log_string} (ID: {episode.id})"
-                    )
-
-        item.store_state()
-
-        log_string = item.log_string
-
-        session.merge(item)
-        session.commit()
-
-        # Sync VFS to reflect any deleted/updated entries
-        # Must happen AFTER commit so the database reflects the changes
-        if services := di[Program].services:
-            filesystem_service = services.filesystem
-        else:
-            raise HTTPException(
-                status_code=412, detail="Filesystem service not initialized"
+                item_id=payload.item_id,
+                tmdb_id=payload.tmdb_id,
+                tvdb_id=payload.tvdb_id,
+                imdb_id=payload.imdb_id,
+                media_type=payload.media_type,
+                persist=True
             )
 
-        if filesystem_service and filesystem_service.riven_vfs:
-            filesystem_service.riven_vfs.sync(item)
-            logger.debug("VFS synced after manual scraping update")
-
-        if item_ids_to_submit:
-            for item_id in item_ids_to_submit:
-                di[Program].em.add_event(Event("ManualAPI", item_id))
-
-        return MessageResponse(message=f"Updated given data to {log_string}")
-
-
-def _update_item_fs_entry(
-    session: Session,
-    updated_episode_ids: set[int],
-    item_ids_to_submit: set[int],
-    scraping_session: ScrapingSession,
-    item: MediaItem,
-    data: DebridFile,
-):
-    """
-    Prepare and attach a filesystem entry and stream to a MediaItem based on a selected DebridFile within a scraping session.
-
-    Cancels any running processing job for the item and resets its state; ensures there is a staging FilesystemEntry for the given file (reusing an existing entry or creating a provisional one and persisting it), clears the item's existing filesystem_entries and links the staging entry, sets the item's active_stream to the session magnet and torrent id, appends a ranked ItemStream derived from the session, and records the item's id in the module-level item_ids_to_submit set.
-
-    Parameters:
-        item (MediaItem): The media item to update; will be merged into the active DB session as needed.
-        data (DebridFile): Selected file metadata (filename, filesize, optional download_url) used to create or locate the staging entry.
-    """
-
-    di[Program].em.cancel_job(item.id)
-
-    if item.last_state == States.Paused:
-        item.last_state = States.Unknown
-
-    item.reset()
-
-    # Ensure a staging MediaEntry exists and is linked
-    from program.media.media_entry import MediaEntry
-    from program.media.models import MediaMetadata
-
-    fs_entry = None
-
-    if item.media_entry and data.filename:
-        fs_entry = item.media_entry
-        # Update source metadata on existing entry
-        fs_entry.original_filename = data.filename
-    else:
-        # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-        provider = scraping_session.service.key if scraping_session.service else None
-
-        # Get torrent ID from scraping session
-        torrent_id = (
-            scraping_session.torrent_info.id if scraping_session.torrent_info else None
-        )
-
-        download_url = data.download_url
-
-        # If download_url is missing, try to refresh torrent info to get it
-        if not download_url and torrent_id and scraping_session.service:
-            logger.debug(
-                f"Refreshing torrent info for {torrent_id} to resolve download_url"
-            )
-
-            if new_url := resolve_download_url(
-                scraping_session.service, torrent_id, data.filename
-            ):
-                download_url = new_url
-                logger.debug(
-                    f"Resolved download_url for {data.filename}: {download_url}"
-                )
-                data.download_url = download_url
-                # Recursively call with updated file
-                _update_item_fs_entry(
-                    session,
-                    updated_episode_ids,
-                    item_ids_to_submit,
-                    scraping_session,
+            # 1. Parse Metadata for Stream and create object
+            item_files = payload.items if payload.items else {}
+            stream = _create_stream_from_manual_selection(infohash, item_files)
+            
+            try:
+                # 3. Invoke Downloader Service
+                downloader_svc = di[Program].services.downloader
+                
+                file_ids = list(payload.items.keys()) if payload.items else []
+                
+                # Start Manual Download (handles download initiation and attribute updates)
+                success = await asyncio.to_thread(
+                    downloader_svc.start_manual_download,
                     item,
-                    data,
+                    stream,
+                    svc,
+                    file_ids,
+                    payload.max_bitrate_override,
                 )
-                return
-            else:
-                logger.warning(f"Failed to resolve download_url for {data.filename}")
+                
+                if success:
+                     # For Shows, update season states based on selected files
+                     if isinstance(item, Show):
+                         try:
+                             # Identify active seasons from selected files
+                             active_seasons = set()
+                             for f in payload.items.values():
+                                 try:
+                                     # We re-parse here as we need season info for all files, not just main
+                                     p_data = parse_filename(f.filename)
+                                     if p_data.seasons:
+                                         active_seasons.update(p_data.seasons)
+                                 except Exception:
+                                     continue
+                             
+                             if active_seasons:
+                                 logger.info(f"Manual scrape active seasons for {item.log_string}: {active_seasons}")
+                                 item.update_season_states(list(active_seasons), emit_scraping_event=False)
+                         except Exception as e:
+                             logger.error(f"Failed to update season states for {item.log_string}: {e}")
 
-        # Parse filename to create metadata
-        media_metadata = None
-        try:
-            if data.filename:
-                file_data = parse_filename(data.filename)
-                media_metadata = MediaMetadata.from_parsed_data(
-                    parsed_data=file_data,
-                    filename=data.filename,
-                )
-        except Exception as e:
-            logger.warning(
-                f"Failed to parse filename '{data.filename}' for metadata: {e}"
-            )
-        # Create a provisional VIRTUAL entry (download_url/provider may be filled by downloader later)
-        fs_entry = MediaEntry.create_placeholder_entry(
-            original_filename=data.filename,
-            download_url=download_url,
-            provider=provider,
-            provider_download_id=str(torrent_id) if torrent_id else None,
-            file_size=data.filesize,
-            media_metadata=media_metadata,
-        )
+                     session.commit()
+                     # Emit event to trigger standard state machine (symlinker → updater)
+                     di[Program].em.add_event(Event("Scraping", item_id=item.id))
+                     return ManualDownloadResponse(message="Download started via standard pipeline", download_type="cached")
+                else:
+                     raise HTTPException(status_code=500, detail="Failed to start manual download")
 
-        session.add(fs_entry)
-        session.commit()
-        session.refresh(fs_entry)
-
-    # Link MediaItem to FilesystemEntry
-    # Clear existing entries and add the new one
-    item.filesystem_entries.clear()
-    item.filesystem_entries.append(fs_entry)
-    item = session.merge(item)
-
-    assert scraping_session
-    assert scraping_session.magnet
-    assert scraping_session.torrent_info
-
-    item.active_stream = ActiveStream(
-        infohash=scraping_session.magnet,
-        id=scraping_session.torrent_info.id,
-    )
-
-    torrent = rtn.rank(
-        scraping_session.torrent_info.name,
-        scraping_session.magnet,
-    )
-
-    # Ensure the item is properly attached to the session before adding streams
-    # This prevents SQLAlchemy warnings about detached objects
-    if object_session(item) is not session:
-        item = session.merge(item)
-
-    item.streams.append(ItemStream(torrent=torrent))
-    item_ids_to_submit.add(item.id)
-
-    if isinstance(item, Episode):
-        updated_episode_ids.add(item.id)
-
-
-@router.post(
-    "/abort_session/{session_id}",
-    summary="Abort a manual scraping session",
-    operation_id="abort_manual_session",
-    response_model=MessageResponse,
-)
-async def abort_manual_session(
-    background_tasks: BackgroundTasks,
-    session_id: Annotated[
-        str,
-        Path(
-            description="Identifier of the scraping session containing item and torrent context."
-        ),
-    ],
-) -> MessageResponse:
-    session = scraping_session_manager.get_session(session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found or expired")
-
-    background_tasks.add_task(scraping_session_manager.abort_session, session_id)
-
-    return MessageResponse(message=f"Aborted session {session_id}")
-
-
-@router.post(
-    "/complete_session/{session_id}",
-    summary="Complete a manual scraping session",
-    operation_id="complete_manual_session",
-    response_model=MessageResponse,
-)
-async def complete_manual_session(
-    session_id: Annotated[
-        str,
-        Path(
-            description="Identifier of the scraping session containing item and torrent context."
-        ),
-    ],
-) -> MessageResponse:
-    session = scraping_session_manager.get_session(session_id)
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found or expired")
-
-    if not all([session.torrent_id, session.selected_files]):
-        raise HTTPException(status_code=400, detail="Session is incomplete")
-
-    scraping_session_manager.complete_session(session_id)
-
-    return MessageResponse(message=f"Completed session {session_id}")
-
-
-class ParseTorrentTitleResponse(BaseModel):
-    message: str
-    data: list[dict[str, Any]]
-
-
-@router.post(
-    "/parse",
-    summary="Parse an array of torrent titles",
-    operation_id="parse_torrent_titles",
-    response_model=ParseTorrentTitleResponse,
-)
-async def parse_torrent_titles(
-    titles: Annotated[
-        list[str],
-        Body(description="List of torrent titles to parse"),
-    ],
-) -> ParseTorrentTitleResponse:
-    parsed_titles = list[dict[str, Any]]()
-
-    if titles:
-        for title in titles:
-            parsed_titles.append(
-                {
-                    "raw_title": title,
-                    **parse_title(title),
-                }
-            )
-
-        if parsed_titles:
-            return ParseTorrentTitleResponse(
-                message="Parsed torrent titles",
-                data=parsed_titles,
-            )
-
-        return ParseTorrentTitleResponse(message="No titles could be parsed", data=[])
-    else:
-        return ParseTorrentTitleResponse(message="No titles provided", data=[])
+            except Exception as e:
+                logger.error(f"Failed to start standard download: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post(
@@ -1601,8 +986,9 @@ async def overseerr_requests(
 ) -> MessageResponse:
     """Get all overseerr requests and make sure they exist in the database"""
 
-    from program.db.db_functions import item_exists_by_any_id
     from kink import di
+
+    from program.db.db_functions import item_exists_by_any_id
 
     if services := di[Program].services:
         if not services.overseerr.enabled:
@@ -1642,7 +1028,7 @@ async def overseerr_requests(
 
         if overseerr_items:
             # Persist first, then enqueue
-            persisted_items = list[MediaItem]()
+            persisted_items: list[MediaItem] = []
 
             for item in overseerr_items:
                 persisted = session.merge(item)
@@ -1694,55 +1080,33 @@ async def auto_scrape_item(
             media_type=body.media_type,
         )
 
-        # Scrape with overrides
-        streams = scraper.scrape(
-            item,
-            ranking_overrides=body.ranking_overrides,
-            manual=True,
-        )
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
 
-        # Filter out existing or blacklisted streams
-        existing_infohashes = {s.infohash for s in item.streams}
-        blacklisted_infohashes = {s.infohash for s in item.blacklisted_streams}
+        if body.ranking_overrides:
+            overrides_dict = {k: v for k, v in body.ranking_overrides.items() if v is not None}
 
-        new_streams = list[ItemStream]()
+        logger.info(f"Triggering auto scrape for {item.log_string}")
 
-        for stream in streams.values():
-            if (
-                stream.infohash not in existing_infohashes
-                and stream.infohash not in blacklisted_infohashes
-            ):
-                # Convert Pydantic Stream to RTN.Torrent to create ItemStream
-                torrent_data = Torrent(
-                    raw_title=stream.raw_title,
-                    infohash=stream.infohash,
-                    data=stream.parsed_data,
-                    fetch=True,
-                    rank=stream.rank,
-                    lev_ratio=stream.lev_ratio,
-                )
-                new_streams.append(ItemStream(torrent=torrent_data))
+        # We consume the generator to ensure it runs
+        # Scraping.run will update the item object with new streams and state
+        list(scraper.run(item, overrides=overrides_dict, max_bitrate_override=body.max_bitrate_override))
 
-        if new_streams:
-            item.streams.extend(new_streams)
+        session.commit()
 
-            item.store_state(States.Scraped)  # Force state update to trigger downloader
-
-            logger.info(
-                f"Auto scrape found {len(new_streams)} new streams for {item.log_string}"
-            )
-
-            # Commit changes to DB
-            session.add(item)
-            session.commit()
-
+        # Check if any new streams were added (item state would be 'Scraped' if successful)
+        if item.last_state == States.Scraped:
             # Emit event to trigger downloader
             di[Program].em.add_event(Event("Scraping", item_id=item.id))
+            return MessageResponse(
+                message=f"Auto scrape completed. New streams found for {item.log_string}."
+            )
 
-            return MessageResponse(
-                message=f"Auto scrape started. Found {len(new_streams)} new streams."
-            )
-        else:
-            return MessageResponse(
-                message="Auto scrape completed. No new streams found."
-            )
+        return MessageResponse(
+            message=f"Auto scrape completed for {item.log_string}. No new streams added."
+        )
+
+
+@router.get("/ping")
+def ping():
+    return {"pong": True}
