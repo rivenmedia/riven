@@ -149,19 +149,19 @@ class AIOStreams(ScraperService[AIOStreamsConfig]):
         if isinstance(item, Movie):
             imdb_id = item.imdb_id
             search_id = imdb_id  # tt1234567
-            aio_type = "anime" if item.is_anime else "movie"
+            aio_type = "movie"
         elif isinstance(item, Show):
             imdb_id = item.imdb_id
             search_id = f"{imdb_id}:1:1"  # tt1234567:1:1
-            aio_type = "anime" if item.is_anime else "series"
+            aio_type = "series"
         elif isinstance(item, Season):
             imdb_id = item.parent.imdb_id
             search_id = f"{imdb_id}:{item.number}:1"  # tt1234567:season:1
-            aio_type = "anime" if item.parent.is_anime else "series"
+            aio_type = "series"
         elif isinstance(item, Episode):
             imdb_id = item.parent.parent.imdb_id
             search_id = f"{imdb_id}:{item.parent.number}:{item.number}"  # tt1234567:season:episode
-            aio_type = "anime" if item.parent.parent.is_anime else "series"
+            aio_type = "series"
         else:
             return {}
 
