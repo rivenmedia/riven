@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, TypeAlias
 from uuid import uuid4
 
-from RTN import ParsedData
+from RTN import ParsedData, parse, Torrent
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -21,6 +21,7 @@ from sqlalchemy.orm import object_session, Session
 from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Season, Show
+from program.media.state import States
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
@@ -550,8 +551,19 @@ def scrape_item(
 
     def apply_custom_params(item: MediaItem) -> None:
         """Apply custom scrape parameters (not persisted to DB)"""
+        # If any custom param is used, clear strict metadata to allow overrides
+        if custom_title or custom_imdb_id:
+            item.tmdb_id = None
+            item.tvdb_id = None
+            item.year = None
+            item.aired_at = None
+        
         if custom_title:
             item.title = custom_title
+            # If no custom IMDB ID provided, clear original IMDB ID to force text search
+            if not custom_imdb_id:
+                item.imdb_id = None
+
         if custom_imdb_id:
             item.imdb_id = custom_imdb_id
 
@@ -562,15 +574,17 @@ def scrape_item(
 
         def generate_events():
             with db_session() as session:
-                item = db_functions.get_or_create_media_item(
-                    session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
-                )
+                item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, media_type)
 
                 if not item:
                     error_event = ScrapeStreamEvent(event="error", message="Item not found")
                     yield f"data: {error_event.model_dump_json()}\n\n"
                     return
-
+                
+                # Detach item from session to avoid threading issues in scraper
+                session.expunge(item)
+                
+                # Apply custom params to the detached item
                 apply_custom_params(item)
 
                 all_streams: dict[str, Stream] = {}
@@ -860,6 +874,11 @@ async def session_action(
         
         data = request.file_data
         
+        if services := di[Program].services:
+            downloader = services.downloader
+        else:
+            raise HTTPException(status_code=500, detail="Downloader service not available")
+        
         with db_session() as session:
             item = resolve_media_item(
                 session=session,
@@ -889,17 +908,15 @@ async def session_action(
 
             # Construct synthetic Stream object for the downloader
             # We use RTN to parse the release title to satisfy Stream requirements
-            parsed_data = rtn.parse(scraping_session.torrent_info.name)
-            
-            stream = ItemStream(
-                infohash=scraping_session.magnet,
+            parsed_data = parse(scraping_session.torrent_info.name)
+            torrent = Torrent(
                 raw_title=scraping_session.torrent_info.name,
-                parsed_title=parse_title(scraping_session.torrent_info.name),
-                parsed_data=parsed_data,
+                infohash=scraping_session.magnet,
+                data=parsed_data,
                 rank=0,
-                lev_ratio=1.0,
-                is_cached=True
+                lev_ratio=1.0
             )
+            stream = ItemStream(torrent)
             
             # Start Manual Download via Downloader Service
             # This handles validation, downloading, and attribute updates in one go
@@ -918,7 +935,7 @@ async def session_action(
             # Update Season States (Pause unselected / Unpause selected)
             # Update Season States (Pause unselected / Unpause selected)
             if isinstance(item, Show) and active_seasons:
-                from program.media.state import States
+
                 logger.info(f"Updating season states for {item.log_string}. Active seasons: {active_seasons}")
                 
                 for season in item.seasons:
@@ -942,7 +959,7 @@ async def session_action(
             # Emit event as if Downloader just finished, to trigger Symlinker/Filesystem
             di[Program].em.add_event(Event("Downloader", item.id))
             
-            return MessageResponse(message=f"Updated given data to {log_string}")
+            return MessageResponse(message=f"Updated given data to {item.log_string}")
 
     # === ABORT ===
     if request.action == "abort":
@@ -1025,7 +1042,7 @@ async def auto_scrape(
             from sqlalchemy import select
             from sqlalchemy.orm import selectinload
             from program.media.item import Season
-            from program.media.state import States
+
 
             item = session.execute(
                 select(Show)
