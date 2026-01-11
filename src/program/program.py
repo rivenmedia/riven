@@ -345,6 +345,7 @@ class Program(threading.Thread):
                 event.emitted_by,
                 existing_item,
                 event.content_item,
+                event.rtn_settings_override,
             )
 
             next_service = processed_event.service
@@ -361,10 +362,18 @@ class Program(threading.Thread):
                     else:
                         # We are in the database, pass on id.
                         if item_to_submit.id:
-                            event = Event(next_service, item_id=item_to_submit.id)
+                            event = Event(
+                                next_service,
+                                item_id=item_to_submit.id,
+                                rtn_settings_override=processed_event.rtn_settings_override,
+                            )
                         # We are not, lets pass the MediaItem
                         else:
-                            event = Event(next_service, content_item=item_to_submit)
+                            event = Event(
+                                next_service,
+                                content_item=item_to_submit,
+                                rtn_settings_override=processed_event.rtn_settings_override,
+                            )
 
                         # Event will be added to running when job actually starts in submit_job
                         self.em.submit_job(next_service, self, event)

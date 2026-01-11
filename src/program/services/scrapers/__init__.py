@@ -1,8 +1,11 @@
 import threading
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from queue import Queue, Empty
 
 from loguru import logger
+from RTN.models import SettingsModel
 
 from program.media.item import MediaItem
 from program.media.state import States
@@ -57,10 +60,16 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         return len(self.initialized_services) > 0
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    def run(
+        self,
+        item: MediaItem,
+        rtn_settings_override: SettingsModel | None = None,
+    ) -> MediaItemGenerator:
         """Scrape an item."""
 
-        sorted_streams = self.scrape(item)
+        sorted_streams = self.scrape(
+            item, rtn_settings_override=rtn_settings_override
+        )
         new_streams = [
             stream
             for stream in sorted_streams.values()
@@ -69,6 +78,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         if new_streams:
             item.streams.extend(new_streams)
+            item.updated = False
 
             if item.failed_attempts > 0:
                 item.failed_attempts = 0  # Reset failed attempts on success
@@ -103,8 +113,17 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         self,
         item: MediaItem,
         verbose_logging: bool = True,
+        manual: bool = False,
+        rtn_settings_override: SettingsModel | None = None,
     ) -> dict[str, Stream]:
-        """Scrape an item."""
+        """Scrape an item.
+
+        Args:
+            item: The media item to scrape.
+            verbose_logging: Whether to log verbose messages.
+            manual: If True, bypass content filters for manual scraping.
+            rtn_settings_override: Optional RTN settings to use instead of defaults.
+        """
 
         results = dict[str, str]()
         results_lock = threading.RLock()
@@ -143,7 +162,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams = parse_results(item, results, verbose_logging)
+        sorted_streams = parse_results(item, results, verbose_logging, manual=manual, rtn_settings_override=rtn_settings_override)
 
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
             top_results = list(sorted_streams.values())[:10]
@@ -158,6 +177,77 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                 )
 
         return sorted_streams
+
+    def scrape_streaming(
+        self,
+        item: MediaItem,
+        manual: bool = False,
+        rtn_settings_override: SettingsModel | None = None,
+    ) -> Generator[tuple[str, dict[str, Stream]], None, None]:
+        """Scrape an item and yield results incrementally as each scraper finishes.
+
+        Args:
+            item: The media item to scrape.
+            manual: If True, bypass content filters for manual scraping.
+            rtn_settings_override: Optional RTN settings to use instead of defaults.
+
+        Yields:
+            Tuples of (service_name, parsed_streams_dict) as each service completes.
+        """
+        results_queue: Queue[tuple[str, dict[str, str]]] = Queue()
+        all_raw_results = dict[str, str]()
+        results_lock = threading.RLock()
+
+        def run_service_streaming(
+            svc: "ScraperService[Observable]", item: MediaItem
+        ) -> None:
+            """Run a single service and put results in the queue."""
+            try:
+                service_results = svc.run(item)
+                if service_results:
+                    results_queue.put((svc.key, service_results))
+                else:
+                    results_queue.put((svc.key, {}))
+            except Exception as e:
+                logger.error(f"Error running {svc.key}: {e}")
+                results_queue.put((svc.key, {}))
+
+        with ThreadPoolExecutor(
+            thread_name_prefix="ScraperServiceStreaming_",
+            max_workers=max(1, len(self.initialized_services)),
+        ) as executor:
+            futures = {
+                executor.submit(run_service_streaming, service, item): service.key
+                for service in self.initialized_services
+            }
+
+            services_completed = 0
+            total_services = len(futures)
+
+            while services_completed < total_services:
+                try:
+                    service_name, raw_results = results_queue.get(timeout=60.0)
+                    services_completed += 1
+
+                    if raw_results:
+                        with results_lock:
+                            all_raw_results.update(raw_results)
+
+                        parsed_streams = parse_results(
+                            item,
+                            all_raw_results,
+                            log_msg=False,
+                            manual=manual,
+                            rtn_settings_override=rtn_settings_override,
+                        )
+
+                        yield (service_name, parsed_streams)
+                    else:
+                        yield (service_name, {})
+
+                except Empty:
+                    logger.warning("Timeout waiting for scraper results")
+                    break
 
     def should_submit(self, item: MediaItem) -> bool:
         """Check if an item should be submitted for scraping."""
