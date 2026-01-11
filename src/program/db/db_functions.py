@@ -130,6 +130,97 @@ def get_item_by_external_id(
         return item
 
 
+def get_or_create_media_item(
+    session: Session,
+    item_id: int | None = None,
+    tmdb_id: str | None = None,
+    tvdb_id: str | None = None,
+    imdb_id: str | None = None,
+    media_type: str | None = None,
+) -> "MediaItem | None":
+    """
+    Resolve a MediaItem by ID or external ID, indexing it if necessary.
+
+    This function consolidates logic for finding an existing item or creating/indexing a new one from external IDs.
+
+    Priority:
+    1. Internal DB ID (item_id)
+    2. External IDs (tmdb_id, tvdb_id, imdb_id) via DB lookup
+    3. Indexer lookup (creates new item if found)
+
+    Returns:
+        MediaItem | None: The resolved item, attached to the session if newly created, or detached if fetched.
+        (Note: Callers should generally merge the result into their session to be safe).
+    """
+    from program.media.item import MediaItem
+    from kink import di
+    from program.program import Program
+
+    # 1. Try DB lookup by ID
+    if item_id:
+        item = get_item_by_id(item_id, session=session)
+        if item:
+            return item
+
+    # 2. Try DB lookup by external IDs
+    try:
+        item = get_item_by_external_id(
+            imdb_id=imdb_id,
+            tvdb_id=tvdb_id,
+            tmdb_id=tmdb_id,
+            session=session,
+        )
+        if item:
+            return item
+    except ValueError:
+        pass  # No IDs provided
+
+    # 3. Try Indexer
+    if services := di[Program].services:
+        indexer = services.indexer
+    else:
+        return None
+
+    prepared_item = None
+    if tmdb_id and media_type == "movie":
+        prepared_item = MediaItem(
+            {
+                "tmdb_id": tmdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }
+        )
+    elif tvdb_id and media_type == "tv":
+        prepared_item = MediaItem(
+            {
+                "tvdb_id": tvdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }
+        )
+    elif imdb_id:
+        prepared_item = MediaItem(
+            {
+                "imdb_id": imdb_id,
+                "tvdb_id": tvdb_id,
+                "requested_by": "riven",
+                "requested_at": datetime.now(),
+            }
+        )
+
+    if prepared_item:
+        indexer_result = next(indexer.run(prepared_item), None)
+        if indexer_result and indexer_result.media_items:
+            item = indexer_result.media_items[0]
+            item.store_state()
+            # We must attach to session to persist
+            item = session.merge(item)
+            session.commit()
+            return item
+
+    return None
+
+
 def item_exists_by_any_id(
     item_id: int | None = None,
     tvdb_id: str | None = None,
@@ -341,7 +432,14 @@ def run_thread_with_db_item(
 
                 if input_item:
                     input_item = session.merge(input_item)
-                    runner_result = next(fn(input_item), None)
+
+                    kwargs = {}
+                    from program.services.scrapers import Scraping
+
+                    if isinstance(service, Scraping) and event.rtn_settings_override:
+                        kwargs["rtn_settings_override"] = event.rtn_settings_override
+
+                    runner_result = next(fn(input_item, **kwargs), None)
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:
