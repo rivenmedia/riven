@@ -64,6 +64,10 @@ class InvalidDebridFileException(Exception):
     """Exception raised for errors creating a DebridFile"""
 
 
+class BitrateLimitExceededException(InvalidDebridFileException):
+    """Exception raised when a file exceeds the allowed bitrate limit"""
+
+
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 

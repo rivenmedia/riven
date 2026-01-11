@@ -685,3 +685,62 @@ class Downloader(Runner[None, DownloaderBase]):
         """Get user information"""
 
         return service.get_user_info()
+
+    def start_manual_download(
+        self,
+        item: MediaItem,
+        stream: Stream,
+        service: DownloaderBase,
+        file_ids: list[int] | None = None,
+        max_bitrate_override: int | None = None,
+    ) -> bool:
+        """
+        Manually start a download for a specific stream.
+        Uses the same pipeline as the standard automated download flow:
+        1. validate_stream_on_service (validates and gets TorrentContainer)
+        2. download_cached_stream_on_service (adds torrent and gets info)
+        3. update_item_attributes (matches files and sets active_stream)
+        """
+        
+        # 1. Ensure stream is persisted on item (relationship)
+        if stream not in item.streams:
+            item.streams.append(stream)
+            # Session commit is expected to be handled by caller
+        
+        # 2. Validate stream and get container (same as standard flow)
+        container = self.validate_stream_on_service(
+            stream, 
+            item, 
+            service, 
+        )
+        
+        if not container:
+            logger.warning(f"START_MANUAL_DOWNLOAD: Stream {stream.infohash} not available on {service.key}")
+            return False
+        
+        if container and file_ids and container.files:
+            # Filter the container.files list to only include selected files
+            container.files = [f for f in container.files if f.file_id in file_ids]
+
+        logger.info(f"START_MANUAL_DOWNLOAD: Validated stream {stream.infohash} on {service.key}")
+        
+        # 3. Download using standard method (same as standard flow)
+        try:
+            result = self.download_cached_stream_on_service(stream, container, service)
+        except Exception as e:
+            logger.error(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service raised: {e}")
+            return False
+        
+        if not result:
+            logger.warning(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service returned None")
+            return False
+        
+        # 4. Update item attributes (same as standard flow)
+        if self.update_item_attributes(item, result, service):
+            # Store state - Manual download completes the 'Downloader' phase, so we are now Downloaded
+            item.store_state(States.Downloaded)
+            logger.info(f"START_MANUAL_DOWNLOAD: Successfully downloaded {item.log_string} from '{stream.raw_title}'")
+            return True
+        else:
+            logger.warning(f"START_MANUAL_DOWNLOAD: update_item_attributes failed for {item.log_string}")
+            return False
