@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from kink import di
 from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
-from pydantic import BaseModel, RootModel
+from pydantic import BaseModel, Json, RootModel
 from sqlalchemy.orm import object_session, Session
 
 from program.db import db_functions
@@ -30,7 +30,7 @@ from program.services.downloaders.models import (
     TorrentInfo,
 )
 from program.services.indexers import IndexerService
-from program.services.scrapers.shared import rtn
+from program.services.scrapers.shared import rtn, get_ranking_overrides
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
@@ -40,57 +40,6 @@ from program.settings import settings_manager
 from program.settings.models import RTNSettingsModel
 
 
-def get_ranking_overrides(
-    ranking_overrides: dict[str, list[str]] | None,
-) -> RTNSettingsModel | None:
-    if not ranking_overrides:
-        return None
-
-    try:
-        overrides = ranking_overrides
-
-        # Create a deep copy of current settings
-        current_settings = settings_manager.settings.ranking.model_dump()
-        settings_model = RTNSettingsModel(**current_settings)
-
-        # Apply resolutions
-        if "resolutions" in overrides and overrides["resolutions"]:
-            if isinstance(settings_model.resolutions, dict):
-                # Disable all first (except unknown)
-                for k in settings_model.resolutions:
-                    if k != "unknown":
-                        settings_model.resolutions[k] = False
-                # Enable selected
-                for res in overrides["resolutions"]:
-                    if res in settings_model.resolutions:
-                        settings_model.resolutions[res] = True
-            elif hasattr(settings_model.resolutions, "model_fields"):
-                # Disable all first (except unknown)
-                for k in settings_model.resolutions.model_fields.keys():
-                    if k != "unknown":
-                        setattr(settings_model.resolutions, k, False)
-                # Enable selected
-                for res in overrides["resolutions"]:
-                    if hasattr(settings_model.resolutions, res):
-                        setattr(settings_model.resolutions, res, True)
-
-        # Apply custom ranks
-        for cat in ["quality", "rips", "hdr", "audio", "extras", "trash"]:
-            if cat in overrides and overrides[cat]:
-                if hasattr(settings_model.custom_ranks, cat):
-                    cat_obj = getattr(settings_model.custom_ranks, cat)
-
-                    # Assume cat_obj is a Pydantic model
-                    if hasattr(cat_obj, "model_fields"):
-                        for k in cat_obj.model_fields.keys():
-                            val = getattr(cat_obj, k)
-                            if hasattr(val, "fetch"):
-                                val.fetch = k in overrides[cat]
-
-        return settings_model
-    except Exception as e:
-        logger.error(f"Failed to apply ranking overrides: {e}")
-        return None
 
 
 class Stream(BaseModel):
@@ -506,13 +455,10 @@ def scrape_item(
         str | None,
         Query(description="Custom IMDB ID to use for scraping (not persisted)"),
     ] = None,
-    resolutions: Annotated[list[str] | None, Query(description="Override resolutions")] = None,
-    quality: Annotated[list[str] | None, Query(description="Override quality ranks")] = None,
-    rips: Annotated[list[str] | None, Query(description="Override rip ranks")] = None,
-    hdr: Annotated[list[str] | None, Query(description="Override hdr ranks")] = None,
-    audio: Annotated[list[str] | None, Query(description="Override audio ranks")] = None,
-    extras: Annotated[list[str] | None, Query(description="Override extras ranks")] = None,
-    trash: Annotated[list[str] | None, Query(description="Override trash ranks")] = None,
+    ranking_overrides: Annotated[
+        Json[dict[str, list[str]]] | None,
+        Query(description="JSON-encoded ranking overrides, e.g. {\"resolutions\": [\"1080p\"]}"),
+    ] = None,
     max_bitrate_override: Annotated[
         int | None,
         Query(description="Maximum bitrate in Mbps"),
@@ -529,18 +475,8 @@ def scrape_item(
     else:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
-    # Build ranking overrides once
-    ranking_overrides = {
-        k: v for k, v in {
-            "resolutions": resolutions,
-            "quality": quality,
-            "rips": rips,
-            "hdr": hdr,
-            "audio": audio,
-            "extras": extras,
-            "trash": trash,
-        }.items() if v is not None
-    }
+    # Parse ranking overrides from JSON
+    # Pydantic automatically handles JSON parsing/validation
     rtn_settings_override = get_ranking_overrides(ranking_overrides)
 
     def apply_custom_params(item: MediaItem) -> None:

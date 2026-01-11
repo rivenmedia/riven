@@ -23,6 +23,56 @@ ranking_model: BaseRankingModel = DefaultRanking()
 rtn = RTN(ranking_settings, ranking_model)
 
 
+
+def get_ranking_overrides(
+    ranking_overrides: dict[str, list[str]] | None,
+) -> SettingsModel | None:
+    if not ranking_overrides:
+        return None
+
+    try:
+        # Create a deep copy of current settings
+        settings_model = RTNSettingsModel(**ranking_settings.model_dump())
+
+        # Collect groups: resolutions + all custom rank categories
+        groups = [("resolutions", settings_model.resolutions)]
+        if hasattr(settings_model.custom_ranks, "model_fields"):
+            groups.extend(
+                (cat, val)
+                for cat in settings_model.custom_ranks.model_fields
+                if (val := getattr(settings_model.custom_ranks, cat)) is not None
+            )
+
+        for category, obj in groups:
+            if category not in ranking_overrides:
+                continue
+
+            if not hasattr(obj, "model_fields"):
+                continue
+
+            targets = set(ranking_overrides[category])
+            
+            # Iterate fields (assuming Pydantic model)
+            for key in obj.model_fields:
+                if key == "unknown":
+                    continue
+
+                should_enable = key in targets
+                val = getattr(obj, key)
+
+                if isinstance(val, bool):
+                    setattr(obj, key, should_enable)
+                elif hasattr(val, "fetch"):
+                    val.fetch = should_enable
+
+        return settings_model
+
+        return settings_model
+    except Exception as e:
+        logger.error(f"Failed to apply ranking overrides: {e}")
+        return None
+
+
 def parse_results(
     item: MediaItem,
     results: dict[str, str],
