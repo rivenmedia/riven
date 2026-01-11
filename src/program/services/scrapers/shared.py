@@ -34,7 +34,6 @@ def parse_results(
     Args:
         item: The media item to parse results for.
         results: Dict mapping infohash to raw title.
-        log_msg: Whether to log messages.
         manual: If True, bypass content filters (for manual scraping).
         rtn_settings_override: Optional RTN settings to use instead of defaults.
     """
