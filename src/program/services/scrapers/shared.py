@@ -28,7 +28,6 @@ rtn = RTN(ranking_settings, ranking_model)
 def parse_results(
     item: MediaItem,
     results: dict[str, str],
-    log_msg: bool = True,
     ranking_overrides: RankingOverrides | None = None,
     manual: bool = False,
 ) -> dict[str, Stream]:
@@ -271,8 +270,7 @@ def parse_results(
             torrents.add(torrent)
             processed_infohashes.add(infohash)
         except Exception as e:
-            if log_msg:
-                logger.trace(f"GarbageTorrent: {e}")
+            logger.trace(f"GarbageTorrent: {e}")
             processed_infohashes.add(infohash)
             continue
 

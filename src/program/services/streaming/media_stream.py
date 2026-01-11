@@ -857,7 +857,7 @@ class MediaStream:
                         continue
 
                     raise DebridServiceForbiddenException(provider=self.provider) from e
-                elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE):
+                elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE, HTTPStatus.SERVICE_UNAVAILABLE):
                     # File can't be found at this URL; try refreshing the URL once
                     if attempt == 0:
                         has_fresh_url = await self._refresh_download_url()
