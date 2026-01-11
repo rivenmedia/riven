@@ -223,10 +223,6 @@ async def get_items(
         bool,
         Query(description="Include extended item details"),
     ] = False,
-    count_only: Annotated[
-        bool,
-        Query(description="Only return the count of items"),
-    ] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
 
@@ -270,7 +266,6 @@ async def get_items(
         elif media_types:
             query = query.where(MediaItem.type.in_(media_types))
 
-    # Validation moved, sorting logic delayed
     if sort:
         # Verify we don't have multiple sorts of the same type
         sort_types = set[str]()
@@ -286,34 +281,29 @@ async def get_items(
 
             sort_types.add(sort_type)
 
-    if not count_only:
-        if sort:
-            for sort_criterion in sort:
-                if sort_criterion == SortOrderEnum.TITLE_ASC:
-                    query = query.order_by(MediaItem.title.asc())
-                elif sort_criterion == SortOrderEnum.TITLE_DESC:
-                    query = query.order_by(MediaItem.title.desc())
-                elif sort_criterion == SortOrderEnum.DATE_ASC:
-                    query = query.order_by(MediaItem.requested_at.asc())
-                elif sort_criterion == SortOrderEnum.DATE_DESC:
-                    query = query.order_by(MediaItem.requested_at.desc())
-        else:
-            query = query.order_by(MediaItem.requested_at.desc())
+        for sort_criterion in sort:
+            if sort_criterion == SortOrderEnum.TITLE_ASC:
+                query = query.order_by(MediaItem.title.asc())
+            elif sort_criterion == SortOrderEnum.TITLE_DESC:
+                query = query.order_by(MediaItem.title.desc())
+            elif sort_criterion == SortOrderEnum.DATE_ASC:
+                query = query.order_by(MediaItem.requested_at.asc())
+            elif sort_criterion == SortOrderEnum.DATE_DESC:
+                query = query.order_by(MediaItem.requested_at.desc())
+
+    else:
+        query = query.order_by(MediaItem.requested_at.desc())
 
     with db_session() as session:
         total_items = session.execute(
             select(func.count()).select_from(query.subquery())
         ).scalar_one()
 
-        items: Sequence[MediaItem] = (
-            (
-                session.execute(query.offset((page - 1) * limit).limit(limit))
-                .unique()
-                .scalars()
-                .all()
-            )
-            if not count_only
-            else []
+        items = (
+            session.execute(query.offset((page - 1) * limit).limit(limit))
+            .unique()
+            .scalars()
+            .all()
         )
 
         total_pages = (total_items + limit - 1) // limit
@@ -756,7 +746,6 @@ async def remove_item(
     """
 
     parsed_ids = handle_ids(payload.ids)
-    logger.debug(f"Removing items with IDs: {parsed_ids}")
 
     if not parsed_ids:
         raise HTTPException(
@@ -781,7 +770,14 @@ async def remove_item(
                 logger.warning(f"Item {item_id} not found, skipping")
                 continue
 
-            logger.debug(f"Removing item with ID {item.id} (type: {item.type})")
+            # Only allow movies and shows to be removed
+            if not isinstance(item, (Movie, Show)):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
+                )
+
+            logger.debug(f"Removing item with ID {item.id}")
 
             # 1. Cancel active jobs (EventManager cancels children too)
             di[Program].em.cancel_job(item.id)
