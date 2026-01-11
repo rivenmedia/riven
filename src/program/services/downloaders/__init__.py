@@ -28,8 +28,6 @@ from program.services.downloaders.shared import (
     sort_streams_by_quality,
     parse_filename,
 )
-from RTN import ParsedData
-from program.services.downloaders.shared import parse_filename
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult

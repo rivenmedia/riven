@@ -16,7 +16,6 @@ from program.services.scrapers.base import ScraperService
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
-from program.services.scrapers.models import RankingOverrides
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
@@ -165,7 +164,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams = parse_results(item, results, verbose_logging, manual=manual, rtn_settings_override=rtn_settings_override)
+        sorted_streams = parse_results(item, results, manual=manual, rtn_settings_override=rtn_settings_override)
 
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
             top_results = list(sorted_streams.values())[:10]
@@ -239,7 +238,6 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                         parsed_streams = parse_results(
                             item,
                             all_raw_results,
-                            log_msg=False,
                             manual=manual,
                             rtn_settings_override=rtn_settings_override,
                         )

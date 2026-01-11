@@ -127,12 +127,6 @@ class ParsedFile(BaseModel):
     parsed_metadata: dict[str, Any]
 
 
-class ParsedFile(BaseModel):
-    file_id: int
-    filename: str
-    filesize: int
-    download_url: str | None = None
-    parsed_metadata: dict[str, Any]
 
 
 class StartSessionResponse(MessageResponse):
