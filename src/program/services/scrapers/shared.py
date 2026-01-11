@@ -10,6 +10,7 @@ from RTN import (
     BaseRankingModel,
     DefaultRanking,
 )
+from RTN.models import SettingsModel
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
@@ -26,15 +27,33 @@ def parse_results(
     item: MediaItem,
     results: dict[str, str],
     log_msg: bool = True,
+    manual: bool = False,
+    rtn_settings_override: SettingsModel | None = None,
 ) -> dict[str, Stream]:
-    """Parse the results from the scrapers into Torrent objects."""
+    """Parse the results from the scrapers into Torrent objects.
+
+    Args:
+        item: The media item to parse results for.
+        results: Dict mapping infohash to raw title.
+        log_msg: Whether to log messages.
+        manual: If True, bypass content filters (for manual scraping).
+        rtn_settings_override: Optional RTN settings to use instead of defaults.
+    """
 
     torrents = set[Torrent]()
     processed_infohashes = set[str]()
     correct_title = item.top_title
 
+    # Use override RTN settings if provided, otherwise use default
+    if rtn_settings_override:
+        rtn_instance = RTN(rtn_settings_override, ranking_model)
+        active_settings = rtn_settings_override
+    else:
+        rtn_instance = rtn
+        active_settings = ranking_settings
+
     aliases = (
-        {k: v for k, v in a.items() if k not in ranking_settings.languages.exclude}
+        {k: v for k, v in a.items() if k not in active_settings.languages.exclude}
         if scraping_settings.enable_aliases and (a := item.get_aliases())
         else {}
     )
@@ -46,19 +65,19 @@ def parse_results(
             continue
 
         try:
-            torrent = rtn.rank(
+            torrent = rtn_instance.rank(
                 raw_title=raw_title,
                 infohash=infohash,
                 correct_title=correct_title,
-                remove_trash=settings_manager.settings.ranking.options[
+                remove_trash=active_settings.options[
                     "remove_all_trash"
-                ],
+                ] if not manual else False,
                 aliases=aliases,
             )
 
             if isinstance(item, Movie):
                 # If movie item, disregard torrents with seasons and episodes
-                if torrent.data.episodes or torrent.data.seasons:
+                if not manual and (torrent.data.episodes or torrent.data.seasons):
                     logger.trace(
                         f"Skipping show torrent for movie {item.log_string}: {raw_title}"
                     )
@@ -66,14 +85,14 @@ def parse_results(
 
             if isinstance(item, Show):
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
-                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                if not manual and torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
                     continue
 
                 # make sure all of the item seasons are present in the torrent
-                if not all(
+                if not manual and not all(
                     season.number in torrent.data.seasons for season in item.seasons
                 ):
                     logger.trace(
@@ -82,7 +101,8 @@ def parse_results(
                     continue
 
                 if (
-                    torrent.data.episodes
+                    not manual
+                    and torrent.data.episodes
                     and not torrent.data.seasons
                     and len(item.seasons) == 1
                     and not all(
@@ -96,27 +116,27 @@ def parse_results(
                     continue
 
             if isinstance(item, Season):
-                if torrent.data.seasons and item.number not in torrent.data.seasons:
+                if not manual and torrent.data.seasons and item.number not in torrent.data.seasons:
                     logger.trace(
                         f"Skipping torrent with no seasons or incorrect season number for {item.log_string}: {raw_title}"
                     )
                     continue
 
                 # make sure the torrent has at least 2 episodes (should weed out most junk)
-                if torrent.data.episodes and len(torrent.data.episodes) <= 2:
+                if not manual and torrent.data.episodes and len(torrent.data.episodes) <= 2:
                     logger.trace(
                         f"Skipping torrent with too few episodes for {item.log_string}: {raw_title}"
                     )
                     continue
 
                 # disregard torrents with incorrect season number
-                if item.number not in torrent.data.seasons:
+                if not manual and item.number not in torrent.data.seasons:
                     logger.trace(
                         f"Skipping incorrect season torrent for {item.log_string}: {raw_title}"
                     )
                     continue
 
-                if torrent.data.episodes and not all(
+                if not manual and torrent.data.episodes and not all(
                     episode.number in torrent.data.episodes for episode in item.episodes
                 ):
                     logger.trace(
@@ -124,7 +144,7 @@ def parse_results(
                     )
                     continue
 
-            if isinstance(item, Episode):
+            if isinstance(item, Episode) and not manual:
                 # Disregard torrents with incorrect episode number logic:
                 skip = False
 
@@ -151,7 +171,7 @@ def parse_results(
                     )
                     continue
 
-            if torrent.data.country and not item.is_anime:
+            if not manual and torrent.data.country and not item.is_anime:
                 # If country is present, then check to make sure it's correct. (Covers: US, UK, NZ, AU)
                 if (
                     torrent.data.country
@@ -164,7 +184,8 @@ def parse_results(
                     continue
 
             if (
-                torrent.data.year
+                not manual
+                and torrent.data.year
                 and item.aired_at
                 and not _check_item_year(item.aired_at, torrent.data)
             ):
@@ -174,7 +195,7 @@ def parse_results(
                 )
                 continue
 
-            if item.is_anime and scraping_settings.dubbed_anime_only:
+            if not manual and item.is_anime and scraping_settings.dubbed_anime_only:
                 # If anime and user wants dubbed only, then check to make sure it's dubbed
                 if not torrent.data.dubbed:
                     logger.trace(
@@ -193,7 +214,8 @@ def parse_results(
         logger.debug(f"Found {len(torrents)} streams for {item.log_string}")
 
         sorted_torrents = sort_torrents(
-            torrents, bucket_limit=scraping_settings.bucket_limit
+            torrents,
+            bucket_limit=scraping_settings.bucket_limit if not manual else 0,
         )
 
         torrent_stream_map = {

@@ -18,6 +18,7 @@ from program.services.filesystem import FilesystemService
 from program.media.state import States
 from program.services.indexers import IndexerService
 from program.services.post_processing import PostProcessing
+from RTN.models import SettingsModel
 
 # Type aliases for various service types
 Scraper = Scraping
@@ -37,6 +38,7 @@ Service = (
 class ProcessedEvent:
     service: Service | None
     related_media_items: Sequence[MediaItem] | None
+    rtn_settings_override: SettingsModel | None = None
 
 
 @dataclass
@@ -46,6 +48,7 @@ class Event:
     content_item: "MediaItem | None" = None
     run_at: datetime = datetime.now()
     item_state: States | None = None  # Cached state for priority sorting
+    rtn_settings_override: SettingsModel | None = None
 
     @property
     def log_message(self) -> str:
