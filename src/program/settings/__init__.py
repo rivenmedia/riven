@@ -3,7 +3,7 @@ import json
 import os
 import contextvars
 from contextlib import contextmanager
-from typing import Any, cast, Generator
+from typing import Any, cast
 
 from loguru import logger
 from pydantic import ValidationError

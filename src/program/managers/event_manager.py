@@ -144,16 +144,14 @@ class EventManager:
                     return
 
                 # Propagate overrides to the new event to maintain setting context across service transitions
-                overrides = {}
-                if future_with_event.event and future_with_event.event.overrides:
-                    overrides["overrides"] = future_with_event.event.overrides
+                event_overrides = future_with_event.event.overrides if future_with_event.event else None
 
                 self.add_event(
                     Event(
                         emitted_by=service,
                         item_id=item_id,
                         run_at=timestamp,
-                        **overrides
+                        overrides=event_overrides
                     )
                 )
         except Exception as e:

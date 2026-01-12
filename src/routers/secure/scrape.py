@@ -16,11 +16,11 @@ from kink import di
 from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, Json, RootModel
-from sqlalchemy.orm import object_session, Session
+from sqlalchemy.orm import Session
 
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import Episode, MediaItem, Season, Show
+from program.media.item import Episode, MediaItem, Season, Show, ProcessedItemType
 from program.media.state import States
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
@@ -29,8 +29,7 @@ from program.services.downloaders.models import (
     TorrentContainer,
     TorrentInfo,
 )
-from program.services.indexers import IndexerService
-from program.services.scrapers.shared import rtn, get_ranking_overrides
+from program.services.scrapers.shared import get_ranking_overrides
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
@@ -296,7 +295,7 @@ def initialize_downloader(downloader: Downloader):
 async def resolve_torrent_container(
     infohash: str,
     downloader: Downloader,
-    item_type: str = "movie",
+    item_type: ProcessedItemType = "movie",
     min_filesize_override: int | None = None,
     max_filesize_override: int | None = None,
 ) -> tuple[TorrentContainer | None, str | None]:
@@ -309,8 +308,9 @@ async def resolve_torrent_container(
     Args:
         infohash: The torrent infohash
         downloader: The downloader service to use
-        item_type: "movie" or "show" for file validation
-        max_bitrate_override: Optional max bitrate in Mbps
+        item_type: "movie", "show", "season", or "episode" for file validation
+        min_filesize_override: Optional min filesize override
+        max_filesize_override: Optional max filesize override
 
     Returns:
         Tuple of (container, error_message). If container is None, error_message explains why.
@@ -467,7 +467,6 @@ def scrape_item(
         Json[dict[str, list[str]]] | None,
         Query(description="JSON-encoded ranking overrides, e.g. {\"resolutions\": [\"1080p\"]}"),
     ] = None,
-
     stream: Annotated[
         bool,
         Query(description="If true, stream results via SSE as scrapers complete"),
@@ -480,9 +479,12 @@ def scrape_item(
     else:
         raise HTTPException(status_code=412, detail="Scraping services not initialized")
 
-    # Parse ranking overrides from JSON
-    # Pydantic automatically handles JSON parsing/validation
-    rtn_settings_override = get_ranking_overrides(ranking_overrides)
+    # Prepare overrides dictionary
+    overrides = rtn_settings_override.model_dump() if rtn_settings_override else {}
+    if min_filesize_override is not None:
+        overrides["min_filesize"] = min_filesize_override
+    if max_filesize_override is not None:
+        overrides["max_filesize"] = max_filesize_override
 
     def apply_custom_params(item: MediaItem) -> None:
         """Apply custom scrape parameters (not persisted to DB)"""
@@ -533,35 +535,36 @@ def scrape_item(
                 )
                 yield f"data: {start_event.model_dump_json()}\n\n"
 
-                for service_name, parsed_streams in scraper.scrape_streaming(
-                    item, manual=True, rtn_settings_override=rtn_settings_override
-                ):
-                    services_completed += 1
-                    new_streams: dict[str, Stream] = {}
+                with settings_manager.override(**overrides):
+                    for service_name, parsed_streams in scraper.scrape_streaming(
+                        item, manual=True
+                    ):
+                        services_completed += 1
+                        new_streams: dict[str, Stream] = {}
 
-                    for infohash, s in parsed_streams.items():
-                        if infohash not in all_streams:
-                            stream_obj = Stream(
-                                infohash=s.infohash,
-                                raw_title=s.raw_title,
-                                parsed_title=s.parsed_title,
-                                parsed_data=s.parsed_data,
-                                rank=s.rank,
-                                lev_ratio=s.lev_ratio,
-                            )
-                            all_streams[infohash] = stream_obj
-                            new_streams[infohash] = stream_obj
+                        for infohash, s in parsed_streams.items():
+                            if infohash not in all_streams:
+                                stream_obj = Stream(
+                                    infohash=s.infohash,
+                                    raw_title=s.raw_title,
+                                    parsed_title=s.parsed_title,
+                                    parsed_data=s.parsed_data,
+                                    rank=s.rank,
+                                    lev_ratio=s.lev_ratio,
+                                )
+                                all_streams[infohash] = stream_obj
+                                new_streams[infohash] = stream_obj
 
-                    event = ScrapeStreamEvent(
-                        event="streams" if new_streams else "progress",
-                        service=service_name,
-                        message=f"{service_name} found {len(new_streams)} new streams" if new_streams else f"{service_name} completed",
-                        streams=new_streams if new_streams else None,
-                        total_streams=len(all_streams),
-                        services_completed=services_completed,
-                        total_services=total_services,
-                    )
-                    yield f"data: {event.model_dump_json()}\n\n"
+                        event = ScrapeStreamEvent(
+                            event="streams" if new_streams else "progress",
+                            service=service_name,
+                            message=f"{service_name} found {len(new_streams)} new streams" if new_streams else f"{service_name} completed",
+                            streams=new_streams if new_streams else None,
+                            total_streams=len(all_streams),
+                            services_completed=services_completed,
+                            total_services=total_services,
+                        )
+                        yield f"data: {event.model_dump_json()}\n\n"
 
                 complete_event = ScrapeStreamEvent(
                     event="complete",
@@ -582,10 +585,11 @@ def scrape_item(
     # Standard JSON response mode
     with db_session() as session:
         item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, media_type)
-
+        assert item
         apply_custom_params(item)
 
-        streams = scraper.scrape(item, manual=True, rtn_settings_override=rtn_settings_override)
+        with settings_manager.override(**overrides):
+            streams = scraper.scrape(item, manual=True)
 
         return ScrapeItemResponse(
             message=f"Manually scraped streams for item {item.log_string}",
@@ -656,11 +660,17 @@ async def start_manual_session(
     with db_session() as session:
         item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, media_type)
 
+        # ensure item is present
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
         # Use async container resolution with fallback
+        # Cast type to ProcessedItemType if it's not 'mediaitem'
+        item_type: ProcessedItemType = cast(ProcessedItemType, item.type) if item.type != "mediaitem" else "movie"
         container, error = await resolve_torrent_container(
             info_hash,
             downloader,
-            item_type=item.type,
+            item_type=item_type,
             min_filesize_override=min_filesize_override,
             max_filesize_override=max_filesize_override,
         )
@@ -822,6 +832,9 @@ async def session_action(
                 imdb_id=scraping_session.imdb_id,
                 media_type=scraping_session.media_type,
             )
+            
+            if not item:
+                raise HTTPException(status_code=404, detail="Item not found")
             
             # Ensure attached to session
             item = session.merge(item)

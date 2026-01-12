@@ -181,14 +181,12 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         self,
         item: MediaItem,
         manual: bool = False,
-        rtn_settings_override: SettingsModel | None = None,
     ) -> Generator[tuple[str, dict[str, Stream]], None, None]:
         """Scrape an item and yield results incrementally as each scraper finishes.
 
         Args:
             item: The media item to scrape.
             manual: If True, bypass content filters for manual scraping.
-            rtn_settings_override: Optional RTN settings to use instead of defaults.
 
         Yields:
             Tuples of (service_name, parsed_streams_dict) as each service completes.
@@ -236,7 +234,6 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                             item,
                             all_raw_results,
                             manual=manual,
-                            rtn_settings_override=rtn_settings_override,
                         )
 
                         yield (service_name, parsed_streams)

@@ -1,7 +1,6 @@
 """Shared functions for scrapers."""
 
 from datetime import datetime
-from typing import Any
 from loguru import logger
 from RTN import (
     RTN,
@@ -37,10 +36,10 @@ def get_ranking_overrides(
 
         # Collect groups: resolutions + all custom rank categories
         groups = [("resolutions", settings_model.resolutions)]
-        if hasattr(settings_model.custom_ranks, "model_fields"):
+        if hasattr(settings_model.custom_ranks, "__class__"):
             groups.extend(
                 (cat, val)
-                for cat in settings_model.custom_ranks.model_fields
+                for cat in settings_model.custom_ranks.__class__.model_fields
                 if (val := getattr(settings_model.custom_ranks, cat)) is not None
             )
 
@@ -48,13 +47,13 @@ def get_ranking_overrides(
             if category not in ranking_overrides:
                 continue
 
-            if not hasattr(obj, "model_fields"):
+            if not obj.__class__.model_fields:
                 continue
 
             targets = set(ranking_overrides[category])
             
             # Iterate fields (assuming Pydantic model)
-            for key in obj.model_fields:
+            for key in obj.__class__.model_fields:
                 if key == "unknown":
                     continue
 
@@ -65,8 +64,6 @@ def get_ranking_overrides(
                     setattr(obj, key, should_enable)
                 elif hasattr(val, "fetch"):
                     val.fetch = should_enable
-
-        return settings_model
 
         return settings_model
     except Exception as e:
@@ -86,7 +83,6 @@ def parse_results(
         item: The media item to parse results for.
         results: Dict mapping infohash to raw title.
         manual: If True, bypass content filters (for manual scraping).
-        rtn_settings_override: Optional RTN settings to use instead of defaults.
     """
 
     torrents = set[Torrent]()
@@ -205,14 +201,24 @@ def parse_results(
                 # If the torrent has episodes, but the episode number is not present
                 if torrent.data.episodes:
                     if (
-                        item.number not in torrent.data.episodes
+                        isinstance(item, Episode)
+                        and item.number not in torrent.data.episodes
                         and item.absolute_number not in torrent.data.episodes
                     ):
                         skip = True
 
                 # If the torrent does not have episodes, but has seasons, and the parent season is not present
                 elif torrent.data.seasons:
-                    if item.parent.number not in torrent.data.seasons:
+                    if (
+                        isinstance(item, Episode)
+                        and isinstance(item.parent, Season)
+                        and item.parent.number not in torrent.data.seasons
+                    ):
+                        skip = True
+                    elif (
+                        isinstance(item, Season)
+                        and item.number not in torrent.data.seasons
+                    ):
                         skip = True
 
                 # If the torrent has neither episodes nor seasons, skip (junk)

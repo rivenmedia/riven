@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
-from RTN.models import SettingsModel
 
 from program.media.item import (
     Episode,
