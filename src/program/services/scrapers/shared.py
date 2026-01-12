@@ -11,7 +11,8 @@ from RTN import (
     DefaultRanking,
 )
 from RTN.models import SettingsModel
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
@@ -208,10 +209,10 @@ def parse_results(
 
                 # If the torrent does not have episodes, but has seasons, and the parent season is not present
                 elif torrent.data.seasons:
-                    if (
-                        # item is already confirmed to be Episode at line 197
-                        item.parent.number not in torrent.data.seasons
-                    ):
+                    # item is confirmed to be Episode at line 197
+                    # Episode.parent is a Season, and Season has a 'number' attribute
+                    parent_season = cast(Season, item.parent)
+                    if parent_season.number not in torrent.data.seasons:
                         skip = True
 
                 # If the torrent has neither episodes nor seasons, skip (junk)

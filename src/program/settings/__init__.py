@@ -130,11 +130,17 @@ class SettingsManager:
     @contextmanager
     def override(self, **overrides: Any) -> Generator[None, None, None]:
         """Context manager to temporarily override settings."""
-        token = self._overrides_ctx.set({**self._overrides_ctx.get(), **overrides})
+        old_overrides = self._overrides_ctx.get()
+        token = self._overrides_ctx.set({**old_overrides, **overrides})
         try:
             yield
         finally:
-            self._overrides_ctx.reset(token)
+            try:
+                self._overrides_ctx.reset(token)
+            except ValueError:
+                # Handle cases where the context has changed (e.g., across thread/task boundaries)
+                logger.trace("Context mismatch during override reset, manually restoring old overrides")
+                self._overrides_ctx.set(old_overrides)
 
     def get_setting(self, key: str, default: Any) -> Any:
         """Get a setting value, respecting any active overrides."""

@@ -1,5 +1,6 @@
+from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import Annotated, Any, Literal, cast, TypeAlias
+from typing import Annotated, Any, Literal, cast, TypeAlias, TYPE_CHECKING
 from uuid import uuid4
 
 from RTN import ParsedData, parse, Torrent
@@ -20,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import MediaItem, Show, Season, Episode, ProcessedItemType
+from program.media.item import MediaItem, Show, Season, ProcessedItemType
 from program.media.state import States
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
@@ -36,6 +37,10 @@ from program.program import Program
 from ..models.shared import MessageResponse
 from program.settings import settings_manager
 from program.settings.models import RTNSettingsModel
+if TYPE_CHECKING:
+    from program.services.scrapers.base import ScraperService
+    from program.settings.models import Observable
+
 
 
 
@@ -348,7 +353,7 @@ async def resolve_torrent_container(
                 try:
                     info = await asyncio.to_thread(downloader.get_torrent_info, tid)
                     if info and info.files:
-                        valid_files = []
+                        valid_files = list[DebridFile]()
                         for f in info.files.values():
                             try:
                                 df = DebridFile.create(
@@ -469,18 +474,29 @@ def scrape_item(
         bool,
         Query(description="If true, stream results via SSE as scrapers complete"),
     ] = False,
+    min_filesize_override: Annotated[
+        int | None,
+        Query(description="Minimum filesize in MB"),
+    ] = None,
+    max_filesize_override: Annotated[
+        int | None,
+        Query(description="Maximum filesize in MB"),
+    ] = None,
 ):
     """Get streams for an item. Set stream=true for SSE streaming as scrapers complete."""
 
-    if services := di[Program].services:
-        scraper = services.scraping
+    services = di[Program].services
+    if not services:
+        raise HTTPException(status_code=412, detail="Scraping services not initialized")
+    scraper = services.scraping
     
     # Prepare overrides dictionary
     target_media_type: Literal["movie", "tv"] | None = (
-        cast(Literal["movie", "tv"], media_type) if media_type in ("movie", "tv") else None
+        media_type if media_type in ("movie", "tv") else None
     )
     
-    overrides = rtn_settings_override.model_dump() if rtn_settings_override else {}
+    rtn_settings_override_model = get_ranking_overrides(ranking_overrides)
+    overrides: dict[str, Any] = rtn_settings_override_model.model_dump() if rtn_settings_override_model else {}
     if min_filesize_override is not None:
         overrides["min_filesize"] = min_filesize_override
     if max_filesize_override is not None:
@@ -509,7 +525,7 @@ def scrape_item(
         if not any([item_id, tmdb_id and media_type == "movie", tvdb_id and media_type == "tv", imdb_id]):
             raise HTTPException(status_code=400, detail="No valid ID provided")
 
-        def generate_events():
+        async def generate_events(scraper: ScraperService[Observable]):
             with db_session() as session:
                 item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
 
@@ -576,8 +592,9 @@ def scrape_item(
                 )
                 yield f"data: {complete_event.model_dump_json()}\n\n"
 
+        scraper_service = scraper  # capture for closure
         return StreamingResponse(
-            generate_events(),
+            generate_events(scraper_service),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
@@ -657,7 +674,7 @@ async def start_manual_session(
 
     # Prepare overrides dictionary
     target_media_type: Literal["movie", "tv"] | None = (
-        cast(Literal["movie", "tv"], media_type) if media_type in ("movie", "tv") else None
+        media_type if media_type in ("movie", "tv") else None
     )
 
     item = None
@@ -723,7 +740,7 @@ async def start_manual_session(
                     continue
 
                 try:
-                    parsed_data = parse_title(file.filename)
+                    parsed_data = cast(dict[str, Any], parse_title(file.filename))
                     parsed_files.append(
                         ParsedFile(
                             file_id=file.file_id,
@@ -845,15 +862,15 @@ async def session_action(
             item = session.merge(item)
             
             # Extract selected file IDs and active seasons from payload
-            file_ids = []
+            file_ids = list[int]()
             active_seasons = set[int]()
             
             if isinstance(data, DebridFile):
                 if data.file_id:
                     file_ids.append(data.file_id)
-            elif isinstance(data, ShowFileData):
+            else:
                  # Extract file IDs and Season numbers
-                 root_data: SeasonEpisodeMap = cast(SeasonEpisodeMap, data.root)
+                 root_data = data.root
                  for season_num, episodes in root_data.items():
                      active_seasons.add(season_num)
                      for ep_data in episodes.values():

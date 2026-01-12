@@ -8,7 +8,7 @@ from queue import Queue, Empty
 from loguru import logger
 
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
-from program.media.item import MediaItem, Show, Season, Episode, ProcessedItemType
+from program.media.item import MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.services.scrapers.aiostreams import AIOStreams
