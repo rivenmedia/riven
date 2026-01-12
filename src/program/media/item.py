@@ -799,7 +799,7 @@ class Show(MediaItem):
     seasons: Mapped[list["Season"]] = relationship(
         back_populates="parent",
         foreign_keys="Season.parent_id",
-        lazy="joined",
+        lazy="selectin",
         cascade="all, delete-orphan",
         order_by="Season.number",
     )
@@ -973,7 +973,7 @@ class Season(MediaItem):
     episodes: Mapped[list["Episode"]] = relationship(
         back_populates="parent",
         foreign_keys="Episode.parent_id",
-        lazy="joined",
+        lazy="selectin",
         cascade="all, delete-orphan",
         order_by="Episode.number",
     )
