@@ -411,10 +411,57 @@ def resolve_media_item(
     Returns:
         MediaItem or None (if raise_on_not_found=False)
     """
-    item = db_functions.get_or_create_media_item(
-        session, item_id, tmdb_id, tvdb_id, imdb_id, media_type
-    )
-    
+    item = None
+    if item_id:
+        item = db_functions.get_item_by_id(item_id, session=session)
+
+    if not item and (tmdb_id or tvdb_id or imdb_id):
+        try:
+            item = db_functions.get_item_by_external_id(
+                imdb_id=imdb_id,
+                tvdb_id=tvdb_id,
+                tmdb_id=tmdb_id,
+                session=session
+            )
+        except ValueError:
+            pass
+
+    # If item not found locally, try to create it via Indexer if external IDs are provided
+    if not item and (tmdb_id or tvdb_id or imdb_id):
+        if services := di[Program].services:
+            indexer = services.indexer
+            prepared_item = None
+
+            if tmdb_id and media_type == "movie":
+                prepared_item = MediaItem({
+                    "tmdb_id": tmdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                })
+            elif tvdb_id and media_type == "tv":
+                prepared_item = MediaItem({
+                    "tvdb_id": tvdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                })
+            elif imdb_id:
+                prepared_item = MediaItem({
+                    "imdb_id": imdb_id,
+                    "tvdb_id": tvdb_id,
+                    "requested_by": "riven",
+                    "requested_at": datetime.now(),
+                })
+
+            if prepared_item:
+                # Run indexer to fetch metadata
+                indexer_result = next(indexer.run(prepared_item), None)
+                if indexer_result and indexer_result.media_items:
+                    item = indexer_result.media_items[0]
+                    item.store_state()
+                    # Persist new item
+                    item = session.merge(item)
+                    session.commit()
+
     if not item and raise_on_not_found:
         raise HTTPException(status_code=404, detail="Item not found")
     
@@ -993,7 +1040,7 @@ async def auto_scrape(
         overrides["max_filesize"] = request.max_filesize_override
 
     with db_session() as session:
-        item = db_functions.get_or_create_media_item(
+        item = resolve_media_item(
             session,
             request.item_id,
             request.tmdb_id,
