@@ -36,10 +36,11 @@ from program.utils.torrent import extract_infohash
 from program.program import Program
 from ..models.shared import MessageResponse
 from program.settings import settings_manager
-from program.settings.models import RTNSettingsModel
+from program.services.scrapers import Scraping
+from program.settings.models import Observable
+
 if TYPE_CHECKING:
     from program.services.scrapers.base import ScraperService
-    from program.settings.models import Observable
 
 
 
@@ -525,7 +526,7 @@ def scrape_item(
         if not any([item_id, tmdb_id and media_type == "movie", tvdb_id and media_type == "tv", imdb_id]):
             raise HTTPException(status_code=400, detail="No valid ID provided")
 
-        async def generate_events(scraper: ScraperService[Observable]):
+        async def generate_events(scraper: Scraping):
             with db_session() as session:
                 item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
 
@@ -592,9 +593,9 @@ def scrape_item(
                 )
                 yield f"data: {complete_event.model_dump_json()}\n\n"
 
-        scraper_service = scraper  # capture for closure
+        scraper_mgr = scraper  # capture for closure
         return StreamingResponse(
-            generate_events(scraper_service),
+            generate_events(scraper_mgr),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )

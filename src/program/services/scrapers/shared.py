@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Shared functions for scrapers."""
 
 from datetime import datetime
@@ -11,8 +12,7 @@ from RTN import (
     DefaultRanking,
 )
 from RTN.models import SettingsModel
-from collections.abc import Generator
-from typing import Any
+from typing import Any, cast
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
