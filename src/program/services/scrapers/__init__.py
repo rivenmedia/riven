@@ -1,8 +1,9 @@
 import threading
 from collections.abc import Generator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from queue import Empty, Queue
+from queue import Queue, Empty
+
 
 from loguru import logger
 
@@ -15,7 +16,6 @@ from program.services.scrapers.base import ScraperService
 from program.services.scrapers.comet import Comet
 from program.services.scrapers.jackett import Jackett
 from program.services.scrapers.mediafusion import Mediafusion
-from program.services.scrapers.models import RankingOverrides
 from program.services.scrapers.orionoid import Orionoid
 from program.services.scrapers.prowlarr import Prowlarr
 from program.services.scrapers.rarbg import Rarbg
@@ -61,10 +61,14 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         return len(self.initialized_services) > 0
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    def run(
+        self,
+        item: MediaItem,
+    ) -> MediaItemGenerator:
         """Scrape an item."""
 
         sorted_streams = self.scrape(item)
+
         new_streams = [
             stream
             for stream in sorted_streams.values()
@@ -73,6 +77,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
 
         if new_streams:
             item.streams.extend(new_streams)
+            item.updated = False
 
             if item.failed_attempts > 0:
                 item.failed_attempts = 0  # Reset failed attempts on success
@@ -107,23 +112,57 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         self,
         item: MediaItem,
         verbose_logging: bool = True,
-        ranking_overrides: RankingOverrides | None = None,
         manual: bool = False,
     ) -> dict[str, Stream]:
-        """Scrape an item."""
+        """Scrape an item.
 
-        all_streams = dict[str, Stream]()
+        Args:
+            item: The media item to scrape.
+            verbose_logging: Whether to log verbose messages.
+            manual: If True, bypass content filters for manual scraping.
+        """
 
-        # Consume the streaming generator to get all results
-        for _, streams in self.scrape_streaming(item, ranking_overrides, manual):
-            all_streams.update(streams)
+        results = dict[str, str]()
+        results_lock = threading.RLock()
 
-        if not all_streams:
+        def run_service(svc: "ScraperService[Observable]", item: MediaItem) -> None:
+            """Run a single service and update the results."""
+
+            service_results = svc.run(item)
+
+            with results_lock:
+                try:
+                    results.update(service_results)
+                except Exception as e:
+                    logger.exception(
+                        f"Error updating results for {svc.__class__.__name__}: {e}"
+                    )
+
+        with ThreadPoolExecutor(
+            thread_name_prefix="ScraperService_",
+            max_workers=max(1, len(self.initialized_services)),
+        ) as executor:
+            futures = {
+                executor.submit(run_service, service, item): service.key
+                for service in self.initialized_services
+            }
+
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(
+                        f"Exception occurred while running service {futures[future]}: {e}"
+                    )
+
+        if not results:
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        if verbose_logging and settings_manager.settings.log_level:
-            top_results = list(all_streams.values())[:10]
+        sorted_streams = parse_results(item, results, manual=manual)
+
+        if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
+            top_results = list(sorted_streams.values())[:10]
 
             logger.debug(
                 f"Displaying top {len(top_results)} results for {item.log_string}"
@@ -134,21 +173,22 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                     f"[Rank: {stream.rank}][Res: {stream.parsed_data.resolution}] {stream.raw_title} ({stream.infohash})"
                 )
 
-        return all_streams
+        return sorted_streams
 
     def scrape_streaming(
         self,
         item: MediaItem,
-        ranking_overrides: RankingOverrides | None = None,
         manual: bool = False,
     ) -> Generator[tuple[str, dict[str, Stream]], None, None]:
-        """
-        Scrape an item and yield results incrementally as each scraper finishes.
+        """Scrape an item and yield results incrementally as each scraper finishes.
+
+        Args:
+            item: The media item to scrape.
+            manual: If True, bypass content filters for manual scraping.
 
         Yields:
             Tuples of (service_name, parsed_streams_dict) as each service completes.
         """
-
         results_queue: Queue[tuple[str, dict[str, str]]] = Queue()
         all_raw_results = dict[str, str]()
         results_lock = threading.RLock()
@@ -167,7 +207,6 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
                 logger.error(f"Error running {svc.key}: {e}")
                 results_queue.put((svc.key, {}))
 
-        # Start all scrapers in thread pool
         with ThreadPoolExecutor(
             thread_name_prefix="ScraperServiceStreaming_",
             max_workers=max(1, len(self.initialized_services)),
@@ -180,29 +219,23 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             services_completed = 0
             total_services = len(futures)
 
-            # Yield results as they complete
             while services_completed < total_services:
                 try:
-                    # Wait for next result with timeout
                     service_name, raw_results = results_queue.get(timeout=60.0)
                     services_completed += 1
 
                     if raw_results:
-                        # Merge into all results for proper ranking
                         with results_lock:
                             all_raw_results.update(raw_results)
 
-                        # Parse and rank only the new streams
                         parsed_streams = parse_results(
                             item,
                             all_raw_results,
-                            ranking_overrides=ranking_overrides,
                             manual=manual,
                         )
 
                         yield (service_name, parsed_streams)
                     else:
-                        # Still yield empty to signal progress
                         yield (service_name, {})
 
                 except Empty:
