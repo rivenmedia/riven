@@ -1,7 +1,9 @@
 from collections.abc import Callable
 import json
 import os
-from typing import Any, cast
+import contextvars
+from contextlib import contextmanager
+from typing import Any, cast, Generator
 
 from loguru import logger
 from pydantic import ValidationError
@@ -17,6 +19,7 @@ class SettingsManager:
         self.observers = list[Callable[[], Any]]()
         self.filename = os.environ.get("SETTINGS_FILENAME", "settings.json")
         self.settings_file = data_dir_path / self.filename
+        self._overrides_ctx = contextvars.ContextVar("settings_overrides", default={})
 
         Observable.set_notify_observers(self.notify_observers)
 
@@ -123,6 +126,39 @@ class SettingsManager:
         """Save settings to file, using Pydantic model for JSON serialization."""
         with open(self.settings_file, "w", encoding="utf-8") as file:
             file.write(self.settings.model_dump_json(indent=4, exclude_none=True))
+
+    @contextmanager
+    def override(self, **overrides):
+        """Context manager to temporarily override settings."""
+        token = self._overrides_ctx.set({**self._overrides_ctx.get(), **overrides})
+        try:
+            yield
+        finally:
+            self._overrides_ctx.reset(token)
+
+    def get_setting(self, key: str, default: Any) -> Any:
+        """Get a setting value, respecting any active overrides."""
+        overrides = self._overrides_ctx.get()
+        if overrides and key in overrides:
+            return overrides[key]
+        return default
+
+    def get_effective_rtn_model(self):
+        """Get the effective RTN settings, merging global settings with active overrides."""
+        from RTN.models import SettingsModel
+
+        # Start with global settings
+        ranking_settings = self.settings.ranking.model_dump()
+        
+        # Apply overrides
+        overrides = self._overrides_ctx.get()
+        if overrides:
+            valid_keys = SettingsModel.model_fields.keys()
+            filtered_overrides = {k: v for k, v in overrides.items() if k in valid_keys}
+            ranking_settings.update(filtered_overrides)
+            
+        return SettingsModel(**ranking_settings)
+
 
 
 def format_validation_error(e: ValidationError) -> str:

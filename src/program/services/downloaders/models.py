@@ -102,16 +102,29 @@ class DebridFile(BaseModel):
         if limit_filesize:
             filesize_mb = filesize_bytes / 1_000_000
 
+            # Determine limits dynamically, respecting overrides if present
             if filetype == "movie":
-                if not (MOVIE_MIN_FILESIZE <= filesize_mb <= MOVIE_MAX_FILESIZE):
-                    raise InvalidDebridFileException(
-                        f"Skipping movie file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {MOVIE_MIN_FILESIZE}MB to {MOVIE_MAX_FILESIZE}MB"
-                    )
+                 min_default = settings_manager.settings.downloaders.movie_filesize_mb_min
+                 max_default = settings_manager.settings.downloaders.movie_filesize_mb_max
+                 min_limit = settings_manager.get_setting("min_filesize", min_default)
+                 max_limit = settings_manager.get_setting("max_filesize", max_default)
             elif filetype in ["show", "season", "episode"]:
-                if not (EPISODE_MIN_FILESIZE <= filesize_mb <= EPISODE_MAX_FILESIZE):
-                    raise InvalidDebridFileException(
-                        f"Skipping episode file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {EPISODE_MIN_FILESIZE}MB to {EPISODE_MAX_FILESIZE}MB"
-                    )
+                 min_default = settings_manager.settings.downloaders.episode_filesize_mb_min
+                 max_default = settings_manager.settings.downloaders.episode_filesize_mb_max
+                 min_limit = settings_manager.get_setting("min_filesize", min_default)
+                 max_limit = settings_manager.get_setting("max_filesize", max_default)
+            else:
+                 min_limit = 0
+                 max_limit = float("inf")
+                 
+            # Ensure safe values
+            min_limit = min_limit if min_limit is not None and min_limit >= 0 else 0
+            max_limit = max_limit if max_limit is not None and max_limit > 0 else float("inf")
+
+            if not (min_limit <= filesize_mb <= max_limit):
+                raise InvalidDebridFileException(
+                    f"Skipping {filetype} file: '{filename}' - filesize: {round(filesize_mb, 2)}MB is outside the allowed range of {min_limit}MB to {max_limit}MB"
+                )
 
         return cls(filename=filename, filesize=filesize_bytes, file_id=file_id)
 

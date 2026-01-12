@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
+from RTN.models import SettingsModel
 
 from program.media.item import (
     Episode,
@@ -79,8 +80,12 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return True
 
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    def run(
+        self,
+        item: MediaItem,
+    ) -> MediaItemGenerator:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
+
 
         # Check if all services are in cooldown due to circuit breaker
         now = datetime.now()
@@ -267,7 +272,7 @@ class Downloader(Runner[None, DownloaderBase]):
             # Clear service cooldowns on successful download
             self._service_cooldowns.clear()
 
-        yield RunnerResult(media_items=[item])
+            yield RunnerResult(media_items=[item])
 
     def validate_stream(
         self,
@@ -658,12 +663,21 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.add_torrent(infohash)
 
-    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
+    def get_torrent_info(
+        self,
+        torrent_id: int | str,
+        min_filesize: int | None = None,
+        max_filesize: int | None = None,
+    ) -> TorrentInfo:
         """Get information about a torrent"""
 
         assert self.service
 
-        return self.service.get_torrent_info(torrent_id)
+        return self.service.get_torrent_info(
+            torrent_id,
+            min_filesize=min_filesize,
+            max_filesize=max_filesize,
+        )
 
     def select_files(self, torrent_id: int | str, container: list[int]) -> None:
         """Select files from a torrent"""
@@ -690,7 +704,6 @@ class Downloader(Runner[None, DownloaderBase]):
         stream: Stream,
         service: DownloaderBase,
         file_ids: list[int] | None = None,
-        max_bitrate_override: int | None = None,
     ) -> bool:
         """
         Manually start a download for a specific stream.

@@ -158,7 +158,8 @@ class ScrapingSession:
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
         magnet: str | None = None,
-        max_bitrate_override: int | None = None,
+        min_filesize_override: int | None = None,
+        max_filesize_override: int | None = None,
     ):
         self.id = id
         self.item_id = item_id
@@ -167,7 +168,8 @@ class ScrapingSession:
         self.tmdb_id = tmdb_id
         self.tvdb_id = tvdb_id
         self.magnet = magnet
-        self.max_bitrate_override = max_bitrate_override
+        self.min_filesize_override = min_filesize_override
+        self.max_filesize_override = max_filesize_override
         self.torrent_id: int | str | None = None
         self.torrent_info: TorrentInfo | None = None
         self.containers: TorrentContainer | None = None
@@ -193,7 +195,8 @@ class ScrapingSessionManager:
         imdb_id: str | None = None,
         tmdb_id: str | None = None,
         tvdb_id: str | None = None,
-        max_bitrate_override: int | None = None,
+        min_filesize_override: int | None = None,
+        max_filesize_override: int | None = None,
     ) -> ScrapingSession:
         """Create a new scraping session"""
         session_id = str(uuid4())
@@ -205,7 +208,9 @@ class ScrapingSessionManager:
             tmdb_id,
             tvdb_id,
             magnet,
-            max_bitrate_override,
+            magnet,
+            min_filesize_override,
+            max_filesize_override,
         )
         self.sessions[session_id] = session
         return session
@@ -292,7 +297,8 @@ async def resolve_torrent_container(
     infohash: str,
     downloader: Downloader,
     item_type: str = "movie",
-    max_bitrate_override: int | None = None,
+    min_filesize_override: int | None = None,
+    max_filesize_override: int | None = None,
 ) -> tuple[TorrentContainer | None, str | None]:
     """
     Resolve a magnet infohash to a TorrentContainer.
@@ -310,75 +316,77 @@ async def resolve_torrent_container(
         Tuple of (container, error_message). If container is None, error_message explains why.
     """
     import asyncio
-    from program.services.downloaders.models import (
-        InvalidDebridFileException,
-        BitrateLimitExceededException,
-    )
+    from program.services.downloaders.models import InvalidDebridFileException
 
     container = None
     last_error = None
 
-    # Try instant availability check first
-    try:
-        container = await asyncio.to_thread(
-            downloader.get_instant_availability, infohash, item_type
-        )
-        if container and container.files:
-            return container, None
-    except BitrateLimitExceededException as e:
-        last_error = str(e)
-        logger.debug(f"Bitrate limit exceeded: {e}")
-    except InvalidDebridFileException as e:
-        last_error = str(e)
-        logger.debug(f"Invalid debrid file: {e}")
-    except Exception as e:
-        last_error = f"Service error: {str(e)}"
-        logger.debug(f"Error checking instant availability: {e}")
+    overrides = {}
+    if min_filesize_override is not None:
+        overrides["min_filesize"] = min_filesize_override
+    if max_filesize_override is not None:
+        overrides["max_filesize"] = max_filesize_override
 
-    # Fallback: probe torrent by adding temporarily
-    if not container or not container.files:
+    with settings_manager.override(**overrides):
+        # Try instant availability check first
         try:
-            tid = await asyncio.to_thread(downloader.add_torrent, infohash)
-            try:
-                info = await asyncio.to_thread(downloader.get_torrent_info, tid)
-                if info and info.files:
-                    valid_files = []
-                    for f in info.files.values():
-                        try:
-                            df = DebridFile.create(
-                                path=f.path,
-                                filename=f.filename,
-                                filesize_bytes=f.bytes,
-                                filetype=item_type,
-                                file_id=f.id,
-                            )
-                            valid_files.append(df)
-                        except (InvalidDebridFileException, BitrateLimitExceededException) as e:
-                            logger.debug(f"Skipping file {f.filename}: {e}")
-                            continue
-
-                    if valid_files:
-                        container = TorrentContainer(
-                            infohash=infohash,
-                            files=valid_files,
-                            torrent_id=tid,
-                            torrent_info=info,
-                        )
-                    else:
-                        last_error = "No valid video files found (all files filtered by type or size)"
-            except Exception as e:
-                logger.error(f"Error getting torrent info: {e}")
-                last_error = f"Unable to get torrent info: {str(e)}"
-            finally:
-                # Clean up temporary torrent if we're just probing
-                if not container or not container.files:
-                    try:
-                        await asyncio.to_thread(downloader.delete_torrent, tid)
-                    except Exception:
-                        pass
+            container = await asyncio.to_thread(
+                downloader.get_instant_availability, infohash, item_type
+            )
+            if container and container.files:
+                return container, None
+                
+        except InvalidDebridFileException as e:
+            last_error = str(e)
+            logger.debug(f"Invalid debrid file: {e}")
         except Exception as e:
-            logger.error(f"Magnet resolution error: {e}")
-            return None, f"Unable to resolve magnet: {str(e)}"
+            last_error = f"Service error: {str(e)}"
+            logger.debug(f"Error checking instant availability: {e}")
+
+        # Fallback: probe torrent by adding temporarily
+        if not container or not container.files:
+            try:
+                tid = await asyncio.to_thread(downloader.add_torrent, infohash)
+                try:
+                    info = await asyncio.to_thread(downloader.get_torrent_info, tid)
+                    if info and info.files:
+                        valid_files = []
+                        for f in info.files.values():
+                            try:
+                                df = DebridFile.create(
+                                    path=f.path,
+                                    filename=f.filename,
+                                    filesize_bytes=f.bytes,
+                                    filetype=item_type,
+                                    file_id=f.id,
+                                )
+                                valid_files.append(df)
+                            except InvalidDebridFileException as e:
+                                logger.debug(f"Skipping file {f.filename}: {e}")
+                                continue
+
+                        if valid_files:
+                            container = TorrentContainer(
+                                infohash=infohash,
+                                files=valid_files,
+                                torrent_id=tid,
+                                torrent_info=info,
+                            )
+                        else:
+                            last_error = "No valid video files found (all files filtered by type or size)"
+                except Exception as e:
+                    logger.error(f"Error getting torrent info: {e}")
+                    last_error = f"Unable to get torrent info: {str(e)}"
+                finally:
+                    # Clean up temporary torrent if we're just probing
+                    if not container or not container.files:
+                        try:
+                            await asyncio.to_thread(downloader.delete_torrent, tid)
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.error(f"Magnet resolution error: {e}")
+                return None, f"Unable to resolve magnet: {str(e)}"
 
     if container and container.files:
         return container, None
@@ -459,10 +467,7 @@ def scrape_item(
         Json[dict[str, list[str]]] | None,
         Query(description="JSON-encoded ranking overrides, e.g. {\"resolutions\": [\"1080p\"]}"),
     ] = None,
-    max_bitrate_override: Annotated[
-        int | None,
-        Query(description="Maximum bitrate in Mbps"),
-    ] = None,
+
     stream: Annotated[
         bool,
         Query(description="If true, stream results via SSE as scrapers complete"),
@@ -608,6 +613,8 @@ def scrape_item(
 async def start_manual_session(
     background_tasks: BackgroundTasks,
     magnet: str,
+    min_filesize_override: int | None = Query(None, description="Minimum filesize in MB"),
+    max_filesize_override: int | None = Query(None, description="Maximum filesize in MB"),
     item_id: Annotated[
         int | None,
         Query(description="The ID of the media item"),
@@ -628,10 +635,7 @@ async def start_manual_session(
         Literal["movie", "tv"] | None,
         Query(description="The media type"),
     ] = None,
-    max_bitrate_override: Annotated[
-        int | None,
-        Query(description="Maximum bitrate in Mbps"),
-    ] = None,
+
 ) -> StartSessionResponse:
     scraping_session_manager.cleanup_expired(background_tasks)
 
@@ -657,7 +661,8 @@ async def start_manual_session(
             info_hash,
             downloader,
             item_type=item.type,
-            max_bitrate_override=max_bitrate_override,
+            min_filesize_override=min_filesize_override,
+            max_filesize_override=max_filesize_override,
         )
 
         if not container or not container.cached:
@@ -673,7 +678,7 @@ async def start_manual_session(
             imdb_id=imdb_id,
             tmdb_id=tmdb_id,
             tvdb_id=tvdb_id,
-            max_bitrate_override=max_bitrate_override,
+
         )
 
         try:
@@ -855,7 +860,6 @@ async def session_action(
                 stream=stream,
                 service=downloader.service, # Use primary service
                 file_ids=file_ids,
-                max_bitrate_override=scraping_session.max_bitrate_override
             )
             
             if not success:
@@ -917,9 +921,10 @@ class AutoScrapeRequest(BaseModel):
     tmdb_id: str | None = None
     tvdb_id: str | None = None
     imdb_id: str | None = None
-    max_bitrate_override: int | None = None
     ranking_overrides: dict[str, list[str]] | None = None
     season_numbers: list[int] | None = None  # If provided for TV, scrape specific seasons
+    min_filesize_override: int | None = None
+    max_filesize_override: int | None = None
 
 
 class StatelessSelectFilesRequest(BaseModel):
@@ -930,7 +935,6 @@ class StatelessSelectFilesRequest(BaseModel):
     tvdb_id: str | None = None
     imdb_id: str | None = None
     media_type: Literal["movie", "tv"] | None = None
-    max_bitrate_override: int | None = None
 
 
 @router.post(
@@ -944,11 +948,19 @@ async def auto_scrape(
 ) -> MessageResponse:
     """Trigger auto scraping. For TV shows, optionally provide season_numbers to scrape specific seasons."""
 
-    rtn_settings_override = get_ranking_overrides(request.ranking_overrides)
-    if not rtn_settings_override:
-        rtn_settings_override = RTNSettingsModel(
+    rtn_settings_override_model = get_ranking_overrides(request.ranking_overrides)
+    if not rtn_settings_override_model:
+        rtn_settings_override_model = RTNSettingsModel(
             **settings_manager.settings.ranking.model_dump()
         )
+
+    # Create overrides dict
+    overrides = rtn_settings_override_model.model_dump()
+
+    if request.min_filesize_override is not None:
+        overrides["min_filesize"] = request.min_filesize_override
+    if request.max_filesize_override is not None:
+        overrides["max_filesize"] = request.max_filesize_override
 
     with db_session() as session:
         item = db_functions.get_or_create_media_item(
@@ -1029,12 +1041,20 @@ async def auto_scrape(
             for season in seasons_to_scrape:
                 # Dispatch for Season (Packs)
                 di[Program].em.add_event(
-                    Event("API", season.id, rtn_settings_override=rtn_settings_override)
+                    Event(
+                        "API",
+                        season.id,
+                        overrides=overrides,
+                    )
                 )
                 # Dispatch for Episodes (Individual files)
                 for episode in season.episodes:
                     di[Program].em.add_event(
-                        Event("API", episode.id, rtn_settings_override=rtn_settings_override)
+                        Event(
+                            "API",
+                            episode.id,
+                            overrides=overrides,
+                        )
                     )
 
             return MessageResponse(
@@ -1043,7 +1063,11 @@ async def auto_scrape(
 
         # Scrape entire item
         di[Program].em.add_event(
-            Event("API", item.id, rtn_settings_override=rtn_settings_override)
+            Event(
+                "API",
+                item.id,
+                overrides=overrides,
+            )
         )
         return MessageResponse(message=f"Started auto scrape for {item.log_string}")
 

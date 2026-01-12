@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Queue, Empty
 
+
 from loguru import logger
 from RTN.models import SettingsModel
 
@@ -65,13 +66,11 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     def run(
         self,
         item: MediaItem,
-        rtn_settings_override: SettingsModel | None = None,
     ) -> MediaItemGenerator:
         """Scrape an item."""
 
-        sorted_streams = self.scrape(
-            item, rtn_settings_override=rtn_settings_override
-        )
+        sorted_streams = self.scrape(item)
+
         new_streams = [
             stream
             for stream in sorted_streams.values()
@@ -116,7 +115,6 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         item: MediaItem,
         verbose_logging: bool = True,
         manual: bool = False,
-        rtn_settings_override: SettingsModel | None = None,
     ) -> dict[str, Stream]:
         """Scrape an item.
 
@@ -124,7 +122,6 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             item: The media item to scrape.
             verbose_logging: Whether to log verbose messages.
             manual: If True, bypass content filters for manual scraping.
-            rtn_settings_override: Optional RTN settings to use instead of defaults.
         """
 
         results = dict[str, str]()
@@ -164,7 +161,7 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             logger.log("NOT_FOUND", f"No streams to process for {item.log_string}")
             return {}
 
-        sorted_streams = parse_results(item, results, manual=manual, rtn_settings_override=rtn_settings_override)
+        sorted_streams = parse_results(item, results, manual=manual)
 
         if sorted_streams and (verbose_logging and settings_manager.settings.log_level):
             top_results = list(sorted_streams.values())[:10]

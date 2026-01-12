@@ -433,13 +433,12 @@ def run_thread_with_db_item(
                 if input_item:
                     input_item = session.merge(input_item)
 
-                    kwargs = {}
-                    from program.services.scrapers import Scraping
-
-                    if isinstance(service, Scraping) and event.rtn_settings_override:
-                        kwargs["rtn_settings_override"] = event.rtn_settings_override
-
-                    runner_result = next(fn(input_item, **kwargs), None)
+                    from program.settings import settings_manager
+                    
+                    # Execute service within the settings context if overrides exist
+                    overrides = event.overrides or {}
+                    with settings_manager.override(**overrides):
+                        runner_result = next(fn(input_item), None)
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:

@@ -1,7 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 from kink import di
 from loguru import logger
-from RTN.models import SettingsModel
 
 from program.media import MediaItem, States
 from program.types import ProcessedEvent, Service
@@ -12,7 +11,7 @@ def process_event(
     emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str,
     existing_item: MediaItem | None = None,
     content_item: MediaItem | None = None,
-    rtn_settings_override: SettingsModel | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> ProcessedEvent:
     """Process an event and return the updated item, next service and items to submit."""
 
@@ -52,7 +51,7 @@ def process_event(
         return ProcessedEvent(
             service=services.indexer,
             related_media_items=related_media_items,
-            rtn_settings_override=rtn_settings_override,
+            overrides=overrides,
         )
 
     elif existing_item and existing_item.last_state in [
@@ -68,7 +67,7 @@ def process_event(
 
             for season in incomplete_seasons:
                 processed_event = process_event(
-                    emitted_by, season, None, rtn_settings_override
+                    emitted_by, season, None, overrides
                 )
 
                 if processed_event.related_media_items:
@@ -80,7 +79,7 @@ def process_event(
 
             for episode in incomplete_episodes:
                 processed_event = process_event(
-                    emitted_by, episode, None, rtn_settings_override
+                    emitted_by, episode, None, overrides
                 )
 
                 if processed_event.related_media_items:
@@ -90,7 +89,7 @@ def process_event(
         next_service = services.scraping
 
         if emitted_by != services.scraping and (
-            rtn_settings_override is not None
+            overrides is not None
             or services.scraping.should_submit(existing_item)
         ):
             items_to_submit = [existing_item]
@@ -101,7 +100,7 @@ def process_event(
                 if s.last_state
                 in [States.Indexed, States.PartiallyCompleted, States.Unknown]
                 and (
-                    rtn_settings_override is not None
+                    overrides is not None
                     or services.scraping.should_submit(s)
                 )
             ]
@@ -111,7 +110,7 @@ def process_event(
                 for e in existing_item.episodes
                 if e.last_state in [States.Indexed, States.Unknown]
                 and (
-                    rtn_settings_override is not None
+                    overrides is not None
                     or services.scraping.should_submit(e)
                 )
             ]
@@ -148,5 +147,5 @@ def process_event(
     return ProcessedEvent(
         service=next_service,
         related_media_items=items_to_submit,
-        rtn_settings_override=rtn_settings_override,
+        overrides=overrides,
     )

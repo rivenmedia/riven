@@ -1,6 +1,7 @@
 """Shared functions for scrapers."""
 
 from datetime import datetime
+from typing import Any
 from loguru import logger
 from RTN import (
     RTN,
@@ -78,7 +79,6 @@ def parse_results(
     results: dict[str, str],
     log_msg: bool = True,
     manual: bool = False,
-    rtn_settings_override: SettingsModel | None = None,
 ) -> dict[str, Stream]:
     """Parse the results from the scrapers into Torrent objects.
 
@@ -94,12 +94,17 @@ def parse_results(
     correct_title = item.top_title
 
     # Use override RTN settings if provided, otherwise use default
-    if rtn_settings_override:
-        rtn_instance = RTN(rtn_settings_override, ranking_model)
-        active_settings = rtn_settings_override
-    else:
+
+    # Use effective RTN settings (handles explicit overrides/context implicitly)
+    active_settings = settings_manager.get_effective_rtn_model()
+    
+    # Check if we are diverging from the global singleton `rtn` instance
+    is_default_settings = (active_settings.model_dump() == ranking_settings.model_dump())
+    
+    if is_default_settings:
         rtn_instance = rtn
-        active_settings = ranking_settings
+    else:
+        rtn_instance = RTN(active_settings, ranking_model)
 
     aliases = (
         {k: v for k, v in a.items() if k not in active_settings.languages.exclude}
