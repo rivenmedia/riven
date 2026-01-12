@@ -36,11 +36,8 @@ from program.utils.torrent import extract_infohash
 from program.program import Program
 from ..models.shared import MessageResponse
 from program.settings import settings_manager
+from program.settings.models import RTNSettingsModel
 from program.services.scrapers import Scraping
-from program.settings.models import Observable
-
-if TYPE_CHECKING:
-    from program.services.scrapers.base import ScraperService
 
 
 
@@ -689,7 +686,7 @@ async def start_manual_session(
 
         # Use async container resolution with fallback
         # Cast type to ProcessedItemType if it's not 'mediaitem'
-        item_type: ProcessedItemType = cast(ProcessedItemType, item.type) if item.type != "mediaitem" else "movie"
+        item_type: ProcessedItemType = item.type if item.type != "mediaitem" else "movie"
         container, error = await resolve_torrent_container(
             info_hash,
             downloader,
@@ -995,7 +992,7 @@ async def auto_scrape(
         )
 
     # Create overrides dict
-    overrides = rtn_settings_override_model.model_dump()
+    overrides: dict[str, Any] = rtn_settings_override_model.model_dump()
 
     if request.min_filesize_override is not None:
         overrides["min_filesize"] = request.min_filesize_override

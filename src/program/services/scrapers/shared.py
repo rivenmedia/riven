@@ -12,7 +12,7 @@ from RTN import (
     DefaultRanking,
 )
 from RTN.models import SettingsModel
-from typing import Any, cast
+from typing import cast
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
