@@ -1,4 +1,3 @@
-from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, cast, TypeAlias
 from uuid import uuid4
@@ -39,10 +38,6 @@ from program.settings import settings_manager
 from program.settings.models import RTNSettingsModel
 from program.services.scrapers import Scraping
 
-
-
-
-
 class Stream(BaseModel):
     infohash: str
     raw_title: str
@@ -75,8 +70,6 @@ class ParsedFile(BaseModel):
     filesize: int
     download_url: str | None = None
     parsed_metadata: dict[str, Any]
-
-
 
 
 class StartSessionResponse(MessageResponse):
@@ -1067,7 +1060,7 @@ async def auto_scrape(
                         States.Paused
                     ):
                         episode.last_state = States.Paused
-                        session.merge(episode)            
+                        session.merge(episode)
 
             # Commit state changes so Event Manager sees them
             session.commit()

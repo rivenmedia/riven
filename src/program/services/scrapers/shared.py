@@ -1,4 +1,3 @@
-from __future__ import annotations
 """Shared functions for scrapers."""
 
 from datetime import datetime
@@ -90,7 +89,6 @@ def parse_results(
     processed_infohashes = set[str]()
     correct_title = item.top_title
 
-    # Use override RTN settings if provided, otherwise use default
 
     # Use effective RTN settings (handles explicit overrides/context implicitly)
     active_settings = settings_manager.get_effective_rtn_model()

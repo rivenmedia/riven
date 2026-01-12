@@ -1128,11 +1128,6 @@ class Season(MediaItem):
     def top_title(self) -> str:
         """Get the top title of the season."""
 
-        session = object_session(self)
-
-        if session and session.is_active:
-            session.refresh(self, ["parent"])
-
         return self.parent.title
 
 
