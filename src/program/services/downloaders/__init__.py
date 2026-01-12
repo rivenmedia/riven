@@ -665,8 +665,6 @@ class Downloader(Runner[None, DownloaderBase]):
     def get_torrent_info(
         self,
         torrent_id: int | str,
-        min_filesize: int | None = None,
-        max_filesize: int | None = None,
     ) -> TorrentInfo:
         """Get information about a torrent"""
 
@@ -674,8 +672,6 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.get_torrent_info(
             torrent_id,
-            min_filesize=min_filesize,
-            max_filesize=max_filesize,
         )
 
     def select_files(self, torrent_id: int | str, container: list[int]) -> None:

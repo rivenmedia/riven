@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 import json
 import os
 import contextvars
@@ -128,7 +128,7 @@ class SettingsManager:
             file.write(self.settings.model_dump_json(indent=4, exclude_none=True))
 
     @contextmanager
-    def override(self, **overrides):
+    def override(self, **overrides: Any) -> Generator[None, None, None]:
         """Context manager to temporarily override settings."""
         token = self._overrides_ctx.set({**self._overrides_ctx.get(), **overrides})
         try:

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Annotated, Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, cast, TypeAlias
 from uuid import uuid4
 
 from RTN import ParsedData, parse, Torrent
@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import Episode, MediaItem, Season, Show, ProcessedItemType
+from program.media.item import MediaItem, Show, Season, Episode, ProcessedItemType
 from program.media.state import States
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
@@ -33,7 +33,6 @@ from program.services.scrapers.shared import get_ranking_overrides
 from program.types import Event
 from program.utils.torrent import extract_infohash
 from program.program import Program
-from program.media.models import ActiveStream
 from ..models.shared import MessageResponse
 from program.settings import settings_manager
 from program.settings.models import RTNSettingsModel
@@ -206,7 +205,6 @@ class ScrapingSessionManager:
             imdb_id,
             tmdb_id,
             tvdb_id,
-            magnet,
             magnet,
             min_filesize_override,
             max_filesize_override,
@@ -476,10 +474,12 @@ def scrape_item(
 
     if services := di[Program].services:
         scraper = services.scraping
-    else:
-        raise HTTPException(status_code=412, detail="Scraping services not initialized")
-
+    
     # Prepare overrides dictionary
+    target_media_type: Literal["movie", "tv"] | None = (
+        cast(Literal["movie", "tv"], media_type) if media_type in ("movie", "tv") else None
+    )
+    
     overrides = rtn_settings_override.model_dump() if rtn_settings_override else {}
     if min_filesize_override is not None:
         overrides["min_filesize"] = min_filesize_override
@@ -511,7 +511,7 @@ def scrape_item(
 
         def generate_events():
             with db_session() as session:
-                item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, media_type)
+                item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
 
                 if not item:
                     error_event = ScrapeStreamEvent(event="error", message="Item not found")
@@ -584,7 +584,7 @@ def scrape_item(
 
     # Standard JSON response mode
     with db_session() as session:
-        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, media_type)
+        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
         assert item
         apply_custom_params(item)
 
@@ -655,10 +655,15 @@ async def start_manual_session(
 
     initialize_downloader(downloader)
 
+    # Prepare overrides dictionary
+    target_media_type: Literal["movie", "tv"] | None = (
+        cast(Literal["movie", "tv"], media_type) if media_type in ("movie", "tv") else None
+    )
+
     item = None
 
     with db_session() as session:
-        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, media_type)
+        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
 
         # ensure item is present
         if not item:
@@ -830,7 +835,7 @@ async def session_action(
                 tmdb_id=scraping_session.tmdb_id,
                 tvdb_id=scraping_session.tvdb_id,
                 imdb_id=scraping_session.imdb_id,
-                media_type=scraping_session.media_type,
+                media_type=cast(Literal["movie", "tv"] | None, scraping_session.media_type),
             )
             
             if not item:
@@ -846,9 +851,10 @@ async def session_action(
             if isinstance(data, DebridFile):
                 if data.file_id:
                     file_ids.append(data.file_id)
-            elif isinstance(data, RootModel): # ShowFileData
+            elif isinstance(data, ShowFileData):
                  # Extract file IDs and Season numbers
-                 for season_num, episodes in data.root.items():
+                 root_data: SeasonEpisodeMap = cast(SeasonEpisodeMap, data.root)
+                 for season_num, episodes in root_data.items():
                      active_seasons.add(season_num)
                      for ep_data in episodes.values():
                          if ep_data.file_id:
@@ -856,7 +862,9 @@ async def session_action(
 
             # Construct synthetic Stream object for the downloader
             # We use RTN to parse the release title to satisfy Stream requirements
+            assert scraping_session.torrent_info
             parsed_data = parse(scraping_session.torrent_info.name)
+            assert scraping_session.magnet
             torrent = Torrent(
                 raw_title=scraping_session.torrent_info.name,
                 infohash=scraping_session.magnet,
@@ -866,6 +874,7 @@ async def session_action(
             )
             stream = ItemStream(torrent)
             
+            assert downloader.service
             # Start Manual Download via Downloader Service
             # This handles validation, downloading, and attribute updates in one go
             success = downloader.start_manual_download(
@@ -996,8 +1005,6 @@ async def auto_scrape(
             # Re-query with eager loading to ensure seasons and episodes are available
             from sqlalchemy import select
             from sqlalchemy.orm import selectinload
-            from program.media.item import Season
-
 
             item = session.execute(
                 select(Show)
@@ -1005,8 +1012,8 @@ async def auto_scrape(
                 .where(Show.id == item.id)
             ).scalar_one()
 
-            seasons_to_scrape = []
-            seasons_to_pause = []
+            seasons_to_scrape: list[Season] = []
+            seasons_to_pause: list[Season] = []
             
             for season in item.seasons:
                 if season.number in request.season_numbers:

@@ -56,6 +56,7 @@ class Stream(Base):
     rank: Mapped[int]
     lev_ratio: Mapped[float]
     resolution: Mapped[str | None]
+    is_cached: bool = False
     parents: Mapped[list["MediaItem"]] = relationship(
         secondary="StreamRelation", back_populates="streams", lazy="selectin"
     )
@@ -83,6 +84,8 @@ class Stream(Base):
         self.resolution = (
             torrent.data.resolution.lower() if torrent.data.resolution else "unknown"
         )
+        self.is_cached = False
+        # is_cached is handled by its default value in the mapped_column definition
 
     def __hash__(self):
         return hash(self.infohash)
@@ -101,4 +104,5 @@ class Stream(Base):
             "rank": self.rank,
             "lev_ratio": self.lev_ratio,
             "resolution": self.resolution,
+            "is_cached": self.is_cached,
         }

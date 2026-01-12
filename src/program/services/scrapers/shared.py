@@ -11,6 +11,7 @@ from RTN import (
     DefaultRanking,
 )
 from RTN.models import SettingsModel
+from typing import Any, Generator
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
@@ -21,7 +22,6 @@ scraping_settings: ScraperModel = settings_manager.settings.scraping
 ranking_settings: RTNSettingsModel = settings_manager.settings.ranking
 ranking_model: BaseRankingModel = DefaultRanking()
 rtn = RTN(ranking_settings, ranking_model)
-
 
 
 def get_ranking_overrides(
@@ -201,8 +201,7 @@ def parse_results(
                 # If the torrent has episodes, but the episode number is not present
                 if torrent.data.episodes:
                     if (
-                        isinstance(item, Episode)
-                        and item.number not in torrent.data.episodes
+                        item.number not in torrent.data.episodes
                         and item.absolute_number not in torrent.data.episodes
                     ):
                         skip = True
@@ -210,14 +209,8 @@ def parse_results(
                 # If the torrent does not have episodes, but has seasons, and the parent season is not present
                 elif torrent.data.seasons:
                     if (
-                        isinstance(item, Episode)
-                        and isinstance(item.parent, Season)
-                        and item.parent.number not in torrent.data.seasons
-                    ):
-                        skip = True
-                    elif (
-                        isinstance(item, Season)
-                        and item.number not in torrent.data.seasons
+                        # item is already confirmed to be Episode at line 197
+                        item.parent.number not in torrent.data.seasons
                     ):
                         skip = True
 

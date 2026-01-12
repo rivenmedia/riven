@@ -6,10 +6,9 @@ from queue import Queue, Empty
 
 
 from loguru import logger
-from RTN.models import SettingsModel
 
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
-from program.media.item import MediaItem
+from program.media.item import MediaItem, Show, Season, Episode, ProcessedItemType
 from program.media.state import States
 from program.media.stream import Stream
 from program.services.scrapers.aiostreams import AIOStreams
@@ -25,7 +24,6 @@ from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
 from program.settings import settings_manager
 from program.settings.models import Observable, ScraperModel
-from program.services.scrapers.base import ScraperService
 
 
 class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
