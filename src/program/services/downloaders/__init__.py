@@ -374,11 +374,11 @@ class Downloader(Runner[None, DownloaderBase]):
 
                 if isinstance(item, (Show, Season, Episode)):
                     # Allow files with episodes OR files with dates (for daily shows)
-                    if not file_data.episodes and not file_data.date or (
-                        file_data.episodes
-                        and 0 in file_data.episodes
-                        and len(file_data.episodes) == 1
-                    ) or file_data.seasons and file_data.seasons[0] == 0:
+                    if (
+                        (not file_data.episodes and not file_data.date)
+                        or (file_data.episodes and 0 in file_data.episodes and len(file_data.episodes) == 1)
+                        or (file_data.seasons and file_data.seasons[0] == 0)
+                    ):
                         continue
 
                 if self.match_file_to_item(
