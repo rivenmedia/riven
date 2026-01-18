@@ -2,7 +2,7 @@ from copy import copy
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Body, HTTPException, Path, Query
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError, create_model
 
 from program.settings import settings_manager
 from program.settings.models import AppModel
@@ -64,34 +64,15 @@ async def get_settings_schema_for_keys(
             detail=f"Invalid keys: {', '.join(invalid_keys)}. Valid keys are: {', '.join(sorted(valid_keys))}",
         )
 
-    all_defs: dict[str, Any] = {}
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-
-    for key in requested_keys:
-        field_info = model_fields[key]
-        adapter: TypeAdapter[Any] = TypeAdapter(field_info.annotation)
-        field_schema = adapter.json_schema(ref_template="#/$defs/{model}")
-
-        if "$defs" in field_schema:
-            all_defs.update(field_schema.pop("$defs"))
-
-        properties[key] = field_schema
-
-        if field_info.is_required():
-            required.append(key)
-
-    filtered_schema: dict[str, Any] = {
-        "properties": properties,
-        "required": required,
-        "title": title,
-        "type": "object",
+    # Build fields to preserve all metadata
+    fields = {
+        key: (model_fields[key].annotation, model_fields[key]) for key in requested_keys
     }
 
-    if all_defs:
-        filtered_schema["$defs"] = all_defs
+    # Create dynamic model to preserve all metadata
+    filtered_model = create_model(title, **fields)  # type: ignore[call-overload]
 
-    return filtered_schema
+    return cast(dict[str, Any], filtered_model.model_json_schema())
 
 
 @router.get(
