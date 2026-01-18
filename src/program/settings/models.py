@@ -2,15 +2,9 @@
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, Annotated
+from typing import Annotated, Any, Literal
 
-from pydantic import (
-    BaseModel,
-    Field,
-    field_validator,
-    model_validator,
-    BeforeValidator,
-)
+from pydantic import BaseModel, BeforeValidator, Field, field_validator, model_validator
 from pydantic.networks import PostgresDsn
 from RTN.models import SettingsModel
 
@@ -328,9 +322,24 @@ class FilesystemModel(Observable):
             "Template for episode file names (without extension). "
             "Available variables: title, season, episode, "
             "show (parent show data with [title], [year], [tvdb_id], [imdb_id]), "
+            "aired_year, aired_month, aired_day, aired_date, "
             "resolution, codec, hdr, audio, quality, remux, proper, repack, extended, directors_cut, edition. "
             "Example: '{show[title]} - s{season:02d}e{episode:02d}' or 'S{season:02d}E{episode:02d} - {title}'. "
             "Multi-episode files automatically use range format (e.g., e01-05) based on episode number formatting."
+        ),
+    )
+
+    daily_episode_file_template: str | None = Field(
+        default=None,
+        description=(
+            "Template for daily show episode file names (without extension). "
+            "Used when a torrent is matched by air date instead of episode number (e.g., talk shows, news programs). "
+            "If not set, falls back to episode_file_template. "
+            "Available variables: title, season, episode, "
+            "show (parent show data with [title], [year], [tvdb_id], [imdb_id]), "
+            "aired_year, aired_month, aired_day, aired_date, "
+            "resolution, codec, hdr, audio, quality, remux, proper, repack, extended, directors_cut, edition. "
+            "Example: '{show[title]} - {aired_date}' or '{show[title]} - {aired_year}-{aired_month:02d}-{aired_day:02d}'"
         ),
     )
 
@@ -339,7 +348,7 @@ class FilesystemModel(Observable):
         """Validate library profile keys and paths"""
         import re
 
-        for key in v.keys():
+        for key in v:
             # Profile keys must be lowercase alphanumeric with underscores
             if not re.match(r"^[a-z0-9_]+$", key):
                 raise ValueError(
@@ -410,6 +419,10 @@ class FilesystemModel(Observable):
                 "tmdb_id": "12345",
                 "tvdb_id": "12345",
                 "imdb_id": "tt1234567",
+                "aired_year": 2024,
+                "aired_month": 1,
+                "aired_day": 15,
+                "aired_date": "2024-01-15",
                 "resolution": "1080p",
                 "codec": "h264",
                 "hdr": ["HDR10"],
@@ -429,6 +442,52 @@ class FilesystemModel(Observable):
             return v
         except Exception as e:
             raise ValueError(f"Invalid naming template syntax: {e}")
+
+    @field_validator("daily_episode_file_template")
+    def validate_daily_episode_template(cls, v: str | None) -> str | None:
+        """Validate that daily episode naming template string is syntactically valid."""
+
+        if v is None:
+            return v
+
+        from program.utils.safe_formatter import SafeFormatter
+
+        try:
+            formatter = SafeFormatter()
+            test_data = {
+                "title": "Test Title",
+                "year": 2024,
+                "season": 1,
+                "episode": 1,
+                "show": {
+                    "title": "Test Show",
+                    "year": 2024,
+                    "tvdb_id": "12345",
+                    "imdb_id": "tt1234567",
+                },
+                "aired_year": 2024,
+                "aired_month": 1,
+                "aired_day": 15,
+                "aired_date": "2024-01-15",
+                "resolution": "1080p",
+                "codec": "h264",
+                "hdr": ["HDR10"],
+                "audio": "aac",
+                "quality": "BluRay",
+                "container": "mkv",
+                "remux": "REMUX",
+                "proper": "PROPER",
+                "repack": "REPACK",
+                "extended": "Extended",
+                "directors_cut": "Director's Cut",
+                "edition": "Extended Director's Cut",
+            }
+
+            formatter.format(v, **test_data)
+
+            return v
+        except Exception as e:
+            raise ValueError(f"Invalid daily episode naming template syntax: {e}")
 
 
 # Content Services
@@ -758,9 +817,13 @@ class AIOStreamsConfig(Observable):
         default=1, ge=0, description="Number of retries for failed requests"
     )
     ratelimit: bool = Field(default=True, description="Enable rate limiting")
-    proxy_url: EmptyOrUrl = Field(default="", description="Proxy URL for AIOStreams requests")
+    proxy_url: EmptyOrUrl = Field(
+        default="", description="Proxy URL for AIOStreams requests"
+    )
     uuid: str = Field(default="", description="User UUID for AIOStreams authentication")
-    password: str = Field(default="", description="User password for AIOStreams authentication")
+    password: str = Field(
+        default="", description="User password for AIOStreams authentication"
+    )
 
 
 class ScraperModel(Observable):
@@ -814,7 +877,8 @@ class ScraperModel(Observable):
         default_factory=lambda: RarbgConfig(), description="RARBG configuration"
     )
     aiostreams: AIOStreamsConfig = Field(
-        default_factory=lambda: AIOStreamsConfig(), description="AIOStreams configuration"
+        default_factory=lambda: AIOStreamsConfig(),
+        description="AIOStreams configuration",
     )
 
 

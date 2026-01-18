@@ -8,16 +8,15 @@ Supports flexible naming templates configured in settings.
 import os
 from re import Match
 from typing import Any, Generic, TypeVar, cast
+
 from loguru import logger
+from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, computed_field
 
-from program.media.item import MediaItem, Movie, Show, Season, Episode
-from program.settings import settings_manager
-from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
-
+from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.media_entry import MediaEntry
+from program.settings import settings_manager
 from program.utils.safe_formatter import SafeFormatter
-
 
 T = TypeVar("T", bound=MediaItem)
 
@@ -74,6 +73,46 @@ class NameBuilder(BaseModel, Generic[T]):
 
         if isinstance(self._item, Episode):
             return self._item.number
+
+        return None
+
+    @computed_field
+    @property
+    def aired_year(self) -> int | None:
+        """Get aired year from item if applicable (for daily shows)"""
+
+        if self._item.aired_at:
+            return self._item.aired_at.year
+
+        return None
+
+    @computed_field
+    @property
+    def aired_month(self) -> int | None:
+        """Get aired month from item if applicable (for daily shows)"""
+
+        if self._item.aired_at:
+            return self._item.aired_at.month
+
+        return None
+
+    @computed_field
+    @property
+    def aired_day(self) -> int | None:
+        """Get aired day from item if applicable (for daily shows)"""
+
+        if self._item.aired_at:
+            return self._item.aired_at.day
+
+        return None
+
+    @computed_field
+    @property
+    def aired_date(self) -> str | None:
+        """Get formatted aired date (YYYY-MM-DD) from item if applicable (for daily shows)"""
+
+        if self._item.aired_at:
+            return self._item.aired_at.strftime("%Y-%m-%d")
 
         return None
 
@@ -504,6 +543,9 @@ class NamingService:
         Template: settings.filesystem.episode_file_template
         Default: "{show[title]} - s{season:02d}e{episode:02d}"
 
+        For daily shows (torrents matched by air date instead of episode number),
+        uses settings.filesystem.daily_episode_file_template if set.
+
         For multi-episode files, automatically formats episode numbers as EXX-YY
         (or EX-Y) based on the episode number formatting in the template.
 
@@ -523,6 +565,7 @@ class NamingService:
         )
 
         parsed: dict[str, Any] | None = None
+        is_date_based = False
 
         if (
             isinstance(item.filesystem_entry, MediaEntry)
@@ -535,16 +578,32 @@ class NamingService:
 
                 if parsed.get("episodes") and len(parsed["episodes"]) > 1:
                     episodes = list[int](sorted(parsed["episodes"]))
+
+                # Check if this is a date-based torrent (no episode numbers parsed)
+                if not parsed.get("episodes") and not parsed.get("seasons"):
+                    is_date_based = True
+
             except Exception as e:
                 logger.warning(f"Failed to parse filename '{original_filename}': {e}")
                 parsed = None
 
         # Get template from settings
-        template = settings_manager.settings.filesystem.episode_file_template
+        # Use daily template for date-based torrents if configured
+        daily_template = (
+            settings_manager.settings.filesystem.daily_episode_file_template
+        )
 
-        # For multi-episode files, modify the template to use range format
-        if len(episodes) > 1:
-            template = self._adapt_template_for_multi_episode(template, episodes)
+        if is_date_based and daily_template:
+            template = daily_template
+            logger.debug(
+                f"Using daily episode template for date-based torrent: {item.log_string}"
+            )
+        else:
+            template = settings_manager.settings.filesystem.episode_file_template
+
+            # For multi-episode files, modify the template to use range format
+            if len(episodes) > 1:
+                template = self._adapt_template_for_multi_episode(template, episodes)
 
         # Render template
         try:
@@ -555,7 +614,12 @@ class NamingService:
             )
 
             # Fallback to default format
-            if len(episodes) > 1:
+            if is_date_based and episode_context.aired_date:
+                # For date-based, use aired date
+                return self._sanitize_name(
+                    f"{season_context.title} - {episode_context.aired_date}"
+                )
+            elif len(episodes) > 1:
                 episode_string = f"e{episodes[0]:02d}-{episodes[-1]:02d}"
             else:
                 episode_string = f"e{item.number:02d}"

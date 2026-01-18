@@ -1,23 +1,24 @@
 """Shared functions for scrapers."""
 
 from datetime import datetime
+
 from loguru import logger
+from pydantic import BaseModel
 from RTN import (
     RTN,
+    BaseRankingModel,
+    DefaultRanking,
     ParsedData,
     Torrent,
     sort_torrents,
-    BaseRankingModel,
-    DefaultRanking,
 )
-from RTN.models import ResolutionConfig, CustomRanksConfig, CustomRank
-from pydantic import BaseModel
+from RTN.models import CustomRank, CustomRanksConfig, ResolutionConfig
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream
+from program.services.scrapers.models import RankingOverrides
 from program.settings import settings_manager
 from program.settings.models import RTNSettingsModel, ScraperModel
-from program.services.scrapers.models import RankingOverrides
 
 scraping_settings: ScraperModel = settings_manager.settings.scraping
 ranking_settings: RTNSettingsModel = settings_manager.settings.ranking
@@ -222,7 +223,17 @@ def parse_results(
                     if item.parent.number not in torrent.data.seasons:  # type: ignore
                         skip = True
 
-                # If the torrent has neither episodes nor seasons, skip (junk)
+                # If the torrent has neither episodes nor seasons, check for date match (daily shows)
+                elif torrent.data.date and item.aired_at:
+                    # For daily shows like talk shows, torrents use air dates instead of episode numbers
+                    if not _check_aired_date_match(item.aired_at, torrent.data.date):
+                        skip = True
+                    else:
+                        logger.debug(
+                            f"Matched episode by air date for {item.log_string}: {raw_title}"
+                        )
+
+                # If the torrent has neither episodes, seasons, nor a matching date, skip (junk)
                 else:
                     skip = True
 
@@ -307,6 +318,46 @@ def _check_item_year(aired_at: datetime, data: ParsedData) -> bool:
         aired_at.year,
         aired_at.year + 1,
     ]
+
+
+def _check_aired_date_match(aired_at: datetime, torrent_date: str | None) -> bool:
+    """
+    Check if a torrent's parsed date matches the item's aired_at date.
+
+    Used for daily shows where torrents are named with air dates instead of
+    episode numbers.
+
+    Args:
+        aired_at: The episode's air date from TVDB/TMDB
+        torrent_date: The date string parsed from the torrent title by RTN
+
+    Returns:
+        True if the dates match, False otherwise
+    """
+
+    if not torrent_date:
+        return False
+
+    try:
+        # RTN typically parses dates in formats like "2026 01 08" or "2026-01-08"
+        # Normalize by removing common separators
+        normalized = torrent_date.replace("-", " ").replace(".", " ").replace("/", " ")
+        parts = normalized.split()
+
+        if len(parts) >= 3:
+            year = int(parts[0])
+            month = int(parts[1])
+            day = int(parts[2])
+
+            return (
+                aired_at.year == year
+                and aired_at.month == month
+                and aired_at.day == day
+            )
+    except (ValueError, IndexError):
+        pass
+
+    return False
 
 
 def _get_item_country(item: MediaItem) -> str | None:

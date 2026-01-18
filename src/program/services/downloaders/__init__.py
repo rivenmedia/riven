@@ -1,7 +1,9 @@
 from datetime import datetime, timedelta
+
 from loguru import logger
 from RTN import ParsedData
 
+from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.media.item import (
     Episode,
     MediaItem,
@@ -10,10 +12,10 @@ from program.media.item import (
     Season,
     Show,
 )
-from program.media.state import States
-from program.media.stream import Stream
 from program.media.media_entry import MediaEntry
 from program.media.models import ActiveStream, MediaMetadata
+from program.media.state import States
+from program.media.stream import Stream
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
@@ -25,19 +27,17 @@ from program.services.downloaders.models import (
 )
 from program.services.downloaders.shared import (
     DownloaderBase,
-    sort_streams_by_quality,
     parse_filename,
     resolve_download_url,
+    sort_streams_by_quality,
 )
-from RTN import ParsedData
-from program.services.downloaders.shared import parse_filename
+from program.services.scrapers.shared import _check_aired_date_match
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen
-from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
-from .realdebrid import RealDebridDownloader
-from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
+from .debridlink import DebridLinkDownloader
+from .realdebrid import RealDebridDownloader
 
 
 class Downloader(Runner[None, DownloaderBase]):
@@ -170,7 +170,7 @@ class Downloader(Runner[None, DownloaderBase]):
                             raise NoMatchingFilesException(
                                 f"No valid files found for {item.log_string} ({item.id})"
                             )
-                    except CircuitBreakerOpen as e:
+                    except CircuitBreakerOpen:
                         # This specific service hit circuit breaker, set cooldown and try next service
                         cooldown_duration = timedelta(minutes=1)
                         self._service_cooldowns[service.key] = (
@@ -355,7 +355,7 @@ class Downloader(Runner[None, DownloaderBase]):
                         method_2 = show.seasons[-2].episodes[-1].number
 
                     episode_cap = max([method_1, method_2])
-                except Exception as e:
+                except Exception:
                     pass
 
             found = False
@@ -369,15 +369,16 @@ class Downloader(Runner[None, DownloaderBase]):
                     assert file.filename
 
                     file_data = parse_filename(file.filename)
-                except Exception as e:
+                except Exception:
                     continue
 
                 if isinstance(item, (Show, Season, Episode)):
-                    if not file_data.episodes:
-                        continue
-                    elif 0 in file_data.episodes and len(file_data.episodes) == 1:
-                        continue
-                    elif file_data.seasons and file_data.seasons[0] == 0:
+                    # Allow files with episodes OR files with dates (for daily shows)
+                    if (
+                        (not file_data.episodes and not file_data.date)
+                        or (file_data.episodes and 0 in file_data.episodes and len(file_data.episodes) == 1)
+                        or (file_data.seasons and file_data.seasons[0] == 0)
+                    ):
                         continue
 
                 if self.match_file_to_item(
@@ -451,6 +452,83 @@ class Downloader(Runner[None, DownloaderBase]):
 
         if isinstance(item, (Show, Season, Episode)):
             season_number = file_data.seasons[0] if file_data.seasons else None
+
+            # Date-based matching for daily shows (no episode numbers in filename)
+            if not file_data.episodes and file_data.date:
+                # For Episodes, check if the file's date matches the episode's aired_at
+                if isinstance(item, Episode) and item.aired_at:
+                    if _check_aired_date_match(item.aired_at, file_data.date):
+                        if not item.filesystem_entry and item.state not in [
+                            States.Completed,
+                            States.Symlinked,
+                            States.Downloaded,
+                        ]:
+                            logger.debug(
+                                f"match_file_to_item: date-based match for episode {item.id} from file '{file.filename}'"
+                            )
+
+                            self._update_attributes(
+                                item,
+                                file,
+                                download_result,
+                                service,
+                                file_data,
+                            )
+
+                            if processed_episode_ids is not None:
+                                processed_episode_ids.add(str(item.id))
+
+                            logger.debug(
+                                f"Matched episode {item.log_string} to file {file.filename} by air date"
+                            )
+
+                            return True
+
+                # For Shows/Seasons, find the episode with matching aired_at date
+                elif isinstance(item, (Show, Season)) and show:
+                    for season in show.seasons:
+                        for episode in season.episodes:
+                            if episode.aired_at and _check_aired_date_match(
+                                episode.aired_at, file_data.date
+                            ):
+                                if (
+                                    not episode.filesystem_entry
+                                    and episode.state
+                                    not in [
+                                        States.Completed,
+                                        States.Symlinked,
+                                        States.Downloaded,
+                                    ]
+                                ):
+                                    if (
+                                        processed_episode_ids is not None
+                                        and str(episode.id) in processed_episode_ids
+                                    ):
+                                        continue
+
+                                    logger.debug(
+                                        f"match_file_to_item: date-based match for episode {episode.id} from file '{file.filename}'"
+                                    )
+
+                                    self._update_attributes(
+                                        episode,
+                                        file,
+                                        download_result,
+                                        service,
+                                        file_data,
+                                    )
+
+                                    if processed_episode_ids is not None:
+                                        processed_episode_ids.add(str(episode.id))
+
+                                    logger.debug(
+                                        f"Matched episode {episode.log_string} to file {file.filename} by air date"
+                                    )
+
+                                    found = True
+                                    break
+                        if found:
+                            break
 
             for file_episode in file_data.episodes:
                 if episode_cap and file_episode > episode_cap:
