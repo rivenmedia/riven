@@ -27,10 +27,7 @@ from program.services.downloaders.shared import (
     DownloaderBase,
     sort_streams_by_quality,
     parse_filename,
-    resolve_download_url,
 )
-from RTN import ParsedData
-from program.services.downloaders.shared import parse_filename
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
@@ -82,14 +79,12 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return True
 
-    def get_service(self, service_key: str) -> DownloaderBase | None:
-        """Get a specific downloader service by its key"""
-        return next(
-            (s for s in self.initialized_services if s.key == service_key), None
-        )
-
-    def run(self, item: MediaItem) -> MediaItemGenerator:
+    def run(
+        self,
+        item: MediaItem,
+    ) -> MediaItemGenerator:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
+
 
         # Check if all services are in cooldown due to circuit breaker
         now = datetime.now()
@@ -276,7 +271,7 @@ class Downloader(Runner[None, DownloaderBase]):
             # Clear service cooldowns on successful download
             self._service_cooldowns.clear()
 
-        yield RunnerResult(media_items=[item])
+            yield RunnerResult(media_items=[item])
 
     def validate_stream(
         self,
@@ -641,32 +636,11 @@ class Downloader(Runner[None, DownloaderBase]):
                 logger.debug(
                     f"Matched library profiles for {item.log_string}: {library_profiles}"
                 )
-        elif download_result.info.id and service:
-            logger.debug(
-                f"Refreshing torrent info for {download_result.info.id} to resolve download_url"
-            )
-
-            if new_url := resolve_download_url(
-                service, download_result.info.id, debrid_file.filename
-            ):
-                logger.debug(
-                    f"Resolved download_url for {debrid_file.filename}: {new_url}"
-                )
-                debrid_file.download_url = new_url
-                # Recursively call with updated file
-                self._update_attributes(
-                    item, debrid_file, download_result, service, file_data
-                )
-            else:
-                logger.warning(
-                    f"Failed to resolve download_url for {debrid_file.filename}"
-                )
 
     def get_instant_availability(
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Retrieve cached availability information for a torrent identified by its infohash and item type.
@@ -679,11 +653,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         assert self.service
 
-        return self.service.get_instant_availability(
-            infohash,
-            item_type,
-            limit_filesize,
-        )
+        return self.service.get_instant_availability(infohash, item_type)
 
     def add_torrent(self, infohash: str) -> int | str:
         """Add a torrent by infohash"""
@@ -692,26 +662,24 @@ class Downloader(Runner[None, DownloaderBase]):
 
         return self.service.add_torrent(infohash)
 
-    def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
+    def get_torrent_info(
+        self,
+        torrent_id: int | str,
+    ) -> TorrentInfo:
         """Get information about a torrent"""
 
         assert self.service
 
-        return self.service.get_torrent_info(torrent_id)
+        return self.service.get_torrent_info(
+            torrent_id,
+        )
 
-    def select_files(
-        self,
-        torrent_id: int | str,
-        container: list[int],
-        service: DownloaderBase | None = None,
-    ) -> None:
+    def select_files(self, torrent_id: int | str, container: list[int]) -> None:
         """Select files from a torrent"""
 
-        target_service = service or self.service
+        assert self.service
 
-        assert target_service
-
-        target_service.select_files(torrent_id, container)
+        self.service.select_files(torrent_id, container)
 
     def delete_torrent(self, torrent_id: int | str) -> None:
         """Delete a torrent"""
@@ -724,3 +692,61 @@ class Downloader(Runner[None, DownloaderBase]):
         """Get user information"""
 
         return service.get_user_info()
+
+    def start_manual_download(
+        self,
+        item: MediaItem,
+        stream: Stream,
+        service: DownloaderBase,
+        file_ids: list[int] | None = None,
+    ) -> bool:
+        """
+        Manually start a download for a specific stream.
+        Uses the same pipeline as the standard automated download flow:
+        1. validate_stream_on_service (validates and gets TorrentContainer)
+        2. download_cached_stream_on_service (adds torrent and gets info)
+        3. update_item_attributes (matches files and sets active_stream)
+        """
+        
+        # 1. Ensure stream is persisted on item (relationship)
+        if stream not in item.streams:
+            item.streams.append(stream)
+            # Session commit is expected to be handled by caller
+        
+        # 2. Validate stream and get container (same as standard flow)
+        container = self.validate_stream_on_service(
+            stream, 
+            item, 
+            service, 
+        )
+        
+        if not container:
+            logger.warning(f"START_MANUAL_DOWNLOAD: Stream {stream.infohash} not available on {service.key}")
+            return False
+        
+        if container and file_ids and container.files:
+            # Filter the container.files list to only include selected files
+            container.files = [f for f in container.files if f.file_id in file_ids]
+
+        logger.info(f"START_MANUAL_DOWNLOAD: Validated stream {stream.infohash} on {service.key}")
+        
+        # 3. Download using standard method (same as standard flow)
+        try:
+            result = self.download_cached_stream_on_service(stream, container, service)
+        except Exception as e:
+            logger.error(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service raised: {e}")
+            return False
+        
+        if not result:
+            logger.warning(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service returned None")
+            return False
+        
+        # 4. Update item attributes (same as standard flow)
+        if self.update_item_attributes(item, result, service):
+            # Store state - Manual download completes the 'Downloader' phase, so we are now Downloaded
+            item.store_state(States.Downloaded)
+            logger.info(f"START_MANUAL_DOWNLOAD: Successfully downloaded {item.log_string} from '{stream.raw_title}'")
+            return True
+        else:
+            logger.warning(f"START_MANUAL_DOWNLOAD: update_item_attributes failed for {item.log_string}")
+            return False

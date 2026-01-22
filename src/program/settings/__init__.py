@@ -1,6 +1,8 @@
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 import json
 import os
+import contextvars
+from contextlib import contextmanager
 from typing import Any, cast
 
 from loguru import logger
@@ -17,6 +19,7 @@ class SettingsManager:
         self.observers = list[Callable[[], Any]]()
         self.filename = os.environ.get("SETTINGS_FILENAME", "settings.json")
         self.settings_file = data_dir_path / self.filename
+        self._overrides_ctx = contextvars.ContextVar("settings_overrides", default={})
 
         Observable.set_notify_observers(self.notify_observers)
 
@@ -123,6 +126,45 @@ class SettingsManager:
         """Save settings to file, using Pydantic model for JSON serialization."""
         with open(self.settings_file, "w", encoding="utf-8") as file:
             file.write(self.settings.model_dump_json(indent=4, exclude_none=True))
+
+    @contextmanager
+    def override(self, **overrides: Any) -> Generator[None, None, None]:
+        """Context manager to temporarily override settings."""
+        old_overrides = self._overrides_ctx.get()
+        token = self._overrides_ctx.set({**old_overrides, **overrides})
+        try:
+            yield
+        finally:
+            try:
+                self._overrides_ctx.reset(token)
+            except ValueError:
+                # Handle cases where the context has changed (e.g., across thread/task boundaries)
+                logger.trace("Context mismatch during override reset, manually restoring old overrides")
+                self._overrides_ctx.set(old_overrides)
+
+    def get_setting(self, key: str, default: Any) -> Any:
+        """Get a setting value, respecting any active overrides."""
+        overrides = self._overrides_ctx.get()
+        if overrides and key in overrides:
+            return overrides[key]
+        return default
+
+    def get_effective_rtn_model(self):
+        """Get the effective RTN settings, merging global settings with active overrides."""
+        from RTN.models import SettingsModel
+
+        # Start with global settings
+        ranking_settings = self.settings.ranking.model_dump()
+        
+        # Apply overrides
+        overrides = self._overrides_ctx.get()
+        if overrides:
+            valid_keys = SettingsModel.model_fields.keys()
+            filtered_overrides = {k: v for k, v in overrides.items() if k in valid_keys}
+            ranking_settings.update(filtered_overrides)
+            
+        return SettingsModel(**ranking_settings)
+
 
 
 def format_validation_error(e: ValidationError) -> str:

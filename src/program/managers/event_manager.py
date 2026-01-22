@@ -143,8 +143,16 @@ class EventManager:
 
                     return
 
+                # Propagate overrides to the new event to maintain setting context across service transitions
+                event_overrides = future_with_event.event.overrides if future_with_event.event else None
+
                 self.add_event(
-                    Event(emitted_by=service, item_id=item_id, run_at=timestamp)
+                    Event(
+                        emitted_by=service,
+                        item_id=item_id,
+                        run_at=timestamp,
+                        overrides=event_overrides
+                    )
                 )
         except Exception as e:
             logger.error(f"Error in future for {future_with_event}: {e}")
