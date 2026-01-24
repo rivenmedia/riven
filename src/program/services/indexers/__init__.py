@@ -32,6 +32,9 @@ class IndexerService(BaseIndexer):
     ) -> MediaItemGenerator:
         """Run the appropriate indexer based on item type."""
 
+        if item.is_excluded:
+          return
+          
         if isinstance(item, Movie) or (item.tmdb_id and not item.tvdb_id):
             yield from self.tmdb_indexer.run(
                 item=item,

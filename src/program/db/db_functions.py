@@ -358,6 +358,13 @@ def run_thread_with_db_item(
                         item = runner_result.media_items[0]
                         run_at = runner_result.run_at
 
+                        if item.is_excluded:
+                            logger.trace(
+                                f"Item {item.log_string} is excluded, deleting from DB."
+                            )
+
+                            session.delete(item)
+
                         if not cancellation_event.is_set():
                             # Update parent item based on type
                             if isinstance(input_item, Episode):

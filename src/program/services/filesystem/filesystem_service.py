@@ -36,6 +36,7 @@ class FilesystemService(Runner[FilesystemModel]):
 
     def _initialize_rivenvfs(self, downloader: Downloader):
         """Initialize or synchronize RivenVFS"""
+
         try:
             from .vfs import RivenVFS
 
@@ -74,6 +75,12 @@ class FilesystemService(Runner[FilesystemModel]):
 
         # Process each episode/movie
         for episode_or_movie in items_to_process:
+            if item.is_excluded:
+                logger.debug(
+                    f"Item {episode_or_movie.log_string} is excluded from filesystem processing, skipping."
+                )
+                continue  # Item is excluded, skip processing
+
             success = self.riven_vfs.add(episode_or_movie)
 
             if not success:

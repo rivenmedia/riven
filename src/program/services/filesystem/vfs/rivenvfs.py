@@ -531,6 +531,20 @@ class RivenVFS(pyfuse3.Operations):
             True if successfully added, False otherwise
         """
 
+        if item.is_excluded:
+            logger.info(
+                f"Excluding {item.log_string} from VFS add based on exclusion rules"
+            )
+
+            return False
+
+        from program.media.media_entry import MediaEntry
+
+        # Only process if this item has a filesystem entry
+        if not item.filesystem_entry:
+            logger.debug(f"Item {item.id} has no filesystem_entry, skipping VFS add")
+            return False
+
         # Only process if this item has a media entry
         if not (entry := item.media_entry):
             logger.debug(f"Item {item.id} has no media entry, skipping VFS add")
@@ -749,6 +763,7 @@ class RivenVFS(pyfuse3.Operations):
         # Step 1: Re-match all entries against current library profiles and collect item IDs
         item_ids = list[int]()
         rematched_count = 0
+        excluded_item_ids = set()
 
         with db_session() as session:
             entries = (
@@ -763,6 +778,10 @@ class RivenVFS(pyfuse3.Operations):
                     logger.warning(
                         f"MediaEntry {entry.id} has no associated MediaItem, skipping"
                     )
+                    continue
+
+                if item.is_excluded:
+                    excluded_item_ids.add(item.id)
                     continue
 
                 # Re-match library profiles based on current settings
@@ -780,7 +799,9 @@ class RivenVFS(pyfuse3.Operations):
 
             session.commit()
 
-            logger.debug(f"Re-matched {rematched_count} entries with updated profiles")
+            logger.debug(
+                f"Re-matched {rematched_count} entries with updated profiles; excluded {len(excluded_item_ids)} items due to excluded_items settings."
+            )
 
         # Step 2: Clear VFS tree and rebuild from scratch
         logger.debug("Clearing VFS tree for rebuild")
@@ -867,6 +888,11 @@ class RivenVFS(pyfuse3.Operations):
         Args:
             item: MediaItem to re-sync
         """
+
+        if item.is_excluded:
+            logger.debug(f"Item {item.id} is excluded, skipping individual sync")
+
+            return
 
         from sqlalchemy.orm import object_session
         from program.db.db import db_session
