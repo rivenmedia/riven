@@ -13,7 +13,6 @@ from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
     TorrentContainer,
     TorrentFile,
     TorrentInfo,
@@ -226,7 +225,6 @@ class RealDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
@@ -238,20 +236,14 @@ class RealDebridDownloader(DownloaderBase):
 
         try:
             torrent_id = self.add_torrent(infohash)
-
-            # 2. Process the torrent to get files and status
             container, reason, info = self._process_torrent(
-                torrent_id,
-                infohash,
-                item_type,
-                limit_filesize,
+                torrent_id, infohash, item_type
             )
 
             if container is None and reason:
                 # Failed validation - delete the torrent
 
-                if reason != "File size above set limit":
-                    logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 if torrent_id:
                     try:
@@ -260,9 +252,6 @@ class RealDebridDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
-
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
 
                 return None
 
@@ -297,8 +286,6 @@ class RealDebridDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
-            raise
         except InvalidDebridFileException as e:
             logger.debug(
                 f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
@@ -339,7 +326,6 @@ class RealDebridDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -381,7 +367,6 @@ class RealDebridDownloader(DownloaderBase):
 
         if info.status == "downloaded":
             files = list[DebridFile]()
-            filesize_limit_reached = False
 
             for file_id, meta in info.files.items():
                 if meta.selected != 1:
@@ -394,7 +379,6 @@ class RealDebridDownloader(DownloaderBase):
                         filesize_bytes=meta.bytes,
                         filetype=item_type,
                         file_id=file_id,
-                        limit_filesize=limit_filesize,
                     )
 
                     # Download URL is already available from get_torrent_info()
@@ -409,16 +393,11 @@ class RealDebridDownloader(DownloaderBase):
                         logger.warning(f"No download URL available for {meta.filename}")
 
                     files.append(df)
-                except FilesizeLimitExceededException as e:
-                    filesize_limit_reached = True
-                    logger.debug(f"{infohash}: {e}")
                 except InvalidDebridFileException as e:
                     # noisy per-file details kept at debug
                     logger.debug(f"{infohash}: {e}")
 
             if not files:
-                if filesize_limit_reached:
-                    return None, "File size above set limit", None
                 return None, "no valid files after validation", None
 
             # Return container WITH the TorrentInfo to avoid re-fetching in download phase

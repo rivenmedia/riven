@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from program.media.item import MediaItem
 from program.services.content import (
@@ -18,6 +18,7 @@ from program.services.filesystem import FilesystemService
 from program.media.state import States
 from program.services.indexers import IndexerService
 from program.services.post_processing import PostProcessing
+
 
 # Type aliases for various service types
 Scraper = Scraping
@@ -37,6 +38,7 @@ Service = (
 class ProcessedEvent:
     service: Service | None
     related_media_items: Sequence[MediaItem] | None
+    overrides: dict[str, Any] | None = None
 
 
 @dataclass
@@ -46,6 +48,7 @@ class Event:
     content_item: "MediaItem | None" = None
     run_at: datetime = datetime.now()
     item_state: States | None = None  # Cached state for priority sorting
+    overrides: dict[str, Any] | None = None
 
     @property
     def log_message(self) -> str:

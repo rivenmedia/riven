@@ -29,7 +29,8 @@ export HOME="$USER_HOME"
 # Define the command to run based on the DEBUG flag
 if [ "${DEBUG}" != "" ]; then
     echo "Installing debugpy..."
-    pip install debugpy
+    /riven/.venv/bin/python -m ensurepip
+    /riven/.venv/bin/python -m pip install debugpy
     CMD="/riven/.venv/bin/python -m debugpy --listen 0.0.0.0:5678 src/main.py"
 else
     CMD="/riven/.venv/bin/python src/main.py"

@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
     TorrentContainer,
     TorrentFile,
     TorrentInfo,
@@ -234,7 +233,6 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox
@@ -253,12 +251,10 @@ class DebridLinkDownloader(DownloaderBase):
                 torrent_id,
                 infohash,
                 item_type,
-                limit_filesize,
             )
 
             if container is None and reason:
-                if reason != "File size above set limit":
-                    logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 # Failed validation - delete the torrent
                 if torrent_id:
@@ -268,9 +264,6 @@ class DebridLinkDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
-
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
 
                 return None
 
@@ -301,8 +294,6 @@ class DebridLinkDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
-            raise
         except InvalidDebridFileException as e:
             logger.debug(
                 f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
@@ -331,7 +322,6 @@ class DebridLinkDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -352,7 +342,6 @@ class DebridLinkDownloader(DownloaderBase):
         # Also check if downloadPercent == 100
         if info.status == "downloaded" or (info.progress and info.progress >= 100):
             files = list[DebridFile]()
-            filesize_limit_reached = False
 
             for file_id, file in info.files.items():
                 # Debrid-Link doesn't have a "selected" field, all files are available
@@ -363,7 +352,6 @@ class DebridLinkDownloader(DownloaderBase):
                         filesize_bytes=file.bytes,
                         filetype=item_type,
                         file_id=file_id,
-                        limit_filesize=limit_filesize,
                     )
 
                     # Store download URL if available
@@ -377,15 +365,10 @@ class DebridLinkDownloader(DownloaderBase):
                         )
 
                     files.append(df)
-                except FilesizeLimitExceededException as e:
-                    filesize_limit_reached = True
-                    logger.debug(f"{infohash}: {e}")
                 except InvalidDebridFileException as e:
                     logger.debug(f"{infohash}: {e}")
 
             if not files:
-                if filesize_limit_reached:
-                    return None, "File size above set limit", None
                 return None, "no valid files after validation", None
 
             # Return container WITH the TorrentInfo to avoid re-fetching in download phase

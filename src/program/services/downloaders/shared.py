@@ -38,7 +38,6 @@ class DownloaderBase(ABC):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash
@@ -188,20 +187,3 @@ def sort_streams_by_quality(streams: list[Stream]) -> list[Stream]:
         key=lambda stream: (get_resolution(stream).value, stream.rank),
         reverse=True,
     )
-
-
-def resolve_download_url(
-    service: DownloaderBase, torrent_id: str | int, filename: str
-) -> str | None:
-    """
-    Attempt to resolve a download URL for a specific file by refreshing the torrent info.
-    Useful when cached containers lack direct download links.
-    """
-    try:
-        fresh_info = service.get_torrent_info(torrent_id)
-        for file in fresh_info.files.values():
-            if file.filename == filename and file.download_url:
-                return file.download_url
-    except Exception:
-        pass
-    return None

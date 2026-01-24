@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError
 
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
-    FilesizeLimitExceededException,
     TorrentContainer,
     TorrentInfo,
     UserInfo,
@@ -111,23 +110,15 @@ class AllDebridMagnetStatusResponse(BaseModel):
         size: int
         status: str
         status_code: int = Field(alias="statusCode")
-        upload_date: int | None = Field(alias="uploadDate", default=None)
-        completion_date: int | None = Field(alias="completionDate", default=None)
-        files: list[AllDebridFile | AllDebridDirectory] | None = None
-        links: list[dict[str, Any]] | None = None
+        upload_date: int = Field(alias="uploadDate")
+        completion_date: int = Field(alias="completionDate")
+        files: list[AllDebridFile | AllDebridDirectory] | None
 
     class MagnetErrorInfo(BaseModel):
         id: str
         error: AllDebridErrorDetail
 
     magnets: list[MagnetInfo | MagnetErrorInfo]
-
-    @field_validator("magnets", mode="before")
-    @classmethod
-    def parse_magnets(cls, v: Any) -> Any:
-        if isinstance(v, dict):
-            return [v]
-        return v
 
 
 class AllDebridError(Exception):
@@ -288,7 +279,6 @@ class AllDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
@@ -303,15 +293,11 @@ class AllDebridDownloader(DownloaderBase):
         try:
             torrent_id = self.add_torrent(infohash)
             container, reason, info = self._process_torrent(
-                torrent_id,
-                infohash,
-                item_type,
-                limit_filesize,
+                torrent_id, infohash, item_type
             )
 
             if container is None and reason:
-                if reason != "File size above set limit":
-                    logger.debug(f"Availability check failed [{infohash}]: {reason}")
+                logger.debug(f"Availability check failed [{infohash}]: {reason}")
 
                 # Failed validation - delete the torrent
                 if torrent_id:
@@ -321,9 +307,6 @@ class AllDebridDownloader(DownloaderBase):
                         logger.debug(
                             f"Failed to delete failed torrent {torrent_id}: {e}"
                         )
-
-                if reason == "File size above set limit":
-                    raise FilesizeLimitExceededException("File size above set limit")
 
                 return None
 
@@ -354,8 +337,6 @@ class AllDebridDownloader(DownloaderBase):
                     pass
 
             return None
-        except FilesizeLimitExceededException:
-            raise
         except InvalidDebridFileException as e:
             logger.debug(
                 f"Availability check failed [{infohash}]: Invalid debrid file(s) - {e}"
@@ -384,7 +365,6 @@ class AllDebridDownloader(DownloaderBase):
         torrent_id: int,
         infohash: str,
         item_type: ProcessedItemType,
-        limit_filesize: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -411,23 +391,11 @@ class AllDebridDownloader(DownloaderBase):
 
         files = list[DebridFile]()
 
-        errors = list[str]()
-
         # Process files recursively from the nested structure
         # files_data is a list of file objects with 'n', 's', 'l', and optionally 'e' fields
-        self._extract_files_recursive(
-            files_data,
-            item_type,
-            files,
-            infohash,
-            "",
-            limit_filesize,
-            errors,
-        )
+        self._extract_files_recursive(files_data, item_type, files, infohash)
 
         if not files:
-            if "filesize_limit" in errors:
-                return None, "File size above set limit", None
             return None, "no valid files after validation", None
 
         # Return container WITH the TorrentInfo to avoid re-fetching in download phase
@@ -464,7 +432,7 @@ class AllDebridDownloader(DownloaderBase):
                     AllDebridFile(
                         n=file_obj.n,
                         s=file_obj.s,
-                        l=file_obj.l or download_link,
+                        l=download_link,
                     )
                 )
 
@@ -475,8 +443,6 @@ class AllDebridDownloader(DownloaderBase):
         files: list[DebridFile],
         infohash: str,
         path_prefix: str = "",
-        limit_filesize: bool = True,
-        errors: list[str] | None = None,
     ) -> None:
         """
         Recursively extract files from AllDebrid's nested file structure.
@@ -505,17 +471,11 @@ class AllDebridDownloader(DownloaderBase):
                     filesize_bytes=size,
                     filetype=item_type,
                     file_id=None,
-                    limit_filesize=limit_filesize,
                 )
 
                 df.download_url = link
                 files.append(df)
-            except FilesizeLimitExceededException as e:
-                logger.debug(f"Validation failed for {name}: {e}")
-                if errors is not None:
-                    errors.append("filesize_limit")
-            except InvalidDebridFileException as e:
-                logger.debug(f"Validation failed for {name}: {e}")
+            except InvalidDebridFileException:
                 pass
 
     def add_torrent(self, infohash: str) -> int:
@@ -633,22 +593,24 @@ class AllDebridDownloader(DownloaderBase):
                 if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
                     continue  # Skip errored magnets
 
-                if magnet.links:
-                    return [
-                        AllDebridFile(
-                            n=link_data.get("filename", ""),
-                            s=link_data.get("size", 0),
-                            l=link_data.get("link", ""),
-                        )
-                        for link_data in magnet.links
-                    ]
-
                 files = magnet.files
 
                 if files:
                     all_files = list[AllDebridFile]()
-                    self._add_link_to_files_recursive(files, "", all_files)
-                    return all_files
+
+                    for file_or_directory in files:
+                        download_link = ""
+
+                        if isinstance(file_or_directory, AllDebridFile):
+                            download_link = file_or_directory.l
+                        else:
+                            # Recursively process files/folders and add download link
+                            self._add_link_to_files_recursive(
+                                file_or_directory.e, download_link, all_files
+                            )
+
+                    if all_files:
+                        return all_files
 
                 return None
 
