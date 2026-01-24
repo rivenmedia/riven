@@ -121,7 +121,7 @@ class Torrentio(ScraperService[TorrentioConfig]):
 
         if not response.ok:
             logger.error(
-                f"Torrentio request failed for {item.log_string}: {response.text}"
+                f"Torrentio request failed for {item.log_string} - Status Code: {response.status_code}"
             )
             response.raise_for_status()
 
