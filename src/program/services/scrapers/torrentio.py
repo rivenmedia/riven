@@ -134,12 +134,17 @@ class Torrentio(ScraperService[TorrentioConfig]):
         torrents = dict[str, str]()
 
         for stream in data.streams:
-            if not stream.info_hash:
-                continue
+            try:
++                url_parts = stream.url.split('/')
++                infohash = url_parts[6] if len(url_parts) > 6 else None
++                if not infohash or len(infohash) != 40:
++                    continue
++            except:
+                 continue
 
             stream_title = stream.title.split("\n👤")[0]
             raw_title = stream_title.split("\n")[0]
-            torrents[stream.info_hash] = raw_title
+            torrents[infohash] = raw_title
 
         if torrents:
             logger.log(
