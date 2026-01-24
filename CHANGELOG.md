@@ -1,5 +1,95 @@
 # Changelog
 
+## [1.0.0](https://github.com/rivenmedia/riven/compare/v0.23.6...v1.0.0) (2026-01-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **db:** Database schema change requires migration or fresh database
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks
+* seperate from trakt to tvdb and tmdb indexers
+
+### Features
+
+* add aiostreams scraper and fix mediafusion scraper & update schemas ([#1340](https://github.com/rivenmedia/riven/issues/1340)) ([e221e50](https://github.com/rivenmedia/riven/commit/e221e5033e09355af6867f1f59cc0d39706d39f5))
+* add custom title and IMDB ID parameters to scrape endpoints ([#1319](https://github.com/rivenmedia/riven/issues/1319)) ([ca03d85](https://github.com/rivenmedia/riven/commit/ca03d8529b4ff76619a1190ce4375a42d6d84e53))
+* add debug and db related endpoints ([#1321](https://github.com/rivenmedia/riven/issues/1321)) ([3c7e26d](https://github.com/rivenmedia/riven/commit/3c7e26d899d02f737bf05b9b1c010b083db89764))
+* add handling of aliases for movies/shows via Trakt ([#1248](https://github.com/rivenmedia/riven/issues/1248)) ([dc76e51](https://github.com/rivenmedia/riven/commit/dc76e51d1a5de76af73a9ac22f066f67e6727b3e))
+* add HLS streaming ([895a0b5](https://github.com/rivenmedia/riven/commit/895a0b5f7515d6713f599419be6b7725581e7d5e))
+* add poster path to MediaItem ([#1225](https://github.com/rivenmedia/riven/issues/1225)) ([3f6d383](https://github.com/rivenmedia/riven/commit/3f6d3830a3e4748ebca1ad6c1623e9abbb0ea78c))
+* Add SSE event publishing for completed media items ([582778e](https://github.com/rivenmedia/riven/commit/582778ed507419314bafb8daa543acc48b273161))
+* add state to calendar items ([5413261](https://github.com/rivenmedia/riven/commit/5413261efdc7a8c2d32c9824382345d6e83fb138))
+* alldebrid provider, remove dead code etc... ([2002e85](https://github.com/rivenmedia/riven/commit/2002e85dbe2c193a64d36154d33f7578fbb690ff))
+* custom naming, standardize media metadata ([#1243](https://github.com/rivenmedia/riven/issues/1243)) ([d18a318](https://github.com/rivenmedia/riven/commit/d18a318959549f3333ec6d881cf76eb797c9e20e))
+* debrid-link downloader support ([b9ec1ee](https://github.com/rivenmedia/riven/commit/b9ec1eedf06285d7a46b6cc563724b2d5c98345a))
+* force asyncio backend detection in HTTP clients using sniffio to prevent conflicts with other async libraries ([#1330](https://github.com/rivenmedia/riven/issues/1330)) ([2aeae95](https://github.com/rivenmedia/riven/commit/2aeae9504a06e81a6850db63c680f7770d2fd3ba))
+* implement proper ratelimiting for services ([0b8b3e7](https://github.com/rivenmedia/riven/commit/0b8b3e72eaef37b00f7208c80158d5e63a9ebebd))
+* include IMDb, TMDb, and TVDb IDs in state change notifications to make correlation with frontend item possible ([ba0b345](https://github.com/rivenmedia/riven/commit/ba0b3451b0b738a7dbd84859bbd7290b678c0346))
+* introduce rivenvfs, get rid of that pesky rclone mount and symlinks ([722c7c4](https://github.com/rivenmedia/riven/commit/722c7c475380e57b7dc8f2bc5961cff4f61ab394))
+* log all ranking denied reasons on trace for better debugging ([#1329](https://github.com/rivenmedia/riven/issues/1329)) ([f4bb33a](https://github.com/rivenmedia/riven/commit/f4bb33a43f9000e9fbaaefd18533aa4fac17cde0))
+* **logging:** Adds user-configurable logging settings (enable/disable file logging, retention hours, rotation size MB, optional compression) in app settings. ([2001362](https://github.com/rivenmedia/riven/commit/20013620153276d910333e7bd736c65672ffee9e))
+* manual scraping ([#1288](https://github.com/rivenmedia/riven/issues/1288)) ([1a47d92](https://github.com/rivenmedia/riven/commit/1a47d926ba599465bee9754fb16341805fd8a120))
+* Media is now ffprobed after completion for more accurate metadata ([edb502e](https://github.com/rivenmedia/riven/commit/edb502ec5bf4304a908f3897d3e7b611d0a816f1))
+* new file streaming endpoint ([#1304](https://github.com/rivenmedia/riven/issues/1304)) ([2542806](https://github.com/rivenmedia/riven/commit/2542806271d7c4ca3967d87c2fa034447107925a))
+* schedule new releases and reindex on time ([#1209](https://github.com/rivenmedia/riven/issues/1209)) ([b4123b7](https://github.com/rivenmedia/riven/commit/b4123b702e59fe023949c689f41169f8eb16875d))
+* **scrapers:** enhance and unify infohash extraction logic ([1fe201a](https://github.com/rivenmedia/riven/commit/1fe201a876a4c79034b48ece10bbc9e33ad6e2e5))
+* **scrapers:** parallel infohash fetching on prowlarr/jackett ([#1241](https://github.com/rivenmedia/riven/issues/1241)) ([7b81d9a](https://github.com/rivenmedia/riven/commit/7b81d9a7117fa6955a2fdbfb565ec16ed4bd4ee5))
+* seperate from trakt to tvdb and tmdb indexers ([7e7dcc5](https://github.com/rivenmedia/riven/commit/7e7dcc59aabc90567b6135ce15827b483293bcd8))
+* settings api improvement ([#1333](https://github.com/rivenmedia/riven/issues/1333)) ([f777d05](https://github.com/rivenmedia/riven/commit/f777d055cf01fa756a6aedbb632893d36212dd94))
+* switch to streaming over chunking ([#1217](https://github.com/rivenmedia/riven/issues/1217)) ([77c8e9d](https://github.com/rivenmedia/riven/commit/77c8e9d49ebb4b5fb2cf48cee7c852ad7dfe5b1b))
+
+
+### Bug Fixes
+
+* /remove vfs entries recursively ([391c5ef](https://github.com/rivenmedia/riven/commit/391c5ef7573f9d35bc6438ce648d2bc58d70bc11))
+* add x-uuid header to log upload request to get a UUID paste name that's pretty much impossible to guess ([#1303](https://github.com/rivenmedia/riven/issues/1303)) ([1ff97e3](https://github.com/rivenmedia/riven/commit/1ff97e35062a5c82f92d0e6cfde76e84839f7ddd))
+* **cli,vfs:** fix environment variable handling and event listener invocation ([d28ae78](https://github.com/rivenmedia/riven/commit/d28ae7850b9fdb0554c0b827eeacfd0acee1dbda))
+* data wipe when rate limited with subtitles enabled ([#1302](https://github.com/rivenmedia/riven/issues/1302)) ([5b51cfe](https://github.com/rivenmedia/riven/commit/5b51cfe9645f230ba86c6f4082152649868ce430))
+* ditch RTN profiles and set 'best' profile as the new default when scraping ([4040b73](https://github.com/rivenmedia/riven/commit/4040b735b0634e51f1c8a2f5d85b2a60f0cdcb9e))
+* ditch show title in season dir naming. fixes [#1234](https://github.com/rivenmedia/riven/issues/1234) ([fe436fc](https://github.com/rivenmedia/riven/commit/fe436fc071de3aab2988c6eb29f1a6f421916a63))
+* **docs:** remove elfhosted from readme ([5451027](https://github.com/rivenmedia/riven/commit/54510272cc02490a4ffa17841713f6fde25846c7))
+* **downloader:** hotfix resolution and quality parsing bug ([dbcf7b7](https://github.com/rivenmedia/riven/commit/dbcf7b7c15856bf4450361e9b921baaec154e79f))
+* Environment variable handling and improve error messages ([#1249](https://github.com/rivenmedia/riven/issues/1249)) ([4c5ac3b](https://github.com/rivenmedia/riven/commit/4c5ac3b777b29600bf5b87baad1dc0e602ee9f97))
+* fixed incompleted items from reinit db ([add17ed](https://github.com/rivenmedia/riven/commit/add17ed5f219c2cd338501be00e7f64b71c3f7bd))
+* improvements to calendar and stats endpoint ([#1262](https://github.com/rivenmedia/riven/issues/1262)) ([ac39d08](https://github.com/rivenmedia/riven/commit/ac39d08077bb60d1ec21a9f1966a77a0cea7b9ea))
+* **items:** enhance media item search, filtering and sorting options ([#1227](https://github.com/rivenmedia/riven/issues/1227)) ([3392e68](https://github.com/rivenmedia/riven/commit/3392e68ae6e802072d0923e39b9b90f71ab68f86))
+* load dotenv before db to initialize SETTINGS_FILENAME env ([95b6140](https://github.com/rivenmedia/riven/commit/95b6140001c14173633a16475aae7da97c799697))
+* make requests explicit. no guessing when trying to index ([0c0bf64](https://github.com/rivenmedia/riven/commit/0c0bf64d060c60c2d18e2fba1eb82d129acd0d21))
+* **mdblist:** Skips items without required IDs. ([f04f631](https://github.com/rivenmedia/riven/commit/f04f63139b35e187878e4f42c775921233f448cd))
+* minor prowlarr condition check fix ([fbb5b4c](https://github.com/rivenmedia/riven/commit/fbb5b4cb709de8028f91ac82c2e8ba38af0958f8))
+* missing update_ongoing func for api use ([05d61b5](https://github.com/rivenmedia/riven/commit/05d61b5c1e0ac344455b872c1baccb94089cf594))
+* probe media urls before adding to vfs ([#1274](https://github.com/rivenmedia/riven/issues/1274)) ([15a040e](https://github.com/rivenmedia/riven/commit/15a040e95c70e7a91b18b895c71d39a93bab78e9))
+* prowlarr tz awareness ([#1308](https://github.com/rivenmedia/riven/issues/1308)) ([265bab8](https://github.com/rivenmedia/riven/commit/265bab8216918fcdca32e44133d243841e5ee843))
+* prowlarr using request contextmanager when there is none ([ab2b691](https://github.com/rivenmedia/riven/commit/ab2b6911acb0f99469f0d3be3f26f3b0448a001a))
+* refresh dead links ([#1269](https://github.com/rivenmedia/riven/issues/1269)) ([717be70](https://github.com/rivenmedia/riven/commit/717be70698e0563b9d64fce1205013f08cc0cbad))
+* refresh links on service unavailable ([#1335](https://github.com/rivenmedia/riven/issues/1335)) ([254505c](https://github.com/rivenmedia/riven/commit/254505cdee8630b1311c61cc09f90257dfd16df8))
+* remove anime check from aiostreamms ([9bfdb89](https://github.com/rivenmedia/riven/commit/9bfdb8918ec803648731b56ad9a8c2cfa27843a0))
+* remove movie-episode check in calendar ([edded17](https://github.com/rivenmedia/riven/commit/edded17b285f87b69109a4d8d012057c037618b8))
+* remove poster_path from alembic migrations temporarily ([9b327a8](https://github.com/rivenmedia/riven/commit/9b327a8b569c86201c2195d341d86af984964256))
+* removed torbox downloader ([7513f4a](https://github.com/rivenmedia/riven/commit/7513f4a44d0d2ca81a07882b4277495c52046c00))
+* serialization bug on media_metadata ([#1264](https://github.com/rivenmedia/riven/issues/1264)) ([086c353](https://github.com/rivenmedia/riven/commit/086c3534272c543a2e6d297cc7f2b821831ee052))
+* Show and movie states for ongoing items are now corrected ([9fe0d2b](https://github.com/rivenmedia/riven/commit/9fe0d2bb56dc498ca175bbb91c106e203ee42968))
+* Show and movie states for ongoing items are now corrected ([7846539](https://github.com/rivenmedia/riven/commit/78465398f53d8f82003e2389375dd2a3eb64cef4))
+* Show and movie states for ongoing items are now corrected ([a6df95c](https://github.com/rivenmedia/riven/commit/a6df95cb9f045982edcda8e56eb7edcccfc93acd))
+* show completed items in calendar ([c3829ec](https://github.com/rivenmedia/riven/commit/c3829eca9ed17306daf43d5944382098a2df677f))
+* simplify iteration over service sub-services ([aaad909](https://github.com/rivenmedia/riven/commit/aaad909b1c09d1aec52585323b5e5fe832d21eff))
+* subtitles not initializing ([78a512a](https://github.com/rivenmedia/riven/commit/78a512a079fca05daebf5f00b0aebfc975ec2fb9))
+* switch to tvdb/tmdb in orionoid scraping ([50329e1](https://github.com/rivenmedia/riven/commit/50329e175bcf9bae161c1cbdf95fe5015fb1dac9))
+* tidy error log for torrentio outages ([91bfd58](https://github.com/rivenmedia/riven/commit/91bfd582a4ebfe318fb1e58f4ba511d6b04798a1))
+* typo in mediaitem attr ([0a67c6b](https://github.com/rivenmedia/riven/commit/0a67c6b96fc18aac7080e36265a8022a15f4bb16))
+* updated calendar endpoint ([dd6ccbc](https://github.com/rivenmedia/riven/commit/dd6ccbc884dcdc78a873d68d7945328303428bb9))
+
+
+### Performance Improvements
+
+* **requests:** Improve requests perfomance by moving to httpx library ([153c3a3](https://github.com/rivenmedia/riven/commit/153c3a3f9a1c630ab56fb581327b951231a2c87e))
+* **scraping:** Improve scraping performance by removing redundant operations ([3a0a9a7](https://github.com/rivenmedia/riven/commit/3a0a9a76e448ced989331cb371486ff5cd313d44))
+
+
+### Code Refactoring
+
+* **db:** flip MediaItem-FilesystemEntry relationship and add automatic cleanup ([a94785b](https://github.com/rivenmedia/riven/commit/a94785be1cf5b21646caab8e8f46856bcfc648a6))
+
 ## [0.23.6](https://github.com/rivenmedia/riven/compare/v0.23.5...v0.23.6) (2025-08-24)
 
 
