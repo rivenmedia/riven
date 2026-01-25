@@ -29,9 +29,9 @@ def get_version() -> str:
 
 def generate_api_key():
     """Generate a secure API key of the specified length."""
-    API_KEY = os.getenv("API_KEY", "")
+    API_KEY = os.getenv("RIVEN_API_KEY", "")
     if len(API_KEY) != 32:
-        logger.warning("env.API_KEY is not 32 characters long, generating a new one...")
+        logger.warning("RIVEN_API_KEY is not 32 characters long, generating a new one...")
         characters = string.ascii_letters + string.digits
 
         # Generate the API key
