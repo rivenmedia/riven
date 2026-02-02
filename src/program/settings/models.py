@@ -856,22 +856,39 @@ class NotificationsModel(Observable):
     )
 
 
-class SubtitleProviderConfig(Observable):
-    enabled: bool = Field(default=False, description="Enable this subtitle provider")
+class OpenSubtitlesComConfig(Observable):
+    """OpenSubtitles.com REST API configuration."""
+
+    enabled: bool = Field(default=False, description="Enable OpenSubtitles.com provider")
+    api_key: str = Field(default="", description="API key from opensubtitles.com account")
+    username: str = Field(
+        default="", description="Username for authenticated downloads"
+    )
+    password: str = Field(
+        default="", description="Password for authenticated downloads"
+    )
+    query_params: dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional query parameters for subtitle search (e.g., foreign_parts_only, hearing_impaired)",
+    )
+    user_agent: str = Field(
+        default="Riven/1.0",
+        description="User-Agent header for API requests",
+    )
 
 
 class SubtitleProvidersDict(Observable):
-    opensubtitles: SubtitleProviderConfig = Field(
-        default_factory=lambda: SubtitleProviderConfig(),
-        description="OpenSubtitles provider configuration",
+    opensubtitles_com: OpenSubtitlesComConfig = Field(
+        default_factory=lambda: OpenSubtitlesComConfig(),
+        description="OpenSubtitles.com REST API provider configuration",
     )
 
 
 class SubtitleConfig(Observable):
     enabled: bool = Field(default=False, description="Enable subtitle downloading")
     languages: list[str] = Field(
-        default_factory=lambda: ["eng"],
-        description="Subtitle languages to download (ISO 639-2 codes)",
+        default_factory=lambda: ["en"],
+        description="Subtitle languages to download (e.g., en, zh-cn, fr)",
     )
     providers: SubtitleProvidersDict = Field(
         default_factory=lambda: SubtitleProvidersDict(),
