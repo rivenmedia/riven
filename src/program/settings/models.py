@@ -860,10 +860,27 @@ class SubtitleProviderConfig(Observable):
     enabled: bool = Field(default=False, description="Enable this subtitle provider")
 
 
+class OpenSubtitlesComConfig(Observable):
+    """OpenSubtitles.com REST API configuration."""
+
+    enabled: bool = Field(default=False, description="Enable OpenSubtitles.com provider")
+    api_key: str = Field(default="", description="API key from opensubtitles.com account")
+    username: str = Field(
+        default="", description="Username for authenticated downloads (optional)"
+    )
+    password: str = Field(
+        default="", description="Password for authenticated downloads (optional)"
+    )
+
+
 class SubtitleProvidersDict(Observable):
     opensubtitles: SubtitleProviderConfig = Field(
         default_factory=lambda: SubtitleProviderConfig(),
-        description="OpenSubtitles provider configuration",
+        description="OpenSubtitles.org XML-RPC provider configuration (legacy)",
+    )
+    opensubtitles_com: OpenSubtitlesComConfig = Field(
+        default_factory=lambda: OpenSubtitlesComConfig(),
+        description="OpenSubtitles.com REST API provider configuration",
     )
 
 

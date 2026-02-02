@@ -64,18 +64,33 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
 
         provider_configs = self.settings.providers
 
-        # Initialize OpenSubtitles provider
+        # Initialize OpenSubtitles XML-RPC provider (legacy)
         if provider_configs.opensubtitles.enabled:
             try:
                 provider = OpenSubtitlesProvider()
                 self.providers.append(provider)
-                logger.debug("OpenSubtitles provider initialized")
+                logger.debug("OpenSubtitles XML-RPC provider initialized")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenSubtitles provider: {e}")
 
-        # Add more providers here in the future
-        # if provider_configs.get("opensubtitlescom", {}).get("enabled"):
-        #     ...
+        # Initialize OpenSubtitles.com REST API provider
+        if provider_configs.opensubtitles_com.enabled:
+            config = provider_configs.opensubtitles_com
+            if not config.api_key:
+                logger.warning(
+                    "OpenSubtitles.com enabled but no API key configured"
+                )
+            else:
+                try:
+                    from .providers.opensubtitles_com import OpenSubtitlesComProvider
+
+                    provider = OpenSubtitlesComProvider(config)
+                    self.providers.append(provider)
+                    logger.debug("OpenSubtitles.com REST provider initialized")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to initialize OpenSubtitles.com provider: {e}"
+                    )
 
     @classmethod
     def _parse_languages(cls, language_codes: list[str]) -> list[str]:
