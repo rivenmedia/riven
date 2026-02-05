@@ -21,12 +21,13 @@
 
 Services currently supported:
 
-| Type              | Supported                                                                         |
-| ----------------- | --------------------------------------------------------------------------------- |
-| Debrid services   | Real Debrid, All Debrid                                                   |
-| Content services  | Plex Watchlist, Overseerr, Mdblist, Listrr, Trakt                                 |
-| Scraping services | Comet, Jackett, Torrentio, Orionoid, Mediafusion, Prowlarr, Zilean, Rarbg         |
-| Media servers     | Plex, Jellyfin, Emby                                                              |
+| Type               | Supported                                                                         |
+| ------------------ | --------------------------------------------------------------------------------- |
+| Debrid services    | Real Debrid, All Debrid                                                           |
+| Content services   | Plex Watchlist, Overseerr, Mdblist, Listrr, Trakt                                 |
+| Scraping services  | Comet, Jackett, Torrentio, Orionoid, Mediafusion, Prowlarr, Zilean, Rarbg         |
+| Subtitle services  | OpenSubtitles.com                                                                 |
+| Media servers      | Plex, Jellyfin, Emby                                                              |
 
 and more to come!
 
@@ -44,6 +45,7 @@ We are constantly adding features and improvements as we go along and squashing 
   - [Installation](#installation)
   - [Plex](#plex)
 - [RivenVFS and Caching](#rivenvfs-and-caching)
+- [Subtitles](#subtitles)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -329,6 +331,48 @@ The range format (e.g., `e01-05` or `E1-5`) is automatically applied based on yo
 - File extensions are added automatically
 - All names are sanitized for filesystem compatibility
 
+## Subtitles
+
+Riven can automatically download subtitles for your media using the OpenSubtitles.com REST API.
+
+### OpenSubtitles.com Setup
+
+1. Create a free account at [opensubtitles.com](https://www.opensubtitles.com)
+2. Get your API key from your account settings (API consumers section)
+    - This requirement will be removed once we obtained a public API key.
+3. Configure in `settings.json`:
+
+```json
+{
+  "subtitle": {
+    "enabled": true,
+    "languages": ["en", "zh-cn", "fr"],
+    "providers": {
+      "opensubtitles_com": {
+        "enabled": true,
+        "api_key": "your-api-key",
+        "username": "your-username",
+        "password": "your-password"
+      }
+    }
+  }
+}
+```
+
+**Configuration Options**:
+
+| Setting | Description |
+|---------|-------------|
+| `subtitle.enabled` | Enable subtitle downloading |
+| `subtitle.languages` | Languages to download (ISO 639-1 codes with locale variants, e.g., `en`, `zh-cn`, `pt-br`) |
+| `subtitle.providers.opensubtitles_com.enabled` | Enable OpenSubtitles.com provider |
+| `subtitle.providers.opensubtitles_com.api_key` | Your OpenSubtitles.com API key |
+| `subtitle.providers.opensubtitles_com.username` | Your OpenSubtitles.com username |
+| `subtitle.providers.opensubtitles_com.password` | Your OpenSubtitles.com password |
+| `subtitle.providers.opensubtitles_com.query_params` | Additional search parameters (e.g., `{"foreign_parts_only": "include"}`) |
+| `subtitle.providers.opensubtitles_com.user_agent` | Custom User-Agent header (default: `Riven/1.0`) |
+
+The provider uses JWT authentication with automatic token refresh and multi-strategy search (file hash → IMDB ID → filename fallback) for best subtitle matching.
 
 ## Contributing
 
