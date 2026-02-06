@@ -12,6 +12,7 @@ from enum import IntEnum
 from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
     DebridFile,
+    InfringingTorrentException,
     InvalidDebridFileException,
     TorrentContainer,
     TorrentFile,
@@ -277,6 +278,7 @@ class RealDebridDownloader(DownloaderBase):
             raise
         except RealDebridError as e:
             # add_torrent/select_files/delete_torrent surface HTTP error context via _handle_error
+            error_msg = str(e)
             logger.warning(f"Availability check failed [{infohash}]: {e}")
 
             if torrent_id:
@@ -284,6 +286,11 @@ class RealDebridDownloader(DownloaderBase):
                     self.delete_torrent(torrent_id)
                 except Exception:
                     pass
+
+            # 451 = Infringing torrent - raise special exception for immediate blacklisting
+            # This is a permanent failure, the torrent will never work on this debrid service
+            if "[451]" in error_msg:
+                raise InfringingTorrentException(infohash)
 
             return None
         except InvalidDebridFileException as e:

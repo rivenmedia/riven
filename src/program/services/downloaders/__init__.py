@@ -17,6 +17,7 @@ from program.media.models import ActiveStream, MediaMetadata
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
+    InfringingTorrentException,
     NoMatchingFilesException,
     NotCachedException,
     TorrentContainer,
@@ -181,6 +182,16 @@ class Downloader(Runner[None, DownloaderBase]):
                         # We want to retry this stream after cooldown
                         if len(self.initialized_services) == 1:
                             stream_failed_on_all_services = False
+                        continue
+
+                    except InfringingTorrentException as e:
+                        # 451 Infringing Torrent - immediately blacklist, do not retry
+                        # This is a permanent failure from the debrid service
+                        logger.warning(
+                            f"Stream {stream.infohash} flagged as infringing by {service.key}, blacklisting immediately"
+                        )
+                        item.blacklist_stream(stream)
+                        stream_failed_on_all_services = False  # Already handled via blacklist
                         continue
 
                     except Exception as e:
