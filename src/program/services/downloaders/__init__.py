@@ -723,9 +723,8 @@ class Downloader(Runner[None, DownloaderBase]):
             return False
 
         # 3. Try each available service (same as automated flow)
-        download_result: DownloadedTorrent | None = None
-
         for service in available_services:
+            download_result: DownloadedTorrent | None = None
             logger.debug(f"START_MANUAL_DOWNLOAD: Trying stream {stream.infohash} on {service.key} for {item.log_string}")
 
             try:
