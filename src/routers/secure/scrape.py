@@ -74,7 +74,7 @@ class ParsedFile(BaseModel):
 
 class StartSessionResponse(MessageResponse):
     session_id: str
-    item_id: int
+    item_id: int | None = None
     media_type: Literal["movie", "tv"] | None = None
     tmdb_id: str | None = None
     tvdb_id: str | None = None
@@ -146,7 +146,7 @@ class ScrapingSession:
     def __init__(
         self,
         id: str,
-        item_id: int,
+        item_id: int | None = None,
         media_type: Literal["movie", "tv"] | None = None,
         imdb_id: str | None = None,
         tmdb_id: str | None = None,
@@ -183,7 +183,7 @@ class ScrapingSessionManager:
 
     def create_session(
         self,
-        item_id: int,
+        item_id: int | None,
         magnet: str,
         media_type: Literal["movie", "tv"] | None = None,
         imdb_id: str | None = None,
@@ -399,15 +399,18 @@ def resolve_media_item(
     imdb_id: str | None = None,
     media_type: Literal["movie", "tv"] | None = None,
     raise_on_not_found: bool = True,
+    persist: bool = True,
 ) -> MediaItem | None:
     """
     Resolve or create a media item with common validation.
-    
+
     Args:
         session: DB session
         item_id, tmdb_id, tvdb_id, imdb_id, media_type: Identifiers
         raise_on_not_found: If True, raise HTTPException on None result
-        
+        persist: If True, persist newly created items to the DB.
+                 If False, return the item in-memory only (no state change, no commit).
+
     Returns:
         MediaItem or None (if raise_on_not_found=False)
     """
@@ -457,14 +460,14 @@ def resolve_media_item(
                 indexer_result = next(indexer.run(prepared_item), None)
                 if indexer_result and indexer_result.media_items:
                     item = indexer_result.media_items[0]
-                    item.store_state()
-                    # Persist new item
-                    item = session.merge(item)
-                    session.commit()
+                    if persist:
+                        item.store_state(States.Requested)
+                        item = session.merge(item)
+                        session.commit()
 
     if not item and raise_on_not_found:
         raise HTTPException(status_code=404, detail="Item not found")
-    
+
     if item and item.type == "mediaitem":
         raise HTTPException(status_code=400, detail="Unresolved mediaitem type")
     
@@ -565,7 +568,7 @@ def scrape_item(
 
         async def generate_events(scraper: Scraping):
             with db_session() as session:
-                item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
+                item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type, persist=False)
 
                 if not item:
                     error_event = ScrapeStreamEvent(event="error", message="Item not found")
@@ -573,7 +576,10 @@ def scrape_item(
                     return
                 
                 # Detach item from session to avoid threading issues in scraper
-                session.expunge(item)
+                # (item may not be in the session if it was resolved in-memory with persist=False)
+                from sqlalchemy.orm import object_session
+                if object_session(item) is not None:
+                    session.expunge(item)
                 
                 # Apply custom params to the detached item
                 apply_custom_params(item)
@@ -639,7 +645,7 @@ def scrape_item(
 
     # Standard JSON response mode
     with db_session() as session:
-        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
+        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type, persist=False)
         assert item
         apply_custom_params(item)
 
@@ -718,7 +724,7 @@ async def start_manual_session(
     item = None
 
     with db_session() as session:
-        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
+        item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type, persist=False)
 
         # ensure item is present
         if not item:
@@ -873,17 +879,13 @@ async def session_action(
         if not request.file_data:
             raise HTTPException(status_code=400, detail="file_data required for update_attributes action")
         
-        if not scraping_session.item_id:
-            scraping_session_manager.abort_session(session_id)
-            raise HTTPException(status_code=500, detail="No item ID found")
-        
         data = request.file_data
         
         if services := di[Program].services:
             downloader = services.downloader
         else:
             raise HTTPException(status_code=500, detail="Downloader service not available")
-        
+
         with db_session() as session:
             item = resolve_media_item(
                 session=session,
@@ -892,17 +894,17 @@ async def session_action(
                 imdb_id=scraping_session.imdb_id,
                 media_type=cast(Literal["movie", "tv"] | None, scraping_session.media_type),
             )
-            
+
             if not item:
                 raise HTTPException(status_code=404, detail="Item not found")
-            
+
             # Ensure attached to session
             item = session.merge(item)
-            
+
             # Extract selected file IDs and active seasons from payload
             file_ids = list[int]()
             active_seasons = set[int]()
-            
+
             if isinstance(data, DebridFile):
                 if data.file_id:
                     file_ids.append(data.file_id)
@@ -928,48 +930,45 @@ async def session_action(
                 lev_ratio=1.0
             )
             stream = ItemStream(torrent)
-            
-            assert downloader.service
-            # Start Manual Download via Downloader Service
-            # This handles validation, downloading, and attribute updates in one go
+
+            # Start Manual Download — tries all available downloader services
+            # (same multi-service pipeline as the automated Downloader.run flow)
             success = downloader.start_manual_download(
                 item=item,
                 stream=stream,
-                service=downloader.service, # Use primary service
                 file_ids=file_ids,
             )
             
             if not success:
                logger.error(f"Manual download failed for {item.log_string}")
                raise HTTPException(status_code=500, detail="Failed to start manual download")
-            
-            # Update Season States (Pause unselected / Unpause selected)
-            # Update Season States (Pause unselected / Unpause selected)
-            if isinstance(item, Show) and active_seasons:
 
+            # Pause unselected seasons/episodes so they don't get picked up by the state machine
+            if isinstance(item, Show) and active_seasons:
                 logger.info(f"Updating season states for {item.log_string}. Active seasons: {active_seasons}")
-                
                 for season in item.seasons:
                     if season.number in active_seasons:
                         if season.last_state == States.Paused:
                             season.store_state(States.Unknown)
-                        # Ensure episodes are also unpaused
                         for episode in season.episodes:
                             if episode.last_state == States.Paused:
                                 episode.store_state(States.Unknown)
                     else:
                         if season.last_state != States.Paused:
                             season.store_state(States.Paused)
-                        # Ensure episodes are also paused
                         for episode in season.episodes:
                             if episode.last_state != States.Paused:
                                 episode.store_state(States.Paused)
-                
+
+            # Compute and persist state the same way the automated flow does
+            # (run_thread_with_db_item calls store_state() on the top-level parent)
+            item.store_state()
             session.commit()
-            
-            # Emit event as if Downloader just finished, to trigger Symlinker/Filesystem
-            di[Program].em.add_event(Event("Downloader", item.id))
-            
+
+            # Emit into the state machine with the actual downloader service
+            # so the standard pipeline continues: Downloaded → Filesystem → Updater → PostProcessing
+            di[Program].em.add_event(Event(downloader, item.id))
+
             return MessageResponse(message=f"Updated given data to {item.log_string}")
 
     # === ABORT ===

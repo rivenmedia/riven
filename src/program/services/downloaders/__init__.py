@@ -697,56 +697,82 @@ class Downloader(Runner[None, DownloaderBase]):
         self,
         item: MediaItem,
         stream: Stream,
-        service: DownloaderBase,
         file_ids: list[int] | None = None,
     ) -> bool:
         """
         Manually start a download for a specific stream.
-        Uses the same pipeline as the standard automated download flow:
-        1. validate_stream_on_service (validates and gets TorrentContainer)
-        2. download_cached_stream_on_service (adds torrent and gets info)
-        3. update_item_attributes (matches files and sets active_stream)
+        Follows the same multi-service pipeline as the automated Downloader.run() flow:
+        tries each available service with circuit breaker/cooldown handling.
         """
-        
+
         # 1. Ensure stream is persisted on item (relationship)
         if stream not in item.streams:
             item.streams.append(stream)
-            # Session commit is expected to be handled by caller
-        
-        # 2. Validate stream and get container (same as standard flow)
-        container = self.validate_stream_on_service(
-            stream, 
-            item, 
-            service, 
-        )
-        
-        if not container:
-            logger.warning(f"START_MANUAL_DOWNLOAD: Stream {stream.infohash} not available on {service.key}")
-            return False
-        
-        if container and file_ids and container.files:
-            # Filter the container.files list to only include selected files
-            container.files = [f for f in container.files if f.file_id in file_ids]
 
-        logger.info(f"START_MANUAL_DOWNLOAD: Validated stream {stream.infohash} on {service.key}")
-        
-        # 3. Download using standard method (same as standard flow)
-        try:
-            result = self.download_cached_stream_on_service(stream, container, service)
-        except Exception as e:
-            logger.error(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service raised: {e}")
+        # 2. Get available services (same as automated flow)
+        now = datetime.now()
+        available_services = [
+            service
+            for service in self.initialized_services
+            if service.key not in self._service_cooldowns
+            or self._service_cooldowns[service.key] <= now
+        ]
+
+        if not available_services:
+            logger.warning(f"START_MANUAL_DOWNLOAD: All downloader services in cooldown for {item.log_string}")
             return False
-        
-        if not result:
-            logger.warning(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service returned None")
-            return False
-        
-        # 4. Update item attributes (same as standard flow)
-        if self.update_item_attributes(item, result, service):
-            # Store state - Manual download completes the 'Downloader' phase, so we are now Downloaded
-            item.store_state(States.Downloaded)
-            logger.info(f"START_MANUAL_DOWNLOAD: Successfully downloaded {item.log_string} from '{stream.raw_title}'")
-            return True
-        else:
-            logger.warning(f"START_MANUAL_DOWNLOAD: update_item_attributes failed for {item.log_string}")
-            return False
+
+        # 3. Try each available service (same as automated flow)
+        download_result: DownloadedTorrent | None = None
+
+        for service in available_services:
+            logger.debug(f"START_MANUAL_DOWNLOAD: Trying stream {stream.infohash} on {service.key} for {item.log_string}")
+
+            try:
+                container = self.validate_stream_on_service(stream, item, service)
+
+                if not container:
+                    logger.debug(f"START_MANUAL_DOWNLOAD: Stream {stream.infohash} not available on {service.key}")
+                    continue
+
+                # Filter to user-selected files
+                if file_ids and container.files:
+                    container.files = [f for f in container.files if f.file_id in file_ids]
+
+                logger.info(f"START_MANUAL_DOWNLOAD: Validated stream {stream.infohash} on {service.key}")
+
+                download_result = self.download_cached_stream_on_service(stream, container, service)
+
+                if self.update_item_attributes(item, download_result, service):
+                    self._service_cooldowns.pop(service.key, None)
+                    logger.log(
+                        "DEBRID",
+                        f"Manual download: {item.log_string} from '{stream.raw_title}' [{stream.infohash}] using {service.key}",
+                    )
+                    return True
+                else:
+                    raise NoMatchingFilesException(
+                        f"No valid files found for {item.log_string} ({item.id})"
+                    )
+
+            except CircuitBreakerOpen:
+                cooldown_duration = timedelta(minutes=1)
+                self._service_cooldowns[service.key] = datetime.now() + cooldown_duration
+                logger.warning(
+                    f"START_MANUAL_DOWNLOAD: Circuit breaker OPEN for {service.key}, trying next service"
+                )
+                continue
+
+            except Exception as e:
+                logger.debug(f"START_MANUAL_DOWNLOAD: Stream {stream.infohash} failed on {service.key}: {e}")
+
+                if download_result and download_result.id:
+                    try:
+                        service.delete_torrent(download_result.id)
+                        logger.debug(f"START_MANUAL_DOWNLOAD: Deleted failed torrent {stream.infohash} on {service.key}")
+                    except Exception as del_e:
+                        logger.debug(f"START_MANUAL_DOWNLOAD: Failed to delete torrent {stream.infohash} on {service.key}: {del_e}")
+                continue
+
+        logger.warning(f"START_MANUAL_DOWNLOAD: Failed on all {len(available_services)} available service(s) for {item.log_string}")
+        return False
