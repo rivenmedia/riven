@@ -1,16 +1,49 @@
-<div class="view-explore" data-view="explore">
-  <h1>Explore</h1>
-  <form class="explore-search" data-slot="search-form">
-    <input type="search" data-slot="query" placeholder="Search movies or TV shows">
+<section class="view view-explore" data-view="explore">
+  <header class="view-header">
+    <div>
+      <h1>Discovery Graph</h1>
+      <p>
+        Traverse TMDB/TVDB metadata across movies, TV shows, cast and related works.
+      </p>
+    </div>
+  </header>
+
+  <form class="toolbar toolbar--explore" data-slot="search-form">
     <select data-slot="source">
       <option value="tmdb">TMDB</option>
       <option value="tvdb">TVDB</option>
     </select>
+    <select data-slot="mode">
+      <option value="search">Search</option>
+      <option value="discover">Discover</option>
+    </select>
     <select data-slot="type">
       <option value="movie">Movies</option>
       <option value="tv">TV Shows</option>
+      <option value="all">All media (TMDB search only)</option>
     </select>
-    <button type="submit">Search</button>
+    <input type="search" data-slot="query" placeholder="Search title / person / keywords">
+    <button type="submit" class="btn btn--primary">Load</button>
   </form>
-  <div class="explore-grid" data-slot="grid"></div>
-</div>
+
+  <div class="explore-layout">
+    <section class="explore-results">
+      <div class="section-head">
+        <h2 data-slot="results-title">Results</h2>
+        <div class="pagination-bar pagination-bar--inline" data-slot="pagination"></div>
+      </div>
+      <div class="media-grid media-grid--dense" data-slot="grid"></div>
+      <p class="empty-state" data-slot="empty" hidden>No results.</p>
+    </section>
+
+    <aside class="explore-panel" data-slot="detail-panel">
+      <div class="section-head">
+        <h2>Metadata Graph</h2>
+      </div>
+      <div class="explore-breadcrumbs" data-slot="breadcrumbs"></div>
+      <div class="explore-detail" data-slot="detail">
+        <p class="muted">Select a card to inspect cast, recommendations, and linked entries.</p>
+      </div>
+    </aside>
+  </div>
+</section>

@@ -1,4 +1,14 @@
-<div class="view-mount" data-view="mount">
-  <h1>VFS Mount</h1>
-  <div class="mount-content" data-slot="content"></div>
-</div>
+<section class="view view-mount" data-view="mount">
+  <header class="view-header">
+    <div>
+      <h1>Mounted Files</h1>
+      <p>Current VFS mount inventory exposed by the backend filesystem service.</p>
+    </div>
+  </header>
+  <div class="panel mount-panel">
+    <div class="toolbar toolbar--mount">
+      <input type="search" data-slot="search" placeholder="Filter by file/path">
+    </div>
+    <div data-slot="content"></div>
+  </div>
+</section>

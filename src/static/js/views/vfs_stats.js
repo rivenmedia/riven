@@ -1,20 +1,18 @@
-/**
- * VFS Stats view
- */
-
 import { apiGet } from '../api.js';
 
 export async function load(route, container) {
-  const res = await apiGet('/vfs_stats');
-  const tableEl = container.querySelector('[data-slot="table"]');
-  if (!tableEl) return;
-  if (!res.ok || !res.data?.stats) {
-    tableEl.innerHTML = '<p>No VFS stats available</p>';
+  const response = await apiGet('/vfs_stats');
+  const tableHost = container.querySelector('[data-slot="table"]');
+  if (!tableHost) return;
+
+  if (!response.ok || !response.data?.stats) {
+    tableHost.innerHTML = '<p class="muted">No VFS stats available.</p>';
     return;
   }
-  const stats = res.data.stats;
-  tableEl.innerHTML = `
-    <table>
+
+  const stats = response.data.stats;
+  tableHost.innerHTML = `
+    <table class="table">
       <thead>
         <tr>
           <th>Opener</th>
@@ -24,12 +22,12 @@ export async function load(route, container) {
       <tbody>
         ${Object.entries(stats)
           .map(
-            ([name, data]) => `
-          <tr>
-            <td>${name}</td>
-            <td><pre>${JSON.stringify(data, null, 2)}</pre></td>
-          </tr>
-        `
+            ([name, metrics]) => `
+              <tr>
+                <td><strong>${name}</strong></td>
+                <td><pre class="json-output">${JSON.stringify(metrics, null, 2)}</pre></td>
+              </tr>
+            `,
           )
           .join('')}
       </tbody>

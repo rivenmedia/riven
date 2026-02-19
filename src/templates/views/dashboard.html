@@ -1,15 +1,36 @@
-<div class="view-dashboard" data-view="dashboard">
-  <div class="dashboard-header">
-    <h1>Dashboard</h1>
-    <button class="retry-library-btn" data-action="retry-library">Retry Library</button>
+<section class="view view-dashboard" data-view="dashboard">
+  <header class="view-header">
+    <div>
+      <h1>Dashboard</h1>
+      <p>Backend health, queue activity, services, and operational metrics.</p>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn--warning" data-action="retry-library">Retry Active Library</button>
+    </div>
+  </header>
+
+  <section class="kpi-grid" data-slot="kpis"></section>
+
+  <div class="split-grid">
+    <section class="panel">
+      <div class="section-head">
+        <h2>Services</h2>
+      </div>
+      <div data-slot="services-list"></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Downloader Accounts</h2>
+      </div>
+      <div data-slot="downloader-info"></div>
+    </section>
   </div>
-  <section class="kpi-section" data-slot="kpis"></section>
-  <section class="services-section" data-slot="services">
-    <h2>Services</h2>
-    <div data-slot="services-list"></div>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>State Distribution</h2>
+    </div>
+    <div data-slot="state-bars"></div>
   </section>
-  <section class="downloader-section" data-slot="downloader">
-    <h2>Downloader</h2>
-    <div data-slot="downloader-info"></div>
-  </section>
-</div>
+</section>
