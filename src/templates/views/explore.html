@@ -1,0 +1,16 @@
+<div class="view-explore" data-view="explore">
+  <h1>Explore</h1>
+  <form class="explore-search" data-slot="search-form">
+    <input type="search" data-slot="query" placeholder="Search movies or TV shows">
+    <select data-slot="source">
+      <option value="tmdb">TMDB</option>
+      <option value="tvdb">TVDB</option>
+    </select>
+    <select data-slot="type">
+      <option value="movie">Movies</option>
+      <option value="tv">TV Shows</option>
+    </select>
+    <button type="submit">Search</button>
+  </form>
+  <div class="explore-grid" data-slot="grid"></div>
+</div>

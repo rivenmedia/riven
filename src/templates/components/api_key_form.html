@@ -1,0 +1,16 @@
+<div class="login-container">
+  <div class="login-card">
+    <h1>Riven</h1>
+    <p>Plex torrent streaming through Debrid and 3rd party services.</p>
+    <form @submit.prevent="submitKey()">
+      <label for="api-key">API Key</label>
+      <input type="password" id="api-key" x-model="apiKey" placeholder="Enter your API key" required autocomplete="off">
+      <p class="error-msg" x-show="error" x-text="error"></p>
+      <button type="submit" :disabled="loading">Connect</button>
+    </form>
+    <p class="links">
+      <a href="/api/v1/">API</a>
+      <a href="/scalar">API Docs</a>
+    </p>
+  </div>
+</div>

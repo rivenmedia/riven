@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Riven</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #0f0f14 0%, #1a1a24 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #e4e4e7;
+      padding: 2rem;
+    }
+    .container {
+      text-align: center;
+      max-width: 480px;
+    }
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(90deg, #a78bfa, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    p {
+      color: #a1a1aa;
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+    .links {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    a {
+      color: #a78bfa;
+      text-decoration: none;
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid #3f3f46;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    a:hover {
+      background: rgba(167, 139, 250, 0.1);
+      border-color: #a78bfa;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Riven</h1>
+    <p>Plex torrent streaming through Debrid and 3rd party services.</p>
+    <div class="links">
+      <a href="/api/v1/">API</a>
+      <a href="/scalar">API Docs</a>
+    </div>
+  </div>
+</body>
+</html>

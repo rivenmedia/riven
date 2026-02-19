@@ -1,0 +1,33 @@
+/* Base - Riven theme overrides */
+:root {
+  --riven-accent: #a78bfa;
+  --riven-accent-hover: #c084fc;
+  --riven-bg: linear-gradient(135deg, #0f0f14 0%, #1a1a24 100%);
+}
+
+[x-cloak] {
+  display: none !important;
+}
+
+body {
+  background: var(--riven-bg);
+  min-height: 100vh;
+}
+
+a {
+  color: var(--riven-accent);
+}
+
+a:hover {
+  color: var(--riven-accent-hover);
+}
+
+button,
+input[type="submit"] {
+  background-color: var(--riven-accent);
+}
+
+button:hover,
+input[type="submit"]:hover {
+  background-color: var(--riven-accent-hover);
+}

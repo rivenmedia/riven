@@ -1,0 +1,104 @@
+/* Layout - sidebar, main content */
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 220px;
+  background: rgba(15, 15, 20, 0.95);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 1.25rem 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-brand {
+  padding: 0 1rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 1rem;
+}
+
+.nav-logo {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  color: var(--riven-accent);
+}
+
+.nav-logo:hover {
+  color: var(--riven-accent-hover);
+}
+
+.nav-sections {
+  flex: 1;
+}
+
+.nav-section {
+  margin-bottom: 1.25rem;
+}
+
+.nav-section-label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 0 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar li {
+  margin: 0;
+}
+
+.sidebar a {
+  display: block;
+  padding: 0.5rem 1rem;
+  border-radius: 0;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+  border-left: 3px solid transparent;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar a:hover {
+  background: rgba(167, 139, 250, 0.1);
+  color: #fff;
+}
+
+.sidebar a.active {
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--riven-accent);
+  border-left-color: var(--riven-accent);
+}
+
+.nav-footer {
+  padding: 1rem 1rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.nav-logout {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.nav-logout:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.main-content {
+  margin-left: 220px;
+  padding: 2rem;
+  min-height: 100vh;
+}

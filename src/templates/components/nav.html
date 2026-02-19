@@ -1,0 +1,34 @@
+<nav class="sidebar" x-data>
+  <div class="nav-brand">
+    <a href="#/library" class="nav-logo">Riven</a>
+  </div>
+  <div class="nav-sections">
+    <section class="nav-section">
+      <span class="nav-section-label">Discover</span>
+      <ul>
+        <li><a href="#/explore" :class="{ active: $store.route?.current?.name === 'explore' }">Explore</a></li>
+        <li><a href="#/trending" :class="{ active: $store.route?.current?.name === 'trending' }">Trending</a></li>
+      </ul>
+    </section>
+    <section class="nav-section">
+      <span class="nav-section-label">Library</span>
+      <ul>
+        <li><a href="#/library" :class="{ active: $store.route?.current?.name === 'library' }">All</a></li>
+        <li><a href="#/movies" :class="{ active: $store.route?.current?.name === 'movies' }">Movies</a></li>
+        <li><a href="#/shows" :class="{ active: $store.route?.current?.name === 'shows' }">TV Shows</a></li>
+      </ul>
+    </section>
+    <section class="nav-section">
+      <span class="nav-section-label">System</span>
+      <ul>
+        <li><a href="#/dashboard" :class="{ active: $store.route?.current?.name === 'dashboard' }">Dashboard</a></li>
+        <li><a href="#/vfs-stats" :class="{ active: $store.route?.current?.name === 'vfs-stats' }">VFS Stats</a></li>
+        <li><a href="#/calendar" :class="{ active: $store.route?.current?.name === 'calendar' }">Calendar</a></li>
+        <li><a href="#/mount" :class="{ active: $store.route?.current?.name === 'mount' }">Mount</a></li>
+      </ul>
+    </section>
+  </div>
+  <div class="nav-footer">
+    <a href="#" class="nav-logout" @click.prevent="logout()">Logout</a>
+  </div>
+</nav>

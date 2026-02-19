@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Riven</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/layout.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/views.css">
+  <script type="module" src="/static/js/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
+</head>
+<body>
+  <div id="app" x-data="appState()">
+    <!-- Login view (shown when no API key) -->
+    <div id="view-login" x-show="!hasKey" x-cloak>
+      {% include 'views/login.html' %}
+    </div>
+
+    <!-- Main app (shown when authenticated) -->
+    <div id="view-app" x-show="hasKey" x-cloak style="display: none;">
+      {% include 'components/nav.html' %}
+      <main class="main-content">
+        <div id="view-container"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- View templates (cloned by JS on route change) -->
+  <template id="view-library">{% include 'views/library.html' %}</template>
+  <template id="view-movies">{% include 'views/library.html' %}</template>
+  <template id="view-shows">{% include 'views/library.html' %}</template>
+  <template id="view-explore">{% include 'views/explore.html' %}</template>
+  <template id="view-trending">{% include 'views/trending.html' %}</template>
+  <template id="view-dashboard">{% include 'views/dashboard.html' %}</template>
+  <template id="view-vfs-stats">{% include 'views/vfs_stats.html' %}</template>
+  <template id="view-item-detail">{% include 'views/item_detail.html' %}</template>
+  <template id="view-calendar">{% include 'views/calendar.html' %}</template>
+  <template id="view-mount">{% include 'views/mount.html' %}</template>
+
+  {% include 'components/manual_scrape_modal.html' %}
+</body>
+</html>

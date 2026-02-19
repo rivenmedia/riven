@@ -1,0 +1,14 @@
+<template id="manual-scrape-modal-tpl">
+  <dialog class="modal" data-slot="modal">
+    <header>
+      <h2>Manual Scrape</h2>
+      <button data-action="close">&times;</button>
+    </header>
+    <div class="modal-body">
+      <label>Magnet URL</label>
+      <textarea data-slot="magnet" placeholder="Paste magnet link..."></textarea>
+      <button data-action="start-session">Start Session</button>
+      <div class="stream-options" data-slot="stream-options"></div>
+    </div>
+  </dialog>
+</template>

@@ -1,0 +1,16 @@
+<div class="view-library" data-view="library">
+  <h1 data-slot="title">Library</h1>
+  <form class="library-filters" data-slot="filters">
+    <input type="search" data-slot="search" placeholder="Search by title, IMDB, TMDB, TVDB ID">
+    <select data-slot="type">
+      <option value="">All types</option>
+      <option value="movie">Movie</option>
+      <option value="show">Show</option>
+      <option value="season">Season</option>
+      <option value="episode">Episode</option>
+    </select>
+    <button type="submit">Search</button>
+  </form>
+  <div class="library-grid" data-slot="grid"></div>
+  <div class="pagination" data-slot="pagination"></div>
+</div>

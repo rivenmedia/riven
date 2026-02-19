@@ -1,0 +1,96 @@
+/* Views - grid, tables */
+.discovery-card-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.library-grid,
+.explore-grid,
+.trending-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.library-filters,
+.explore-search {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.library-filters input,
+.explore-search input {
+  flex: 1;
+  min-width: 150px;
+}
+
+.pagination {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.kpi-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.vfs-stats-table-wrapper table {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.vfs-stats-table-wrapper pre {
+  font-size: 0.75rem;
+  overflow-x: auto;
+}
+
+.trending-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.item-detail-header {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.item-poster img {
+  max-width: 200px;
+  border-radius: 0.5rem;
+}
+
+.item-actions-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.stream-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.video-player video {
+  width: 100%;
+  max-height: 70vh;
+  border-radius: 0.5rem;
+}

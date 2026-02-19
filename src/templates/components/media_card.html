@@ -1,0 +1,12 @@
+<template id="media-card-tpl">
+  <a class="media-card" :href="href" data-slot="link">
+    <div class="media-card-poster">
+      <img data-slot="poster" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling?.classList.remove('hidden');">
+      <div class="media-card-placeholder hidden" data-slot="placeholder">?</div>
+    </div>
+    <div class="media-card-body">
+      <h3 data-slot="title"></h3>
+      <p class="media-card-meta" data-slot="meta"></p>
+    </div>
+  </a>
+</template>

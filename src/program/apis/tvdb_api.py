@@ -151,6 +151,49 @@ class TVDBApi:
 
             return None
 
+    def search(
+        self,
+        query: str | None = None,
+        type: str = "series",
+        limit: int = 20,
+        offset: int = 0,
+        year: int | None = None,
+        remote_id: str | None = None,
+        **kwargs: str | int | None,
+    ) -> dict | None:
+        """Search TVDB by query or remote_id. Returns raw API response."""
+
+        try:
+            params: dict[str, str | int] = {
+                "type": type,
+                "limit": limit,
+                "offset": offset,
+            }
+            if query:
+                params["query"] = query
+            if year is not None:
+                params["year"] = year
+            if remote_id:
+                params["remote_id"] = remote_id
+            for k, v in kwargs.items():
+                if v is not None:
+                    params[k] = v
+
+            response = self.session.get(
+                "search",
+                params=params,
+                headers=self._get_headers(),
+            )
+
+            if not response.ok:
+                logger.error(f"Failed to search TVDB: {response.status_code}")
+                return None
+
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error searching TVDB: {str(e)}")
+            return None
+
     def search_by_imdb_id(self, imdb_id: str) -> list[SearchByRemoteIdResult] | None:
         """Search for a series by IMDB ID."""
 

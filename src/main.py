@@ -15,7 +15,12 @@ load_dotenv()  # import required here to support SETTINGS_FILENAME
 from program.utils.proxy_client import ProxyClient
 from program.utils.async_client import AsyncClient
 
-from fastapi import FastAPI, Response
+from pathlib import Path
+
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from scalar_fastapi import (
@@ -95,6 +100,17 @@ async def scalar_html():
         openapi_url=app.openapi_url,
         title=app.title,
     )
+
+
+src_dir = Path(__file__).parent
+templates = Jinja2Templates(directory=str(src_dir / "templates"))
+
+app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def homepage(request: Request):
+    return templates.TemplateResponse("base.html", {"request": request})
 
 
 di[Program] = riven
