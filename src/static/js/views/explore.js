@@ -2,6 +2,7 @@ import { apiGet, apiPost } from '../api.js';
 import { renderMediaCard } from '../components/media_card.js';
 import { notify } from '../notify.js';
 import { formatYear, getMediaKind, sortByPopularity, toCsv } from '../utils.js';
+import { replaceRoute } from '../router.js';
 
 function toCardItem(entry, fallbackKind = null) {
   const kind = fallbackKind || getMediaKind(entry);
@@ -15,6 +16,64 @@ function toCardItem(entry, fallbackKind = null) {
       (entry.release_date ? String(entry.release_date).slice(0, 4) : '') ||
       (entry.first_air_date ? String(entry.first_air_date).slice(0, 4) : ''),
   };
+}
+
+function parsePositiveInt(value, fallback = 1) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseNode(raw) {
+  if (!raw) return null;
+  const [source, kind, id] = String(raw).split('|');
+  if (!id || !kind) return null;
+  return {
+    source: source || 'tmdb',
+    kind,
+    id: String(id),
+    label: `${kind} ${id}`,
+  };
+}
+
+function serializeNode(node) {
+  if (!node?.id || !node?.kind) return '';
+  return `${node.source || 'tmdb'}|${node.kind}|${node.id}`;
+}
+
+function parseTrail(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((node) => ({
+        source: node?.source || 'tmdb',
+        kind: node?.kind,
+        id: node?.id ? String(node.id) : null,
+        label: node?.label || `${node?.kind || 'node'} ${node?.id || ''}`.trim(),
+      }))
+      .filter((node) => node.kind && node.id);
+  } catch {
+    return [];
+  }
+}
+
+function buildRouteQuery(state) {
+  const query = {
+    source: state.source,
+    mode: state.mode,
+    type: state.type,
+    q: state.query || undefined,
+    page: state.page > 1 ? state.page : undefined,
+  };
+
+  if (state.history.length) {
+    const latest = state.history[state.history.length - 1];
+    query.node = serializeNode(latest);
+    query.trail = JSON.stringify(state.history.slice(-12));
+  }
+
+  return query;
 }
 
 async function annotateLibraryStatus(items) {
@@ -252,11 +311,39 @@ export async function load(route, container) {
     history: [],
   };
 
+  function normalizeStateFromRoute() {
+    const query = route.query || {};
+    state.source = query.source === 'tvdb' ? 'tvdb' : 'tmdb';
+    state.mode = query.mode === 'discover' ? 'discover' : 'search';
+    state.type = ['movie', 'tv', 'all'].includes(query.type) ? query.type : 'movie';
+    state.query = query.q || '';
+    state.page = parsePositiveInt(query.page, 1);
+    state.history = parseTrail(query.trail);
+
+    if (!state.history.length) {
+      const node = parseNode(query.node);
+      if (node) state.history = [node];
+    }
+
+    if (state.source === 'tvdb') {
+      state.mode = 'search';
+      if (state.type === 'all') state.type = 'tv';
+    }
+  }
+
+  function syncRouteState() {
+    replaceRoute('explore', null, buildRouteQuery(state));
+  }
+
   function syncControls() {
     if (sourceSelect) sourceSelect.value = state.source;
     if (modeSelect) modeSelect.value = state.mode;
     if (typeSelect) typeSelect.value = state.type;
     if (queryInput) queryInput.value = state.query;
+
+    if (modeSelect) {
+      modeSelect.disabled = state.source === 'tvdb';
+    }
   }
 
   async function fetchResults() {
@@ -362,8 +449,11 @@ export async function load(route, container) {
     renderPagination(pagination, state.page, state.totalPages, (nextPage) => {
       if (nextPage < 1 || nextPage > state.totalPages) return;
       state.page = nextPage;
+      syncRouteState();
       fetchResults();
     });
+
+    syncRouteState();
   }
 
   async function selectNode(node, updateHistory = true) {
@@ -381,6 +471,8 @@ export async function load(route, container) {
       const target = state.history[index];
       selectNode(target, false);
     });
+
+    syncRouteState();
 
     if (!detail) return;
     detail.innerHTML = '<p class="muted">Loading details…</p>';
@@ -414,6 +506,7 @@ export async function load(route, container) {
         }),
       );
       renderDetailCards('Known Works', rankedCredits, detail, selectNode);
+      syncRouteState();
       return;
     }
 
@@ -460,6 +553,7 @@ export async function load(route, container) {
           },
         }),
       );
+      syncRouteState();
       return;
     }
 
@@ -503,6 +597,7 @@ export async function load(route, container) {
     renderCastPills('Cast', cast, detail, selectNode);
     renderDetailCards('Recommendations', recommendations.slice(0, 12), detail, selectNode);
     renderDetailCards('Similar', similar.slice(0, 12), detail, selectNode);
+    syncRouteState();
   }
 
   if (form) {
@@ -513,17 +608,26 @@ export async function load(route, container) {
       state.type = typeSelect?.value || 'movie';
       state.query = queryInput?.value?.trim() || '';
       state.page = 1;
+      state.history = [];
+
+      if (state.source === 'tvdb') {
+        state.mode = 'search';
+        if (state.type === 'all') state.type = 'tv';
+      }
 
       if (state.mode === 'search' && !state.query && state.source === 'tmdb') {
         notify('Enter a query for TMDB search', 'warning');
       }
 
+      syncRouteState();
       fetchResults();
     });
   }
 
+  normalizeStateFromRoute();
+
   const seedRaw = sessionStorage.getItem('riven_explore_seed');
-  if (seedRaw) {
+  if (seedRaw && !state.history.length && !state.query) {
     sessionStorage.removeItem('riven_explore_seed');
     try {
       const seed = JSON.parse(seedRaw);
@@ -531,14 +635,19 @@ export async function load(route, container) {
         state.source = 'tmdb';
         state.mode = 'discover';
         state.type = seed.kind === 'tv' ? 'tv' : 'movie';
+        state.page = 1;
+        state.history = [
+          {
+            kind: seed.kind,
+            id: String(seed.id),
+            label: seed.label || `${seed.kind} ${seed.id}`,
+            source: seed.source || 'tmdb',
+          },
+        ];
         syncControls();
+        syncRouteState();
         fetchResults();
-        selectNode({
-          kind: seed.kind,
-          id: String(seed.id),
-          label: seed.label || `${seed.kind} ${seed.id}`,
-          source: seed.source || 'tmdb',
-        });
+        selectNode(state.history[0], false);
         return;
       }
     } catch {
@@ -548,4 +657,8 @@ export async function load(route, container) {
 
   syncControls();
   await fetchResults();
+
+  if (state.history.length) {
+    await selectNode(state.history[state.history.length - 1], false);
+  }
 }

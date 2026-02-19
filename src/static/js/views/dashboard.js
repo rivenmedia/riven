@@ -132,6 +132,116 @@ function renderStateBars(container, stats) {
   `;
 }
 
+function renderActivityChart(container, stats) {
+  if (!container) return;
+  const activity = stats?.activity || {};
+  const entries = Object.entries(activity)
+    .map(([date, count]) => ({
+      date,
+      count: Number(count || 0),
+      timestamp: new Date(date).getTime(),
+    }))
+    .filter((entry) => Number.isFinite(entry.timestamp))
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-30);
+
+  if (!entries.length) {
+    container.innerHTML = '<p class="muted">No request activity found.</p>';
+    return;
+  }
+
+  const maxCount = Math.max(...entries.map((entry) => entry.count), 1);
+  const width = 620;
+  const height = 220;
+  const padding = 24;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+
+  const points = entries.map((entry, index) => {
+    const x =
+      padding + (entries.length === 1 ? chartWidth / 2 : (index / (entries.length - 1)) * chartWidth);
+    const y = padding + chartHeight - (entry.count / maxCount) * chartHeight;
+    return { ...entry, x, y };
+  });
+
+  const linePath = points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(' ');
+
+  const areaPath = `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${(height - padding).toFixed(2)} L ${points[0].x.toFixed(2)} ${(height - padding).toFixed(2)} Z`;
+
+  const firstDate = entries[0]?.date || '';
+  const lastDate = entries[entries.length - 1]?.date || '';
+
+  container.innerHTML = `
+    <div class="chart-wrap">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Activity line chart">
+        <defs>
+          <linearGradient id="activityFillGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(74,133,255,0.55)" />
+            <stop offset="100%" stop-color="rgba(74,133,255,0.05)" />
+          </linearGradient>
+        </defs>
+        <line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" class="chart-axis" />
+        <line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" class="chart-axis" />
+        <path d="${areaPath}" fill="url(#activityFillGradient)"></path>
+        <path d="${linePath}" class="chart-line"></path>
+        ${points
+          .map(
+            (point) => `
+              <circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="3" class="chart-point">
+                <title>${point.date}: ${point.count}</title>
+              </circle>
+            `,
+          )
+          .join('')}
+      </svg>
+      <div class="chart-meta">
+        <span>${firstDate}</span>
+        <strong>Peak: ${maxCount}</strong>
+        <span>${lastDate}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderReleaseChart(container, stats) {
+  if (!container) return;
+  const releases = (stats?.media_year_releases || [])
+    .map((entry) => ({
+      year: entry?.year,
+      count: Number(entry?.count || 0),
+    }))
+    .filter((entry) => Number.isFinite(entry.year) && entry.count > 0)
+    .sort((a, b) => a.year - b.year)
+    .slice(-18);
+
+  if (!releases.length) {
+    container.innerHTML = '<p class="muted">No release-year data available.</p>';
+    return;
+  }
+
+  const maxCount = Math.max(...releases.map((entry) => entry.count), 1);
+  container.innerHTML = `
+    <div class="release-bars">
+      ${releases
+        .map((entry) => {
+          const height = Math.max((entry.count / maxCount) * 100, 6);
+          return `
+            <div class="release-bar">
+              <div class="release-bar__track">
+                <div class="release-bar__fill" style="height:${height}%"></div>
+              </div>
+              <span class="release-bar__year">${entry.year}</span>
+              <span class="release-bar__value">${entry.count}</span>
+            </div>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
 export async function load(route, container) {
   const [statsRes, servicesRes, downloaderRes] = await Promise.all([
     apiGet('/stats'),
@@ -149,6 +259,8 @@ export async function load(route, container) {
     downloaderRes.data || {},
   );
   renderStateBars(container.querySelector('[data-slot="state-bars"]'), statsRes.data || {});
+  renderActivityChart(container.querySelector('[data-slot="activity-chart"]'), statsRes.data || {});
+  renderReleaseChart(container.querySelector('[data-slot="release-chart"]'), statsRes.data || {});
 
   const retryButton = container.querySelector('[data-action="retry-library"]');
   if (retryButton) {

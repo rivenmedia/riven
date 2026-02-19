@@ -32,4 +32,18 @@
       <pre class="json-output" data-slot="runner-output"></pre>
     </section>
   </div>
+
+  <section class="panel">
+    <div class="section-head">
+      <h2>Logs (Virtualized)</h2>
+      <div class="toolbar">
+        <button type="button" class="btn btn--secondary btn--small" data-action="refresh-logs">Refresh</button>
+      </div>
+    </div>
+    <div class="log-toolbar">
+      <input type="search" data-slot="log-search" placeholder="Filter logs">
+    </div>
+    <div class="log-meta" data-slot="log-meta"></div>
+    <div data-slot="log-container"></div>
+  </section>
 </section>
