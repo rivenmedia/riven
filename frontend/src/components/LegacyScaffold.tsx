@@ -4,8 +4,8 @@ export default function LegacyScaffold() {
   return (
     <div
       aria-hidden="true"
-      style={{ display: "none" }}
       dangerouslySetInnerHTML={{ __html: manualScrapeModalTemplate }}
+      style={{ display: "none" }}
     />
   );
 }

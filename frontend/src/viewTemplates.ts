@@ -8,8 +8,9 @@ import mountTemplate from "../../src/templates/views/mount.html?raw";
 import settingsTemplate from "../../src/templates/views/settings.html?raw";
 import trendingTemplate from "../../src/templates/views/trending.html?raw";
 import vfsStatsTemplate from "../../src/templates/views/vfs_stats.html?raw";
+import type { RouteName } from "./types";
 
-export const VIEW_TEMPLATES = {
+export const VIEW_TEMPLATES: Record<RouteName, string> = {
   library: libraryTemplate,
   movies: libraryTemplate,
   shows: libraryTemplate,

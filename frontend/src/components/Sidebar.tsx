@@ -1,4 +1,22 @@
-const NAV_SECTIONS = [
+import type { RouteName } from "../types";
+
+interface SidebarProps {
+  currentRoute: RouteName;
+  onLogout: () => void;
+}
+
+interface NavLink {
+  hash: string;
+  label: string;
+  route: RouteName;
+}
+
+interface NavSection {
+  title: string;
+  links: NavLink[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
   {
     title: "Library",
     links: [
@@ -27,7 +45,7 @@ const NAV_SECTIONS = [
   },
 ];
 
-export default function Sidebar({ currentRoute, onLogout }) {
+export default function Sidebar({ currentRoute, onLogout }: SidebarProps) {
   return (
     <nav className="app-sidebar">
       <div className="sidebar-brand">

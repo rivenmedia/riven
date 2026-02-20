@@ -1,11 +1,12 @@
 # Riven Frontend
 
-React + Vite frontend for the Riven UI.
+React + Vite + TypeScript frontend for the Riven UI.
 
 ## Commands
 
 - Install deps: `npm install`
 - Dev server (with API proxy): `npm run dev`
+- Type check: `npm run typecheck`
 - Production build: `npm run build`
 
 ## Dev Proxy

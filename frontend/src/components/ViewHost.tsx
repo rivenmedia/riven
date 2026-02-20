@@ -1,22 +1,28 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as statusTracker from "../../../src/static/js/status_tracker.js";
-import { VIEW_LOADERS } from "../viewLoaders.js";
-import { VIEW_TEMPLATES } from "../viewTemplates.js";
+import { VIEW_LOADERS } from "../viewLoaders";
+import { VIEW_TEMPLATES } from "../viewTemplates";
+import type { AppRoute, RouteName, ViewLoaderModule } from "../types";
 
-function getTemplateHtml(routeName) {
+function getTemplateHtml(routeName: RouteName): string {
   return VIEW_TEMPLATES[routeName] || VIEW_TEMPLATES.library;
 }
 
-function getViewLoader(routeName) {
+function getViewLoader(routeName: RouteName): ViewLoaderModule {
   return VIEW_LOADERS[routeName] || VIEW_LOADERS.library;
 }
 
-export default function ViewHost({ route }) {
-  const hostRef = useRef(null);
-  const loadVersionRef = useRef(0);
+interface ViewHostProps {
+  route: AppRoute;
+}
+
+export default function ViewHost({ route }: ViewHostProps) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const loadVersionRef = useRef<number>(0);
 
   const routeKey = useMemo(
-    () => `${route?.name || "library"}|${route?.param || ""}|${JSON.stringify(route?.query || {})}`,
+    () =>
+      `${route.name || "library"}|${route.param || ""}|${JSON.stringify(route.query || {})}`,
     [route],
   );
 
@@ -30,10 +36,10 @@ export default function ViewHost({ route }) {
     const loadVersion = loadVersionRef.current;
 
     statusTracker.clear();
-    host.innerHTML = getTemplateHtml(route?.name);
+    host.innerHTML = getTemplateHtml(route.name);
 
-    const loader = getViewLoader(route?.name);
-    Promise.resolve(loader?.load?.(route, host)).catch((error) => {
+    const loader = getViewLoader(route.name);
+    Promise.resolve(loader?.load?.(route, host)).catch((error: unknown) => {
       if (loadVersion !== loadVersionRef.current) {
         return;
       }

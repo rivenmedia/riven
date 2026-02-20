@@ -1,9 +1,19 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 
-export default function LoginView({ loading, error, onSubmit }) {
-  const [apiKey, setApiKey] = useState("");
+interface LoginViewProps {
+  loading: boolean;
+  error: string;
+  onSubmit: (apiKey: string) => Promise<void> | void;
+}
 
-  async function handleSubmit(event) {
+export default function LoginView({
+  loading,
+  error,
+  onSubmit,
+}: LoginViewProps) {
+  const [apiKey, setApiKey] = useState<string>("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const trimmed = apiKey.trim();
     if (!trimmed || loading) {
@@ -31,11 +41,7 @@ export default function LoginView({ loading, error, onSubmit }) {
             type="password"
             value={apiKey}
           />
-          <p
-            className="error-msg"
-            hidden={!error}
-            role="alert"
-          >
+          <p className="error-msg" hidden={!error} role="alert">
             {error}
           </p>
           <button
