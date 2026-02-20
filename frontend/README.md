@@ -2,6 +2,12 @@
 
 React + Vite + TypeScript frontend for the Riven UI.
 
+## UI Structure
+
+- Shared page primitives: `src/components/ui/PagePrimitives.tsx`
+- Route templates: `src/viewTemplates.tsx`
+- Goal: keep headers, panels, and page layout consistent across all routes.
+
 ## Commands
 
 - Install deps: `npm install`
