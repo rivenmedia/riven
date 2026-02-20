@@ -1,9 +1,21 @@
-<div class="view-item-detail" data-view="item-detail">
-  <div class="item-detail-header" data-slot="header">
-    <div class="item-poster" data-slot="poster"></div>
-    <div class="item-info" data-slot="info"></div>
+<section class="view view-item-detail" data-view="item-detail">
+  <header class="view-header">
+    <div>
+      <h1>Library Item</h1>
+      <p>Inspect metadata, stream state, and backend action controls.</p>
+    </div>
+  </header>
+
+  <div class="item-layout">
+    <div class="item-main">
+      <div class="item-detail-header" data-slot="header">
+        <div class="item-poster" data-slot="poster"></div>
+        <div class="item-info" data-slot="info"></div>
+      </div>
+      <div class="item-actions-bar" data-slot="actions"></div>
+      <div class="panel" data-slot="metadata"></div>
+      <div class="panel item-streams" data-slot="streams"></div>
+      <div class="panel item-video" data-slot="video"></div>
+    </div>
   </div>
-  <div class="item-actions-bar" data-slot="actions"></div>
-  <div class="item-streams" data-slot="streams"></div>
-  <div class="item-video" data-slot="video"></div>
-</div>
+</section>

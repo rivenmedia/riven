@@ -1,16 +1,28 @@
-<div class="login-container">
-  <div class="login-card">
+<div class="login-shell">
+  <div class="login-panel">
     <h1>Riven</h1>
-    <p>Plex torrent streaming through Debrid and 3rd party services.</p>
-    <form @submit.prevent="submitKey()">
-      <label for="api-key">API Key</label>
-      <input type="password" id="api-key" x-model="apiKey" placeholder="Enter your API key" required autocomplete="off">
-      <p class="error-msg" x-show="error" x-text="error"></p>
-      <button type="submit" :disabled="loading">Connect</button>
-    </form>
-    <p class="links">
-      <a href="/api/v1/">API</a>
-      <a href="/scalar">API Docs</a>
+    <p class="login-subtitle">
+      Manage movies, TV shows, discovery graph, and backend operations in one place.
     </p>
+    <form class="login-form" @submit.prevent="submitKey()">
+      <label for="api-key">API Key</label>
+      <input
+        type="password"
+        id="api-key"
+        x-model="apiKey"
+        placeholder="Paste API key"
+        required
+        autocomplete="off"
+      >
+      <p class="error-msg" x-show="error" x-text="error"></p>
+      <button type="submit" class="btn btn--primary btn--block" :disabled="loading">
+        <span x-show="!loading">Connect</span>
+        <span x-show="loading">Connecting…</span>
+      </button>
+    </form>
+    <div class="login-links">
+      <a href="/api/v1/" target="_blank" rel="noreferrer">OpenAPI JSON</a>
+      <a href="/scalar" target="_blank" rel="noreferrer">Scalar Docs</a>
+    </div>
   </div>
 </div>

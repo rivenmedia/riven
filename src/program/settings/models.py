@@ -945,6 +945,10 @@ class AppModel(Observable):
         default=False,
         description="Enable detailed stream request/response logging",
     )
+    log_requests: bool = Field(
+        default=True,
+        description="Display HTTP request logs (Apache Combined format)",
+    )
     retry_interval: int = Field(
         default=60 * 60 * 24,
         ge=0,

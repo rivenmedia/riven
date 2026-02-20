@@ -1,121 +1,228 @@
-/**
- * Library view - items grid with filters
- */
-
-import { apiGet, apiPost, apiDelete } from '../api.js';
+import { apiDelete, apiGet, apiPost } from '../api.js';
 import { renderMediaCard } from '../components/media_card.js';
+import { notify } from '../notify.js';
+import * as statusTracker from '../status_tracker.js';
 
-function extractYear(airedAt) {
-  if (!airedAt) return 'N/A';
-  const y = new Date(airedAt).getFullYear();
-  return isNaN(y) ? 'N/A' : y;
-}
-
-function transformItem(item) {
+function normalizeLibraryItem(item) {
   return {
-    id: item.id,
-    riven_id: item.id,
-    title: item.title,
-    poster_path: item.poster_path,
-    media_type: item.type,
-    year: extractYear(item.aired_at),
-    type: item.type,
-    state: item.state,
+    ...item,
+    media_type: item.type === 'show' ? 'tv' : item.type,
+    in_library: true,
+    library_item_id: item.id,
   };
 }
 
-export async function load(route, container) {
-  const typeFilter = route.name === 'movies' ? 'movie' : route.name === 'shows' ? 'show' : '';
-  const title = route.name === 'movies' ? 'Movies' : route.name === 'shows' ? 'TV Shows' : 'Library';
-
-  const titleEl = container.querySelector('[data-slot="title"]');
-  if (titleEl) titleEl.textContent = title;
-
-  const grid = container.querySelector('[data-slot="grid"]');
-  const pagination = container.querySelector('[data-slot="pagination"]');
-  const filters = container.querySelector('[data-slot="filters"]');
-  const searchInput = container.querySelector('[data-slot="search"]');
-  const typeSelect = container.querySelector('[data-slot="type"]');
-
-  let page = 1;
-  let search = '';
-  let type = typeFilter;
-  let totalPages = 1;
-
-  async function fetchItems() {
-    const params = { page, limit: 24 };
-    if (search) params.search = search;
-    if (type) params.type = type;
-    const res = await apiGet('/items', params);
-    if (!res.ok) return;
-    const data = res.data;
-    totalPages = data?.total_pages || 1;
-    const items = (data?.items || []).map(transformItem);
-    renderGrid(grid, items);
-    renderPagination(pagination, page, totalPages, (p) => {
-      page = p;
-      fetchItems();
-    });
-  }
-
-  if (filters) {
-    filters.onsubmit = (e) => {
-      e.preventDefault();
-      search = searchInput?.value?.trim() || '';
-      type = typeSelect?.value || typeFilter;
-      page = 1;
-      fetchItems();
-    };
-  }
-
-  await fetchItems();
-}
-
-function renderGrid(grid, items) {
-  if (!grid) return;
-  grid.innerHTML = '';
-  items.forEach((item) => {
-    const card = renderMediaCard(item, `#/item/${item.id}`, {
-      actions: [
-        { label: 'Retry', onClick: () => runItemAction('retry', item.id, () => fetchItems()) },
-        { label: 'Delete', onClick: () => runItemAction('delete', item.id, () => fetchItems()) },
-      ],
-    });
-    grid.appendChild(card);
-  });
-}
-
-async function runItemAction(action, id, refresh) {
+async function runAction(action, id) {
   const ids = [String(id)];
-  let res;
-  if (action === 'retry') {
-    res = await apiPost('/items/retry', { ids });
-  } else if (action === 'delete') {
-    if (!confirm('Delete this item?')) return;
-    res = await apiDelete('/items/remove', { ids });
-  } else return;
-  if (res?.ok) refresh();
+  switch (action) {
+    case 'retry':
+      return apiPost('/items/retry', { ids });
+    case 'reset':
+      return apiPost('/items/reset', { ids });
+    case 'pause':
+      return apiPost('/items/pause', { ids });
+    case 'unpause':
+      return apiPost('/items/unpause', { ids });
+    case 'remove':
+      return apiDelete('/items/remove', { ids });
+    default:
+      return { ok: false, error: `Unknown action: ${action}` };
+  }
+}
+
+function createActionButtons(item, refresh) {
+  const pauseLabel = item.state === 'Paused' ? 'Unpause' : 'Pause';
+  const pauseAction = item.state === 'Paused' ? 'unpause' : 'pause';
+  return [
+    {
+      label: 'Retry',
+      tone: 'secondary',
+      onClick: async () => {
+        const res = await runAction('retry', item.id);
+        if (!res.ok) {
+          notify(res.error || 'Retry failed', 'error');
+          return;
+        }
+        notify(`Retried "${item.title}"`, 'success');
+        refresh();
+      },
+    },
+    {
+      label: pauseLabel,
+      tone: 'warning',
+      onClick: async () => {
+        const res = await runAction(pauseAction, item.id);
+        if (!res.ok) {
+          notify(res.error || `${pauseLabel} failed`, 'error');
+          return;
+        }
+        notify(`${pauseLabel}d "${item.title}"`, 'success');
+        refresh();
+      },
+    },
+    {
+      label: 'Reset',
+      tone: 'secondary',
+      onClick: async () => {
+        const confirmed = window.confirm(`Reset "${item.title}" to initial state?`);
+        if (!confirmed) return;
+        const res = await runAction('reset', item.id);
+        if (!res.ok) {
+          notify(res.error || 'Reset failed', 'error');
+          return;
+        }
+        notify(`Reset "${item.title}"`, 'success');
+        refresh();
+      },
+    },
+    {
+      label: 'Remove',
+      tone: 'danger',
+      onClick: async () => {
+        const confirmed = window.confirm(`Remove "${item.title}" from library?`);
+        if (!confirmed) return;
+        const res = await runAction('remove', item.id);
+        if (!res.ok) {
+          notify(res.error || 'Remove failed', 'error');
+          return;
+        }
+        notify(`Removed "${item.title}"`, 'warning');
+        refresh();
+      },
+    },
+  ];
 }
 
 function renderPagination(container, page, totalPages, onPageChange) {
-  if (!container || totalPages <= 1) {
-    if (container) container.innerHTML = '';
-    return;
-  }
+  if (!container) return;
   container.innerHTML = '';
-  if (page > 1) {
-    const prev = document.createElement('button');
-    prev.textContent = 'Previous';
-    prev.onclick = () => onPageChange(page - 1);
-    container.appendChild(prev);
+  if (totalPages <= 1) return;
+
+  const prev = document.createElement('button');
+  prev.className = 'btn btn--secondary';
+  prev.type = 'button';
+  prev.textContent = 'Previous';
+  prev.disabled = page <= 1;
+  prev.addEventListener('click', () => onPageChange(page - 1));
+  container.appendChild(prev);
+
+  const label = document.createElement('span');
+  label.textContent = `Page ${page} / ${totalPages}`;
+  container.appendChild(label);
+
+  const next = document.createElement('button');
+  next.className = 'btn btn--secondary';
+  next.type = 'button';
+  next.textContent = 'Next';
+  next.disabled = page >= totalPages;
+  next.addEventListener('click', () => onPageChange(page + 1));
+  container.appendChild(next);
+}
+
+export async function load(route, container) {
+  const forcedType = route.name === 'movies' ? 'movie' : route.name === 'shows' ? 'show' : '';
+  const titleMap = {
+    library: 'Library',
+    movies: 'Movies',
+    shows: 'TV Shows',
+  };
+
+  const titleElement = container.querySelector('[data-slot="title"]');
+  const subtitleElement = container.querySelector('[data-slot="subtitle"]');
+  const gridElement = container.querySelector('[data-slot="grid"]');
+  const emptyElement = container.querySelector('[data-slot="empty"]');
+  const paginationElement = container.querySelector('[data-slot="pagination"]');
+  const filterForm = container.querySelector('[data-slot="filters"]');
+  const searchInput = container.querySelector('[data-slot="search"]');
+  const stateSelect = container.querySelector('[data-slot="state"]');
+  const sortSelect = container.querySelector('[data-slot="sort"]');
+  const limitSelect = container.querySelector('[data-slot="limit"]');
+
+  if (titleElement) titleElement.textContent = titleMap[route.name] || 'Library';
+  if (subtitleElement && forcedType) {
+    subtitleElement.textContent = `Filtered by ${forcedType === 'movie' ? 'movies' : 'TV shows'}.`;
   }
-  const span = document.createElement('span');
-  span.textContent = `Page ${page} of ${totalPages}`;
-  container.appendChild(span);
-  if (page < totalPages) {
-    const next = document.createElement('button');
-    next.textContent = 'Next';
-    next.onclick = () => onPageChange(page + 1);
-    container.appendChild(next);
+
+  let page = 1;
+  let totalPages = 1;
+  const filters = {
+    search: '',
+    state: '',
+    sort: 'date_desc',
+    limit: 24,
+  };
+
+  const statesRes = await apiGet('/items/states');
+  const states = statesRes.ok ? statesRes.data?.states || [] : [];
+  if (stateSelect) {
+    stateSelect.innerHTML = '<option value="">All states</option>';
+    states.forEach((state) => {
+      const option = document.createElement('option');
+      option.value = state;
+      option.textContent = state;
+      stateSelect.appendChild(option);
+    });
   }
+
+  async function fetchItems() {
+    const params = {
+      page,
+      limit: filters.limit,
+      search: filters.search || undefined,
+      sort: filters.sort,
+      type: forcedType || undefined,
+      states: filters.state || undefined,
+    };
+
+    const res = await apiGet('/items', params);
+    if (!res.ok) {
+      if (gridElement) gridElement.innerHTML = '';
+      if (emptyElement) {
+        emptyElement.hidden = false;
+        emptyElement.textContent = res.error || 'Failed to load library.';
+      }
+      return;
+    }
+
+    totalPages = res.data?.total_pages || 1;
+    const items = (res.data?.items || []).map(normalizeLibraryItem);
+    if (gridElement) {
+      gridElement.innerHTML = '';
+      items.forEach((item) => {
+        gridElement.appendChild(
+          renderMediaCard(item, {
+            href: `#/item/${item.id}`,
+            actions: createActionButtons(item, fetchItems),
+          }),
+        );
+      });
+    }
+
+    if (emptyElement) {
+      const hasItems = items.length > 0;
+      emptyElement.hidden = hasItems;
+      if (!hasItems) emptyElement.textContent = 'No items matched the current filters.';
+    }
+
+    renderPagination(paginationElement, page, totalPages, (nextPage) => {
+      if (nextPage < 1 || nextPage > totalPages) return;
+      page = nextPage;
+      fetchItems();
+    });
+    statusTracker.setTracked(gridElement, 'library');
+  }
+
+  if (filterForm) {
+    filterForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      filters.search = searchInput?.value?.trim() || '';
+      filters.state = stateSelect?.value || '';
+      filters.sort = sortSelect?.value || 'date_desc';
+      filters.limit = Number(limitSelect?.value || 24);
+      page = 1;
+      fetchItems();
+    });
+  }
+
+  await fetchItems();
 }
