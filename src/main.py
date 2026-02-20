@@ -28,7 +28,7 @@ from scalar_fastapi import (
     get_scalar_api_reference,  # pyright: ignore[reportUnknownVariableType]
 )
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.types import ASGIApp
 
 from program.program import Program, riven
 from program.settings.models import get_version
@@ -53,7 +53,7 @@ def _apache_log_line(
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, log_requests: bool = True):
+    def __init__(self, app: ASGIApp, log_requests: bool = True) -> None:
         super().__init__(app)
         self.log_requests = log_requests
 
@@ -62,7 +62,6 @@ class LoguruMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        start_time = time.time()
         response = None
 
         try:
