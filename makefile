@@ -1,4 +1,4 @@
-.PHONY: help install run build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update
+.PHONY: help install run build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update frontend-install frontend-build frontend-dev frontend-clean
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -11,6 +11,8 @@ endif
 
 BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD | sed 's/[^a-zA-Z0-9]/-/g' | tr '[:upper:]' '[:lower:]')
 COMMIT_HASH := $(shell git rev-parse --short HEAD)
+FRONTEND_DIR := frontend
+FRONTEND_OUT := src/static/ui
 
 help:
 	@echo "make install     - Install dependencies"
@@ -29,6 +31,9 @@ help:
 	@echo "make coverage    - Run the tests with coverage"
 	@echo "make pr-ready    - Run the linter and tests"
 	@echo "make update      - Update dependencies"
+	@echo "make frontend-install - Install frontend dependencies"
+	@echo "make frontend-build   - Build frontend bundle into src/static/ui"
+	@echo "make frontend-dev     - Run frontend in dev mode with API proxy"
 
 
 # Ensure the Buildx builder is set up and support multi-arch builds
@@ -68,6 +73,7 @@ clean:
 	@find . -type d -name '__pycache__' -exec rm -rf {} +
 	@find . -type d -name '.pytest_cache' -exec rm -rf {} +
 	@find . -type d -name '.ruff_cache' -exec rm -rf {} +
+	@rm -rf $(FRONTEND_OUT)
 	@echo "Temporary files cleaned up"
 
 hard_reset: clean
@@ -75,10 +81,29 @@ hard_reset: clean
 	@uv run python src/main.py --hard_reset_db
 	@echo "Database hard reset complete"
 
-install:
+install: frontend-install
 	@echo "Installing dependencies..."
 	@uv sync --group dev
 	@echo "Dependencies installed"
+
+frontend-install:
+	@echo "Installing frontend dependencies..."
+	@npm --prefix $(FRONTEND_DIR) install
+	@echo "Frontend dependencies installed"
+
+frontend-build: frontend-install
+	@echo "Building frontend bundle..."
+	@npm --prefix $(FRONTEND_DIR) run build
+	@echo "Frontend bundle built at $(FRONTEND_OUT)"
+
+frontend-dev: frontend-install
+	@echo "Starting frontend dev server with API proxy..."
+	@npm --prefix $(FRONTEND_DIR) run dev
+
+frontend-clean:
+	@echo "Removing built frontend bundle..."
+	@rm -rf $(FRONTEND_OUT)
+	@echo "Frontend build output removed"
 
 update:
 	@echo "Updating dependencies..."
@@ -91,7 +116,7 @@ diff:
 	@git diff HEAD~1 HEAD
 
 # Run the application
-run:
+run: frontend-build
 	@uv run python src/main.py
 
 # Code quality commands

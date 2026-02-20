@@ -1,4 +1,18 @@
 # -----------------
+# Frontend Builder Stage
+# -----------------
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+
+COPY frontend/ /app/frontend/
+
+RUN npm run build
+
+# -----------------
 # Builder Stage
 # -----------------
 FROM python:3.13-alpine AS builder
@@ -46,6 +60,7 @@ ENV PATH="/riven/.venv/bin:$PATH"
 
 # Copy application code and entrypoint
 COPY src/ ./src
+COPY --from=frontend-builder /app/src/static/ui ./src/static/ui
 COPY pyproject.toml uv.lock* ./
 COPY entrypoint.sh ./
 

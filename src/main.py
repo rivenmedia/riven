@@ -18,16 +18,16 @@ from program.utils.async_client import AsyncClient
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from scalar_fastapi import (
     get_scalar_api_reference,  # pyright: ignore[reportUnknownVariableType]
 )
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.types import ASGIApp
 
 from program.program import Program, riven
 from program.settings.models import get_version
@@ -52,7 +52,7 @@ def _apache_log_line(
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, log_requests: bool = True):
+    def __init__(self, app: ASGIApp, log_requests: bool = True) -> None:
         super().__init__(app)
         self.log_requests = log_requests
 
@@ -61,7 +61,6 @@ class LoguruMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        start_time = time.time()
         response = None
 
         try:
@@ -134,14 +133,24 @@ async def scalar_html():
 
 
 src_dir = Path(__file__).parent
-templates = Jinja2Templates(directory=str(src_dir / "templates"))
+frontend_index = src_dir / "static" / "ui" / "index.html"
+frontend_assets_dir = src_dir / "static" / "ui"
 
-app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
+app.mount(
+    "/static/ui",
+    StaticFiles(directory=str(frontend_assets_dir), check_dir=False),
+    name="static-ui",
+)
 
 
 @app.get("/", include_in_schema=False)
-async def homepage(request: Request):
-    return templates.TemplateResponse("base.html", {"request": request})
+async def homepage():
+    if not frontend_index.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Frontend bundle missing. Run `make frontend-build`.",
+        )
+    return FileResponse(frontend_index)
 
 
 di[Program] = riven
