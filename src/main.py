@@ -21,7 +21,6 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from scalar_fastapi import (
@@ -134,17 +133,17 @@ async def scalar_html():
 
 
 src_dir = Path(__file__).parent
-templates = Jinja2Templates(directory=str(src_dir / "templates"))
 frontend_index = src_dir / "static" / "ui" / "index.html"
+fallback_index = src_dir / "static" / "index.html"
 
 app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
 
 
 @app.get("/", include_in_schema=False)
-async def homepage(request: Request):
+async def homepage():
     if frontend_index.exists():
         return FileResponse(frontend_index)
-    return templates.TemplateResponse("base.html", {"request": request})
+    return FileResponse(fallback_index)
 
 
 di[Program] = riven
