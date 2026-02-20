@@ -9,7 +9,7 @@ from kink import di
 from kink.errors.service_error import ServiceError
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
 from program.apis.tmdb_api import TMDBApi
@@ -532,14 +532,15 @@ async def get_library_status(
     }
 
     query = select(MediaItem).where(MediaItem.type.in_(["movie", "show"]))
-    filters = []
-
-    if parsed_tmdb_ids:
-        filters.append(MediaItem.tmdb_id.in_(parsed_tmdb_ids))
-    if parsed_tvdb_ids:
-        filters.append(MediaItem.tvdb_id.in_(parsed_tvdb_ids))
-
-    query = query.where(or_(*filters))
+    if parsed_tmdb_ids and parsed_tvdb_ids:
+        query = query.where(
+            (MediaItem.tmdb_id.in_(parsed_tmdb_ids))
+            | (MediaItem.tvdb_id.in_(parsed_tvdb_ids))
+        )
+    elif parsed_tmdb_ids:
+        query = query.where(MediaItem.tmdb_id.in_(parsed_tmdb_ids))
+    else:
+        query = query.where(MediaItem.tvdb_id.in_(parsed_tvdb_ids))
 
     with db_session() as session:
         matches = session.execute(query).scalars().all()

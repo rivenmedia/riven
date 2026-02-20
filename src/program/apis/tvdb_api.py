@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 from loguru import logger
 from pydantic import BaseModel
@@ -160,7 +161,7 @@ class TVDBApi:
         year: int | None = None,
         remote_id: str | None = None,
         **kwargs: str | int | None,
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Search TVDB by query or remote_id. Returns raw API response."""
 
         try:
@@ -189,7 +190,8 @@ class TVDBApi:
                 logger.error(f"Failed to search TVDB: {response.status_code}")
                 return None
 
-            return response.json()
+            data = response.json()
+            return cast(dict[str, Any], data) if isinstance(data, dict) else None
         except Exception as e:
             logger.error(f"Error searching TVDB: {str(e)}")
             return None

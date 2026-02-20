@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from kink import di
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from program.apis.tmdb_api import TMDBApi
 from program.apis.tvdb_api import TVDBApi
@@ -36,7 +36,23 @@ def _tmdb_request(path: str, params: dict[str, Any] | None = None) -> dict[str, 
             detail=f"TMDB request failed for endpoint '{path}'",
         )
     data = response.json()
-    return data if isinstance(data, dict) else {}
+    return cast(dict[str, Any], data) if isinstance(data, dict) else {}
+
+
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    parsed = list[dict[str, Any]]()
+    for item in cast(list[Any], value):
+        if isinstance(item, dict):
+            parsed.append(cast(dict[str, Any], item))
+    return parsed
+
+
+def _dict_map(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return cast(dict[str, Any], value)
+    return {}
 
 
 def _normalize_tmdb_item(
@@ -65,7 +81,7 @@ def _normalize_tmdb_person(item: dict[str, Any]) -> dict[str, Any]:
     image = f"https://image.tmdb.org/t/p/w500{profile_path}" if profile_path else None
     known_for = []
 
-    for credit in item.get("known_for", []) or []:
+    for credit in _dict_list(item.get("known_for")):
         media_type = credit.get("media_type")
         if media_type not in ("movie", "tv"):
             continue
@@ -84,12 +100,14 @@ def _normalize_tmdb_person(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_tvdb_item(entry: dict[str, Any]) -> dict[str, Any]:
-    translations = entry.get("translations") or {}
-    title = (
-        translations.get("eng") if isinstance(translations, dict) else entry.get("name")
-    )
-    if not title and isinstance(translations, dict):
-        title = next((value for value in translations.values() if value), None)
+    translations_raw = entry.get("translations")
+    translations = _dict_map(translations_raw)
+    title = cast(str | None, translations.get("eng") or entry.get("name"))
+    if not title:
+        for value in translations.values():
+            if isinstance(value, str) and value:
+                title = value
+                break
     title = title or entry.get("name") or "Unknown"
     year = entry.get("year")
     image_url = entry.get("image_url")
@@ -129,12 +147,14 @@ def _library_status_for_results(
         return {}, {}
 
     query = select(MediaItem).where(MediaItem.type.in_(["movie", "show"]))
-    filters = []
-    if tmdb_ids:
-        filters.append(MediaItem.tmdb_id.in_(tmdb_ids))
-    if tvdb_ids:
-        filters.append(MediaItem.tvdb_id.in_(tvdb_ids))
-    query = query.where(or_(*filters))
+    if tmdb_ids and tvdb_ids:
+        query = query.where(
+            (MediaItem.tmdb_id.in_(tmdb_ids)) | (MediaItem.tvdb_id.in_(tvdb_ids))
+        )
+    elif tmdb_ids:
+        query = query.where(MediaItem.tmdb_id.in_(tmdb_ids))
+    elif tvdb_ids:
+        query = query.where(MediaItem.tvdb_id.in_(tvdb_ids))
 
     tmdb_status: dict[str, dict[str, Any]] = {}
     tvdb_status: dict[str, dict[str, Any]] = {}
@@ -200,32 +220,34 @@ def _paged_response(data: dict[str, Any], results: list[dict[str, Any]]) -> dict
 def _tmdb_media_collection(path: str, media_type: TMDB_MEDIA_TYPE) -> dict[str, Any]:
     data = _tmdb_request(path)
     normalized = [
-        _normalize_tmdb_item(item, media_type) for item in data.get("results", []) or []
+        _normalize_tmdb_item(item, media_type) for item in _dict_list(data.get("results"))
     ]
     return _paged_response(data, _attach_library_status(normalized))
 
 
 @router.get("/discover/tmdb/movie")
-async def discover_tmdb_movie(request: Request, page: int = Query(1, ge=1)) -> dict:
+async def discover_tmdb_movie(
+    request: Request, page: int = Query(1, ge=1)
+) -> dict[str, Any]:
     """Proxy to TMDB discover movie with passthrough filters."""
 
-    params = dict(request.query_params)
+    params: dict[str, Any] = dict(request.query_params)
     params["page"] = page
     data = _tmdb_request("discover/movie", params=params)
     results = [
-        _normalize_tmdb_item(item, "movie") for item in data.get("results", []) or []
+        _normalize_tmdb_item(item, "movie") for item in _dict_list(data.get("results"))
     ]
     return _paged_response(data, _attach_library_status(results))
 
 
 @router.get("/discover/tmdb/tv")
-async def discover_tmdb_tv(request: Request, page: int = Query(1, ge=1)) -> dict:
+async def discover_tmdb_tv(request: Request, page: int = Query(1, ge=1)) -> dict[str, Any]:
     """Proxy to TMDB discover TV with passthrough filters."""
 
-    params = dict(request.query_params)
+    params: dict[str, Any] = dict(request.query_params)
     params["page"] = page
     data = _tmdb_request("discover/tv", params=params)
-    results = [_normalize_tmdb_item(item, "tv") for item in data.get("results", []) or []]
+    results = [_normalize_tmdb_item(item, "tv") for item in _dict_list(data.get("results"))]
     return _paged_response(data, _attach_library_status(results))
 
 
@@ -233,10 +255,10 @@ async def discover_tmdb_tv(request: Request, page: int = Query(1, ge=1)) -> dict
 async def search_tmdb_movie(
     query: str = Query(..., min_length=1),
     page: int = Query(1, ge=1),
-) -> dict:
+) -> dict[str, Any]:
     data = _tmdb_request("search/movie", params={"query": query, "page": page})
     results = [
-        _normalize_tmdb_item(item, "movie") for item in data.get("results", []) or []
+        _normalize_tmdb_item(item, "movie") for item in _dict_list(data.get("results"))
     ]
     return _paged_response(data, _attach_library_status(results))
 
@@ -245,9 +267,9 @@ async def search_tmdb_movie(
 async def search_tmdb_tv(
     query: str = Query(..., min_length=1),
     page: int = Query(1, ge=1),
-) -> dict:
+) -> dict[str, Any]:
     data = _tmdb_request("search/tv", params={"query": query, "page": page})
-    results = [_normalize_tmdb_item(item, "tv") for item in data.get("results", []) or []]
+    results = [_normalize_tmdb_item(item, "tv") for item in _dict_list(data.get("results"))]
     return _paged_response(data, _attach_library_status(results))
 
 
@@ -256,11 +278,11 @@ async def search_tmdb_multi(
     query: str = Query(..., min_length=1),
     page: int = Query(1, ge=1),
     include_people: bool = Query(True),
-) -> dict:
+) -> dict[str, Any]:
     data = _tmdb_request("search/multi", params={"query": query, "page": page})
     results: list[dict[str, Any]] = []
 
-    for item in data.get("results", []) or []:
+    for item in _dict_list(data.get("results")):
         media_type = item.get("media_type")
         if media_type in ("movie", "tv"):
             results.append(_normalize_tmdb_item(item, media_type))
@@ -272,7 +294,7 @@ async def search_tmdb_multi(
 
 
 @router.get("/trending/tmdb/{media_type}/{window}", summary="TMDB trending")
-async def trending_tmdb(media_type: str, window: str) -> dict:
+async def trending_tmdb(media_type: str, window: str) -> dict[str, Any]:
     if media_type not in ("movie", "tv", "all"):
         raise HTTPException(
             status_code=400, detail="media_type must be movie, tv, or all"
@@ -282,7 +304,7 @@ async def trending_tmdb(media_type: str, window: str) -> dict:
 
     data = _tmdb_request(f"trending/{media_type}/{window}")
     results: list[dict[str, Any]] = []
-    for item in data.get("results", []) or []:
+    for item in _dict_list(data.get("results")):
         item_media_type = item.get("media_type") or media_type
         if item_media_type in ("movie", "tv"):
             results.append(_normalize_tmdb_item(item, item_media_type))
@@ -291,7 +313,7 @@ async def trending_tmdb(media_type: str, window: str) -> dict:
 
 
 @router.get("/tmdb/movie/{movie_id}", summary="TMDB movie details")
-async def tmdb_movie_details(movie_id: str) -> dict:
+async def tmdb_movie_details(movie_id: str) -> dict[str, Any]:
     data = _tmdb_request(
         f"movie/{movie_id}",
         params={
@@ -314,7 +336,7 @@ async def tmdb_movie_details(movie_id: str) -> dict:
 
 
 @router.get("/tmdb/tv/{tv_id}", summary="TMDB TV details")
-async def tmdb_tv_details(tv_id: str) -> dict:
+async def tmdb_tv_details(tv_id: str) -> dict[str, Any]:
     data = _tmdb_request(
         f"tv/{tv_id}",
         params={
@@ -337,32 +359,32 @@ async def tmdb_tv_details(tv_id: str) -> dict:
 
 
 @router.get("/tmdb/movie/{movie_id}/credits", summary="TMDB movie credits")
-async def tmdb_movie_credits(movie_id: str) -> dict:
+async def tmdb_movie_credits(movie_id: str) -> dict[str, Any]:
     return _tmdb_request(f"movie/{movie_id}/credits")
 
 
 @router.get("/tmdb/tv/{tv_id}/credits", summary="TMDB TV credits")
-async def tmdb_tv_credits(tv_id: str) -> dict:
+async def tmdb_tv_credits(tv_id: str) -> dict[str, Any]:
     return _tmdb_request(f"tv/{tv_id}/credits")
 
 
 @router.get("/tmdb/movie/{movie_id}/recommendations", summary="TMDB movie recs")
-async def tmdb_movie_recommendations(movie_id: str) -> dict:
+async def tmdb_movie_recommendations(movie_id: str) -> dict[str, Any]:
     return _tmdb_media_collection(f"movie/{movie_id}/recommendations", "movie")
 
 
 @router.get("/tmdb/movie/{movie_id}/similar", summary="TMDB similar movies")
-async def tmdb_movie_similar(movie_id: str) -> dict:
+async def tmdb_movie_similar(movie_id: str) -> dict[str, Any]:
     return _tmdb_media_collection(f"movie/{movie_id}/similar", "movie")
 
 
 @router.get("/tmdb/tv/{tv_id}/recommendations", summary="TMDB TV recs")
-async def tmdb_tv_recommendations(tv_id: str) -> dict:
+async def tmdb_tv_recommendations(tv_id: str) -> dict[str, Any]:
     return _tmdb_media_collection(f"tv/{tv_id}/recommendations", "tv")
 
 
 @router.get("/tmdb/tv/{tv_id}/similar", summary="TMDB similar TV")
-async def tmdb_tv_similar(tv_id: str) -> dict:
+async def tmdb_tv_similar(tv_id: str) -> dict[str, Any]:
     return _tmdb_media_collection(f"tv/{tv_id}/similar", "tv")
 
 
@@ -372,7 +394,7 @@ def _normalize_person_credits(
     default_media_type: TMDB_MEDIA_TYPE | None = None,
 ) -> list[dict[str, Any]]:
     credits: list[dict[str, Any]] = []
-    for item in data.get(key, []) or []:
+    for item in _dict_list(data.get(key)):
         media_type = item.get("media_type") or default_media_type
         if media_type not in ("movie", "tv"):
             continue
@@ -388,7 +410,7 @@ def _normalize_person_credits(
 
 
 @router.get("/tmdb/person/{person_id}", summary="TMDB person details")
-async def tmdb_person_details(person_id: str) -> dict:
+async def tmdb_person_details(person_id: str) -> dict[str, Any]:
     return _tmdb_request(
         f"person/{person_id}",
         params={
@@ -399,7 +421,7 @@ async def tmdb_person_details(person_id: str) -> dict:
 
 
 @router.get("/tmdb/person/{person_id}/combined_credits", summary="TMDB person credits")
-async def tmdb_person_combined_credits(person_id: str) -> dict:
+async def tmdb_person_combined_credits(person_id: str) -> dict[str, Any]:
     data = _tmdb_request(f"person/{person_id}/combined_credits")
     cast = _normalize_person_credits(data, "cast")
     crew = _normalize_person_credits(data, "crew")
@@ -407,7 +429,7 @@ async def tmdb_person_combined_credits(person_id: str) -> dict:
 
 
 @router.get("/tmdb/person/{person_id}/movie_credits", summary="TMDB person movie credits")
-async def tmdb_person_movie_credits(person_id: str) -> dict:
+async def tmdb_person_movie_credits(person_id: str) -> dict[str, Any]:
     data = _tmdb_request(f"person/{person_id}/movie_credits")
     cast = _normalize_person_credits(data, "cast", default_media_type="movie")
     crew = _normalize_person_credits(data, "crew", default_media_type="movie")
@@ -415,7 +437,7 @@ async def tmdb_person_movie_credits(person_id: str) -> dict:
 
 
 @router.get("/tmdb/person/{person_id}/tv_credits", summary="TMDB person TV credits")
-async def tmdb_person_tv_credits(person_id: str) -> dict:
+async def tmdb_person_tv_credits(person_id: str) -> dict[str, Any]:
     data = _tmdb_request(f"person/{person_id}/tv_credits")
     cast = _normalize_person_credits(data, "cast", default_media_type="tv")
     crew = _normalize_person_credits(data, "crew", default_media_type="tv")
@@ -429,7 +451,7 @@ async def search_tvdb(
     type: str = Query("series"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-) -> dict:
+) -> dict[str, Any]:
     if not query and not remote_id:
         raise HTTPException(status_code=400, detail="query or remote_id required")
 
@@ -440,13 +462,14 @@ async def search_tvdb(
     if not result:
         return {"results": [], "page": 1, "total_pages": 0, "total_results": 0}
 
-    data_list = result.get("data", [])
-    links = result.get("links", {})
-    total = links.get("total_items", len(data_list))
+    data_list = _dict_list(result.get("data"))
+    links = _dict_map(result.get("links"))
+    total_value = links.get("total_items", len(data_list))
+    total = int(total_value) if isinstance(total_value, int | str) else len(data_list)
 
-    results = []
+    results: list[dict[str, Any]] = []
     for entry in data_list:
-        if isinstance(entry, dict) and entry.get("type") == "series":
+        if entry.get("type") == "series":
             results.append(_normalize_tvdb_item(entry))
     _attach_library_status(results)
 
@@ -459,7 +482,7 @@ async def search_tvdb(
 
 
 @router.get("/tvdb/series/{series_id}", summary="TVDB series details")
-async def tvdb_series_details(series_id: str) -> dict:
+async def tvdb_series_details(series_id: str) -> dict[str, Any]:
     tvdb = _get_tvdb()
     series = tvdb.get_series(series_id)
     if not series:
