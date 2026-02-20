@@ -21,6 +21,13 @@ export function renderMediaCard(item, options = {}) {
 
   const card = document.createElement('article');
   card.className = `media-card media-card--${kind} ${compact ? 'media-card--compact' : ''}`.trim();
+  card.dataset.mediaCard = '1';
+  if (item?.tmdb_id != null) card.dataset.tmdbId = String(item.tmdb_id);
+  if (item?.tvdb_id != null) card.dataset.tvdbId = String(item.tvdb_id);
+  if (item?.library_item_id != null) card.dataset.libraryItemId = String(item.library_item_id);
+  if (item?.id != null) card.dataset.itemId = String(item.id);
+  if (item?.indexer) card.dataset.indexer = String(item.indexer);
+  if (kind === 'movie' || kind === 'tv') card.dataset.mediaType = kind;
 
   const trigger = document.createElement(href ? 'a' : 'button');
   trigger.className = 'media-card__trigger';
@@ -37,24 +44,27 @@ export function renderMediaCard(item, options = {}) {
     });
   }
 
+  const title = item?.title || item?.name || 'Unknown';
   const poster = document.createElement('div');
   poster.className = 'media-card__poster';
+  const placeholder = document.createElement('div');
+  placeholder.className = 'media-card__placeholder';
+  placeholder.textContent = (title || '?').slice(0, 1).toUpperCase();
   const img = document.createElement('img');
-  const title = item?.title || item?.name || 'Unknown';
-  img.src = posterUrl(item);
   img.alt = title;
   img.loading = 'lazy';
+  const hasPoster = posterUrl(item);
+  placeholder.hidden = !!hasPoster;
+  img.addEventListener('load', () => {
+    placeholder.hidden = true;
+  });
   img.addEventListener('error', () => {
     img.remove();
     placeholder.hidden = false;
   });
-  poster.appendChild(img);
-
-  const placeholder = document.createElement('div');
-  placeholder.className = 'media-card__placeholder';
-  placeholder.textContent = (title || '?').slice(0, 1).toUpperCase();
-  placeholder.hidden = !!img.src;
   poster.appendChild(placeholder);
+  poster.appendChild(img);
+  if (hasPoster) img.src = hasPoster;
 
   const body = document.createElement('div');
   body.className = 'media-card__body';
@@ -70,8 +80,10 @@ export function renderMediaCard(item, options = {}) {
   const year = formatYear(item);
   if (year) tags.appendChild(createTag(year, 'media-tag--neutral'));
 
-  if (item?.state) tags.appendChild(createTag(item.state, 'media-tag--state'));
-  if (item?.in_library) tags.appendChild(createTag('In Library', 'media-tag--library'));
+  const stateTag = item?.state ? createTag(item.state, 'media-tag--state') : null;
+  if (stateTag) tags.appendChild(stateTag);
+  const libraryTag = item?.in_library ? createTag('In Library', 'media-tag--library') : null;
+  if (libraryTag) tags.appendChild(libraryTag);
   body.appendChild(tags);
 
   if (item?.overview || item?.biography) {
@@ -104,4 +116,55 @@ export function renderMediaCard(item, options = {}) {
   }
 
   return card;
+}
+
+/**
+ * Update only the status/library tags and action button on an existing card (for live refresh).
+ * When in_library becomes true, replaces "Add" with "Open" that navigates to the library item.
+ * @param {Element} cardEl - The .media-card element
+ * @param {{ state?: string | null, in_library?: boolean, library_item_id?: string | null }} status
+ */
+export function updateMediaCardStatus(cardEl, status) {
+  const tags = cardEl?.querySelector('.media-card__tags');
+  if (!tags) return;
+
+  let stateTag = tags.querySelector('.media-tag--state');
+  let libraryTag = tags.querySelector('.media-tag--library');
+
+  if (status.state != null && status.state !== '') {
+    if (!stateTag) {
+      stateTag = createTag(status.state, 'media-tag--state');
+      tags.appendChild(stateTag);
+    } else {
+      stateTag.textContent = status.state;
+    }
+  } else if (stateTag) {
+    stateTag.remove();
+  }
+
+  if (status.in_library) {
+    if (!libraryTag) {
+      libraryTag = createTag('In Library', 'media-tag--library');
+      tags.appendChild(libraryTag);
+    }
+  } else if (libraryTag) {
+    libraryTag.remove();
+  }
+
+  const footer = cardEl?.querySelector('.media-card__actions');
+  if (!footer || !status.in_library || !status.library_item_id) return;
+
+  const addBtn = footer.querySelector('.btn--primary') || Array.from(footer.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Add');
+  if (!addBtn) return;
+
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'btn btn--small btn--secondary';
+  openBtn.textContent = 'Open';
+  openBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.location.hash = `#/item/${status.library_item_id}`;
+  });
+  addBtn.replaceWith(openBtn);
 }

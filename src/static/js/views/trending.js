@@ -1,5 +1,6 @@
 import { apiGet, apiPost } from '../api.js';
 import { renderMediaCard } from '../components/media_card.js';
+import { createMediaTypeToggle } from '../components/media_type_toggle.js';
 import { notify } from '../notify.js';
 import { getMediaKind } from '../utils.js';
 
@@ -31,7 +32,7 @@ function toExplore(item) {
 
 export async function load(route, container) {
   const controls = container.querySelector('[data-slot="controls"]');
-  const typeSelect = container.querySelector('[data-slot="media-type"]');
+  const toggleContainer = container.querySelector('[data-slot="media-type-toggle"]');
   const windowSelect = container.querySelector('[data-slot="window"]');
   const grid = container.querySelector('[data-slot="grid"]');
   const empty = container.querySelector('[data-slot="empty"]');
@@ -40,6 +41,17 @@ export async function load(route, container) {
     mediaType: 'movie',
     window: 'day',
   };
+
+  const mediaTypeToggle =
+    toggleContainer &&
+    createMediaTypeToggle({
+      container: toggleContainer,
+      value: state.mediaType === 'tv' ? 'tv' : 'movie',
+      onChange(value) {
+        state.mediaType = value;
+        fetchTrending();
+      },
+    });
 
   async function fetchTrending() {
     const response = await apiGet(`/trending/tmdb/${state.mediaType}/${state.window}`);
@@ -99,7 +111,7 @@ export async function load(route, container) {
   if (controls) {
     controls.addEventListener('submit', (event) => {
       event.preventDefault();
-      state.mediaType = typeSelect?.value || 'movie';
+      if (mediaTypeToggle) state.mediaType = mediaTypeToggle.getValue();
       state.window = windowSelect?.value || 'day';
       fetchTrending();
     });

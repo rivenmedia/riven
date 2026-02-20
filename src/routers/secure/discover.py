@@ -253,10 +253,13 @@ async def discover_tmdb_tv(request: Request, page: int = Query(1, ge=1)) -> dict
 
 @router.get("/search/tmdb/movie", summary="Search TMDB movies")
 async def search_tmdb_movie(
-    query: str = Query(..., min_length=1),
+    query: str | None = Query(None, min_length=1),
     page: int = Query(1, ge=1),
 ) -> dict[str, Any]:
-    data = _tmdb_request("search/movie", params={"query": query, "page": page})
+    if not query or not query.strip():
+        data = _tmdb_request("discover/movie", params={"page": page})
+    else:
+        data = _tmdb_request("search/movie", params={"query": query, "page": page})
     results = [
         _normalize_tmdb_item(item, "movie") for item in _dict_list(data.get("results"))
     ]
@@ -265,10 +268,13 @@ async def search_tmdb_movie(
 
 @router.get("/search/tmdb/tv", summary="Search TMDB TV")
 async def search_tmdb_tv(
-    query: str = Query(..., min_length=1),
+    query: str | None = Query(None, min_length=1),
     page: int = Query(1, ge=1),
 ) -> dict[str, Any]:
-    data = _tmdb_request("search/tv", params={"query": query, "page": page})
+    if not query or not query.strip():
+        data = _tmdb_request("discover/tv", params={"page": page})
+    else:
+        data = _tmdb_request("search/tv", params={"query": query, "page": page})
     results = [_normalize_tmdb_item(item, "tv") for item in _dict_list(data.get("results"))]
     return _paged_response(data, _attach_library_status(results))
 

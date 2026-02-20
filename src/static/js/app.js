@@ -4,6 +4,7 @@
 
 import { hasKey, setKey, logout, validateKey } from './auth.js';
 import { getTemplateId, parseRoute } from './router.js';
+import * as statusTracker from './status_tracker.js';
 import * as calendarView from './views/calendar.js';
 import * as dashboardView from './views/dashboard.js';
 import * as exploreView from './views/explore.js';
@@ -48,6 +49,8 @@ function applyRouteTheme(route) {
 async function loadView(route) {
   const container = document.getElementById('view-container');
   if (!container) return;
+
+  statusTracker.clear();
 
   const templateId = getTemplateId(route.name);
   const template = document.getElementById(templateId);
@@ -109,4 +112,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   window.addEventListener('hashchange', onHashChange);
+  statusTracker.start();
 });

@@ -4,6 +4,7 @@ import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from types import FrameType
 
 from kink import di
@@ -35,7 +36,26 @@ from program.utils.cli import handle_args
 from routers import app_router
 
 
+def _apache_log_line(
+    client_host: str,
+    ident: str,
+    auth_user: str,
+    timestamp: str,
+    request_line: str,
+    status: int,
+    bytes_sent: str,
+    referer: str,
+    user_agent: str,
+) -> str:
+    """Apache Combined Log Format: %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i" """
+    return f'{client_host} {ident} {auth_user} [{timestamp}] "{request_line}" {status} {bytes_sent} "{referer}" "{user_agent}"'
+
+
 class LoguruMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, log_requests: bool = True):
+        super().__init__(app)
+        self.log_requests = log_requests
+
     async def dispatch(
         self,
         request: Request,
@@ -46,18 +66,30 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
-
             return response
         except Exception as e:
             logger.exception(f"Exception during request processing: {e}")
             raise
         finally:
-            process_time = time.time() - start_time
+            client = getattr(request, "client", None)
+            client_host = client[0] if client else "-"
+            ident = "-"
+            auth_user = "-"
+            ts = datetime.now(timezone.utc).strftime("%d/%b/%Y:%H:%M:%S +0000")
+            path = request.url.path
+            if request.url.query:
+                path = f"{path}?{request.url.query}"
+            request_line = f"{request.method} {path} HTTP/1.1"
+            status = response.status_code if response else 500
+            cl = response.headers.get("content-length", "-") if response else "-"
+            referer = request.headers.get("referer", "-") or "-"
+            user_agent = request.headers.get("user-agent", "-") or "-"
 
-            logger.log(
-                "API",
-                f"{request.method} {request.url.path} - {response.status_code if response else '500'} - {process_time:.2f}s",
-            )
+            if self.log_requests:
+                log_line = _apache_log_line(
+                    client_host, ident, auth_user, ts, request_line, status, cl, referer, user_agent
+                )
+                logger.info(log_line)
 
 
 args = handle_args()
@@ -114,7 +146,7 @@ async def homepage(request: Request):
 
 di[Program] = riven
 
-app.add_middleware(LoguruMiddleware)
+app.add_middleware(LoguruMiddleware, log_requests=settings_manager.settings.log_requests)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

@@ -1,6 +1,7 @@
 import { apiDelete, apiGet, apiPost } from '../api.js';
 import { renderMediaCard } from '../components/media_card.js';
 import { notify } from '../notify.js';
+import * as statusTracker from '../status_tracker.js';
 
 function normalizeLibraryItem(item) {
   return {
@@ -208,6 +209,7 @@ export async function load(route, container) {
       page = nextPage;
       fetchItems();
     });
+    statusTracker.setTracked(gridElement, 'library');
   }
 
   if (filterForm) {

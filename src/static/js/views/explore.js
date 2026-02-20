@@ -1,8 +1,10 @@
 import { apiGet, apiPost } from '../api.js';
 import { renderMediaCard } from '../components/media_card.js';
+import { createMediaTypeToggle } from '../components/media_type_toggle.js';
 import { notify } from '../notify.js';
 import { formatYear, getMediaKind, sortByPopularity, toCsv } from '../utils.js';
 import { replaceRoute } from '../router.js';
+import * as statusTracker from '../status_tracker.js';
 
 function toCardItem(entry, fallbackKind = null) {
   const kind = fallbackKind || getMediaKind(entry);
@@ -117,7 +119,7 @@ async function annotateLibraryStatus(items) {
   return items;
 }
 
-async function addItemToLibrary(item) {
+async function addItemToLibrary(item, seasonNumbers = null) {
   const kind = getMediaKind(item);
   if (kind !== 'movie' && kind !== 'tv') return false;
 
@@ -134,6 +136,25 @@ async function addItemToLibrary(item) {
   if (!res.ok) {
     notify(res.error || 'Failed to add media', 'error');
     return false;
+  }
+
+  if (kind === 'tv' && seasonNumbers && seasonNumbers.length > 0) {
+    const scrapePayload = {
+      media_type: 'tv',
+      season_numbers: seasonNumbers,
+    };
+    if (item.indexer === 'tvdb') {
+      scrapePayload.tvdb_id = String(item.tvdb_id || item.id);
+    } else {
+      scrapePayload.tmdb_id = String(item.tmdb_id || item.id);
+    }
+    const scrapeRes = await apiPost('/scrape/auto', scrapePayload);
+    if (!scrapeRes.ok) {
+      notify(`Added to library but failed to start season scrape: ${scrapeRes.error}`, 'warning');
+      return true;
+    }
+    notify(`Added "${item.title || item.name}" — scraping ${seasonNumbers.length} season(s)`, 'success');
+    return true;
   }
 
   notify(`Added "${item.title || item.name}" to library`, 'success');
@@ -240,6 +261,85 @@ function renderCastPills(title, cast, target, onSelectPerson) {
   target.appendChild(section);
 }
 
+function getSeasonNumber(s) {
+  return s.season_number ?? s.number ?? null;
+}
+
+function buildSeasonSelector(seasons) {
+  if (!seasons || !seasons.length) return null;
+
+  const filtered = seasons.filter((s) => getSeasonNumber(s) > 0);
+  if (!filtered.length) return null;
+
+  const selected = new Set(filtered.map((s) => getSeasonNumber(s)));
+
+  const container = document.createElement('div');
+  container.className = 'season-selector';
+
+  const header = document.createElement('div');
+  header.className = 'season-selector__header';
+  const label = document.createElement('span');
+  label.className = 'season-selector__label';
+  const updateLabel = () => {
+    label.textContent = `Seasons: ${selected.size} of ${filtered.length} selected`;
+  };
+  updateLabel();
+
+  const toggleAll = document.createElement('button');
+  toggleAll.type = 'button';
+  toggleAll.className = 'btn btn--secondary btn--small';
+  toggleAll.textContent = 'Toggle All';
+  toggleAll.addEventListener('click', () => {
+    const allSelected = selected.size === filtered.length;
+    filtered.forEach((s) => {
+      if (allSelected) selected.delete(getSeasonNumber(s));
+      else selected.add(getSeasonNumber(s));
+    });
+    container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+      cb.checked = !allSelected;
+    });
+    updateLabel();
+  });
+
+  header.appendChild(label);
+  header.appendChild(toggleAll);
+  container.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'season-selector__list';
+  filtered.forEach((season) => {
+    const num = getSeasonNumber(season);
+    const row = document.createElement('label');
+    row.className = 'season-selector__item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.value = String(num);
+    cb.addEventListener('change', () => {
+      if (cb.checked) selected.add(num);
+      else selected.delete(num);
+      updateLabel();
+    });
+    const text = document.createElement('span');
+    text.textContent = season.name || `Season ${num}`;
+    const epCount = season.episode_count || season.episodes?.length;
+    if (epCount) {
+      text.textContent += ` (${epCount} eps)`;
+    }
+    row.appendChild(cb);
+    row.appendChild(text);
+    list.appendChild(row);
+  });
+  container.appendChild(list);
+
+  return {
+    element: container,
+    getSelected: () => Array.from(selected).sort((a, b) => a - b),
+    isPartial: () => selected.size > 0 && selected.size < filtered.length,
+    totalSeasons: filtered.length,
+  };
+}
+
 function renderDetailHeader(detail, kind, onAction) {
   const wrap = document.createElement('section');
   wrap.className = 'panel';
@@ -272,13 +372,27 @@ function renderDetailHeader(detail, kind, onAction) {
   overview.className = 'muted';
   right.appendChild(overview);
 
+  let seasonSelector = null;
+  if (kind === 'tv' && detail.seasons) {
+    seasonSelector = buildSeasonSelector(detail.seasons);
+    if (seasonSelector) {
+      right.appendChild(seasonSelector.element);
+    }
+  }
+
   const actionRow = document.createElement('div');
   actionRow.className = 'toolbar';
   const actionButton = document.createElement('button');
   actionButton.type = 'button';
   actionButton.className = 'btn btn--primary btn--small';
   actionButton.textContent = onAction.label;
-  actionButton.addEventListener('click', onAction.onClick);
+  actionButton.addEventListener('click', () => {
+    if (seasonSelector && onAction.seasonSelector) {
+      onAction.onClick(seasonSelector);
+    } else {
+      onAction.onClick(null);
+    }
+  });
   actionRow.appendChild(actionButton);
   right.appendChild(actionRow);
 
@@ -292,7 +406,7 @@ export async function load(route, container) {
   const form = container.querySelector('[data-slot="search-form"]');
   const sourceSelect = container.querySelector('[data-slot="source"]');
   const modeSelect = container.querySelector('[data-slot="mode"]');
-  const typeSelect = container.querySelector('[data-slot="type"]');
+  const toggleContainer = container.querySelector('[data-slot="media-type-toggle"]');
   const queryInput = container.querySelector('[data-slot="query"]');
   const grid = container.querySelector('[data-slot="grid"]');
   const empty = container.querySelector('[data-slot="empty"]');
@@ -335,10 +449,24 @@ export async function load(route, container) {
     replaceRoute('explore', null, buildRouteQuery(state));
   }
 
+  const mediaTypeToggle =
+    toggleContainer &&
+    createMediaTypeToggle({
+      container: toggleContainer,
+      value: state.type,
+      includeAll: true,
+      onChange(value) {
+        state.type = value;
+        if (state.source === 'tvdb' && value === 'all') state.type = 'tv';
+        syncRouteState();
+        fetchResults();
+      },
+    });
+
   function syncControls() {
     if (sourceSelect) sourceSelect.value = state.source;
     if (modeSelect) modeSelect.value = state.mode;
-    if (typeSelect) typeSelect.value = state.type;
+    if (mediaTypeToggle) mediaTypeToggle.setValue(state.type);
     if (queryInput) queryInput.value = state.query;
 
     if (modeSelect) {
@@ -454,6 +582,7 @@ export async function load(route, container) {
     });
 
     syncRouteState();
+    statusTracker.setTracked(grid, 'explore');
   }
 
   async function selectNode(node, updateHistory = true) {
@@ -507,6 +636,7 @@ export async function load(route, container) {
       );
       renderDetailCards('Known Works', rankedCredits, detail, selectNode);
       syncRouteState();
+      statusTracker.setTracked([{ container: grid, type: 'explore' }, { container: detail, type: 'explore' }]);
       return;
     }
 
@@ -529,24 +659,27 @@ export async function load(route, container) {
       series.title = series.name || series.title;
 
       detail.innerHTML = '';
+      const tvdbInLibrary = series.in_library && series.library_item_id;
       detail.appendChild(
         renderDetailHeader(series, 'tv', {
-          label:
-            series.in_library && series.library_item_id
-              ? 'Open Library Item'
-              : 'Add to Library',
-          onClick: async () => {
-            if (series.in_library && series.library_item_id) {
+          label: tvdbInLibrary ? 'Open Library Item' : 'Add to Library',
+          seasonSelector: !tvdbInLibrary,
+          onClick: async (seasonSelector) => {
+            if (tvdbInLibrary) {
               window.location.hash = `#/item/${series.library_item_id}`;
               return;
             }
-            const ok = await addItemToLibrary({
-              ...series,
-              media_type: 'tv',
-              id: node.id,
-              indexer: 'tvdb',
-              tvdb_id: node.id,
-            });
+            const seasonNumbers = seasonSelector?.isPartial() ? seasonSelector.getSelected() : null;
+            const ok = await addItemToLibrary(
+              {
+                ...series,
+                media_type: 'tv',
+                id: node.id,
+                indexer: 'tvdb',
+                tvdb_id: node.id,
+              },
+              seasonNumbers,
+            );
             if (!ok) return;
             await fetchResults();
             await selectNode(node, false);
@@ -574,18 +707,18 @@ export async function load(route, container) {
     await annotateLibraryStatus(similar);
 
     detail.innerHTML = '';
+    const isInLibrary = media.library?.in_library && media.library?.library_item_id;
     detail.appendChild(
       renderDetailHeader(media, node.kind, {
-        label:
-          media.library?.in_library && media.library?.library_item_id
-            ? 'Open Library Item'
-            : 'Add to Library',
-        onClick: async () => {
-          if (media.library?.in_library && media.library?.library_item_id) {
+        label: isInLibrary ? 'Open Library Item' : 'Add to Library',
+        seasonSelector: node.kind === 'tv' && !isInLibrary,
+        onClick: async (seasonSelector) => {
+          if (isInLibrary) {
             window.location.hash = `#/item/${media.library.library_item_id}`;
             return;
           }
-          const ok = await addItemToLibrary({ ...media, media_type: node.kind });
+          const seasonNumbers = seasonSelector?.isPartial() ? seasonSelector.getSelected() : null;
+          const ok = await addItemToLibrary({ ...media, media_type: node.kind }, seasonNumbers);
           if (!ok) return;
           await fetchResults();
           await selectNode(node, false);
@@ -598,6 +731,7 @@ export async function load(route, container) {
     renderDetailCards('Recommendations', recommendations.slice(0, 12), detail, selectNode);
     renderDetailCards('Similar', similar.slice(0, 12), detail, selectNode);
     syncRouteState();
+    statusTracker.setTracked([{ container: grid, type: 'explore' }, { container: detail, type: 'explore' }]);
   }
 
   if (form) {
@@ -605,7 +739,7 @@ export async function load(route, container) {
       event.preventDefault();
       state.source = sourceSelect?.value || 'tmdb';
       state.mode = modeSelect?.value || 'search';
-      state.type = typeSelect?.value || 'movie';
+      state.type = mediaTypeToggle?.getValue() || 'movie';
       state.query = queryInput?.value?.trim() || '';
       state.page = 1;
       state.history = [];

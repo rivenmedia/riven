@@ -17,11 +17,7 @@
       <option value="search">Search</option>
       <option value="discover">Discover</option>
     </select>
-    <select data-slot="type">
-      <option value="movie">Movies</option>
-      <option value="tv">TV Shows</option>
-      <option value="all">All media (TMDB search only)</option>
-    </select>
+    <div data-slot="media-type-toggle"></div>
     <input type="search" data-slot="query" placeholder="Search title / person / keywords">
     <button type="submit" class="btn btn--primary">Load</button>
   </form>

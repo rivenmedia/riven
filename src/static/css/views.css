@@ -251,6 +251,53 @@
   border-radius: var(--radius-sm);
 }
 
+.season-selector {
+  margin-top: 0.45rem;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.season-selector__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--panel-border);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.season-selector__label {
+  font-size: var(--font-size-1);
+  color: var(--text-2);
+}
+
+.season-selector__list {
+  display: grid;
+  gap: 0;
+}
+
+.season-selector__item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  font-size: var(--font-size-1);
+}
+
+.season-selector__item:hover {
+  background: rgba(144, 162, 197, 0.08);
+}
+
+.season-selector__item input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
 .detail-link-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
