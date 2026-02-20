@@ -1,4 +1,4 @@
-import type { RouteName } from "../types";
+import type { RouteName } from "../app/routeTypes";
 
 interface SidebarProps {
   currentRoute: RouteName;

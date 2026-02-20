@@ -1,5 +1,5 @@
-import { apiGet } from '../api';
-import { formatDate } from '../utils';
+import { apiGet } from '../services/api';
+import { formatDate } from '../services/utils';
 
 interface CalendarEntry {
   aired_at?: string;

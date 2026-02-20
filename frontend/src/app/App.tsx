@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { hasKey, logout, setKey, validateKey } from "./legacy/js/auth";
-import { parseRoute } from "./legacy/js/router";
-import * as statusTracker from "./legacy/js/status_tracker";
-import LegacyScaffold from "./components/LegacyScaffold";
-import LoginView from "./components/LoginView";
-import Sidebar from "./components/Sidebar";
-import ViewHost from "./components/ViewHost";
-import type { AppRoute, RouteName } from "./types";
+import { hasKey, logout, setKey, validateKey } from "../services/auth";
+import { parseRoute } from "../services/router";
+import * as statusTracker from "../services/statusTracker";
+import LoginView from "../components/LoginView";
+import ManualScrapeModalTemplate from "../components/ManualScrapeModalTemplate";
+import Sidebar from "../components/Sidebar";
+import ViewHost from "../components/ViewHost";
+import type { AppRoute, RouteName } from "./routeTypes";
 
 const DEFAULT_HASH = "#/library";
 
@@ -96,7 +96,7 @@ export default function App() {
         <LoginView error={error} loading={loading} onSubmit={handleLogin} />
       )}
 
-      <LegacyScaffold />
+      <ManualScrapeModalTemplate />
       <div aria-live="polite" className="toast-root" id="toast-root" />
     </div>
   );

@@ -4,7 +4,7 @@
  */
 
 import { apiGet } from './api';
-import { updateMediaCardStatus } from './components/media_card';
+import { updateMediaCardStatus } from '../ui/mediaCard';
 import { toCsv } from './utils';
 
 const POLL_INTERVAL_MS = 5_000;

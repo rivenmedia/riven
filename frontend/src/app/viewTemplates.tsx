@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { Panel, ViewHeader, ViewLayout } from "./components/ui/PagePrimitives";
-import type { RouteName } from "./types";
+import { Panel, ViewHeader, ViewLayout } from "../components/ui/PagePrimitives";
+import type { RouteName } from "./routeTypes";
 
 function LibraryTemplate() {
   return (

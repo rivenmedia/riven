@@ -1,4 +1,4 @@
-import { apiGet } from '../api';
+import { apiGet } from '../services/api';
 
 export async function load(route, container) {
   const response = await apiGet('/vfs_stats');

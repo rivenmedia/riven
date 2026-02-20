@@ -1,4 +1,4 @@
-import { formatYear, getMediaKind, mediaLabel } from '../utils';
+import { formatYear, getMediaKind, mediaLabel } from '../services/utils';
 
 const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
 

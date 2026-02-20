@@ -1,4 +1,4 @@
-import { apiGet } from '../api';
+import { apiGet } from '../services/api';
 
 const ROW_HEIGHT = 34;
 const OVERSCAN = 10;

@@ -1,11 +1,11 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import App from "./app/App";
 
-import "./legacy/css/base.css";
-import "./legacy/css/layout.css";
-import "./legacy/css/components.css";
-import "./legacy/css/views.css";
+import "./styles/base.css";
+import "./styles/layout.css";
+import "./styles/components.css";
+import "./styles/views.css";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

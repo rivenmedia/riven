@@ -1,5 +1,5 @@
-import { apiFetch, apiGet } from '../api';
-import { notify } from '../notify';
+import { apiFetch, apiGet } from '../services/api';
+import { notify } from '../services/notify';
 
 const QUICK_ENDPOINTS = [
   '/health',

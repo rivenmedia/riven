@@ -1,10 +1,10 @@
-import { apiGet, apiPost } from '../api';
-import { renderMediaCard } from '../components/media_card';
-import { createMediaTypeToggle } from '../components/media_type_toggle';
-import { notify } from '../notify';
-import { formatYear, getMediaKind, sortByPopularity, toCsv } from '../utils';
-import { replaceRoute } from '../router';
-import * as statusTracker from '../status_tracker';
+import { renderMediaCard } from '../ui/mediaCard';
+import { createMediaTypeToggle } from '../ui/mediaTypeToggle';
+import { apiGet, apiPost } from '../services/api';
+import { notify } from '../services/notify';
+import { replaceRoute } from '../services/router';
+import * as statusTracker from '../services/statusTracker';
+import { formatYear, getMediaKind, sortByPopularity, toCsv } from '../services/utils';
 
 function toCardItem(entry, fallbackKind = null) {
   const kind = fallbackKind || getMediaKind(entry);

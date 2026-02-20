@@ -1,6 +1,6 @@
-import { apiGet, apiPost, apiDelete, apiFetch, getStreamUrl } from '../api';
-import { notify } from '../notify';
-import { formatDate } from '../utils';
+import { apiDelete, apiFetch, apiGet, apiPost, getStreamUrl } from '../services/api';
+import { notify } from '../services/notify';
+import { formatDate } from '../services/utils';
 
 function mediaTypeForScrape(item) {
   if (item.type === 'movie') return 'movie';

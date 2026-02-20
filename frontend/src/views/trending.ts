@@ -1,8 +1,8 @@
-import { apiGet, apiPost } from '../api';
-import { renderMediaCard } from '../components/media_card';
-import { createMediaTypeToggle } from '../components/media_type_toggle';
-import { notify } from '../notify';
-import { getMediaKind } from '../utils';
+import { renderMediaCard } from '../ui/mediaCard';
+import { createMediaTypeToggle } from '../ui/mediaTypeToggle';
+import { apiGet, apiPost } from '../services/api';
+import { notify } from '../services/notify';
+import { getMediaKind } from '../services/utils';
 
 async function addToLibrary(item) {
   const kind = getMediaKind(item);
