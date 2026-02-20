@@ -18,7 +18,7 @@ from program.utils.async_client import AsyncClient
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -134,16 +134,23 @@ async def scalar_html():
 
 src_dir = Path(__file__).parent
 frontend_index = src_dir / "static" / "ui" / "index.html"
-fallback_index = src_dir / "static" / "index.html"
+frontend_assets_dir = src_dir / "static" / "ui"
 
-app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
+app.mount(
+    "/static/ui",
+    StaticFiles(directory=str(frontend_assets_dir), check_dir=False),
+    name="static-ui",
+)
 
 
 @app.get("/", include_in_schema=False)
 async def homepage():
-    if frontend_index.exists():
-        return FileResponse(frontend_index)
-    return FileResponse(fallback_index)
+    if not frontend_index.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Frontend bundle missing. Run `make frontend-build`.",
+        )
+    return FileResponse(frontend_index)
 
 
 di[Program] = riven

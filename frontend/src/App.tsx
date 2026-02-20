@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { hasKey, logout, setKey, validateKey } from "../../src/static/js/auth.js";
-import { parseRoute } from "../../src/static/js/router.js";
-import * as statusTracker from "../../src/static/js/status_tracker.js";
+import { hasKey, logout, setKey, validateKey } from "./legacy/js/auth.js";
+import { parseRoute } from "./legacy/js/router.js";
+import * as statusTracker from "./legacy/js/status_tracker.js";
 import LegacyScaffold from "./components/LegacyScaffold";
 import LoginView from "./components/LoginView";
 import Sidebar from "./components/Sidebar";

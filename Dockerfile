@@ -9,7 +9,6 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 
 COPY frontend/ /app/frontend/
-COPY src/static /app/src/static
 
 RUN npm run build
 

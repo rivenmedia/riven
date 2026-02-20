@@ -6,6 +6,7 @@ React + Vite + TypeScript frontend for the Riven UI.
 
 - Shared page primitives: `src/components/ui/PagePrimitives.tsx`
 - Route templates: `src/viewTemplates.tsx`
+- Legacy migrated UI logic/styles: `src/legacy/js` and `src/legacy/css`
 - Goal: keep headers, panels, and page layout consistent across all routes.
 
 ## Commands
