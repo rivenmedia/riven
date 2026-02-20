@@ -187,16 +187,23 @@ function renderPagination(container, page, totalPages, onChange) {
   container.appendChild(next);
 }
 
-function renderBreadcrumbs(container, history, onSelect) {
+function getOriginLabel(state) {
+  if (state.mode === 'discover') {
+    return state.type === 'all' ? 'Trending' : `Discover — ${state.type === 'movie' ? 'Movies' : 'TV'}`;
+  }
+  return state.source === 'tvdb' ? 'TVDB Search' : 'Search Results';
+}
+
+function renderBreadcrumbs(container, originLabel, history, onSelect) {
   if (!container) return;
   container.innerHTML = '';
-  if (!history.length) return;
 
-  history.forEach((node, index) => {
+  const items = [{ label: originLabel, kind: 'origin' }, ...history];
+  items.forEach((node, index) => {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'pill';
-    button.textContent = node.label || `${node.kind} ${node.id}`;
+    button.className = 'pill pill--' + (node.kind || 'origin');
+    button.textContent = node.label || (node.kind === 'origin' ? originLabel : `${node.kind} ${node.id}`);
     button.addEventListener('click', () => onSelect(index));
     container.appendChild(button);
   });
@@ -414,6 +421,8 @@ export async function load(route, container) {
   const resultTitle = container.querySelector('[data-slot="results-title"]');
   const detail = container.querySelector('[data-slot="detail"]');
   const breadcrumbs = container.querySelector('[data-slot="breadcrumbs"]');
+  const exploreLayout = container.querySelector('.explore-layout');
+  const exploreResults = container.querySelector('.explore-results');
 
   const state = {
     source: 'tmdb',
@@ -447,6 +456,14 @@ export async function load(route, container) {
 
   function syncRouteState() {
     replaceRoute('explore', null, buildRouteQuery(state));
+  }
+
+  function updateLayoutFocus() {
+    const focused = state.history.length > 0;
+    if (exploreLayout) {
+      exploreLayout.classList.toggle('explore-layout--detail-focused', focused);
+      exploreLayout.classList.toggle('explore-layout--results-only', !focused);
+    }
   }
 
   const mediaTypeToggle =
@@ -582,7 +599,25 @@ export async function load(route, container) {
     });
 
     syncRouteState();
+    updateLayoutFocus();
     statusTracker.setTracked(grid, 'explore');
+  }
+
+  function handleBreadcrumbClick(clickedIndex) {
+    if (clickedIndex === 0) {
+      state.history = [];
+      syncRouteState();
+      updateLayoutFocus();
+      renderBreadcrumbs(breadcrumbs, getOriginLabel(state), state.history, handleBreadcrumbClick);
+      if (detail) {
+        detail.innerHTML = '<p class="muted">Select a card to inspect cast, recommendations, and linked entries.</p>';
+      }
+      return;
+    }
+    const historyIndex = clickedIndex - 1;
+    state.history = state.history.slice(0, historyIndex + 1);
+    const target = state.history[historyIndex];
+    selectNode(target, false);
   }
 
   async function selectNode(node, updateHistory = true) {
@@ -595,11 +630,8 @@ export async function load(route, container) {
       }
     }
 
-    renderBreadcrumbs(breadcrumbs, state.history, (index) => {
-      state.history = state.history.slice(0, index + 1);
-      const target = state.history[index];
-      selectNode(target, false);
-    });
+    renderBreadcrumbs(breadcrumbs, getOriginLabel(state), state.history, handleBreadcrumbClick);
+    updateLayoutFocus();
 
     syncRouteState();
 

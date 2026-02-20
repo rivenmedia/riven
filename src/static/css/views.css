@@ -208,7 +208,15 @@
 .explore-layout {
   display: grid;
   gap: 0.85rem;
-  grid-template-columns: 1.1fr minmax(320px, 0.9fr);
+  grid-template-columns: 1fr;
+}
+
+.explore-layout--detail-focused .explore-results {
+  display: none;
+}
+
+.explore-layout--results-only .explore-panel {
+  display: none;
 }
 
 .explore-results,
@@ -217,6 +225,7 @@
   border-radius: var(--radius-md);
   padding: 0.85rem;
   background: var(--panel);
+  min-width: 0;
 }
 
 .explore-panel {
@@ -230,6 +239,30 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.pill--origin {
+  border-color: rgba(166, 180, 210, 0.35);
+  background: rgba(30, 45, 80, 0.6);
+  color: var(--text-1);
+}
+
+.pill--movie {
+  border-color: rgba(122, 162, 255, 0.45);
+  background: rgba(74, 133, 255, 0.18);
+  color: #9eb8ff;
+}
+
+.pill--tv {
+  border-color: rgba(46, 200, 187, 0.45);
+  background: rgba(30, 163, 159, 0.18);
+  color: #5dd9d0;
+}
+
+.pill--person {
+  border-color: rgba(179, 128, 255, 0.45);
+  background: rgba(147, 88, 243, 0.18);
+  color: #c9a8ff;
 }
 
 .explore-detail {
