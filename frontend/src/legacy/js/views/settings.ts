@@ -1,5 +1,5 @@
-import { apiGet, apiPost } from '../api.js';
-import { notify } from '../notify.js';
+import { apiGet, apiPost } from '../api';
+import { notify } from '../notify';
 
 function renderGroups(container, settings, filter = '') {
   if (!container) return;

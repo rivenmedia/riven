@@ -1,10 +1,10 @@
-import { apiGet, apiPost } from '../api.js';
-import { renderMediaCard } from '../components/media_card.js';
-import { createMediaTypeToggle } from '../components/media_type_toggle.js';
-import { notify } from '../notify.js';
-import { formatYear, getMediaKind, sortByPopularity, toCsv } from '../utils.js';
-import { replaceRoute } from '../router.js';
-import * as statusTracker from '../status_tracker.js';
+import { apiGet, apiPost } from '../api';
+import { renderMediaCard } from '../components/media_card';
+import { createMediaTypeToggle } from '../components/media_type_toggle';
+import { notify } from '../notify';
+import { formatYear, getMediaKind, sortByPopularity, toCsv } from '../utils';
+import { replaceRoute } from '../router';
+import * as statusTracker from '../status_tracker';
 
 function toCardItem(entry, fallbackKind = null) {
   const kind = fallbackKind || getMediaKind(entry);
@@ -61,7 +61,15 @@ function parseTrail(raw) {
 }
 
 function buildRouteQuery(state) {
-  const query = {
+  const query: {
+    source: string;
+    mode: string;
+    type: string;
+    q?: string;
+    page?: number;
+    node?: string;
+    trail?: string;
+  } = {
     source: state.source,
     mode: state.mode,
     type: state.type,
@@ -139,7 +147,12 @@ async function addItemToLibrary(item, seasonNumbers = null) {
   }
 
   if (kind === 'tv' && seasonNumbers && seasonNumbers.length > 0) {
-    const scrapePayload = {
+    const scrapePayload: {
+      media_type: 'tv';
+      season_numbers: number[];
+      tvdb_id?: string;
+      tmdb_id?: string;
+    } = {
       media_type: 'tv',
       season_numbers: seasonNumbers,
     };
@@ -278,7 +291,7 @@ function buildSeasonSelector(seasons) {
   const filtered = seasons.filter((s) => getSeasonNumber(s) > 0);
   if (!filtered.length) return null;
 
-  const selected = new Set(filtered.map((s) => getSeasonNumber(s)));
+  const selected = new Set<number>(filtered.map((s) => getSeasonNumber(s) as number));
 
   const container = document.createElement('div');
   container.className = 'season-selector';
@@ -302,7 +315,7 @@ function buildSeasonSelector(seasons) {
       if (allSelected) selected.delete(getSeasonNumber(s));
       else selected.add(getSeasonNumber(s));
     });
-    container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    (container.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>).forEach((cb) => {
       cb.checked = !allSelected;
     });
     updateLabel();
@@ -668,7 +681,10 @@ export async function load(route, container) {
       );
       renderDetailCards('Known Works', rankedCredits, detail, selectNode);
       syncRouteState();
-      statusTracker.setTracked([{ container: grid, type: 'explore' }, { container: detail, type: 'explore' }]);
+      statusTracker.setTracked(
+        [{ container: grid, type: 'explore' }, { container: detail, type: 'explore' }],
+        undefined,
+      );
       return;
     }
 
@@ -763,7 +779,10 @@ export async function load(route, container) {
     renderDetailCards('Recommendations', recommendations.slice(0, 12), detail, selectNode);
     renderDetailCards('Similar', similar.slice(0, 12), detail, selectNode);
     syncRouteState();
-    statusTracker.setTracked([{ container: grid, type: 'explore' }, { container: detail, type: 'explore' }]);
+    statusTracker.setTracked(
+      [{ container: grid, type: 'explore' }, { container: detail, type: 'explore' }],
+      undefined,
+    );
   }
 
   if (form) {

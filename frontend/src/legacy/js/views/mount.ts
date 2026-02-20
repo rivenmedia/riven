@@ -1,4 +1,4 @@
-import { apiGet } from '../api.js';
+import { apiGet } from '../api';
 
 const ROW_HEIGHT = 34;
 const OVERSCAN = 10;
@@ -89,7 +89,7 @@ export async function load(route, container) {
   const files = response.data?.files || {};
   const entries = Object.entries(files).map(([name, path]) => ({
     name,
-    path,
+    path: String(path),
   }));
 
   const virtualList = buildVirtualList(content);

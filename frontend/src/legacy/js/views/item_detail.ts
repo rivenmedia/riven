@@ -1,6 +1,6 @@
-import { apiGet, apiPost, apiDelete, apiFetch, getStreamUrl } from '../api.js';
-import { notify } from '../notify.js';
-import { formatDate } from '../utils.js';
+import { apiGet, apiPost, apiDelete, apiFetch, getStreamUrl } from '../api';
+import { notify } from '../notify';
+import { formatDate } from '../utils';
 
 function mediaTypeForScrape(item) {
   if (item.type === 'movie') return 'movie';
@@ -28,7 +28,12 @@ async function runAction(action, itemId) {
     case 'remove':
       return apiDelete('/items/remove', { ids });
     default:
-      return { ok: false, error: `Unknown action ${action}` };
+      return {
+        ok: false,
+        status: 0,
+        data: null,
+        error: `Unknown action ${action}`,
+      };
   }
 }
 
@@ -40,12 +45,12 @@ async function runAutoScrape(item) {
 }
 
 function openManualScrapeModal(itemId, refresh) {
-  const template = document.getElementById('manual-scrape-modal-tpl');
+  const template = document.getElementById('manual-scrape-modal-tpl') as HTMLTemplateElement | null;
   if (!template) return;
 
-  const clone = template.content.cloneNode(true);
+  const clone = template.content.cloneNode(true) as DocumentFragment;
   const dialog = clone.querySelector('dialog');
-  const magnetInput = clone.querySelector('[data-slot="magnet"]');
+  const magnetInput = clone.querySelector('[data-slot="magnet"]') as HTMLTextAreaElement | null;
   const startButton = clone.querySelector('[data-action="start-session"]');
   const closeButton = clone.querySelector('[data-action="close"]');
 

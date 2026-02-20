@@ -1,7 +1,14 @@
-import { apiGet } from '../api.js';
-import { formatDate } from '../utils.js';
+import { apiGet } from '../api';
+import { formatDate } from '../utils';
 
-export async function load(route, container) {
+interface CalendarEntry {
+  aired_at?: string;
+  show_title?: string;
+  item_type?: string;
+  last_state?: string;
+}
+
+export async function load(route: unknown, container: HTMLElement) {
   const content = container.querySelector('[data-slot="content"]');
   if (!content) return;
 
@@ -11,9 +18,11 @@ export async function load(route, container) {
     return;
   }
 
-  const values = Object.values(response.data?.data || {});
+  const values = Object.values(
+    (response.data as { data?: Record<string, CalendarEntry> })?.data || {},
+  ) as CalendarEntry[];
   const sorted = values
-    .filter((entry) => entry?.aired_at)
+    .filter((entry): entry is CalendarEntry & { aired_at: string } => Boolean(entry?.aired_at))
     .sort((a, b) => new Date(a.aired_at).getTime() - new Date(b.aired_at).getTime());
 
   if (!sorted.length) {

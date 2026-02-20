@@ -1,5 +1,5 @@
-import { apiGet, apiPost } from '../api.js';
-import { notify } from '../notify.js';
+import { apiGet, apiPost } from '../api';
+import { notify } from '../notify';
 
 function renderKpis(container, stats) {
   if (!container) return;

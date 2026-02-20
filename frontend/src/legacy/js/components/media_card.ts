@@ -1,21 +1,34 @@
-import { formatYear, getMediaKind, mediaLabel } from '../utils.js';
+import { formatYear, getMediaKind, mediaLabel } from '../utils';
 
 const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
 
-function posterUrl(item) {
+interface MediaAction {
+  label: string;
+  onClick?: (item: any) => void;
+  tone?: string;
+}
+
+interface RenderCardOptions {
+  href?: string | null;
+  onSelect?: ((item: any, event: Event) => void) | null;
+  actions?: MediaAction[];
+  compact?: boolean;
+}
+
+function posterUrl(item: any): string {
   const path = item?.poster_path || item?.profile_path;
   if (!path) return '';
   return path.startsWith('http') ? path : `${TMDB_IMG}${path}`;
 }
 
-function createTag(label, className = '') {
+function createTag(label: string, className = ''): HTMLSpanElement {
   const tag = document.createElement('span');
   tag.className = `media-tag ${className}`.trim();
   tag.textContent = label;
   return tag;
 }
 
-export function renderMediaCard(item, options = {}) {
+export function renderMediaCard(item: any, options: RenderCardOptions = {}): HTMLElement {
   const { href = null, onSelect = null, actions = [], compact = false } = options;
   const kind = getMediaKind(item);
 
@@ -29,11 +42,13 @@ export function renderMediaCard(item, options = {}) {
   if (item?.indexer) card.dataset.indexer = String(item.indexer);
   if (kind === 'movie' || kind === 'tv') card.dataset.mediaType = kind;
 
-  const trigger = document.createElement(href ? 'a' : 'button');
+  const trigger = document.createElement(href ? 'a' : 'button') as
+    | HTMLAnchorElement
+    | HTMLButtonElement;
   trigger.className = 'media-card__trigger';
-  if (href) {
+  if (href && trigger instanceof HTMLAnchorElement) {
     trigger.href = href;
-  } else {
+  } else if (trigger instanceof HTMLButtonElement) {
     trigger.type = 'button';
   }
 
@@ -124,7 +139,10 @@ export function renderMediaCard(item, options = {}) {
  * @param {Element} cardEl - The .media-card element
  * @param {{ state?: string | null, in_library?: boolean, library_item_id?: string | null }} status
  */
-export function updateMediaCardStatus(cardEl, status) {
+export function updateMediaCardStatus(
+  cardEl: Element | null | undefined,
+  status: { state?: string | null; in_library?: boolean; library_item_id?: string | null },
+): void {
   const tags = cardEl?.querySelector('.media-card__tags');
   if (!tags) return;
 
@@ -154,7 +172,11 @@ export function updateMediaCardStatus(cardEl, status) {
   const footer = cardEl?.querySelector('.media-card__actions');
   if (!footer || !status.in_library || !status.library_item_id) return;
 
-  const addBtn = footer.querySelector('.btn--primary') || Array.from(footer.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Add');
+  const addBtn =
+    footer.querySelector('.btn--primary') ||
+    (Array.from(footer.querySelectorAll('button')) as HTMLButtonElement[]).find(
+      (b) => b.textContent?.trim() === 'Add',
+    );
   if (!addBtn) return;
 
   const openBtn = document.createElement('button');

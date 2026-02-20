@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import * as statusTracker from "../legacy/js/status_tracker.js";
+import * as statusTracker from "../legacy/js/status_tracker";
 import { VIEW_LOADERS } from "../viewLoaders";
 import { VIEW_TEMPLATES } from "../viewTemplates";
 import type { AppRoute, RouteName, ViewLoaderModule } from "../types";

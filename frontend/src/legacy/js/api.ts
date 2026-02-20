@@ -4,16 +4,26 @@
 
 const API_BASE = '/api/v1';
 
-function getApiKey() {
+type QueryValue = string | number | boolean | null | undefined;
+type QueryParams = Record<string, QueryValue | QueryValue[]>;
+
+export interface ApiResult<T = any> {
+  ok: boolean;
+  status: number;
+  data: T | null;
+  error: string | null;
+}
+
+function getApiKey(): string | null {
   return sessionStorage.getItem('riven_api_key');
 }
 
-function clearAuth() {
+function clearAuth(): void {
   sessionStorage.removeItem('riven_api_key');
   window.location.href = '/';
 }
 
-function buildQueryString(params = {}) {
+function buildQueryString(params: QueryParams = {}): string {
   const searchParams = new URLSearchParams();
 
   Object.entries(params).forEach(([key, value]) => {
@@ -37,7 +47,7 @@ function buildQueryString(params = {}) {
   return qs ? `?${qs}` : '';
 }
 
-async function parseResponsePayload(response) {
+async function parseResponsePayload(response: Response): Promise<any | null> {
   const contentType = response.headers.get('content-type') || '';
 
   if (contentType.includes('application/json')) {
@@ -48,15 +58,32 @@ async function parseResponsePayload(response) {
   return text || null;
 }
 
-function extractError(payload, fallbackStatus) {
+function extractError(payload: unknown, fallbackStatus: number): string {
   if (!payload) return `Request failed (${fallbackStatus})`;
   if (typeof payload === 'string') return payload;
-  if (typeof payload.detail === 'string') return payload.detail;
-  if (typeof payload.message === 'string') return payload.message;
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    'detail' in payload &&
+    typeof (payload as { detail?: unknown }).detail === 'string'
+  ) {
+    return (payload as { detail: string }).detail;
+  }
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    'message' in payload &&
+    typeof (payload as { message?: unknown }).message === 'string'
+  ) {
+    return (payload as { message: string }).message;
+  }
   return `Request failed (${fallbackStatus})`;
 }
 
-export async function apiFetch(path, options = {}) {
+export async function apiFetch<T = any>(
+  path: string,
+  options: RequestInit = {},
+): Promise<ApiResult<T>> {
   const key = getApiKey();
   if (!key) {
     return {
@@ -68,10 +95,15 @@ export async function apiFetch(path, options = {}) {
   }
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
-  const headers = {
+  const headers: Record<string, string> = {
     'x-api-key': key,
-    ...options.headers,
   };
+  if (options.headers) {
+    const requestHeaders = new Headers(options.headers);
+    requestHeaders.forEach((value, keyName) => {
+      headers[keyName] = value;
+    });
+  }
 
   const hasBody = options.body !== undefined && options.body !== null;
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
@@ -91,7 +123,7 @@ export async function apiFetch(path, options = {}) {
       };
     }
 
-    const data = await parseResponsePayload(response);
+    const data = (await parseResponsePayload(response)) as T | null;
     return {
       ok: response.ok,
       status: response.status,
@@ -109,11 +141,17 @@ export async function apiFetch(path, options = {}) {
   }
 }
 
-export async function apiGet(path, params = {}) {
+export async function apiGet<T = any>(
+  path: string,
+  params: QueryParams = {},
+): Promise<ApiResult<T>> {
   return apiFetch(`${path}${buildQueryString(params)}`);
 }
 
-export async function apiPost(path, body = {}) {
+export async function apiPost<T = any>(
+  path: string,
+  body: Record<string, unknown> | FormData = {},
+): Promise<ApiResult<T>> {
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   return apiFetch(path, {
     method: 'POST',
@@ -121,14 +159,17 @@ export async function apiPost(path, body = {}) {
   });
 }
 
-export async function apiDelete(path, body = {}) {
+export async function apiDelete<T = any>(
+  path: string,
+  body: Record<string, unknown> = {},
+): Promise<ApiResult<T>> {
   return apiFetch(path, {
     method: 'DELETE',
     body: JSON.stringify(body),
   });
 }
 
-export function getStreamUrl(itemId) {
+export function getStreamUrl(itemId: string | number): string {
   const key = getApiKey();
   return `${API_BASE}/stream/file/${itemId}?api_key=${encodeURIComponent(key || '')}`;
 }

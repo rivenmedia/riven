@@ -1,7 +1,7 @@
-import { apiDelete, apiGet, apiPost } from '../api.js';
-import { renderMediaCard } from '../components/media_card.js';
-import { notify } from '../notify.js';
-import * as statusTracker from '../status_tracker.js';
+import { apiDelete, apiGet, apiPost } from '../api';
+import { renderMediaCard } from '../components/media_card';
+import { notify } from '../notify';
+import * as statusTracker from '../status_tracker';
 
 function normalizeLibraryItem(item) {
   return {

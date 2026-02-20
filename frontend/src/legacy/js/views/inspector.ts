@@ -1,5 +1,5 @@
-import { apiFetch, apiGet } from '../api.js';
-import { notify } from '../notify.js';
+import { apiFetch, apiGet } from '../api';
+import { notify } from '../notify';
 
 const QUICK_ENDPOINTS = [
   '/health',
@@ -158,7 +158,7 @@ export async function load(route, container) {
         return;
       }
 
-      const options = { method };
+      const options: RequestInit & { body?: BodyInit } = { method };
       if (method !== 'GET') {
         const rawBody = bodyInput?.value?.trim();
         if (rawBody) {

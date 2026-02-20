@@ -3,23 +3,31 @@
  * updating only the status tags in the DOM without re-rendering.
  */
 
-import { apiGet } from './api.js';
-import { updateMediaCardStatus } from './components/media_card.js';
-import { toCsv } from './utils.js';
+import { apiGet } from './api';
+import { updateMediaCardStatus } from './components/media_card';
+import { toCsv } from './utils';
 
 const POLL_INTERVAL_MS = 5_000;
 
-/** @type {Map<string, { element: Element, type: 'explore' | 'library', tmdbId?: string, tvdbId?: string, indexer?: string, itemId?: string }>} */
+type TrackedType = 'explore' | 'library';
+type TrackedEntry = {
+  element: HTMLElement;
+  type: TrackedType;
+  tmdbId?: string;
+  tvdbId?: string;
+  indexer?: string;
+  itemId?: string;
+};
+
 const tracked = new Map();
-/** @type {ReturnType<typeof setInterval> | null} */
 let intervalId = null;
 
-function entryKey(entry) {
+function entryKey(entry: TrackedEntry): string {
   if (entry.indexer === 'tvdb' && entry.tvdbId) return `tvdb:${entry.tvdbId}`;
   return `tmdb:${entry.tmdbId || ''}`;
 }
 
-function buildEntry(cardEl, type) {
+function buildEntry(cardEl: HTMLElement, type: TrackedType): TrackedEntry | null {
   const tmdbId = cardEl.dataset.tmdbId?.trim();
   const tvdbId = cardEl.dataset.tvdbId?.trim();
   const indexer = cardEl.dataset.indexer?.trim() || 'tmdb';
@@ -31,7 +39,7 @@ function buildEntry(cardEl, type) {
   return null;
 }
 
-async function refreshStatus(entries) {
+async function refreshStatus(entries: TrackedEntry[]): Promise<void> {
   const tmdbIds = [...new Set(entries.map((e) => e.tmdbId).filter(Boolean))];
   const tvdbIds = [...new Set(entries.map((e) => e.tvdbId).filter(Boolean))];
   if (!tmdbIds.length && !tvdbIds.length) return;
@@ -65,7 +73,7 @@ function tick() {
   refreshStatus(list);
 }
 
-export function clear() {
+export function clear(): void {
   tracked.clear();
 }
 
@@ -74,7 +82,14 @@ export function clear() {
  * @param {Element | Array<{ container: Element, type: 'explore' | 'library' }>} containerOrList - Single container, or list of { container, type } to track multiple areas (e.g. grid + detail panel)
  * @param {'explore' | 'library'} [type] - Required when first arg is a single container
  */
-export function setTracked(containerOrList, type) {
+export function setTracked(
+  containerOrList:
+    | Element
+    | Array<{ container: Element; type: TrackedType }>
+    | null
+    | undefined,
+  type?: TrackedType,
+): void {
   tracked.clear();
 
   const list = Array.isArray(containerOrList)
@@ -85,7 +100,7 @@ export function setTracked(containerOrList, type) {
 
   list.forEach(({ container, type: t }) => {
     if (!container || !t) return;
-    const cards = container.querySelectorAll('[data-media-card="1"]');
+    const cards = container.querySelectorAll('[data-media-card="1"]') as NodeListOf<HTMLElement>;
     cards.forEach((card) => {
       const entry = buildEntry(card, t);
       if (entry) {
@@ -96,12 +111,12 @@ export function setTracked(containerOrList, type) {
   });
 }
 
-export function start() {
+export function start(): void {
   if (intervalId) return;
   intervalId = setInterval(tick, POLL_INTERVAL_MS);
 }
 
-export function stop() {
+export function stop(): void {
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
