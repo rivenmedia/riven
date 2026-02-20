@@ -19,6 +19,7 @@ from program.utils.async_client import AsyncClient
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -135,12 +136,15 @@ async def scalar_html():
 
 src_dir = Path(__file__).parent
 templates = Jinja2Templates(directory=str(src_dir / "templates"))
+frontend_index = src_dir / "static" / "ui" / "index.html"
 
 app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
 
 
 @app.get("/", include_in_schema=False)
 async def homepage(request: Request):
+    if frontend_index.exists():
+        return FileResponse(frontend_index)
     return templates.TemplateResponse("base.html", {"request": request})
 
 

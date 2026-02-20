@@ -71,3 +71,7 @@ venv.bak/
 
 # MacOs
 **/.DS_Store
+
+# Frontend build/deps
+frontend/node_modules/
+src/static/ui/
