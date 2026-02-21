@@ -65,6 +65,7 @@ function buildRouteQuery(state) {
     source: string;
     mode: string;
     type: string;
+    window?: string;
     q?: string;
     page?: number;
     node?: string;
@@ -76,6 +77,10 @@ function buildRouteQuery(state) {
     q: state.query || undefined,
     page: state.page > 1 ? state.page : undefined,
   };
+
+  if (state.mode === 'discover' && state.window && (state.type === 'all' || state.trendingMode)) {
+    query.window = state.window;
+  }
 
   if (state.history.length) {
     const latest = state.history[state.history.length - 1];
@@ -202,7 +207,13 @@ function renderPagination(container, page, totalPages, onChange) {
 
 function getOriginLabel(state) {
   if (state.mode === 'discover') {
-    return state.type === 'all' ? 'Trending' : `Discover — ${state.type === 'movie' ? 'Movies' : 'TV'}`;
+    if (state.type === 'all' || state.trendingMode) {
+      const period = state.window === 'day' ? 'Today' : 'This Week';
+      return state.type === 'all'
+        ? `Trending — ${period}`
+        : `Trending — ${state.type === 'movie' ? 'Movies' : 'TV'} — ${period}`;
+    }
+    return `Discover — ${state.type === 'movie' ? 'Movies' : 'TV'}`;
   }
   return state.source === 'tvdb' ? 'TVDB Search' : 'Search Results';
 }
@@ -427,6 +438,8 @@ export async function load(route, container) {
   const sourceSelect = container.querySelector('[data-slot="source"]');
   const modeSelect = container.querySelector('[data-slot="mode"]');
   const toggleContainer = container.querySelector('[data-slot="media-type-toggle"]');
+  const trendingWindowWrap = container.querySelector('[data-slot="trending-window-wrap"]');
+  const windowSelect = container.querySelector('[data-slot="window"]');
   const queryInput = container.querySelector('[data-slot="query"]');
   const grid = container.querySelector('[data-slot="grid"]');
   const empty = container.querySelector('[data-slot="empty"]');
@@ -441,6 +454,9 @@ export async function load(route, container) {
     source: 'tmdb',
     mode: 'search',
     type: 'movie',
+    window: 'week',
+    /** True when URL has window= (Trending view). Keeps trending when switching to Movies/TV. */
+    trendingMode: false,
     query: '',
     page: 1,
     totalPages: 1,
@@ -452,6 +468,8 @@ export async function load(route, container) {
     state.source = query.source === 'tvdb' ? 'tvdb' : 'tmdb';
     state.mode = query.mode === 'discover' ? 'discover' : 'search';
     state.type = ['movie', 'tv', 'all'].includes(query.type) ? query.type : 'movie';
+    state.window = query.window === 'day' ? 'day' : 'week';
+    state.trendingMode = query.window !== undefined;
     state.query = query.q || '';
     state.page = parsePositiveInt(query.page, 1);
     state.history = parseTrail(query.trail);
@@ -488,6 +506,7 @@ export async function load(route, container) {
       onChange(value) {
         state.type = value;
         if (state.source === 'tvdb' && value === 'all') state.type = 'tv';
+        if (state.mode === 'discover' && state.type === 'all') state.trendingMode = true;
         syncRouteState();
         fetchResults();
       },
@@ -498,6 +517,10 @@ export async function load(route, container) {
     if (modeSelect) modeSelect.value = state.mode;
     if (mediaTypeToggle) mediaTypeToggle.setValue(state.type);
     if (queryInput) queryInput.value = state.query;
+    if (windowSelect) windowSelect.value = state.window;
+
+    const showTrendingWindow = state.mode === 'discover' && (state.type === 'all' || state.trendingMode);
+    if (trendingWindowWrap) trendingWindowWrap.hidden = !showTrendingWindow;
 
     if (modeSelect) {
       modeSelect.disabled = state.source === 'tvdb';
@@ -525,8 +548,9 @@ export async function load(route, container) {
         offset: (state.page - 1) * 20,
       });
     } else if (state.mode === 'discover') {
-      if (state.type === 'all') {
-        response = await apiGet('/trending/tmdb/all/week');
+      const useTrending = state.type === 'all' || state.trendingMode;
+      if (useTrending) {
+        response = await apiGet(`/trending/tmdb/${state.type}/${state.window}`);
       } else {
         response = await apiGet(`/discover/tmdb/${state.type}`, { page: state.page });
       }
@@ -785,6 +809,14 @@ export async function load(route, container) {
     );
   }
 
+  if (windowSelect) {
+    windowSelect.addEventListener('change', () => {
+      state.window = windowSelect.value || 'week';
+      syncRouteState();
+      fetchResults();
+    });
+  }
+
   if (form) {
     form.addEventListener('submit', (event) => {
       event.preventDefault();
@@ -792,6 +824,12 @@ export async function load(route, container) {
       state.mode = modeSelect?.value || 'search';
       state.type = mediaTypeToggle?.getValue() || 'movie';
       state.query = queryInput?.value?.trim() || '';
+      if (state.mode === 'discover' && state.type === 'all' && windowSelect) {
+        state.window = windowSelect.value || 'week';
+        state.trendingMode = true;
+      } else if (state.mode === 'discover' && state.type !== 'all') {
+        state.trendingMode = false;
+      }
       state.page = 1;
       state.history = [];
 
@@ -804,6 +842,7 @@ export async function load(route, container) {
         notify('Enter a query for TMDB search', 'warning');
       }
 
+      syncControls();
       syncRouteState();
       fetchResults();
     });

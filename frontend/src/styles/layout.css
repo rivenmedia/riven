@@ -80,6 +80,16 @@
   background: rgba(74, 133, 255, 0.2);
 }
 
+.sidebar-section a.sidebar-link--nested {
+  padding-left: 1.25rem;
+  color: var(--text-2);
+}
+
+.sidebar-section a.sidebar-link--nested:hover,
+.sidebar-section a.sidebar-link--nested.active {
+  color: var(--text-0);
+}
+
 .sidebar-footer {
   margin-top: 1rem;
   padding: 0.6rem 0.35rem;

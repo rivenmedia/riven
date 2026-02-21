@@ -49,6 +49,47 @@ function renderKpis(container, stats) {
     .join('');
 }
 
+const SERVICE_CATEGORIES: Record<string, string> = {
+  overseerr: 'Content',
+  plexwatchlist: 'Content',
+  listrr: 'Content',
+  mdblist: 'Content',
+  traktcontent: 'Content',
+  trakt: 'Content',
+  realdebrid: 'Downloaders',
+  alldebrid: 'Downloaders',
+  debridlink: 'Downloaders',
+  prowlarr: 'Scrapers',
+  jackett: 'Scrapers',
+  aiostreams: 'Scrapers',
+  comet: 'Scrapers',
+  mediafusion: 'Scrapers',
+  orionoid: 'Scrapers',
+  rarbg: 'Scrapers',
+  torrentio: 'Scrapers',
+  zilean: 'Scrapers',
+  indexerservice: 'Indexers',
+  updater: 'Updaters',
+  filesystemservice: 'Filesystem',
+  postprocessing: 'Post-processing',
+  notificationservice: 'Notifications',
+  naming_service: 'Filesystem',
+  library_profile_matcher: 'Library',
+};
+
+const CATEGORY_ORDER = [
+  'Content',
+  'Downloaders',
+  'Scrapers',
+  'Indexers',
+  'Updaters',
+  'Filesystem',
+  'Post-processing',
+  'Library',
+  'Notifications',
+  'Other',
+];
+
 function renderServiceList(container, services) {
   if (!container) return;
   if (!services || typeof services !== 'object') {
@@ -56,24 +97,45 @@ function renderServiceList(container, services) {
     return;
   }
 
-  const rows = Object.entries(services)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, status]) => {
-      const isUp = Boolean(status);
+  const byCategory = new Map<string, [string, boolean][]>();
+  for (const [name, status] of Object.entries(services) as [string, boolean][]) {
+    const key = name.toLowerCase().replace(/\s+/g, '');
+    const category = SERVICE_CATEGORIES[key] ?? 'Other';
+    if (!byCategory.has(category)) byCategory.set(category, []);
+    byCategory.get(category)!.push([name, Boolean(status)]);
+  }
+
+  for (const entries of byCategory.values()) {
+    entries.sort(([a], [b]) => a.localeCompare(b));
+  }
+
+  const sections = CATEGORY_ORDER.filter((cat) => byCategory.has(cat)).map(
+    (category) => {
+      const entries = byCategory.get(category)!;
+      const rows = entries
+        .map(
+          ([name, isUp]) => `
+          <div class="service-row">
+            <strong>${name}</strong>
+            <span class="service-row__status ${
+              isUp ? 'service-row__status--up' : 'service-row__status--down'
+            }">
+              ${isUp ? 'UP' : 'DOWN'}
+            </span>
+          </div>
+        `,
+        )
+        .join('');
       return `
-        <div class="service-row">
-          <strong>${name}</strong>
-          <span class="service-row__status ${
-            isUp ? 'service-row__status--up' : 'service-row__status--down'
-          }">
-            ${isUp ? 'UP' : 'DOWN'}
-          </span>
+        <div class="service-category">
+          <h3 class="service-category__title">${category}</h3>
+          <div class="service-list">${rows}</div>
         </div>
       `;
-    })
-    .join('');
+    },
+  );
 
-  container.innerHTML = `<div class="service-list">${rows}</div>`;
+  container.innerHTML = sections.join('');
 }
 
 function renderDownloaderInfo(container, downloaderResponse) {

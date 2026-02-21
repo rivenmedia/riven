@@ -101,6 +101,23 @@
   background: linear-gradient(90deg, var(--movie), var(--tv));
 }
 
+.service-category {
+  margin-bottom: 1rem;
+}
+
+.service-category:last-child {
+  margin-bottom: 0;
+}
+
+.service-category__title {
+  font-size: var(--font-size-0);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.4rem 0;
+}
+
 .service-list {
   display: grid;
   gap: 0.4rem;
@@ -114,6 +131,7 @@
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
   padding: 0.45rem 0.55rem;
+  font-size: var(--font-size-0);
 }
 
 .service-row__status {

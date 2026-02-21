@@ -69,6 +69,12 @@ function ExploreTemplate() {
           <option value="discover">Discover</option>
         </select>
         <div data-slot="media-type-toggle"></div>
+        <div data-slot="trending-window-wrap" className="toolbar-group" hidden>
+          <select data-slot="window">
+            <option value="day">Today</option>
+            <option value="week">This Week</option>
+          </select>
+        </div>
         <input
           data-slot="query"
           placeholder="Search title / person / keywords"

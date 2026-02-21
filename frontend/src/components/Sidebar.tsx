@@ -1,7 +1,8 @@
-import type { RouteName } from "../app/routeTypes";
+import type { AppRoute, RouteName } from "../app/routeTypes";
 
 interface SidebarProps {
   currentRoute: RouteName;
+  route: AppRoute | null;
   onLogout: () => void;
 }
 
@@ -9,6 +10,10 @@ interface NavLink {
   hash: string;
   label: string;
   route: RouteName;
+  /** When route is explore, optional predicate to mark this sub-link active from query. */
+  isActive?: (query: Record<string, string>) => boolean;
+  /** Indent as sub-item under the section. */
+  nested?: boolean;
 }
 
 interface NavSection {
@@ -28,8 +33,40 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Discovery",
     links: [
-      { hash: "#/explore", label: "Discovery Graph", route: "explore" },
-      { hash: "#/trending", label: "Trending", route: "trending" },
+      {
+        hash: "#/explore",
+        label: "Discover",
+        route: "explore",
+        isActive: (q) => !q.mode,
+      },
+      {
+        hash: "#/explore?mode=discover&type=movie",
+        label: "Discover — Movies",
+        route: "explore",
+        nested: true,
+        isActive: (q) => q.mode === "discover" && q.type === "movie",
+      },
+      {
+        hash: "#/explore?mode=discover&type=tv",
+        label: "Discover — TV",
+        route: "explore",
+        nested: true,
+        isActive: (q) => q.mode === "discover" && q.type === "tv",
+      },
+      {
+        hash: "#/explore?mode=discover&type=all&window=day",
+        label: "Trending — Today",
+        route: "explore",
+        nested: true,
+        isActive: (q) => q.mode === "discover" && q.type === "all" && q.window === "day",
+      },
+      {
+        hash: "#/explore?mode=discover&type=all&window=week",
+        label: "Trending — This Week",
+        route: "explore",
+        nested: true,
+        isActive: (q) => q.mode === "discover" && q.type === "all" && (q.window === "week" || !q.window),
+      },
     ],
   },
   {
@@ -45,7 +82,13 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-export default function Sidebar({ currentRoute, onLogout }: SidebarProps) {
+function isLinkActive(link: NavLink, currentRoute: RouteName, route: AppRoute | null): boolean {
+  if (currentRoute !== link.route) return false;
+  if (link.isActive && route?.query) return link.isActive(route.query);
+  return true;
+}
+
+export default function Sidebar({ currentRoute, route, onLogout }: SidebarProps) {
   return (
     <nav className="app-sidebar">
       <div className="sidebar-brand">
@@ -68,7 +111,12 @@ export default function Sidebar({ currentRoute, onLogout }: SidebarProps) {
               {section.links.map((link) => (
                 <li key={link.hash}>
                   <a
-                    className={currentRoute === link.route ? "active" : ""}
+                    className={[
+                      link.nested ? "sidebar-link--nested" : "",
+                      isLinkActive(link, currentRoute, route) ? "active" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     href={link.hash}
                   >
                     {link.label}
