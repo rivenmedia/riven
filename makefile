@@ -1,4 +1,4 @@
-.PHONY: help install run build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update frontend-install frontend-build frontend-dev frontend-clean
+.PHONY: help install run build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update dev frontend-install frontend-build frontend-dev frontend-clean
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -33,6 +33,7 @@ help:
 	@echo "make update      - Update dependencies"
 	@echo "make frontend-install - Install frontend dependencies"
 	@echo "make frontend-build   - Build frontend bundle into src/static/ui"
+	@echo "make dev              - Run frontend dev server (hot reload)"
 	@echo "make frontend-dev     - Run frontend in dev mode with API proxy"
 
 
@@ -96,8 +97,8 @@ frontend-build: frontend-install
 	@npm --prefix $(FRONTEND_DIR) run build
 	@echo "Frontend bundle built at $(FRONTEND_OUT)"
 
-frontend-dev: frontend-install
-	@echo "Starting frontend dev server with API proxy..."
+dev frontend-dev: frontend-install
+	@echo "Starting frontend dev server (hot reload)..."
 	@npm --prefix $(FRONTEND_DIR) run dev
 
 frontend-clean:
