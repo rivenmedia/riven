@@ -101,41 +101,46 @@
   background: linear-gradient(90deg, var(--movie), var(--tv));
 }
 
-.service-category {
-  margin-bottom: 1rem;
+.services-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-0);
 }
 
-.service-category:last-child {
-  margin-bottom: 0;
+.services-table th,
+.services-table td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--panel-border);
 }
 
-.service-category__title {
+.services-table thead th {
   font-size: var(--font-size-0);
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin: 0 0 0.4rem 0;
 }
 
-.service-list {
-  display: grid;
-  gap: 0.4rem;
+.services-table__category {
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--muted);
+  font-weight: 500;
 }
 
-.service-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.7rem;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius-sm);
-  padding: 0.45rem 0.55rem;
-  font-size: var(--font-size-0);
+.services-table__name {
+  min-width: 8rem;
+}
+
+.services-table__status {
+  width: 1%;
+  white-space: nowrap;
 }
 
 .service-row__status {
-  font-size: var(--font-size-1);
+  font-size: var(--font-size-0);
   border-radius: 999px;
   padding: 0.15rem 0.45rem;
 }

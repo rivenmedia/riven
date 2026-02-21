@@ -109,33 +109,44 @@ function renderServiceList(container, services) {
     entries.sort(([a], [b]) => a.localeCompare(b));
   }
 
-  const sections = CATEGORY_ORDER.filter((cat) => byCategory.has(cat)).map(
-    (category) => {
-      const entries = byCategory.get(category)!;
-      const rows = entries
-        .map(
-          ([name, isUp]) => `
-          <div class="service-row">
-            <strong>${name}</strong>
-            <span class="service-row__status ${
-              isUp ? 'service-row__status--up' : 'service-row__status--down'
-            }">
-              ${isUp ? 'UP' : 'DOWN'}
-            </span>
-          </div>
-        `,
-        )
-        .join('');
-      return `
-        <div class="service-category">
-          <h3 class="service-category__title">${category}</h3>
-          <div class="service-list">${rows}</div>
-        </div>
-      `;
-    },
-  );
+  const orderedCategories = CATEGORY_ORDER.filter((cat) => byCategory.has(cat));
+  const rows: string[] = [];
+  for (const category of orderedCategories) {
+    const entries = byCategory.get(category)!;
+    entries.forEach(([name, isUp], i) => {
+      const categoryCell =
+        i === 0
+          ? `<td class="services-table__category" rowspan="${entries.length}">${category}</td>`
+          : '';
+      const statusClass = isUp
+        ? 'service-row__status--up'
+        : 'service-row__status--down';
+      rows.push(`
+        <tr class="service-row">
+          ${categoryCell}
+          <td class="services-table__name">${name}</td>
+          <td class="services-table__status">
+            <span class="service-row__status ${statusClass}">${isUp ? 'UP' : 'DOWN'}</span>
+          </td>
+        </tr>
+      `);
+    });
+  }
 
-  container.innerHTML = sections.join('');
+  container.innerHTML = `
+    <table class="services-table">
+      <thead>
+        <tr>
+          <th class="services-table__category">Category</th>
+          <th class="services-table__name">Service</th>
+          <th class="services-table__status">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 function renderDownloaderInfo(container, downloaderResponse) {
