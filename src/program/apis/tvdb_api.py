@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 from loguru import logger
 from pydantic import BaseModel
@@ -149,6 +150,50 @@ class TVDBApi:
         except Exception as e:
             logger.error(f"Error getting series details: {str(e)}")
 
+            return None
+
+    def search(
+        self,
+        query: str | None = None,
+        type: str = "series",
+        limit: int = 20,
+        offset: int = 0,
+        year: int | None = None,
+        remote_id: str | None = None,
+        **kwargs: str | int | None,
+    ) -> dict[str, Any] | None:
+        """Search TVDB by query or remote_id. Returns raw API response."""
+
+        try:
+            params: dict[str, str | int] = {
+                "type": type,
+                "limit": limit,
+                "offset": offset,
+            }
+            if query:
+                params["query"] = query
+            if year is not None:
+                params["year"] = year
+            if remote_id:
+                params["remote_id"] = remote_id
+            for k, v in kwargs.items():
+                if v is not None:
+                    params[k] = v
+
+            response = self.session.get(
+                "search",
+                params=params,
+                headers=self._get_headers(),
+            )
+
+            if not response.ok:
+                logger.error(f"Failed to search TVDB: {response.status_code}")
+                return None
+
+            data = response.json()
+            return cast(dict[str, Any], data) if isinstance(data, dict) else None
+        except Exception as e:
+            logger.error(f"Error searching TVDB: {str(e)}")
             return None
 
     def search_by_imdb_id(self, imdb_id: str) -> list[SearchByRemoteIdResult] | None:

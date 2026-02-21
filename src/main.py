@@ -4,6 +4,7 @@ import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from types import FrameType
 
 from kink import di
@@ -15,14 +16,18 @@ load_dotenv()  # import required here to support SETTINGS_FILENAME
 from program.utils.proxy_client import ProxyClient
 from program.utils.async_client import AsyncClient
 
-from fastapi import FastAPI, Response
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from scalar_fastapi import (
     get_scalar_api_reference,  # pyright: ignore[reportUnknownVariableType]
 )
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from starlette.types import ASGIApp
 
 from program.program import Program, riven
 from program.settings.models import get_version
@@ -31,29 +36,59 @@ from program.utils.cli import handle_args
 from routers import app_router
 
 
+def _apache_log_line(
+    client_host: str,
+    ident: str,
+    auth_user: str,
+    timestamp: str,
+    request_line: str,
+    status: int,
+    bytes_sent: str,
+    referer: str,
+    user_agent: str,
+) -> str:
+    """Apache Combined Log Format: %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Agent}i" """
+    return f'{client_host} {ident} {auth_user} [{timestamp}] "{request_line}" {status} {bytes_sent} "{referer}" "{user_agent}"'
+
+
 class LoguruMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: ASGIApp, log_requests: bool = True) -> None:
+        super().__init__(app)
+        self.log_requests = log_requests
+
     async def dispatch(
         self,
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        start_time = time.time()
         response = None
 
         try:
             response = await call_next(request)
-
             return response
         except Exception as e:
             logger.exception(f"Exception during request processing: {e}")
             raise
         finally:
-            process_time = time.time() - start_time
+            client = getattr(request, "client", None)
+            client_host = client[0] if client else "-"
+            ident = "-"
+            auth_user = "-"
+            ts = datetime.now(timezone.utc).strftime("%d/%b/%Y:%H:%M:%S +0000")
+            path = request.url.path
+            if request.url.query:
+                path = f"{path}?{request.url.query}"
+            request_line = f"{request.method} {path} HTTP/1.1"
+            status = response.status_code if response else 500
+            cl = response.headers.get("content-length", "-") if response else "-"
+            referer = request.headers.get("referer", "-") or "-"
+            user_agent = request.headers.get("user-agent", "-") or "-"
 
-            logger.log(
-                "API",
-                f"{request.method} {request.url.path} - {response.status_code if response else '500'} - {process_time:.2f}s",
-            )
+            if self.log_requests:
+                log_line = _apache_log_line(
+                    client_host, ident, auth_user, ts, request_line, status, cl, referer, user_agent
+                )
+                logger.info(log_line)
 
 
 args = handle_args()
@@ -97,9 +132,30 @@ async def scalar_html():
     )
 
 
+src_dir = Path(__file__).parent
+frontend_index = src_dir / "static" / "ui" / "index.html"
+frontend_assets_dir = src_dir / "static" / "ui"
+
+app.mount(
+    "/static/ui",
+    StaticFiles(directory=str(frontend_assets_dir), check_dir=False),
+    name="static-ui",
+)
+
+
+@app.get("/", include_in_schema=False)
+async def homepage():
+    if not frontend_index.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Frontend bundle missing. Run `make frontend-build`.",
+        )
+    return FileResponse(frontend_index)
+
+
 di[Program] = riven
 
-app.add_middleware(LoguruMiddleware)
+app.add_middleware(LoguruMiddleware, log_requests=settings_manager.settings.log_requests)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

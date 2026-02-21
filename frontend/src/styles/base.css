@@ -1,0 +1,104 @@
+:root {
+  --bg-0: #0b1020;
+  --bg-1: #121a2f;
+  --bg-2: #1a2440;
+  --panel: rgba(16, 24, 44, 0.8);
+  --panel-border: rgba(166, 180, 210, 0.18);
+  --text-0: #f4f7ff;
+  --text-1: #c3cce5;
+  --text-2: #8f9ab9;
+  --accent: #7aa2ff;
+  --accent-strong: #4a85ff;
+  --danger: #e26161;
+  --warning: #f2bf67;
+  --success: #5ccf9a;
+  --movie: #22c7b8;
+  --tv: #aa74ff;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.25);
+  --font-size-0: 12px;
+  --font-size-1: 14px;
+  --font-size-2: 16px;
+  --font-size-3: 20px;
+  --font-size-4: 28px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+[x-cloak] {
+  display: none !important;
+}
+
+body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--text-0);
+  font-size: var(--font-size-2);
+  background:
+    radial-gradient(circle at top right, #1f2f56 0%, transparent 45%),
+    radial-gradient(circle at 20% -10%, #25395f 0%, transparent 40%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0));
+  min-height: 100vh;
+}
+
+body[data-media-context='movie'] {
+  --accent: #2ec8bb;
+  --accent-strong: #1ea39f;
+}
+
+body[data-media-context='tv'] {
+  --accent: #b380ff;
+  --accent-strong: #9358f3;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+p {
+  line-height: 1.5;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  background: rgba(14, 21, 37, 0.9);
+  border: 1px solid var(--panel-border);
+  color: var(--text-0);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.65rem;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-2);
+}
+
+.muted {
+  color: var(--text-2);
+}

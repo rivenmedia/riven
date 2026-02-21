@@ -1,0 +1,119 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--panel-border);
+  padding: 1.15rem 0.9rem;
+  background: linear-gradient(180deg, rgba(7, 12, 23, 0.98), rgba(7, 12, 22, 0.8));
+}
+
+.sidebar-brand {
+  padding: 0.5rem 0.5rem 0.9rem;
+}
+
+.sidebar-logo {
+  display: inline-block;
+  font-size: var(--font-size-4);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.sidebar-subtitle {
+  margin-top: 0.3rem;
+  color: var(--text-2);
+  font-size: var(--font-size-1);
+}
+
+.sidebar-legend {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem 0.85rem;
+}
+
+.sidebar-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sidebar-section ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.sidebar-section-title {
+  display: block;
+  font-size: var(--font-size-0);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin: 0 0 0.45rem 0.45rem;
+}
+
+.sidebar-section a {
+  display: block;
+  border-radius: var(--radius-sm);
+  padding: 0.48rem 0.62rem;
+  color: var(--text-1);
+  border: 1px solid transparent;
+}
+
+.sidebar-section a:hover {
+  color: var(--text-0);
+  border-color: rgba(165, 192, 255, 0.2);
+  background: rgba(34, 51, 84, 0.45);
+}
+
+.sidebar-section a.active {
+  border-color: rgba(122, 162, 255, 0.5);
+  color: var(--text-0);
+  background: rgba(74, 133, 255, 0.2);
+}
+
+.sidebar-section a.sidebar-link--nested {
+  padding-left: 1.25rem;
+  color: var(--text-2);
+}
+
+.sidebar-section a.sidebar-link--nested:hover,
+.sidebar-section a.sidebar-link--nested.active {
+  color: var(--text-0);
+}
+
+.sidebar-footer {
+  margin-top: 1rem;
+  padding: 0.6rem 0.35rem;
+  border-top: 1px solid var(--panel-border);
+}
+
+.app-main {
+  min-width: 0;
+  padding: 1.25rem 1.6rem 2rem;
+}
+
+.view-host {
+  min-width: 0;
+}
+
+@media (max-width: 1080px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: relative;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--panel-border);
+  }
+}

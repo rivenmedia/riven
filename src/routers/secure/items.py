@@ -6,11 +6,13 @@ from enum import Enum
 from typing import Annotated, Any, Literal, Self
 from fastapi import APIRouter, Body, HTTPException, Path, status, Query
 from kink import di
+from kink.errors.service_error import ServiceError
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, object_session
 
+from program.apis.tmdb_api import TMDBApi
 from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie, Season, Show
@@ -223,10 +225,6 @@ async def get_items(
         bool,
         Query(description="Include extended item details"),
     ] = False,
-    count_only: Annotated[
-        bool,
-        Query(description="Only return the count of items"),
-    ] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
 
@@ -270,7 +268,6 @@ async def get_items(
         elif media_types:
             query = query.where(MediaItem.type.in_(media_types))
 
-    # Validation moved, sorting logic delayed
     if sort:
         # Verify we don't have multiple sorts of the same type
         sort_types = set[str]()
@@ -286,34 +283,29 @@ async def get_items(
 
             sort_types.add(sort_type)
 
-    if not count_only:
-        if sort:
-            for sort_criterion in sort:
-                if sort_criterion == SortOrderEnum.TITLE_ASC:
-                    query = query.order_by(MediaItem.title.asc())
-                elif sort_criterion == SortOrderEnum.TITLE_DESC:
-                    query = query.order_by(MediaItem.title.desc())
-                elif sort_criterion == SortOrderEnum.DATE_ASC:
-                    query = query.order_by(MediaItem.requested_at.asc())
-                elif sort_criterion == SortOrderEnum.DATE_DESC:
-                    query = query.order_by(MediaItem.requested_at.desc())
-        else:
-            query = query.order_by(MediaItem.requested_at.desc())
+        for sort_criterion in sort:
+            if sort_criterion == SortOrderEnum.TITLE_ASC:
+                query = query.order_by(MediaItem.title.asc())
+            elif sort_criterion == SortOrderEnum.TITLE_DESC:
+                query = query.order_by(MediaItem.title.desc())
+            elif sort_criterion == SortOrderEnum.DATE_ASC:
+                query = query.order_by(MediaItem.requested_at.asc())
+            elif sort_criterion == SortOrderEnum.DATE_DESC:
+                query = query.order_by(MediaItem.requested_at.desc())
+
+    else:
+        query = query.order_by(MediaItem.requested_at.desc())
 
     with db_session() as session:
         total_items = session.execute(
             select(func.count()).select_from(query.subquery())
         ).scalar_one()
 
-        items: Sequence[MediaItem] = (
-            (
-                session.execute(query.offset((page - 1) * limit).limit(limit))
-                .unique()
-                .scalars()
-                .all()
-            )
-            if not count_only
-            else []
+        items = (
+            session.execute(query.offset((page - 1) * limit).limit(limit))
+            .unique()
+            .scalars()
+            .all()
         )
 
         total_pages = (total_items + limit - 1) // limit
@@ -336,14 +328,14 @@ class AddMediaItemPayload(BaseModel):
         list[str] | None,
         Field(
             default=None,
-            description="Comma-separated list of TMDB IDs",
+            description="List of TMDB IDs (movies, or TV IDs resolvable via TMDB)",
         ),
     ]
     tvdb_ids: Annotated[
         list[str] | None,
         Field(
             default=None,
-            description="Comma-separated list of TVDB IDs",
+            description="List of TVDB IDs",
         ),
     ]
     media_type: Annotated[
@@ -371,62 +363,119 @@ async def add_items(
     if not payload.tmdb_ids and not payload.tvdb_ids:
         raise HTTPException(status_code=400, detail="No ID(s) provided")
 
-    all_tmdb_ids = (
-        [id.strip() for id in payload.tmdb_ids if id]
-        if payload.tmdb_ids and payload.media_type == "movie"
-        else None
-    )
+    def dedupe(values: list[str]) -> list[str]:
+        return list(dict.fromkeys(v for v in values if v))
 
-    all_tvdb_ids = (
-        [id.strip() for id in payload.tvdb_ids if id]
-        if payload.tvdb_ids and payload.media_type == "tv"
-        else None
-    )
+    all_tmdb_ids = dedupe([id.strip() for id in payload.tmdb_ids or [] if id.strip()])
+    all_tvdb_ids = dedupe([id.strip() for id in payload.tvdb_ids or [] if id.strip()])
+    tv_imdb_ids_from_tmdb = list[str]()
+
+    if payload.media_type == "movie" and not all_tmdb_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="media_type=movie requires at least one tmdb_id",
+        )
+
+    if payload.media_type == "tv" and not (all_tvdb_ids or all_tmdb_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="media_type=tv requires tvdb_ids or tmdb_ids",
+        )
+
+    if payload.media_type == "tv" and all_tmdb_ids:
+        try:
+            tmdb = di[TMDBApi]
+        except ServiceError:
+            raise HTTPException(
+                status_code=503,
+                detail="TMDB service unavailable, cannot resolve TMDB TV IDs",
+            )
+
+        for tmdb_id in all_tmdb_ids:
+            response = tmdb.session.get(f"tv/{tmdb_id}/external_ids")
+            if not response.ok:
+                logger.warning(
+                    f"Failed to resolve TMDB TV ID {tmdb_id}: status {response.status_code}"
+                )
+                continue
+
+            data = response.json()
+            tvdb_id = data.get("tvdb_id")
+            imdb_id = data.get("imdb_id")
+
+            if tvdb_id:
+                all_tvdb_ids.append(str(tvdb_id))
+                continue
+
+            if imdb_id:
+                tv_imdb_ids_from_tmdb.append(str(imdb_id))
+                continue
+
+            logger.warning(
+                f"TMDB TV ID {tmdb_id} has no tvdb_id or imdb_id mapping in TMDB"
+            )
+
+        all_tvdb_ids = dedupe(all_tvdb_ids)
+        tv_imdb_ids_from_tmdb = dedupe(tv_imdb_ids_from_tmdb)
 
     added_count = 0
     items = list[MediaItem]()
 
     with db_session() as session:
-        if all_tmdb_ids:
+        if payload.media_type == "movie":
             for id in all_tmdb_ids:
-                # Check if item exists using ORM
                 existing = session.execute(
                     select(MediaItem).where(MediaItem.tmdb_id == id)
                 ).scalar_one_or_none()
+                if existing:
+                    logger.debug(f"Item with TMDB ID {id} already exists")
+                    continue
 
-                if not existing:
-                    item = MediaItem(
+                items.append(
+                    MediaItem(
                         {
                             "tmdb_id": id,
                             "requested_by": "riven",
                             "requested_at": datetime.now(),
                         }
                     )
-
-                    if item:
-                        items.append(item)
-                else:
-                    logger.debug(f"Item with TMDB ID {id} already exists")
-
-        if all_tvdb_ids:
+                )
+        else:
             for id in all_tvdb_ids:
-                # Check if item exists using ORM
                 existing = session.execute(
                     select(MediaItem).where(MediaItem.tvdb_id == id)
                 ).scalar_one_or_none()
+                if existing:
+                    logger.debug(f"Item with TVDB ID {id} already exists")
+                    continue
 
-                if not existing:
-                    item = MediaItem(
+                items.append(
+                    MediaItem(
                         {
                             "tvdb_id": id,
                             "requested_by": "riven",
                             "requested_at": datetime.now(),
                         }
                     )
-                    if item:
-                        items.append(item)
-                else:
-                    logger.debug(f"Item with TVDB ID {id} already exists")
+                )
+
+            for imdb_id in tv_imdb_ids_from_tmdb:
+                existing = session.execute(
+                    select(MediaItem).where(MediaItem.imdb_id == imdb_id)
+                ).scalar_one_or_none()
+                if existing:
+                    logger.debug(f"Item with IMDB ID {imdb_id} already exists")
+                    continue
+
+                items.append(
+                    MediaItem(
+                        {
+                            "imdb_id": imdb_id,
+                            "requested_by": "riven",
+                            "requested_at": datetime.now(),
+                        }
+                    )
+                )
 
         if items:
             for item in items:
@@ -434,6 +483,83 @@ async def add_items(
                 added_count += 1
 
     return MessageResponse(message=f"Added {added_count} item(s) to the queue")
+
+
+class LibraryStatusEntry(BaseModel):
+    in_library: bool
+    library_item_id: str | None = None
+    library_state: str | None = None
+    library_type: str | None = None
+    library_title: str | None = None
+
+
+class LibraryStatusResponse(BaseModel):
+    tmdb: dict[str, LibraryStatusEntry]
+    tvdb: dict[str, LibraryStatusEntry]
+
+
+@router.get(
+    "/library/status",
+    summary="Get library status by external IDs",
+    description="Checks whether TMDB/TVDB IDs already exist in the local library.",
+    operation_id="get_library_status",
+    response_model=LibraryStatusResponse,
+)
+async def get_library_status(
+    tmdb_ids: Annotated[
+        str | None,
+        Query(description="Comma-separated TMDB IDs"),
+    ] = None,
+    tvdb_ids: Annotated[
+        str | None,
+        Query(description="Comma-separated TVDB IDs"),
+    ] = None,
+) -> LibraryStatusResponse:
+    parsed_tmdb_ids = [id.strip() for id in (tmdb_ids or "").split(",") if id.strip()]
+    parsed_tvdb_ids = [id.strip() for id in (tvdb_ids or "").split(",") if id.strip()]
+
+    if not parsed_tmdb_ids and not parsed_tvdb_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide at least one TMDB or TVDB ID",
+        )
+
+    tmdb_status = {
+        id: LibraryStatusEntry(in_library=False) for id in dict.fromkeys(parsed_tmdb_ids)
+    }
+    tvdb_status = {
+        id: LibraryStatusEntry(in_library=False) for id in dict.fromkeys(parsed_tvdb_ids)
+    }
+
+    query = select(MediaItem).where(MediaItem.type.in_(["movie", "show"]))
+    if parsed_tmdb_ids and parsed_tvdb_ids:
+        query = query.where(
+            (MediaItem.tmdb_id.in_(parsed_tmdb_ids))
+            | (MediaItem.tvdb_id.in_(parsed_tvdb_ids))
+        )
+    elif parsed_tmdb_ids:
+        query = query.where(MediaItem.tmdb_id.in_(parsed_tmdb_ids))
+    else:
+        query = query.where(MediaItem.tvdb_id.in_(parsed_tvdb_ids))
+
+    with db_session() as session:
+        matches = session.execute(query).scalars().all()
+
+    for item in matches:
+        entry = LibraryStatusEntry(
+            in_library=True,
+            library_item_id=str(item.id),
+            library_state=item.last_state.name if item.last_state else None,
+            library_type=item.type,
+            library_title=item.title,
+        )
+
+        if item.tmdb_id and item.tmdb_id in tmdb_status:
+            tmdb_status[item.tmdb_id] = entry
+        if item.tvdb_id and item.tvdb_id in tvdb_status:
+            tvdb_status[item.tvdb_id] = entry
+
+    return LibraryStatusResponse(tmdb=tmdb_status, tvdb=tvdb_status)
 
 
 @router.get(
@@ -756,7 +882,6 @@ async def remove_item(
     """
 
     parsed_ids = handle_ids(payload.ids)
-    logger.debug(f"Removing items with IDs: {parsed_ids}")
 
     if not parsed_ids:
         raise HTTPException(
@@ -781,7 +906,14 @@ async def remove_item(
                 logger.warning(f"Item {item_id} not found, skipping")
                 continue
 
-            logger.debug(f"Removing item with ID {item.id} (type: {item.type})")
+            # Only allow movies and shows to be removed
+            if not isinstance(item, (Movie, Show)):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Only movies and shows can be removed. Item {item_id} is a {item.type}",
+                )
+
+            logger.debug(f"Removing item with ID {item.id}")
 
             # 1. Cancel active jobs (EventManager cancels children too)
             di[Program].em.cancel_job(item.id)

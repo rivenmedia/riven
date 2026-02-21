@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 from kink import di
 from loguru import logger
 
@@ -11,6 +11,7 @@ def process_event(
     emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str,
     existing_item: MediaItem | None = None,
     content_item: MediaItem | None = None,
+    overrides: dict[str, Any] | None = None,
 ) -> ProcessedEvent:
     """Process an event and return the updated item, next service and items to submit."""
 
@@ -50,6 +51,7 @@ def process_event(
         return ProcessedEvent(
             service=services.indexer,
             related_media_items=related_media_items,
+            overrides=overrides,
         )
 
     elif existing_item and existing_item.last_state in [
@@ -64,7 +66,9 @@ def process_event(
             ]
 
             for season in incomplete_seasons:
-                processed_event = process_event(emitted_by, season, None)
+                processed_event = process_event(
+                    emitted_by, season, None, overrides
+                )
 
                 if processed_event.related_media_items:
                     items_to_submit += processed_event.related_media_items
@@ -74,7 +78,9 @@ def process_event(
             ]
 
             for episode in incomplete_episodes:
-                processed_event = process_event(emitted_by, episode, None)
+                processed_event = process_event(
+                    emitted_by, episode, None, overrides
+                )
 
                 if processed_event.related_media_items:
                     items_to_submit += processed_event.related_media_items
@@ -82,8 +88,9 @@ def process_event(
     elif existing_item and existing_item.last_state == States.Indexed:
         next_service = services.scraping
 
-        if emitted_by != services.scraping and services.scraping.should_submit(
-            existing_item
+        if emitted_by != services.scraping and (
+            overrides is not None
+            or services.scraping.should_submit(existing_item)
         ):
             items_to_submit = [existing_item]
         elif isinstance(existing_item, Show):
@@ -92,14 +99,20 @@ def process_event(
                 for s in existing_item.seasons
                 if s.last_state
                 in [States.Indexed, States.PartiallyCompleted, States.Unknown]
-                and services.scraping.should_submit(s)
+                and (
+                    overrides is not None
+                    or services.scraping.should_submit(s)
+                )
             ]
         elif isinstance(existing_item, Season):
             items_to_submit = [
                 e
                 for e in existing_item.episodes
                 if e.last_state in [States.Indexed, States.Unknown]
-                and services.scraping.should_submit(e)
+                and (
+                    overrides is not None
+                    or services.scraping.should_submit(e)
+                )
             ]
 
     elif existing_item and existing_item.last_state == States.Scraped:
@@ -134,4 +147,5 @@ def process_event(
     return ProcessedEvent(
         service=next_service,
         related_media_items=items_to_submit,
+        overrides=overrides,
     )
