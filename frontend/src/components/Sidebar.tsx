@@ -70,9 +70,17 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: "Dashboard",
+    links: [
+      { hash: "#/dashboard", label: "Overview", route: "dashboard" },
+      { hash: "#/dashboard-services", label: "Services", route: "dashboard-services", nested: true },
+      { hash: "#/dashboard-states", label: "State Distribution", route: "dashboard-states", nested: true },
+      { hash: "#/dashboard-releases", label: "Releases by Year", route: "dashboard-releases", nested: true },
+    ],
+  },
+  {
     title: "System",
     links: [
-      { hash: "#/dashboard", label: "Dashboard", route: "dashboard" },
       { hash: "#/inspector", label: "Inspector", route: "inspector" },
       { hash: "#/vfs-stats", label: "VFS Stats", route: "vfs-stats" },
       { hash: "#/calendar", label: "Calendar", route: "calendar" },

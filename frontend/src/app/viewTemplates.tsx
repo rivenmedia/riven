@@ -144,70 +144,83 @@ function TrendingTemplate() {
   );
 }
 
-function DashboardTemplate() {
+function DashboardOverviewTemplate() {
   return (
-    <ViewLayout className="view-dashboard" view="dashboard">
+    <ViewLayout className="view-dashboard view-dashboard--overview" view="dashboard">
       <ViewHeader
         actions={
           <button className="btn btn--warning" data-action="retry-library">
             Retry Active Library
           </button>
         }
-        subtitle="Backend health, queue activity, services, and operational metrics."
-        title="Dashboard"
+        subtitle="Key metrics, downloaders, and request activity."
+        title="Dashboard — Overview"
       />
-
       <section className="kpi-grid" data-slot="kpis"></section>
-
       <div className="split-grid">
-        <Panel>
-          <div className="section-head">
-            <h2>Services</h2>
-          </div>
-          <div data-slot="services-list"></div>
-        </Panel>
-
         <Panel>
           <div className="section-head">
             <h2>Downloader Accounts</h2>
           </div>
           <div data-slot="downloader-info"></div>
         </Panel>
-      </div>
-
-      <Panel>
-        <div className="section-head">
-          <h2>State Distribution</h2>
-        </div>
-        <div data-slot="state-pipeline"></div>
-      </Panel>
-
-      <dialog className="modal state-items-modal" data-slot="state-items-modal">
-        <div className="modal-inner">
-          <div className="modal-head">
-            <h3 data-slot="state-items-title">Items</h3>
-            <button type="button" className="btn btn--ghost modal-close" data-action="close-state-items">
-              Close
-            </button>
-          </div>
-          <div className="state-items-list" data-slot="state-items-list"></div>
-        </div>
-      </dialog>
-
-      <div className="split-grid">
         <Panel>
           <div className="section-head">
             <h2>Request Activity (30d)</h2>
           </div>
           <div data-slot="activity-chart"></div>
         </Panel>
-        <Panel>
-          <div className="section-head">
-            <h2>Releases by Year</h2>
-          </div>
-          <div data-slot="release-chart"></div>
-        </Panel>
       </div>
+    </ViewLayout>
+  );
+}
+
+function DashboardServicesTemplate() {
+  return (
+    <ViewLayout className="view-dashboard view-dashboard--services" view="dashboard-services">
+      <ViewHeader subtitle="Backend service status by category." title="Dashboard — Services" />
+      <Panel>
+        <div className="section-head">
+          <h2>Services</h2>
+        </div>
+        <div data-slot="services-list"></div>
+      </Panel>
+    </ViewLayout>
+  );
+}
+
+function DashboardStatesTemplate() {
+  return (
+    <ViewLayout className="view-dashboard view-dashboard--states" view="dashboard-states">
+      <ViewHeader subtitle="Items by pipeline and other states." title="Dashboard — State Distribution" />
+      <Panel>
+        <div className="section-head">
+          <h2>State Distribution</h2>
+        </div>
+        <div data-slot="state-pipeline"></div>
+      </Panel>
+      <Panel>
+        <div className="section-head">
+          <h3 data-slot="state-items-title">Items in state</h3>
+        </div>
+        <div className="state-items-list" data-slot="state-items-list">
+          <p className="muted">Click a state above to list items.</p>
+        </div>
+      </Panel>
+    </ViewLayout>
+  );
+}
+
+function DashboardReleasesTemplate() {
+  return (
+    <ViewLayout className="view-dashboard view-dashboard--releases" view="dashboard-releases">
+      <ViewHeader subtitle="Library content by release year." title="Dashboard — Releases by Year" />
+      <Panel>
+        <div className="section-head">
+          <h2>Releases by Year</h2>
+        </div>
+        <div data-slot="release-chart"></div>
+      </Panel>
     </ViewLayout>
   );
 }
@@ -379,7 +392,10 @@ function MountTemplate() {
 const LIBRARY_TEMPLATE = renderToStaticMarkup(<LibraryTemplate />);
 const EXPLORE_TEMPLATE = renderToStaticMarkup(<ExploreTemplate />);
 const TRENDING_TEMPLATE = renderToStaticMarkup(<TrendingTemplate />);
-const DASHBOARD_TEMPLATE = renderToStaticMarkup(<DashboardTemplate />);
+const DASHBOARD_OVERVIEW_TEMPLATE = renderToStaticMarkup(<DashboardOverviewTemplate />);
+const DASHBOARD_SERVICES_TEMPLATE = renderToStaticMarkup(<DashboardServicesTemplate />);
+const DASHBOARD_STATES_TEMPLATE = renderToStaticMarkup(<DashboardStatesTemplate />);
+const DASHBOARD_RELEASES_TEMPLATE = renderToStaticMarkup(<DashboardReleasesTemplate />);
 const INSPECTOR_TEMPLATE = renderToStaticMarkup(<InspectorTemplate />);
 const SETTINGS_TEMPLATE = renderToStaticMarkup(<SettingsTemplate />);
 const VFS_STATS_TEMPLATE = renderToStaticMarkup(<VfsStatsTemplate />);
@@ -393,7 +409,10 @@ export const VIEW_TEMPLATES: Record<RouteName, string> = {
   shows: LIBRARY_TEMPLATE,
   explore: EXPLORE_TEMPLATE,
   trending: TRENDING_TEMPLATE,
-  dashboard: DASHBOARD_TEMPLATE,
+  dashboard: DASHBOARD_OVERVIEW_TEMPLATE,
+  "dashboard-services": DASHBOARD_SERVICES_TEMPLATE,
+  "dashboard-states": DASHBOARD_STATES_TEMPLATE,
+  "dashboard-releases": DASHBOARD_RELEASES_TEMPLATE,
   inspector: INSPECTOR_TEMPLATE,
   settings: SETTINGS_TEMPLATE,
   "vfs-stats": VFS_STATS_TEMPLATE,

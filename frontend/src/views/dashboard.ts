@@ -1,3 +1,4 @@
+import type { AppRoute } from '../app/routeTypes';
 import { apiGet, apiPost } from '../services/api';
 import { notify } from '../services/notify';
 
@@ -394,99 +395,80 @@ function renderReleaseChart(container, stats) {
   `;
 }
 
-export async function load(route, container) {
-  const [statsRes, servicesRes, downloaderRes] = await Promise.all([
-    apiGet('/stats'),
-    apiGet('/services'),
-    apiGet('/downloader_user_info'),
-  ]);
+function escapeHtml(s: string): string {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
 
-  renderKpis(container.querySelector('[data-slot="kpis"]'), statsRes.data || {});
-  renderServiceList(
-    container.querySelector('[data-slot="services-list"]'),
-    servicesRes.data || {},
-  );
-  renderDownloaderInfo(
-    container.querySelector('[data-slot="downloader-info"]'),
-    downloaderRes.data || {},
-  );
+const STATE_ITEMS_LIMIT = 25;
 
-  const stateItemsModal = container.querySelector<HTMLDialogElement>('[data-slot="state-items-modal"]');
+function renderStateItemsList(
+  titleEl: Element | null,
+  listEl: Element | null,
+  state: string,
+  items: { id: number; title?: string; type?: string; year?: number | null }[],
+  totalItems: number,
+) {
+  if (!listEl) return;
+  const libraryUrl = `#/library?state=${encodeURIComponent(state)}`;
+  if (titleEl) titleEl.textContent = `Items in state: ${state}`;
+  if (!items.length) {
+    listEl.innerHTML = `
+      <p class="muted">No items in this state.</p>
+      <p class="state-items-footer"><a href="${libraryUrl}">View all media</a></p>
+    `;
+    return;
+  }
+  listEl.innerHTML = `
+    <table class="state-items-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Year</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items
+          .map(
+            (item) =>
+              `<tr>
+                <td><a href="#/item/${item.id}">${escapeHtml(item.title ?? `Item ${item.id}`)}</a></td>
+                <td>${escapeHtml(item.type ?? '—')}</td>
+                <td>${item.year != null ? item.year : '—'}</td>
+              </tr>`,
+          )
+          .join('')}
+      </tbody>
+    </table>
+    <p class="state-items-footer">
+      <a href="${libraryUrl}">View all media</a> (${totalItems} in ${state})
+    </p>
+  `;
+}
+
+function bindStateItemsInline(container: HTMLElement): (state: string) => Promise<void> {
   const stateItemsTitle = container.querySelector('[data-slot="state-items-title"]');
   const stateItemsList = container.querySelector('[data-slot="state-items-list"]');
 
-  async function showItemsForState(state: string) {
-    if (!stateItemsModal || !stateItemsTitle || !stateItemsList) return;
-    stateItemsTitle.textContent = `Items in state: ${state}`;
+  return async function showItemsForState(state: string) {
+    if (!stateItemsList) return;
+    if (stateItemsTitle) stateItemsTitle.textContent = `Items in state: ${state}`;
     stateItemsList.innerHTML = '<p class="muted">Loading…</p>';
-    stateItemsModal.showModal();
 
-    const res = await apiGet('/items', { states: [state], limit: 10, page: 1 });
+    const res = await apiGet('/items', { states: [state], limit: STATE_ITEMS_LIMIT, page: 1 });
     if (!res.ok) {
       stateItemsList.innerHTML = `<p class="muted">${res.error || 'Failed to load items.'}</p>`;
       return;
     }
     const items = res.data?.items ?? [];
     const totalItems = res.data?.total_items ?? items.length;
-    const libraryUrl = `#/library?state=${encodeURIComponent(state)}`;
-    if (!items.length) {
-      stateItemsList.innerHTML = `
-        <p class="muted">No items in this state.</p>
-        <p class="state-items-footer"><a href="${libraryUrl}">View all media</a></p>
-      `;
-      return;
-    }
-    stateItemsList.innerHTML = `
-      <table class="state-items-table">
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>Type</th>
-            <th>Year</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${items
-            .map(
-              (item: { id: number; title?: string; type?: string; year?: number | null }) =>
-                `<tr>
-                  <td><a href="#/item/${item.id}">${escapeHtml(item.title ?? `Item ${item.id}`)}</a></td>
-                  <td>${escapeHtml(item.type ?? '—')}</td>
-                  <td>${item.year != null ? item.year : '—'}</td>
-                </tr>`,
-            )
-            .join('')}
-        </tbody>
-      </table>
-      <p class="state-items-footer">
-        <a href="${libraryUrl}">View all media</a> (${totalItems} in ${state})
-      </p>
-    `;
-  }
+    renderStateItemsList(stateItemsTitle, stateItemsList, state, items, totalItems);
+  };
+}
 
-  function escapeHtml(s: string): string {
-    const div = document.createElement('div');
-    div.textContent = s;
-    return div.innerHTML;
-  }
-
-  renderStatePipeline(
-    container.querySelector('[data-slot="state-pipeline"]'),
-    statsRes.data || {},
-    showItemsForState,
-  );
-
-  const closeStateItemsBtn = container.querySelector('[data-action="close-state-items"]');
-  if (closeStateItemsBtn && stateItemsModal) {
-    closeStateItemsBtn.addEventListener('click', () => stateItemsModal.close());
-  }
-  stateItemsModal?.addEventListener('click', (e) => {
-    if (e.target === stateItemsModal) stateItemsModal.close();
-  });
-
-  renderActivityChart(container.querySelector('[data-slot="activity-chart"]'), statsRes.data || {});
-  renderReleaseChart(container.querySelector('[data-slot="release-chart"]'), statsRes.data || {});
-
+function bindRetryButton(route: AppRoute, container: HTMLElement) {
   const retryButton = container.querySelector('[data-action="retry-library"]');
   if (retryButton) {
     retryButton.addEventListener('click', async () => {
@@ -498,5 +480,42 @@ export async function load(route, container) {
       notify(response.data?.message || 'Retry request submitted', 'success');
       await load(route, container);
     });
+  }
+}
+
+export async function load(route: AppRoute, container: HTMLElement) {
+  const name = route.name;
+
+  if (name === 'dashboard') {
+    const [statsRes, downloaderRes] = await Promise.all([
+      apiGet('/stats'),
+      apiGet('/downloader_user_info'),
+    ]);
+    const stats = statsRes.data || {};
+    renderKpis(container.querySelector('[data-slot="kpis"]'), stats);
+    renderDownloaderInfo(container.querySelector('[data-slot="downloader-info"]'), downloaderRes.data || {});
+    renderActivityChart(container.querySelector('[data-slot="activity-chart"]'), stats);
+    bindRetryButton(route, container);
+    return;
+  }
+
+  if (name === 'dashboard-services') {
+    const servicesRes = await apiGet('/services');
+    renderServiceList(container.querySelector('[data-slot="services-list"]'), servicesRes.data || {});
+    return;
+  }
+
+  if (name === 'dashboard-states') {
+    const statsRes = await apiGet('/stats');
+    const stats = statsRes.data || {};
+    const showItemsForState = bindStateItemsInline(container);
+    renderStatePipeline(container.querySelector('[data-slot="state-pipeline"]'), stats, showItemsForState);
+    return;
+  }
+
+  if (name === 'dashboard-releases') {
+    const statsRes = await apiGet('/stats');
+    renderReleaseChart(container.querySelector('[data-slot="release-chart"]'), statsRes.data || {});
+    return;
   }
 }
