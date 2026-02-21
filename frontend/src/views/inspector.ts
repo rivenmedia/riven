@@ -111,7 +111,8 @@ export async function load(route, container) {
     const needle = logState.query.toLowerCase();
     logState.filtered = logState.all
       .map((raw, index) => ({ raw: String(raw), index: index + 1 }))
-      .filter((row) => !needle || row.raw.toLowerCase().includes(needle));
+      .filter((row) => !needle || row.raw.toLowerCase().includes(needle))
+      .reverse();
 
     virtualLogs?.setRows(logState.filtered);
     if (logMeta) {
@@ -200,4 +201,5 @@ export async function load(route, container) {
   }
 
   await fetchLogs();
+  setInterval(fetchLogs, 5000);
 }
