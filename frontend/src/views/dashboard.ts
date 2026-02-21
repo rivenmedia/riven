@@ -149,6 +149,32 @@ function renderServiceList(container, services) {
   `;
 }
 
+function premiumWarning(service: {
+  premium_status?: string;
+  premium_days_left?: number | null;
+}): string {
+  if (service.premium_status === 'free') {
+    return '<span class="downloader-warning downloader-warning--expired">Premium expired</span>';
+  }
+  const days = service.premium_days_left;
+  if (days != null && days <= 7) {
+    return `<span class="downloader-warning downloader-warning--soon">Expires in ${days} day${days === 1 ? '' : 's'}</span>`;
+  }
+  return '';
+}
+
+function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes)) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let u = 0;
+  let n = bytes;
+  while (n >= 1024 && u < units.length - 1) {
+    n /= 1024;
+    u += 1;
+  }
+  return `${n.toFixed(u ? 2 : 0)} ${units[u]}`;
+}
+
 function renderDownloaderInfo(container, downloaderResponse) {
   if (!container) return;
   const services = downloaderResponse?.services || [];
@@ -159,50 +185,103 @@ function renderDownloaderInfo(container, downloaderResponse) {
 
   container.innerHTML = services
     .map(
-      (service) => `
-      <div class="service-row">
-        <div>
+      (service) => {
+        const warning = premiumWarning(service);
+        const email = service.email ? String(service.email).replace(/(.{3}).*@/, '$1***@') : null;
+        const displayName = service.username || email || 'Unknown account';
+        const expires =
+          service.premium_expires_at != null
+            ? new Date(service.premium_expires_at).toLocaleDateString()
+            : '—';
+        const daysLeft =
+          service.premium_days_left != null ? `${service.premium_days_left} days` : '—';
+        const points = service.points != null ? String(service.points) : '—';
+        const downloaded = formatBytes(service.total_downloaded_bytes);
+        const cooldown =
+          service.cooldown_until != null
+            ? new Date(service.cooldown_until).toLocaleString()
+            : null;
+        return `
+      <div class="downloader-card">
+        <div class="downloader-card__head">
           <strong>${service.service}</strong>
-          <p class="muted">${service.username || service.email || 'Unknown account'}</p>
+          ${warning}
+          <span class="service-row__status ${
+            service.premium_status === 'premium'
+              ? 'service-row__status--up'
+              : 'service-row__status--down'
+          }">${service.premium_status}</span>
         </div>
-        <span class="service-row__status ${
-          service.premium_status === 'premium'
-            ? 'service-row__status--up'
-            : 'service-row__status--down'
-        }">
-          ${service.premium_status}
-        </span>
+        <dl class="downloader-card__meta">
+          <dt>Account</dt><dd>${displayName}</dd>
+          <dt>Expires</dt><dd>${expires}</dd>
+          <dt>Days left</dt><dd>${daysLeft}</dd>
+          ${service.points != null ? `<dt>Points</dt><dd>${points}</dd>` : ''}
+          ${service.total_downloaded_bytes != null ? `<dt>Downloaded</dt><dd>${downloaded}</dd>` : ''}
+          ${cooldown ? `<dt>Cooldown until</dt><dd>${cooldown}</dd>` : ''}
+        </dl>
       </div>
-    `,
+    `;
+      },
     )
     .join('');
 }
 
-function renderStateBars(container, stats) {
+// Main pipeline order (left → right) from state_transition flow
+const PIPELINE_ORDER = [
+  'Requested',
+  'Indexed',
+  'Scraped',
+  'Downloaded',
+  'Symlinked',
+  'Completed',
+];
+const OTHER_STATES = [
+  'Unknown',
+  'Unreleased',
+  'Ongoing',
+  'PartiallyCompleted',
+  'Failed',
+  'Paused',
+];
+
+function renderStatePipeline(container, stats, onNodeClick: (state: string) => void) {
   if (!container) return;
   const states = stats?.states || {};
-  const entries = Object.entries(states);
-  const maxValue = Math.max(...entries.map(([, value]) => Number(value || 0)), 1);
+  const getCount = (name: string) => Number(states[name] ?? 0);
+
+  const pipelineNodes = PIPELINE_ORDER.map(
+    (name, i) => `
+    ${i > 0 ? '<span class="state-pipeline__arrow" aria-hidden="true">→</span>' : ''}
+    <button type="button" class="state-pipeline__node" data-state="${name}">
+      <span class="state-pipeline__label">${name}</span>
+      <span class="state-pipeline__count">${getCount(name)}</span>
+    </button>
+  `,
+  ).join('');
+
+  const otherNodes = OTHER_STATES.map(
+    (name) => `
+    <button type="button" class="state-pipeline__node state-pipeline__node--other" data-state="${name}">
+      <span class="state-pipeline__label">${name}</span>
+      <span class="state-pipeline__count">${getCount(name)}</span>
+    </button>
+  `,
+  ).join('');
 
   container.innerHTML = `
-    <div class="state-bar-list">
-      ${entries
-        .map(([name, value]) => {
-          const count = Number(value || 0);
-          const width = Math.max((count / maxValue) * 100, 2);
-          return `
-            <div class="state-bar">
-              <span>${name}</span>
-              <div class="state-bar__track">
-                <span class="state-bar__fill" style="width:${width}%"></span>
-              </div>
-              <strong>${count}</strong>
-            </div>
-          `;
-        })
-        .join('')}
+    <div class="state-pipeline">
+      <div class="state-pipeline__row">${pipelineNodes}</div>
+      <div class="state-pipeline__row state-pipeline__row--other">
+        <span class="state-pipeline__other-label">Other</span>
+        ${otherNodes}
+      </div>
     </div>
   `;
+
+  container.querySelectorAll<HTMLButtonElement>('.state-pipeline__node').forEach((btn) => {
+    btn.addEventListener('click', () => onNodeClick(btn.dataset.state!));
+  });
 }
 
 function renderActivityChart(container, stats) {
@@ -331,7 +410,80 @@ export async function load(route, container) {
     container.querySelector('[data-slot="downloader-info"]'),
     downloaderRes.data || {},
   );
-  renderStateBars(container.querySelector('[data-slot="state-bars"]'), statsRes.data || {});
+
+  const stateItemsModal = container.querySelector<HTMLDialogElement>('[data-slot="state-items-modal"]');
+  const stateItemsTitle = container.querySelector('[data-slot="state-items-title"]');
+  const stateItemsList = container.querySelector('[data-slot="state-items-list"]');
+
+  async function showItemsForState(state: string) {
+    if (!stateItemsModal || !stateItemsTitle || !stateItemsList) return;
+    stateItemsTitle.textContent = `Items in state: ${state}`;
+    stateItemsList.innerHTML = '<p class="muted">Loading…</p>';
+    stateItemsModal.showModal();
+
+    const res = await apiGet('/items', { states: [state], limit: 10, page: 1 });
+    if (!res.ok) {
+      stateItemsList.innerHTML = `<p class="muted">${res.error || 'Failed to load items.'}</p>`;
+      return;
+    }
+    const items = res.data?.items ?? [];
+    const totalItems = res.data?.total_items ?? items.length;
+    const libraryUrl = `#/library?state=${encodeURIComponent(state)}`;
+    if (!items.length) {
+      stateItemsList.innerHTML = `
+        <p class="muted">No items in this state.</p>
+        <p class="state-items-footer"><a href="${libraryUrl}">View all media</a></p>
+      `;
+      return;
+    }
+    stateItemsList.innerHTML = `
+      <table class="state-items-table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Type</th>
+            <th>Year</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items
+            .map(
+              (item: { id: number; title?: string; type?: string; year?: number | null }) =>
+                `<tr>
+                  <td><a href="#/item/${item.id}">${escapeHtml(item.title ?? `Item ${item.id}`)}</a></td>
+                  <td>${escapeHtml(item.type ?? '—')}</td>
+                  <td>${item.year != null ? item.year : '—'}</td>
+                </tr>`,
+            )
+            .join('')}
+        </tbody>
+      </table>
+      <p class="state-items-footer">
+        <a href="${libraryUrl}">View all media</a> (${totalItems} in ${state})
+      </p>
+    `;
+  }
+
+  function escapeHtml(s: string): string {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  renderStatePipeline(
+    container.querySelector('[data-slot="state-pipeline"]'),
+    statsRes.data || {},
+    showItemsForState,
+  );
+
+  const closeStateItemsBtn = container.querySelector('[data-action="close-state-items"]');
+  if (closeStateItemsBtn && stateItemsModal) {
+    closeStateItemsBtn.addEventListener('click', () => stateItemsModal.close());
+  }
+  stateItemsModal?.addEventListener('click', (e) => {
+    if (e.target === stateItemsModal) stateItemsModal.close();
+  });
+
   renderActivityChart(container.querySelector('[data-slot="activity-chart"]'), statsRes.data || {});
   renderReleaseChart(container.querySelector('[data-slot="release-chart"]'), statsRes.data || {});
 

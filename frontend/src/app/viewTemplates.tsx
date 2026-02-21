@@ -179,8 +179,20 @@ function DashboardTemplate() {
         <div className="section-head">
           <h2>State Distribution</h2>
         </div>
-        <div data-slot="state-bars"></div>
+        <div data-slot="state-pipeline"></div>
       </Panel>
+
+      <dialog className="modal state-items-modal" data-slot="state-items-modal">
+        <div className="modal-inner">
+          <div className="modal-head">
+            <h3 data-slot="state-items-title">Items</h3>
+            <button type="button" className="btn btn--ghost modal-close" data-action="close-state-items">
+              Close
+            </button>
+          </div>
+          <div className="state-items-list" data-slot="state-items-list"></div>
+        </div>
+      </dialog>
 
       <div className="split-grid">
         <Panel>

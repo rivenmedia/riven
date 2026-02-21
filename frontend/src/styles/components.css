@@ -308,6 +308,7 @@
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
   background: rgba(9, 14, 28, 0.98);
+  color: var(--text-1);
 }
 
 .modal::backdrop {

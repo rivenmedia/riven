@@ -162,6 +162,11 @@ export async function load(route, container) {
       option.textContent = state;
       stateSelect.appendChild(option);
     });
+    const stateFromQuery = route.query?.state;
+    if (stateFromQuery && states.includes(stateFromQuery)) {
+      filters.state = stateFromQuery;
+      stateSelect.value = stateFromQuery;
+    }
   }
 
   async function fetchItems() {
