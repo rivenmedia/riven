@@ -378,6 +378,11 @@ def handle_args():
         help="Port to run the server on (default: 8080)",
     )
     parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="Run server with hot reload (for development).",
+    )
+    parser.add_argument(
         "--clean_snapshots",
         type=str,
         metavar="SNAPSHOT_FILE",

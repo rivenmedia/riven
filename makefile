@@ -33,7 +33,7 @@ help:
 	@echo "make update      - Update dependencies"
 	@echo "make frontend-install - Install frontend dependencies"
 	@echo "make frontend-build   - Build frontend bundle into src/static/ui"
-	@echo "make dev              - Run frontend dev server (hot reload)"
+	@echo "make dev              - Run backend (hot reload) and frontend dev server"
 	@echo "make frontend-dev     - Run frontend in dev mode with API proxy"
 
 
@@ -97,7 +97,11 @@ frontend-build: frontend-install
 	@npm --prefix $(FRONTEND_DIR) run build
 	@echo "Frontend bundle built at $(FRONTEND_OUT)"
 
-dev frontend-dev: frontend-install
+dev: frontend-install
+	@echo "Starting backend (reload) and frontend dev server..."
+	@(trap 'kill 0' EXIT; PYTHONPATH="$(PWD)" uv run python src/main.py --reload -p 8080 & sleep 5 && npm --prefix $(FRONTEND_DIR) run dev)
+
+frontend-dev: frontend-install
 	@echo "Starting frontend dev server (hot reload)..."
 	@npm --prefix $(FRONTEND_DIR) run dev
 

@@ -29,6 +29,7 @@ from scalar_fastapi import (
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from program.apis import bootstrap_apis
 from program.program import Program, riven
 from program.settings.models import get_version
 from program.settings import settings_manager
@@ -92,6 +93,10 @@ class LoguruMiddleware(BaseHTTPMiddleware):
 
 
 args = handle_args()
+
+# Register API services so they are available in the process that serves HTTP
+# (e.g. uvicorn reload worker). Program also calls this on start.
+bootstrap_apis()
 
 
 @contextlib.asynccontextmanager
@@ -197,16 +202,34 @@ def signal_handler(signum: int, frame: FrameType | None):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_config=None)
-server = Server(config=config)
+if __name__ == "__main__":
+    if getattr(args, "reload", False):
+        def _run_program() -> None:
+            try:
+                di[Program].start()
+                di[Program].run()
+            except Exception:
+                logger.exception("Error in Program thread")
 
+        _program_thread = threading.Thread(target=_run_program, name="Program", daemon=True)
+        _program_thread.start()
+        uvicorn.run(
+            "src.main:app",
+            host="0.0.0.0",
+            port=args.port,
+            log_config=None,
+            reload=True,
+        )
+    else:
+        config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_config=None)
+        server = Server(config=config)
 
-with server.run_in_thread():
-    try:
-        di[Program].start()
-        di[Program].run()
-    except Exception:
-        logger.exception("Error in main thread")
-    finally:
-        logger.critical("Server has been stopped")
-        sys.exit(0)
+        with server.run_in_thread():
+            try:
+                di[Program].start()
+                di[Program].run()
+            except Exception:
+                logger.exception("Error in main thread")
+            finally:
+                logger.critical("Server has been stopped")
+                sys.exit(0)
