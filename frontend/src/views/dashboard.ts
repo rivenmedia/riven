@@ -403,11 +403,37 @@ function escapeHtml(s: string): string {
 
 const STATE_ITEMS_LIMIT = 25;
 
+type StateListItem = {
+  id: number;
+  title?: string;
+  parent_title?: string;
+  type?: string;
+  year?: number | null;
+  season_number?: number | null;
+  episode_number?: number | null;
+};
+
+function displayTitle(item: StateListItem): string {
+  const title = item.title ?? `Item ${item.id}`;
+  const showName = item.parent_title && item.parent_title !== title ? item.parent_title : null;
+  if (!showName) return title;
+  const s = item.season_number;
+  const e = item.episode_number;
+  const seasonEpisode =
+    s != null && e != null
+      ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
+      : s != null
+        ? `Season ${s}`
+        : "";
+  const middle = seasonEpisode ? ` — ${seasonEpisode}` : "";
+  return `${showName}${middle} — ${title}`;
+}
+
 function renderStateItemsList(
   titleEl: Element | null,
   listEl: Element | null,
   state: string,
-  items: { id: number; title?: string; type?: string; year?: number | null }[],
+  items: StateListItem[],
   totalItems: number,
 ) {
   if (!listEl) return;
@@ -434,7 +460,7 @@ function renderStateItemsList(
           .map(
             (item) =>
               `<tr>
-                <td><a href="#/item/${item.id}">${escapeHtml(item.title ?? `Item ${item.id}`)}</a></td>
+                <td><a href="#/item/${item.id}">${escapeHtml(displayTitle(item))}</a></td>
                 <td>${escapeHtml(item.type ?? '—')}</td>
                 <td>${item.year != null ? item.year : '—'}</td>
               </tr>`,

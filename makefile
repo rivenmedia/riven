@@ -33,8 +33,8 @@ help:
 	@echo "make update      - Update dependencies"
 	@echo "make frontend-install - Install frontend dependencies"
 	@echo "make frontend-build   - Build frontend bundle into src/static/ui"
-	@echo "make dev              - Run frontend dev server (hot reload)"
-	@echo "make frontend-dev     - Run frontend in dev mode with API proxy"
+	@echo "make dev              - Run backend and frontend dev server"
+	@echo "make frontend-dev     - Run frontend only (hot reload)"
 
 
 # Ensure the Buildx builder is set up and support multi-arch builds
@@ -97,7 +97,11 @@ frontend-build: frontend-install
 	@npm --prefix $(FRONTEND_DIR) run build
 	@echo "Frontend bundle built at $(FRONTEND_OUT)"
 
-dev frontend-dev: frontend-install
+dev: frontend-install
+	@echo "Starting backend and frontend dev server..."
+	@(trap 'kill 0' EXIT; uv run python src/main.py -p 8080 & sleep 2 && npm --prefix $(FRONTEND_DIR) run dev)
+
+frontend-dev: frontend-install
 	@echo "Starting frontend dev server (hot reload)..."
 	@npm --prefix $(FRONTEND_DIR) run dev
 
