@@ -104,6 +104,14 @@
   padding: 1.25rem 1.6rem 2rem;
 }
 
+.mobile-sidebar-toggle {
+  display: none;
+}
+
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
 .view-host {
   min-width: 0;
 }
@@ -111,15 +119,52 @@
 @media (max-width: 1080px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      "main"
-      "sidebar";
+    grid-template-areas: "main";
   }
 
   .app-sidebar {
-    position: relative;
-    height: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--panel-border);
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: min(300px, 86vw);
+    height: 100vh;
+    border-right: 1px solid var(--panel-border);
+    border-bottom: none;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    z-index: 95;
+  }
+
+  .app-sidebar.app-sidebar--mobile-open {
+    visibility: visible;
+    pointer-events: auto;
+    box-shadow: var(--shadow-md);
+    transform: translateX(0);
+  }
+
+  .mobile-sidebar-toggle {
+    display: inline-flex;
+    margin-bottom: 0.85rem;
+  }
+
+  .mobile-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: rgba(4, 9, 18, 0.58);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 90;
+  }
+
+  .mobile-sidebar-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
   }
 }

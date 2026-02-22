@@ -2,6 +2,8 @@ import type { AppRoute, RouteName } from "../app/routeTypes";
 
 interface SidebarProps {
   currentRoute: RouteName;
+  isMobileOpen: boolean;
+  onNavigate: () => void;
   route: AppRoute | null;
   onLogout: () => void;
 }
@@ -96,11 +98,22 @@ function isLinkActive(link: NavLink, currentRoute: RouteName, route: AppRoute | 
   return true;
 }
 
-export default function Sidebar({ currentRoute, route, onLogout }: SidebarProps) {
+export default function Sidebar({
+  currentRoute,
+  isMobileOpen,
+  onNavigate,
+  route,
+  onLogout,
+}: SidebarProps) {
   return (
-    <nav className="app-sidebar">
+    <nav
+      className={["app-sidebar", isMobileOpen ? "app-sidebar--mobile-open" : ""]
+        .filter(Boolean)
+        .join(" ")}
+      id="app-sidebar-nav"
+    >
       <div className="sidebar-brand">
-        <a className="sidebar-logo" href="#/library">
+        <a className="sidebar-logo" href="#/library" onClick={onNavigate}>
           Riven
         </a>
         <p className="sidebar-subtitle">Media Control Center</p>
@@ -126,6 +139,7 @@ export default function Sidebar({ currentRoute, route, onLogout }: SidebarProps)
                       .filter(Boolean)
                       .join(" ")}
                     href={link.hash}
+                    onClick={onNavigate}
                   >
                     {link.label}
                   </a>
@@ -139,7 +153,10 @@ export default function Sidebar({ currentRoute, route, onLogout }: SidebarProps)
       <div className="sidebar-footer">
         <button
           className="btn btn--danger btn--block"
-          onClick={onLogout}
+          onClick={() => {
+            onNavigate();
+            onLogout();
+          }}
           type="button"
         >
           Logout

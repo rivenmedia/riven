@@ -18,6 +18,7 @@ function normalizeRoute(parsed: AppRoute): AppRoute {
 }
 
 const DEFAULT_HASH = "#/library";
+const MOBILE_MEDIA_QUERY = "(max-width: 1080px)";
 
 function applyRouteTheme(routeName: RouteName) {
   const body = document.body;
@@ -43,12 +44,14 @@ export default function App() {
   const [route, setRoute] = useState<AppRoute>(() => normalizeRoute(parseRoute() as AppRoute));
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
 
   const routeName = useMemo<RouteName>(() => route?.name || "library", [route]);
 
   useEffect(() => {
     function handleHashChange() {
       setRoute(normalizeRoute(parseRoute() as AppRoute));
+      setIsMobileSidebarOpen(false);
     }
 
     window.addEventListener("hashchange", handleHashChange);
@@ -71,6 +74,44 @@ export default function App() {
     applyRouteTheme(authenticated ? routeName : "library");
   }, [authenticated, routeName]);
 
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    function handleViewportChange(event: MediaQueryListEvent) {
+      if (!event.matches) {
+        setIsMobileSidebarOpen(false);
+      }
+    }
+
+    mediaQuery.addEventListener("change", handleViewportChange);
+    return () => {
+      mediaQuery.removeEventListener("change", handleViewportChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !authenticated ||
+      !isMobileSidebarOpen ||
+      !window.matchMedia(MOBILE_MEDIA_QUERY).matches
+    ) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMobileSidebarOpen(false);
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [authenticated, isMobileSidebarOpen]);
+
   async function handleLogin(apiKey: string): Promise<void> {
     setLoading(true);
     setError("");
@@ -92,18 +133,57 @@ export default function App() {
     logout();
   }
 
+  function toggleMobileSidebar(): void {
+    setIsMobileSidebarOpen((open) => !open);
+  }
+
+  function closeMobileSidebar(): void {
+    setIsMobileSidebarOpen(false);
+  }
+
   return (
     <div id="app">
       {authenticated ? (
         <div className="app-shell" id="view-app">
-          <Sidebar currentRoute={routeName} route={route} onLogout={handleLogout} />
+          <Sidebar
+            currentRoute={routeName}
+            isMobileOpen={isMobileSidebarOpen}
+            onLogout={handleLogout}
+            onNavigate={closeMobileSidebar}
+            route={route}
+          />
           <main className="app-main">
+            <button
+              aria-controls="app-sidebar-nav"
+              aria-expanded={isMobileSidebarOpen}
+              aria-label={isMobileSidebarOpen ? "Hide navigation menu" : "Show navigation menu"}
+              className="btn btn--secondary btn--small mobile-sidebar-toggle"
+              onClick={toggleMobileSidebar}
+              type="button"
+            >
+              {isMobileSidebarOpen ? "Hide menu" : "Show menu"}
+            </button>
             <ViewHost route={route} />
           </main>
         </div>
       ) : (
         <LoginView error={error} loading={loading} onSubmit={handleLogin} />
       )}
+      {authenticated ? (
+        <button
+          aria-hidden={!isMobileSidebarOpen}
+          aria-label="Close navigation menu"
+          className={[
+            "mobile-sidebar-backdrop",
+            isMobileSidebarOpen ? "is-visible" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={closeMobileSidebar}
+          tabIndex={isMobileSidebarOpen ? 0 : -1}
+          type="button"
+        />
+      ) : null}
 
       <ManualScrapeModalTemplate />
       <div aria-live="polite" className="toast-root" id="toast-root" />
