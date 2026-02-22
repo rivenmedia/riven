@@ -1,10 +1,12 @@
 .app-shell {
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr);
+  grid-template-areas: "sidebar main";
   min-height: 100vh;
 }
 
 .app-sidebar {
+  grid-area: sidebar;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -97,6 +99,7 @@
 }
 
 .app-main {
+  grid-area: main;
   min-width: 0;
   padding: 1.25rem 1.6rem 2rem;
 }
@@ -108,6 +111,9 @@
 @media (max-width: 1080px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "main"
+      "sidebar";
   }
 
   .app-sidebar {
