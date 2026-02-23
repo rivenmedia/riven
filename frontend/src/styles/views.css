@@ -326,18 +326,18 @@
 .services-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-0);
+  font-size: var(--font-size-1);
 }
 
 .services-table th,
 .services-table td {
-  padding: 0.4rem 0.6rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
   border-bottom: 1px solid var(--panel-border);
 }
 
 .services-table thead th {
-  font-size: var(--font-size-0);
+  font-size: var(--font-size-2);
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
@@ -362,9 +362,9 @@
 }
 
 .service-row__status {
-  font-size: var(--font-size-0);
+  font-size: var(--font-size-1);
   border-radius: 999px;
-  padding: 0.15rem 0.45rem;
+  padding: 0.2rem 0.5rem;
 }
 
 .service-row__status--up {

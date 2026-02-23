@@ -3,7 +3,8 @@ name: "Release Please and Notify Discord"
 on:
   push:
     branches:
-      - main
+      - release
+      #- main
   workflow_dispatch:
 
 permissions:
