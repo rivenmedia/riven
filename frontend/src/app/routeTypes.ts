@@ -2,6 +2,7 @@ export type RouteName =
   | "library"
   | "movies"
   | "shows"
+  | "episodes"
   | "explore"
   | "trending"
   | "dashboard"

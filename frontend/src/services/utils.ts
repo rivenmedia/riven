@@ -20,6 +20,25 @@ export function mediaLabel(item) {
   return 'Media';
 }
 
+/** Format episode for display: "Show Name — S01E04 — Episode Title" */
+export function formatEpisodeDisplayTitle(item: {
+  type?: string;
+  parent_title?: string;
+  season_number?: number | null;
+  episode_number?: number | null;
+  title?: string;
+  name?: string;
+}): string {
+  if (item?.type !== 'episode') return item?.title || item?.name || 'Unknown';
+  const show = item.parent_title || '';
+  const s = item.season_number != null ? String(item.season_number).padStart(2, '0') : '??';
+  const e = item.episode_number != null ? String(item.episode_number).padStart(2, '0') : '??';
+  const title = item.title || item.name || '';
+  if (!show && !title) return `S${s}E${e}`;
+  const parts = [show, `S${s}E${e}`, title].filter(Boolean);
+  return parts.join(' — ');
+}
+
 export function formatYear(item) {
   if (item?.year) return String(item.year);
   if (item?.release_date) return String(item.release_date).slice(0, 4);

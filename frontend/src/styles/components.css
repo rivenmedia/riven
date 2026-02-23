@@ -13,6 +13,23 @@
   margin-bottom: 0.75rem;
 }
 
+.metadata-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0;
+}
+
+.metadata-dl dt {
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.metadata-dl dd {
+  margin: 0;
+  word-break: break-word;
+}
+
 .btn {
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -113,7 +130,7 @@
 .legend-chip {
   font-size: var(--font-size-0);
   border-radius: 999px;
-  padding: 0.2rem 0.5rem;
+  padding: 0.2rem 0.6rem;
   border: 1px solid transparent;
 }
 
@@ -127,6 +144,18 @@
   color: #efdfff;
   background: rgba(170, 116, 255, 0.2);
   border-color: rgba(170, 116, 255, 0.45);
+}
+
+.legend-chip--in-library {
+  color: #a8e6a0;
+  background: rgba(76, 175, 80, 0.2);
+  border-color: rgba(76, 175, 80, 0.45);
+}
+
+.legend-chip--missing {
+  color: var(--text-2);
+  background: rgba(132, 150, 194, 0.15);
+  border-color: rgba(132, 150, 194, 0.3);
 }
 
 .media-card {

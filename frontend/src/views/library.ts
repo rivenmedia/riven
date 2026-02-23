@@ -1,9 +1,11 @@
-import { renderMediaCard } from '../ui/mediaCard';
 import { apiDelete, apiGet, apiPost } from '../services/api';
 import { notify } from '../services/notify';
 import * as statusTracker from '../services/statusTracker';
+import { attachLibraryFilterBar } from '../ui/libraryFilterBar';
+import { renderMediaGrid } from '../ui/mediaGrid';
+import { renderMediaList } from '../ui/mediaList';
 
-function normalizeLibraryItem(item) {
+function normalizeLibraryItem(item: any) {
   return {
     ...item,
     media_type: item.type === 'show' ? 'tv' : item.type,
@@ -12,7 +14,7 @@ function normalizeLibraryItem(item) {
   };
 }
 
-async function runAction(action, id) {
+async function runAction(action: string, id: string) {
   const ids = [String(id)];
   switch (action) {
     case 'retry':
@@ -30,13 +32,13 @@ async function runAction(action, id) {
   }
 }
 
-function createActionButtons(item, refresh) {
+function createActionButtons(item: any, refresh: () => void) {
   const pauseLabel = item.state === 'Paused' ? 'Unpause' : 'Pause';
   const pauseAction = item.state === 'Paused' ? 'unpause' : 'pause';
   return [
     {
       label: 'Retry',
-      tone: 'secondary',
+      tone: 'secondary' as const,
       onClick: async () => {
         const res = await runAction('retry', item.id);
         if (!res.ok) {
@@ -49,7 +51,7 @@ function createActionButtons(item, refresh) {
     },
     {
       label: pauseLabel,
-      tone: 'warning',
+      tone: 'warning' as const,
       onClick: async () => {
         const res = await runAction(pauseAction, item.id);
         if (!res.ok) {
@@ -62,7 +64,7 @@ function createActionButtons(item, refresh) {
     },
     {
       label: 'Reset',
-      tone: 'secondary',
+      tone: 'secondary' as const,
       onClick: async () => {
         const confirmed = window.confirm(`Reset "${item.title}" to initial state?`);
         if (!confirmed) return;
@@ -77,7 +79,7 @@ function createActionButtons(item, refresh) {
     },
     {
       label: 'Remove',
-      tone: 'danger',
+      tone: 'danger' as const,
       onClick: async () => {
         const confirmed = window.confirm(`Remove "${item.title}" from library?`);
         if (!confirmed) return;
@@ -93,7 +95,12 @@ function createActionButtons(item, refresh) {
   ];
 }
 
-function renderPagination(container, page, totalPages, onPageChange) {
+function renderPagination(
+  container: HTMLElement | null,
+  page: number,
+  totalPages: number,
+  onPageChange: (p: number) => void,
+) {
   if (!container) return;
   container.innerHTML = '';
   if (totalPages <= 1) return;
@@ -119,41 +126,55 @@ function renderPagination(container, page, totalPages, onPageChange) {
   container.appendChild(next);
 }
 
-export async function load(route, container) {
-  const forcedType = route.name === 'movies' ? 'movie' : route.name === 'shows' ? 'show' : '';
-  const titleMap = {
+const RETURN_ROUTE_KEY = 'riven_return_route';
+
+export async function load(route: { name: string; query?: Record<string, string> }, container: HTMLElement) {
+  try {
+    sessionStorage.setItem(RETURN_ROUTE_KEY, route.name);
+  } catch (_) {}
+
+  const forcedType =
+    route.name === 'movies' ? 'movie' : route.name === 'shows' ? 'show' : route.name === 'episodes' ? 'episode' : '';
+  const useListView = route.name === 'library' || route.name === 'episodes';
+  const titleMap: Record<string, string> = {
     library: 'Library',
     movies: 'Movies',
     shows: 'TV Shows',
+    episodes: 'TV Episodes',
   };
+  const defaultSort = route.name === 'episodes' ? 'date_desc' : 'date_desc';
 
-  const titleElement = container.querySelector('[data-slot="title"]');
-  const subtitleElement = container.querySelector('[data-slot="subtitle"]');
-  const gridElement = container.querySelector('[data-slot="grid"]');
-  const emptyElement = container.querySelector('[data-slot="empty"]');
-  const paginationElement = container.querySelector('[data-slot="pagination"]');
-  const filterForm = container.querySelector('[data-slot="filters"]');
-  const searchInput = container.querySelector('[data-slot="search"]');
-  const stateSelect = container.querySelector('[data-slot="state"]');
-  const sortSelect = container.querySelector('[data-slot="sort"]');
-  const limitSelect = container.querySelector('[data-slot="limit"]');
+  const titleElement = container.querySelector<HTMLElement>('[data-slot="title"]');
+  const subtitleElement = container.querySelector<HTMLElement>('[data-slot="subtitle"]');
+  const gridElement = container.querySelector<HTMLElement>('[data-slot="grid"]');
+  const listElement = container.querySelector<HTMLElement>('[data-slot="list"]');
+  const emptyElement = container.querySelector<HTMLElement>('[data-slot="empty"]');
+  const paginationElement = container.querySelector<HTMLElement>('[data-slot="pagination"]');
+  const filterForm = container.querySelector<HTMLFormElement>('[data-slot="filters"]');
 
-  if (titleElement) titleElement.textContent = titleMap[route.name] || 'Library';
-  if (subtitleElement && forcedType) {
-    subtitleElement.textContent = `Filtered by ${forcedType === 'movie' ? 'movies' : 'TV shows'}.`;
+  if (titleElement) titleElement.textContent = titleMap[route.name] ?? 'Library';
+  if (subtitleElement) {
+    if (route.name === 'episodes') subtitleElement.textContent = 'TV episodes only.';
+    else if (forcedType)
+      subtitleElement.textContent = `Filtered by ${forcedType === 'movie' ? 'movies' : 'TV shows'}.`;
+    else subtitleElement.textContent = 'Manage your local media queue, statuses, and backend actions.';
   }
+
+  if (gridElement) gridElement.hidden = useListView;
+  if (listElement) listElement.hidden = !useListView;
 
   let page = 1;
   let totalPages = 1;
   const filters = {
-    search: '',
-    state: '',
-    sort: 'date_desc',
-    limit: 24,
+    search: route.query?.search ?? '',
+    state: route.query?.state ?? '',
+    sort: route.query?.sort ?? defaultSort,
+    limit: Number(route.query?.limit || 24) || 24,
   };
 
   const statesRes = await apiGet('/items/states');
   const states = statesRes.ok ? statesRes.data?.states || [] : [];
+  const stateSelect = filterForm?.querySelector<HTMLSelectElement>('[data-slot="state"]');
   if (stateSelect) {
     stateSelect.innerHTML = '<option value="">All states</option>';
     states.forEach((state) => {
@@ -162,12 +183,15 @@ export async function load(route, container) {
       option.textContent = state;
       stateSelect.appendChild(option);
     });
-    const stateFromQuery = route.query?.state;
-    if (stateFromQuery && states.includes(stateFromQuery)) {
-      filters.state = stateFromQuery;
-      stateSelect.value = stateFromQuery;
-    }
+    if (filters.state && states.includes(filters.state)) stateSelect.value = filters.state;
   }
+
+  const searchInput = filterForm?.querySelector<HTMLInputElement>('[data-slot="search"]');
+  const sortSelect = filterForm?.querySelector<HTMLSelectElement>('[data-slot="sort"]');
+  const limitSelect = filterForm?.querySelector<HTMLSelectElement>('[data-slot="limit"]');
+  if (searchInput) searchInput.value = filters.search;
+  if (sortSelect) sortSelect.value = filters.sort;
+  if (limitSelect) limitSelect.value = String(filters.limit);
 
   async function fetchItems() {
     const params = {
@@ -182,6 +206,7 @@ export async function load(route, container) {
     const res = await apiGet('/items', params);
     if (!res.ok) {
       if (gridElement) gridElement.innerHTML = '';
+      if (listElement) listElement.innerHTML = '';
       if (emptyElement) {
         emptyElement.hidden = false;
         emptyElement.textContent = res.error || 'Failed to load library.';
@@ -189,17 +214,19 @@ export async function load(route, container) {
       return;
     }
 
-    totalPages = res.data?.total_pages || 1;
+    totalPages = res.data?.total_pages ?? 1;
     const items = (res.data?.items || []).map(normalizeLibraryItem);
-    if (gridElement) {
-      gridElement.innerHTML = '';
-      items.forEach((item) => {
-        gridElement.appendChild(
-          renderMediaCard(item, {
-            href: `#/item/${item.id}`,
-            actions: createActionButtons(item, fetchItems),
-          }),
-        );
+
+    if (useListView && listElement) {
+      renderMediaList(listElement, items, {
+        href: (item) => `#/item/${item.id}`,
+        actions: (item) => createActionButtons(item, fetchItems),
+        showPoster: true,
+      });
+    } else if (gridElement) {
+      renderMediaGrid(gridElement, items, {
+        href: (item) => `#/item/${item.id}`,
+        actions: (item) => createActionButtons(item, fetchItems),
       });
     }
 
@@ -214,20 +241,23 @@ export async function load(route, container) {
       page = nextPage;
       fetchItems();
     });
-    statusTracker.setTracked(gridElement, 'library');
+    statusTracker.setTracked(useListView ? listElement : gridElement, 'library');
   }
 
-  if (filterForm) {
-    filterForm.addEventListener('submit', (event) => {
-      event.preventDefault();
-      filters.search = searchInput?.value?.trim() || '';
-      filters.state = stateSelect?.value || '';
-      filters.sort = sortSelect?.value || 'date_desc';
-      filters.limit = Number(limitSelect?.value || 24);
+  attachLibraryFilterBar(filterForm, {
+    initial: filters,
+    autoApply: true,
+    showApplyButton: false,
+    searchDebounceMs: 350,
+    onChange: (next) => {
+      filters.search = next.search;
+      filters.state = next.state;
+      filters.sort = next.sort;
+      filters.limit = next.limit;
       page = 1;
       fetchItems();
-    });
-  }
+    },
+  });
 
   await fetchItems();
 }

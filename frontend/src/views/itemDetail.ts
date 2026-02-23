@@ -1,6 +1,191 @@
 import { apiDelete, apiFetch, apiGet, apiPost, getStreamUrl } from '../services/api';
 import { notify } from '../services/notify';
-import { formatDate } from '../services/utils';
+import { formatDate, formatEpisodeDisplayTitle, formatYear } from '../services/utils';
+import { renderBackButton } from '../ui/backButton';
+
+const TMDB_IMG = 'https://image.tmdb.org/t/p/w92';
+
+function posterUrl(item: { poster_path?: string | null }): string {
+  const path = item?.poster_path;
+  if (!path) return '';
+  return path.startsWith('http') ? path : `${TMDB_IMG}${path}`;
+}
+
+function createChip(text: string, className = ''): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = `legend-chip ${className}`.trim();
+  span.textContent = text;
+  return span;
+}
+
+type EpisodeLike = {
+  id?: string;
+  number?: number;
+  title?: string;
+  state?: string;
+  parent_title?: string;
+  season_number?: number | null;
+  episode_number?: number | null;
+  aired_at?: string;
+  poster_path?: string | null;
+};
+type SeasonLike = { number?: number; episodes?: EpisodeLike[] };
+type ShowLike = { type: string; title?: string; poster_path?: string | null; seasons?: SeasonLike[] };
+
+function isInLibrary(state: string): boolean {
+  const s = (state || '').toString();
+  return s === 'Completed' || s === 'Symlinked' || s === 'Downloaded' || s === 'Scraped';
+}
+
+function renderSeasonsEpisodes(
+  host: HTMLElement | null,
+  item: ShowLike,
+  refresh: () => void,
+): void {
+  if (!host) return;
+  const seasons = item?.seasons;
+  if (item.type !== 'show' || !seasons?.length) {
+    host.innerHTML = '';
+    return;
+  }
+
+  const sortedSeasons = [...seasons].filter((s) => (s.number ?? 0) > 0).sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+  if (!sortedSeasons.length) {
+    host.innerHTML = '';
+    return;
+  }
+
+  const panel = document.createElement('div');
+  panel.className = 'panel show-seasons-episodes';
+
+  const head = document.createElement('div');
+  head.className = 'section-head';
+  head.innerHTML = '<h3>Seasons &amp; Episodes</h3>';
+  panel.appendChild(head);
+
+  const seasonTabs = document.createElement('div');
+  seasonTabs.className = 'season-tabs';
+  seasonTabs.setAttribute('role', 'tablist');
+  sortedSeasons.forEach((season, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `season-tab ${idx === 0 ? 'season-tab--active' : ''}`;
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', idx === 0 ? 'true' : 'false');
+    btn.dataset.seasonIndex = String(idx);
+    const num = season.number ?? 0;
+    const epCount = season.episodes?.length ?? 0;
+    btn.textContent = `Season ${num}${epCount ? ` (${epCount})` : ''}`;
+    seasonTabs.appendChild(btn);
+  });
+  panel.appendChild(seasonTabs);
+
+  const episodeListHost = document.createElement('div');
+  episodeListHost.className = 'show-episodes-list';
+  panel.appendChild(episodeListHost);
+
+  function renderEpisodeList(seasonIndex: number): void {
+    const season = sortedSeasons[seasonIndex];
+    const episodes = season?.episodes ?? [];
+    const sortedEps = [...episodes].sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
+    const showTitle = item.title ?? '';
+
+    episodeListHost.innerHTML = '';
+    if (!sortedEps.length) {
+      episodeListHost.innerHTML = '<p class="muted">No episodes in this season.</p>';
+      return;
+    }
+
+    episodeListHost.classList.add('media-list');
+
+    sortedEps.forEach((ep) => {
+      const row = document.createElement('div');
+      row.className = 'media-list__row show-episode-row';
+      const state = (ep.state || '').toString();
+      const inLib = isInLibrary(state);
+
+      const epForDisplay: EpisodeLike & { type: string } = {
+        ...ep,
+        type: 'episode',
+        parent_title: ep.parent_title ?? showTitle,
+        season_number: ep.season_number ?? season?.number ?? null,
+        episode_number: ep.episode_number ?? ep.number ?? null,
+      };
+
+      const poster = document.createElement('div');
+      poster.className = 'media-list__poster';
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      const src = posterUrl(ep.poster_path ? ep : { poster_path: item.poster_path });
+      if (src) img.src = src;
+      poster.appendChild(img);
+      row.appendChild(poster);
+
+      const main = document.createElement('div');
+      main.className = 'media-list__main';
+
+      const link = document.createElement('a');
+      link.className = 'media-list__title';
+      link.href = `#/item/${ep.id}`;
+      link.textContent = formatEpisodeDisplayTitle(epForDisplay);
+      main.appendChild(link);
+
+      const meta = document.createElement('div');
+      meta.className = 'media-list__meta';
+      meta.appendChild(createChip('TV', 'legend-chip--tv'));
+      meta.appendChild(
+        createChip(inLib ? 'In library' : state || 'Missing', inLib ? 'legend-chip--in-library' : 'legend-chip--missing'),
+      );
+      const year = formatYear(epForDisplay);
+      if (year) meta.appendChild(createChip(year));
+      main.appendChild(meta);
+
+      row.appendChild(main);
+
+      const actions = document.createElement('div');
+      actions.className = 'media-list__actions';
+      if (ep.id && (state === 'Requested' || state === 'Failed')) {
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'btn btn--small btn--secondary';
+        retryBtn.textContent = 'Retry';
+        retryBtn.addEventListener('click', async () => {
+          const res = await apiPost('/items/retry', { ids: [String(ep.id)] });
+          if (!res.ok) {
+            notify(res.error || 'Retry failed', 'error');
+            return;
+          }
+          notify('Episode queued for retry', 'success');
+          refresh();
+        });
+        actions.appendChild(retryBtn);
+      }
+      row.appendChild(actions);
+      episodeListHost.appendChild(row);
+    });
+  }
+
+  seasonTabs.querySelectorAll<HTMLButtonElement>('.season-tab').forEach((btn, idx) => {
+    btn.addEventListener('click', () => {
+      seasonTabs.querySelectorAll('.season-tab').forEach((b, i) => {
+        b.classList.toggle('season-tab--active', i === idx);
+        b.setAttribute('aria-selected', String(i === idx));
+      });
+      renderEpisodeList(idx);
+    });
+  });
+
+  renderEpisodeList(0);
+  host.innerHTML = '';
+  host.appendChild(panel);
+}
+
+function escapeHtml(s: string): string {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
 
 function mediaTypeForScrape(item) {
   if (item.type === 'movie') return 'movie';
@@ -102,7 +287,7 @@ function renderHeader(item, slots) {
 
   if (info) {
     info.innerHTML = `
-      <h2>${item.title || 'Unknown'}</h2>
+      <h2>${formatEpisodeDisplayTitle(item)}</h2>
       <div class="meta-line">
         <span class="legend-chip ${item.type === 'movie' ? 'legend-chip--movie' : 'legend-chip--tv'}">${item.type}</span>
         <span class="legend-chip">${item.state || 'Unknown'}</span>
@@ -120,16 +305,50 @@ function renderHeader(item, slots) {
   }
 }
 
-function renderMetadata(metadataHost, metadata) {
+function renderMetadata(metadataHost: HTMLElement | null, metadata: Record<string, unknown> | null) {
   if (!metadataHost) return;
   if (!metadata) {
     metadataHost.innerHTML = '<p class="muted">No metadata payload available.</p>';
     return;
   }
-  metadataHost.innerHTML = `
-    <div class="section-head"><h3>Media Metadata</h3></div>
-    <pre class="json-output">${JSON.stringify(metadata, null, 2)}</pre>
-  `;
+  const entries = Object.entries(metadata).filter(
+    ([k]) => k !== 'belongs_to_collection' && k !== 'parts',
+  );
+  const dl = document.createElement('dl');
+  dl.className = 'metadata-dl';
+  entries.forEach(([key, value]) => {
+    if (value == null) return;
+    const dt = document.createElement('dt');
+    dt.textContent = key.replace(/_/g, ' ');
+    const dd = document.createElement('dd');
+    if (typeof value === 'object' && !Array.isArray(value) && value !== null) {
+      dd.textContent = JSON.stringify(value);
+    } else {
+      dd.textContent = String(value);
+    }
+    dl.appendChild(dt);
+    dl.appendChild(dd);
+  });
+  const head = document.createElement('div');
+  head.className = 'section-head';
+  head.innerHTML = '<h3>Media Metadata</h3>';
+  const rawToggle = document.createElement('button');
+  rawToggle.type = 'button';
+  rawToggle.className = 'btn btn--small btn--secondary';
+  rawToggle.textContent = 'Show raw JSON';
+  const pre = document.createElement('pre');
+  pre.className = 'json-output';
+  pre.hidden = true;
+  pre.textContent = JSON.stringify(metadata, null, 2);
+  rawToggle.addEventListener('click', () => {
+    pre.hidden = !pre.hidden;
+    rawToggle.textContent = pre.hidden ? 'Show raw JSON' : 'Hide raw JSON';
+  });
+  head.appendChild(rawToggle);
+  metadataHost.innerHTML = '';
+  metadataHost.appendChild(head);
+  metadataHost.appendChild(dl);
+  metadataHost.appendChild(pre);
 }
 
 function renderStreams(streamHost, streams, itemId, refresh) {
@@ -230,6 +449,7 @@ export async function load(route, container) {
 
   const item = itemResponse.data;
   const slots = {
+    back: container.querySelector<HTMLElement>('[data-slot="back"]'),
     poster: container.querySelector('[data-slot="poster"]'),
     info: container.querySelector('[data-slot="info"]'),
     actions: container.querySelector('[data-slot="actions"]'),
@@ -238,28 +458,95 @@ export async function load(route, container) {
     metadata: container.querySelector('[data-slot="metadata"]'),
   };
 
+  const returnRoute =
+    (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('riven_return_route')) || 'library';
+  const returnLabels: Record<string, string> = {
+    library: '← Back to Library',
+    movies: '← Back to Movies',
+    shows: '← Back to TV Shows',
+    episodes: '← Back to TV Episodes',
+  };
+  const isEpisode = item.type === 'episode';
+  const showId = isEpisode && item.show_id != null ? String(item.show_id) : null;
+  renderBackButton(slots.back, {
+    label: showId ? '← Back to Show' : returnLabels[returnRoute] || '← Back',
+    href: showId ? `#/item/${showId}` : `#/${returnRoute}`,
+  });
+
   const refresh = () => load(route, container);
   renderHeader(item, slots);
-  renderMetadata(slots.metadata, metadataResponse.ok ? metadataResponse.data : null);
+  const metadata = metadataResponse.ok ? metadataResponse.data : null;
+  const collectionBlock = container.querySelector<HTMLElement>('[data-slot="collection-block"]');
+  const seasonsNote = container.querySelector<HTMLElement>('[data-slot="seasons-note"]');
+  if (collectionBlock && item.type === 'movie' && metadata && typeof metadata === 'object' && metadata.belongs_to_collection) {
+    const col = metadata.belongs_to_collection as { id?: number; name?: string };
+    if (col?.name) {
+      collectionBlock.innerHTML = `<div class="panel"><p><strong>Part of collection:</strong> ${escapeHtml(col.name)}</p></div>`;
+    }
+  }
+  if (seasonsNote && (item.type === 'show' || item.type === 'episode')) {
+    renderSeasonsEpisodes(seasonsNote, item as ShowLike, refresh);
+  }
+  renderMetadata(slots.metadata, metadata);
   renderStreams(slots.streams, streamResponse.data || {}, itemId, refresh);
   renderVideo(slots.video, itemId, item);
 
+  const tabBar = container.querySelector<HTMLElement>('[data-slot="tab-bar"]');
+  const panelOverview = container.querySelector<HTMLElement>('[data-slot="panel-overview"]');
+  const panelStreams = container.querySelector<HTMLElement>('[data-slot="panel-streams"]');
+  const panelPlayback = container.querySelector<HTMLElement>('[data-slot="panel-playback"]');
+  const panels = [
+    { id: 'overview', el: panelOverview },
+    { id: 'streams', el: panelStreams },
+    { id: 'playback', el: panelPlayback },
+  ];
+  tabBar?.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      tabBar?.querySelectorAll('[data-tab]').forEach((b) => {
+        b.classList.remove('item-detail-tab--active');
+        b.setAttribute('aria-selected', 'false');
+      });
+      btn.classList.add('item-detail-tab--active');
+      btn.setAttribute('aria-selected', 'true');
+      panels.forEach((p) => {
+        if (p.el) p.el.hidden = p.id !== tab;
+      });
+    });
+  });
+  panels.forEach((p) => {
+    if (p.el) p.el.hidden = p.id !== 'overview';
+  });
+
   if (slots.actions) {
-    const buttons = [
+    const state = (item.state || '').toString();
+    const showPause = state !== 'Paused' && state !== 'Completed' && state !== 'Failed';
+    const showResume = state === 'Paused';
+    const tooltips: Record<string, string> = {
+      'auto-scrape': 'Trigger automatic torrent search and download for this item.',
+      'manual-scrape': 'Search and pick a torrent manually (paste magnet or search).',
+      retry: 'Retry from current step; re-queue the item.',
+      reset: 'Reset to initial state, blacklist current stream, and re-download.',
+      pause: 'Pause processing and cancel current jobs.',
+      unpause: 'Resume processing (only when paused).',
+      reindex: 'Reindex to pick up new season & episode releases.',
+      remove: 'Remove from library (DB, jobs, and library refresh).',
+    };
+    const buttons: { key: string; label: string; tone: string; show?: boolean }[] = [
       { key: 'auto-scrape', label: 'Auto Scrape', tone: 'primary' },
       { key: 'manual-scrape', label: 'Manual Scrape', tone: 'secondary' },
       { key: 'retry', label: 'Retry', tone: 'secondary' },
       { key: 'reset', label: 'Reset', tone: 'secondary' },
-      { key: 'pause', label: 'Pause', tone: 'warning' },
-      { key: 'unpause', label: 'Unpause', tone: 'secondary' },
+      { key: 'pause', label: 'Pause', tone: 'warning', show: showPause },
+      { key: 'unpause', label: 'Resume', tone: 'secondary', show: showResume },
       { key: 'reindex', label: 'Reindex', tone: 'secondary' },
       { key: 'remove', label: 'Remove', tone: 'danger' },
-    ];
+    ].filter((b) => b.show !== false);
 
     slots.actions.innerHTML = buttons
       .map(
         (button) =>
-          `<button type="button" class="btn btn--small btn--${button.tone}" data-action="${button.key}">${button.label}</button>`,
+          `<button type="button" class="btn btn--small btn--${button.tone}" data-action="${button.key}" title="${escapeHtml(tooltips[button.key] ?? '')}">${button.label}</button>`,
       )
       .join('');
 

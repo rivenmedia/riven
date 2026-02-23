@@ -30,6 +30,7 @@ const NAV_SECTIONS: NavSection[] = [
       { hash: "#/library", label: "All Media", route: "library" },
       { hash: "#/movies", label: "Movies", route: "movies", nested: true },
       { hash: "#/shows", label: "TV Shows", route: "shows", nested: true },
+      { hash: "#/episodes", label: "TV Episodes", route: "episodes", nested: true },
     ],
   },
   {

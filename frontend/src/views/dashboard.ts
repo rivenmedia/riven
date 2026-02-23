@@ -1,5 +1,6 @@
 import type { AppRoute } from '../app/routeTypes';
 import { apiGet, apiPost } from '../services/api';
+import { formatEpisodeDisplayTitle } from '../services/utils';
 import { notify } from '../services/notify';
 
 function renderKpis(container, stats) {
@@ -429,19 +430,8 @@ type StateListItem = {
 };
 
 function displayTitle(item: StateListItem): string {
-  const title = item.title ?? `Item ${item.id}`;
-  const showName = item.parent_title && item.parent_title !== title ? item.parent_title : null;
-  if (!showName) return title;
-  const s = item.season_number;
-  const e = item.episode_number;
-  const seasonEpisode =
-    s != null && e != null
-      ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
-      : s != null
-        ? `Season ${s}`
-        : "";
-  const middle = seasonEpisode ? ` — ${seasonEpisode}` : "";
-  return `${showName}${middle} — ${title}`;
+  if (item.type === "episode") return formatEpisodeDisplayTitle(item);
+  return item.title ?? `Item ${item.id}`;
 }
 
 function typePillHtml(type: string | undefined): string {

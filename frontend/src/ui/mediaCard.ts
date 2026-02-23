@@ -1,4 +1,4 @@
-import { formatYear, getMediaKind, mediaLabel } from '../services/utils';
+import { formatYear, formatEpisodeDisplayTitle, getMediaKind, mediaLabel } from '../services/utils';
 
 const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
 
@@ -59,7 +59,7 @@ export function renderMediaCard(item: any, options: RenderCardOptions = {}): HTM
     });
   }
 
-  const title = item?.title || item?.name || 'Unknown';
+  const title = formatEpisodeDisplayTitle(item);
   const poster = document.createElement('div');
   poster.className = 'media-card__poster';
   const placeholder = document.createElement('div');

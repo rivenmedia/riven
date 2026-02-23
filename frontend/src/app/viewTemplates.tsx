@@ -37,7 +37,8 @@ function LibraryTemplate() {
         </button>
       </form>
 
-      <div className="media-grid" data-slot="grid"></div>
+      <div className="media-grid" data-slot="grid" hidden></div>
+      <div className="media-list-wrap" data-slot="list" hidden></div>
       <p className="empty-state" data-slot="empty" hidden>
         No items matched the current filters.
       </p>
@@ -349,16 +350,32 @@ function ItemDetailTemplate() {
         title="Library Item"
       />
 
+      <div data-slot="back"></div>
+
+      <div className="item-detail-tabs" data-slot="tab-bar" role="tablist">
+        <button type="button" className="item-detail-tab item-detail-tab--active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
+        <button type="button" className="item-detail-tab" data-tab="streams" role="tab" aria-selected="false">Streams / VFS</button>
+        <button type="button" className="item-detail-tab" data-tab="playback" role="tab" aria-selected="false">Playback</button>
+      </div>
+
       <div className="item-layout">
         <div className="item-main">
-          <div className="item-detail-header" data-slot="header">
-            <div className="item-poster" data-slot="poster"></div>
-            <div className="item-info" data-slot="info"></div>
+          <div className="item-detail-panel item-detail-panel--overview" data-slot="panel-overview" role="tabpanel">
+            <div className="item-detail-header" data-slot="header">
+              <div className="item-poster" data-slot="poster"></div>
+              <div className="item-info" data-slot="info"></div>
+            </div>
+            <div className="item-actions-bar" data-slot="actions"></div>
+            <div data-slot="collection-block"></div>
+            <div data-slot="seasons-note"></div>
+            <div className="panel" data-slot="metadata"></div>
           </div>
-          <div className="item-actions-bar" data-slot="actions"></div>
-          <div className="panel" data-slot="metadata"></div>
-          <div className="panel item-streams" data-slot="streams"></div>
-          <div className="panel item-video" data-slot="video"></div>
+          <div className="item-detail-panel item-detail-panel--streams" data-slot="panel-streams" role="tabpanel" hidden>
+            <div className="panel item-streams" data-slot="streams"></div>
+          </div>
+          <div className="item-detail-panel item-detail-panel--playback" data-slot="panel-playback" role="tabpanel" hidden>
+            <div className="panel item-video" data-slot="video"></div>
+          </div>
         </div>
       </div>
     </ViewLayout>
@@ -415,6 +432,7 @@ export const VIEW_TEMPLATES: Record<RouteName, string> = {
   library: LIBRARY_TEMPLATE,
   movies: LIBRARY_TEMPLATE,
   shows: LIBRARY_TEMPLATE,
+  episodes: LIBRARY_TEMPLATE,
   explore: EXPLORE_TEMPLATE,
   trending: TRENDING_TEMPLATE,
   dashboard: DASHBOARD_OVERVIEW_TEMPLATE,

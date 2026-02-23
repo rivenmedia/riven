@@ -6,6 +6,7 @@ export const ROUTES = {
   library: 'view-library',
   movies: 'view-movies',
   shows: 'view-shows',
+  episodes: 'view-episodes',
   explore: 'view-explore',
   trending: 'view-trending',
   dashboard: 'view-dashboard',

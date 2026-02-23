@@ -14,6 +14,7 @@ export const VIEW_LOADERS: Record<RouteName, ViewLoaderModule> = {
   library: libraryView as ViewLoaderModule,
   movies: libraryView as ViewLoaderModule,
   shows: libraryView as ViewLoaderModule,
+  episodes: libraryView as ViewLoaderModule,
   explore: exploreView as ViewLoaderModule,
   trending: trendingView as ViewLoaderModule,
   dashboard: dashboardView as ViewLoaderModule,
