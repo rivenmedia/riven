@@ -221,12 +221,19 @@ async def get_items(
             min_length=1,
         ),
     ] = None,
+    year: Annotated[
+        int | None,
+        Query(description="Filter by release year"),
+    ] = None,
     extended: Annotated[
         bool,
         Query(description="Include extended item details"),
     ] = False,
 ) -> ItemsResponse:
     query = select(MediaItem)
+
+    if year is not None:
+        query = query.where(MediaItem.year == year)
 
     if search:
         search_lower = search.lower()

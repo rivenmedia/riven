@@ -221,6 +221,14 @@ function DashboardReleasesTemplate() {
         </div>
         <div data-slot="release-chart"></div>
       </Panel>
+      <Panel>
+        <div className="section-head">
+          <h3 data-slot="year-items-title">Items by release year</h3>
+        </div>
+        <div className="state-items-list" data-slot="year-items-list">
+          <p className="muted">Click a year above to list items.</p>
+        </div>
+      </Panel>
     </ViewLayout>
   );
 }

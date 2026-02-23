@@ -358,9 +358,14 @@ function renderActivityChart(container, stats) {
   `;
 }
 
-function renderReleaseChart(container, stats) {
+function renderReleaseChart(
+  container: HTMLElement | null,
+  stats: Record<string, unknown>,
+  onYearClick?: (year: number) => void,
+) {
   if (!container) return;
-  const releases = (stats?.media_year_releases || [])
+  const releases = (stats?.media_year_releases || []) as { year?: number; count?: number }[];
+  const normalized = releases
     .map((entry) => ({
       year: entry?.year,
       count: Number(entry?.count || 0),
@@ -369,30 +374,40 @@ function renderReleaseChart(container, stats) {
     .sort((a, b) => a.year - b.year)
     .slice(-18);
 
-  if (!releases.length) {
+  if (!normalized.length) {
     container.innerHTML = '<p class="muted">No release-year data available.</p>';
     return;
   }
 
-  const maxCount = Math.max(...releases.map((entry) => entry.count), 1);
+  const maxCount = Math.max(...normalized.map((entry) => entry.count), 1);
   container.innerHTML = `
     <div class="release-bars">
-      ${releases
+      ${normalized
         .map((entry) => {
           const height = Math.max((entry.count / maxCount) * 100, 6);
+          const clickable = onYearClick ? ' release-bar--clickable' : '';
           return `
-            <div class="release-bar">
+            <button type="button" class="release-bar${clickable}" data-year="${entry.year}">
               <div class="release-bar__track">
                 <div class="release-bar__fill" style="height:${height}%"></div>
               </div>
               <span class="release-bar__year">${entry.year}</span>
               <span class="release-bar__value">${entry.count}</span>
-            </div>
+            </button>
           `;
         })
         .join('')}
     </div>
   `;
+
+  if (onYearClick) {
+    container.querySelectorAll<HTMLButtonElement>('.release-bar[data-year]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const y = Number(btn.dataset.year);
+        if (Number.isFinite(y)) onYearClick(y);
+      });
+    });
+  }
 }
 
 function escapeHtml(s: string): string {
@@ -403,11 +418,43 @@ function escapeHtml(s: string): string {
 
 const STATE_ITEMS_LIMIT = 25;
 
+type StateListItem = {
+  id: number;
+  title?: string;
+  parent_title?: string;
+  type?: string;
+  year?: number | null;
+  season_number?: number | null;
+  episode_number?: number | null;
+};
+
+function displayTitle(item: StateListItem): string {
+  const title = item.title ?? `Item ${item.id}`;
+  const showName = item.parent_title && item.parent_title !== title ? item.parent_title : null;
+  if (!showName) return title;
+  const s = item.season_number;
+  const e = item.episode_number;
+  const seasonEpisode =
+    s != null && e != null
+      ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
+      : s != null
+        ? `Season ${s}`
+        : "";
+  const middle = seasonEpisode ? ` — ${seasonEpisode}` : "";
+  return `${showName}${middle} — ${title}`;
+}
+
+function typePillHtml(type: string | undefined): string {
+  if (!type) return "—";
+  const chipClass = type === "movie" ? "legend-chip--movie" : "legend-chip--tv";
+  return `<span class="legend-chip ${chipClass}">${escapeHtml(type)}</span>`;
+}
+
 function renderStateItemsList(
   titleEl: Element | null,
   listEl: Element | null,
   state: string,
-  items: { id: number; title?: string; type?: string; year?: number | null }[],
+  items: StateListItem[],
   totalItems: number,
 ) {
   if (!listEl) return;
@@ -434,8 +481,8 @@ function renderStateItemsList(
           .map(
             (item) =>
               `<tr>
-                <td><a href="#/item/${item.id}">${escapeHtml(item.title ?? `Item ${item.id}`)}</a></td>
-                <td>${escapeHtml(item.type ?? '—')}</td>
+                <td><a href="#/item/${item.id}">${escapeHtml(displayTitle(item))}</a></td>
+                <td>${typePillHtml(item.type)}</td>
                 <td>${item.year != null ? item.year : '—'}</td>
               </tr>`,
           )
@@ -446,6 +493,73 @@ function renderStateItemsList(
       <a href="${libraryUrl}">View all media</a> (${totalItems} in ${state})
     </p>
   `;
+}
+
+function renderYearItemsList(
+  titleEl: Element | null,
+  listEl: Element | null,
+  year: number,
+  items: StateListItem[],
+  totalItems: number,
+) {
+  if (!listEl) return;
+  const libraryUrl = `#/library?year=${year}`;
+  if (titleEl) titleEl.textContent = `Items in release year: ${year}`;
+  if (!items.length) {
+    listEl.innerHTML = `
+      <p class="muted">No items for this year.</p>
+      <p class="state-items-footer"><a href="${libraryUrl}">View all media</a></p>
+    `;
+    return;
+  }
+  listEl.innerHTML = `
+    <table class="state-items-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          <th>Year</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items
+          .map(
+            (item) =>
+              `<tr>
+                <td><a href="#/item/${item.id}">${escapeHtml(displayTitle(item))}</a></td>
+                <td>${typePillHtml(item.type)}</td>
+                <td>${item.year != null ? item.year : '—'}</td>
+              </tr>`,
+          )
+          .join('')}
+      </tbody>
+    </table>
+    <p class="state-items-footer">
+      <a href="${libraryUrl}">View all media</a> (${totalItems} in ${year})
+    </p>
+  `;
+}
+
+const YEAR_ITEMS_LIMIT = 25;
+
+function bindYearItemsInline(container: HTMLElement): (year: number) => Promise<void> {
+  const titleEl = container.querySelector('[data-slot="year-items-title"]');
+  const listEl = container.querySelector('[data-slot="year-items-list"]');
+
+  return async function showItemsForYear(year: number) {
+    if (!listEl) return;
+    if (titleEl) titleEl.textContent = `Items in release year: ${year}`;
+    listEl.innerHTML = '<p class="muted">Loading…</p>';
+
+    const res = await apiGet('/items', { year, limit: YEAR_ITEMS_LIMIT, page: 1 });
+    if (!res.ok) {
+      listEl.innerHTML = `<p class="muted">${res.error || 'Failed to load items.'}</p>`;
+      return;
+    }
+    const items = (res.data?.items ?? []) as StateListItem[];
+    const totalItems = res.data?.total_items ?? items.length;
+    renderYearItemsList(titleEl, listEl, year, items, totalItems);
+  };
 }
 
 function bindStateItemsInline(container: HTMLElement): (state: string) => Promise<void> {
@@ -515,7 +629,13 @@ export async function load(route: AppRoute, container: HTMLElement) {
 
   if (name === 'dashboard-releases') {
     const statsRes = await apiGet('/stats');
-    renderReleaseChart(container.querySelector('[data-slot="release-chart"]'), statsRes.data || {});
+    const stats = statsRes.data || {};
+    const showItemsForYear = bindYearItemsInline(container);
+    renderReleaseChart(
+      container.querySelector('[data-slot="release-chart"]'),
+      stats,
+      showItemsForYear,
+    );
     return;
   }
 }
