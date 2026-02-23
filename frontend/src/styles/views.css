@@ -423,6 +423,16 @@
   justify-items: center;
 }
 
+button.release-bar,
+.release-bar--clickable {
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
 .release-bar__track {
   width: 100%;
   min-height: 130px;
