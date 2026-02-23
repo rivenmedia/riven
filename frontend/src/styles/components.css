@@ -129,8 +129,9 @@
 
 .legend-chip {
   font-size: var(--font-size-0);
-  border-radius: 999px;
-  padding: 0.2rem 0.6rem;
+  line-height: 1.2;
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.15rem 0.5rem;
   border: 1px solid transparent;
 }
 
@@ -156,6 +157,52 @@
   color: var(--text-2);
   background: rgba(132, 150, 194, 0.15);
   border-color: rgba(132, 150, 194, 0.3);
+}
+
+.state-pill {
+  color: #e8e0d4;
+  background: rgba(180, 160, 130, 0.25);
+  border: 1px solid rgba(180, 160, 130, 0.5);
+}
+
+.legend-chip--genre {
+  color: #ffe4b8;
+  background: rgba(220, 160, 80, 0.25);
+  border: 1px solid rgba(220, 160, 80, 0.5);
+}
+
+.legend-chip--rating {
+  color: #ffd54f;
+  background: rgba(255, 193, 7, 0.2);
+  border-color: rgba(255, 193, 7, 0.45);
+}
+
+.legend-chip--tag {
+  color: #b8d4ff;
+  background: rgba(66, 133, 244, 0.2);
+  border-color: rgba(66, 133, 244, 0.45);
+}
+
+.legend-chip--quality {
+  color: #c5e1a5;
+  background: rgba(129, 199, 132, 0.2);
+  border-color: rgba(129, 199, 132, 0.45);
+}
+
+.legend-chip--resolution {
+  color: #ce93d8;
+  background: rgba(186, 104, 200, 0.2);
+  border-color: rgba(186, 104, 200, 0.45);
+}
+
+.legend-chip--runtime,
+.legend-chip--date,
+.legend-chip--seasons,
+.legend-chip--episodes,
+.legend-chip--ended {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--panel-border);
 }
 
 .media-card {

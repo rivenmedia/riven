@@ -366,11 +366,12 @@ function ItemDetailTemplate() {
               <div className="item-info" data-slot="info"></div>
             </div>
             <div className="item-actions-bar" data-slot="actions"></div>
-            <div data-slot="collection-block"></div>
             <div data-slot="seasons-note"></div>
-            <div className="panel" data-slot="metadata"></div>
+            <div data-slot="cast-crew"></div>
+            <div data-slot="tmdb-details"></div>
           </div>
           <div className="item-detail-panel item-detail-panel--streams" data-slot="panel-streams" role="tabpanel" hidden>
+            <div className="panel item-media-metadata" data-slot="metadata"></div>
             <div className="panel item-streams" data-slot="streams"></div>
           </div>
           <div className="item-detail-panel item-detail-panel--playback" data-slot="panel-playback" role="tabpanel" hidden>

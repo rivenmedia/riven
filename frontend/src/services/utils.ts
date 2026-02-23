@@ -43,18 +43,48 @@ export function formatYear(item) {
   if (item?.year) return String(item.year);
   if (item?.release_date) return String(item.release_date).slice(0, 4);
   if (item?.first_air_date) return String(item.first_air_date).slice(0, 4);
-  if (item?.aired_at && item.aired_at !== 'None') {
-    const date = new Date(item.aired_at);
-    if (!Number.isNaN(date.getTime())) return String(date.getFullYear());
-  }
+  const aired = parseApiDate(item?.aired_at);
+  if (aired) return String(aired.getFullYear());
   return '';
 }
 
-export function formatDate(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
+/** Parse API datetime (often UTC without Z) so we can show it in local time. */
+function parseApiDate(value: string | number | Date | null | undefined): Date | null {
+  if (value == null) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const s = String(value).trim();
+  if (!s || s === 'None') return null;
+  let toParse = s;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(s)) {
+    toParse = s.replace(' ', 'T');
+    if (!/Z|[+-]\d{2}:?\d{2}$/.test(toParse)) toParse += 'Z';
+  }
+  const date = new Date(toParse);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatDate(value: string | number | Date | null | undefined): string {
+  const date = parseApiDate(value);
+  if (!date) return '—';
+  return date.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+}
+
+export function formatShortDate(value: string | number | Date | null | undefined): string {
+  const date = parseApiDate(value);
+  if (!date) return '';
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes)) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let u = 0;
+  let n = bytes;
+  while (n >= 1024 && u < units.length - 1) {
+    n /= 1024;
+    u += 1;
+  }
+  return `${n.toFixed(u ? 2 : 0)} ${units[u]}`;
 }
 
 export function toCsv(ids = []) {

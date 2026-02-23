@@ -817,9 +817,37 @@ export async function load(route, container) {
     });
   }
 
+  let queryDebounceId: ReturnType<typeof setTimeout> | null = null;
+  const QUERY_DEBOUNCE_MS = 350;
+
+  if (queryInput) {
+    queryInput.addEventListener('input', () => {
+      state.mode = 'search';
+      if (modeSelect) modeSelect.value = 'search';
+      if (state.source === 'tvdb' && state.type === 'all') state.type = 'tv';
+      state.trendingMode = false;
+      if (trendingWindowWrap) trendingWindowWrap.hidden = true;
+
+      const q = queryInput.value.trim();
+      if (queryDebounceId) clearTimeout(queryDebounceId);
+      queryDebounceId = setTimeout(() => {
+        queryDebounceId = null;
+        state.query = q;
+        state.page = 1;
+        state.history = [];
+        syncRouteState();
+        fetchResults();
+      }, QUERY_DEBOUNCE_MS);
+    });
+  }
+
   if (form) {
     form.addEventListener('submit', (event) => {
       event.preventDefault();
+      if (queryDebounceId) {
+        clearTimeout(queryDebounceId);
+        queryDebounceId = null;
+      }
       state.source = sourceSelect?.value || 'tmdb';
       state.mode = modeSelect?.value || 'search';
       state.type = mediaTypeToggle?.getValue() || 'movie';

@@ -394,6 +394,20 @@ async def tmdb_tv_similar(tv_id: str) -> dict[str, Any]:
     return _tmdb_media_collection(f"tv/{tv_id}/similar", "tv")
 
 
+@router.get(
+    "/tmdb/tv/{tv_id}/season/{season_number}/episode/{episode_number}",
+    summary="TMDB episode details",
+)
+async def tmdb_episode_details(
+    tv_id: str, season_number: int, episode_number: int
+) -> dict[str, Any]:
+    data = _tmdb_request(
+        f"tv/{tv_id}/season/{season_number}/episode/{episode_number}",
+        params={"append_to_response": "credits,videos"},
+    )
+    return data
+
+
 def _normalize_person_credits(
     data: dict[str, Any],
     key: str,

@@ -62,6 +62,23 @@
   border: 1px solid var(--panel-border, rgba(255, 255, 255, 0.06));
 }
 
+.show-episode-row .episode-file-indicator {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+
+.show-episode-row .episode-file-indicator--has-file {
+  color: var(--success, #22c55e);
+}
+
+.show-episode-row .episode-file-indicator--missing {
+  color: var(--text-2, #71717a);
+}
+
 .media-list__poster {
   flex-shrink: 0;
   width: 48px;
@@ -637,6 +654,35 @@ button.release-bar,
   border-radius: var(--radius-sm);
 }
 
+.season-tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--panel-border, rgba(255, 255, 255, 0.06));
+}
+
+.season-tab {
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.season-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-0);
+}
+
+.season-tab--active {
+  background: var(--panel-bg, rgba(255, 255, 255, 0.04));
+  color: var(--text-0);
+  font-weight: 600;
+}
+
 .season-selector {
   margin-top: 0.45rem;
   border: 1px solid var(--panel-border);
@@ -775,28 +821,160 @@ button.release-bar,
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Media Metadata (Streams tab) */
+.item-media-metadata .media-metadata-filename {
+  font-size: var(--font-size-2);
+  font-weight: 600;
+  color: var(--text-0);
+  word-break: break-all;
+  margin-bottom: 0.5rem;
+}
+
+.item-media-metadata .media-metadata-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+/* TMDB Details (Overview) */
+.tmdb-details-panel .section-head {
+  margin-bottom: 0.5rem;
+}
+
+.tmdb-details-panel .tmdb-details-collection,
+.tmdb-details-panel .tmdb-details-tagline,
+.tmdb-details-panel .tmdb-details-overview,
+.tmdb-details-panel .tmdb-details-production {
+  font-size: var(--font-size-1);
+  line-height: 1.4;
+  margin: 0 0 0.5rem;
+  color: var(--text-1);
+}
+
+.tmdb-details-panel .tmdb-details-tagline {
+  font-style: italic;
+  color: var(--text-2);
+}
+
+.tmdb-details-panel .tmdb-details-overview {
+  margin-bottom: 0.6rem;
+}
+
+.tmdb-details-panel .media-metadata-chips {
+  margin-bottom: 0.5rem;
 }
 
 .item-info {
   display: grid;
-  gap: 0.55rem;
+  grid-auto-rows: min-content;
+  gap: 0.35rem;
 }
 
 .item-info .meta-line {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  align-items: center;
+  max-height: 34px;
 }
 
 .item-info dl {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.2rem 0.75rem;
   grid-template-columns: auto 1fr;
   font-size: var(--font-size-1);
+  line-height: 1.3;
+  align-items: baseline;
 }
 
 .item-info dt {
   color: var(--text-2);
+}
+
+.item-info dd {
+  margin: 0;
+}
+
+.item-info__state-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.item-info__state-label {
+  color: var(--text-2);
+  font-size: var(--font-size-1);
+}
+
+.item-info .state-pill {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: var(--font-size-1);
+}
+
+.item-info__genres {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--font-size-1);
+}
+
+.item-info__genres-label {
+  color: var(--text-2);
+  margin-right: 0.15rem;
+}
+
+.item-info .legend-chip--genre {
+  padding: 0.15rem 0.4rem;
+}
+
+.reference-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.reference-links__link {
+  font-size: var(--font-size-1);
+  color: var(--text-1);
+  text-decoration: none;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg, rgba(255, 255, 255, 0.04));
+}
+
+.reference-links__link:hover {
+  color: var(--text-0);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.reference-links__link--imdb .reference-links__imdb-logo,
+.reference-links__link--tvdb .reference-links__tvdb-logo,
+.reference-links__link--tmdb .reference-links__tmdb-logo {
+  display: block;
+}
+
+.reference-links__link--imdb .reference-links__imdb-logo {
+  width: 32px;
+  height: auto;
+  max-height: 16px;
+  object-fit: contain;
+}
+
+.reference-links__link--imdb,
+.reference-links__link--tvdb,
+.reference-links__link--tmdb {
+  padding: 0.2rem 0.4rem;
+  line-height: 0;
 }
 
 .stream-row {
