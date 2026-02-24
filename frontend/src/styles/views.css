@@ -581,14 +581,6 @@ button.release-bar,
   grid-template-columns: 1fr;
 }
 
-.explore-layout--detail-focused .explore-results {
-  display: none;
-}
-
-.explore-layout--results-only .explore-panel {
-  display: none;
-}
-
 .explore-results,
 .explore-panel {
   border: 1px solid var(--panel-border);
