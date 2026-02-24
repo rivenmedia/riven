@@ -65,7 +65,6 @@ async function addItemToLibrary(item: any, seasonNumbers: number[] | null = null
 
 export default function ExploreView({ route }: { route: AppRoute }) {
   const query = route.query || {};
-  console.log('query', query);
   const [source, setSource] = useState<'tmdb' | 'tvdb'>(query.source === 'tvdb' ? 'tvdb' : 'tmdb');
   const [mode, setMode] = useState<'search' | 'discover'>(query.mode === 'discover' ? 'discover' : 'search');
   const [mediaType, setMediaType] = useState<'movie' | 'tv' | 'all'>(

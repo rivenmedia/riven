@@ -94,7 +94,7 @@ export function CastCrew({
                     key={person.id}
                     className="pill pill--link"
                     href={buildExploreNodeUrl(
-                      { kind: 'person', id: String(person.id) },
+                      { kind: 'person', id: String(person.id), label: person.name },
                       trail,
                     )}
                   >

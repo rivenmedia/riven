@@ -68,14 +68,19 @@ export function serializeExploreNode(node: {
 
 /** Build the full hash for explore with a given node (and optional trail). */
 export function buildExploreNodeUrl(
-  node: { source?: string; kind: string; id: string },
+  node: { source?: string; kind: string; id: string; label?: string },
   trail?: Array<{ source?: string; kind: string; id: string; label?: string }>,
 ): string {
   const query: Record<string, string> = {
     node: serializeExploreNode(node),
   };
-  if (trail?.length) {
-    query.trail = JSON.stringify(trail.slice(-12));
+  const source = node.source || 'tmdb';
+  const nextTrail: Array<{ source?: string; kind: string; id: string; label?: string }> = [
+    ...(trail || []),
+    { source, kind: node.kind, id: node.id, label: node.label },
+  ];
+  if (nextTrail.length) {
+    query.trail = JSON.stringify(nextTrail.slice(-12));
   }
   return buildHash('explore', null, query);
 }

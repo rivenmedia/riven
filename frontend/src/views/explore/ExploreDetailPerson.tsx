@@ -32,18 +32,17 @@ export function ExploreDetailPerson({ person, credits, onSelectNode, onBack }: E
         </div>
       </div>
       <h3>Known Works</h3>
-      <div className="detail-link-grid">
-        <MediaGrid
-          items={credits.slice(0, 24)}
-          href={null}
-          onSelect={(item: any) =>
-            onSelectNode(
-              { kind: getMediaKind(item), id: String(item.id), label: item.title || item.name, source: item.indexer || 'tmdb' },
-              true,
-            )
-          }
-        />
-      </div>
+      <MediaGrid
+        className="detail-link-grid"
+        items={credits.slice(0, 24)}
+        href={null}
+        onSelect={(item: any) =>
+          onSelectNode(
+            { kind: getMediaKind(item), id: String(item.id), label: item.title || item.name, source: item.indexer || 'tmdb' },
+            true,
+          )
+        }
+      />
     </section>
   );
 }
