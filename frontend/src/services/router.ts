@@ -6,6 +6,7 @@ export const ROUTES = {
   library: 'view-library',
   movies: 'view-movies',
   shows: 'view-shows',
+  episodes: 'view-episodes',
   explore: 'view-explore',
   trending: 'view-trending',
   dashboard: 'view-dashboard',
@@ -54,6 +55,34 @@ export function buildHash(route, param = null, query = {}) {
     ? `/${safeRoute}/${encodeURIComponent(String(param))}`
     : `/${safeRoute}`;
   return `#${path}${buildQueryString(query)}`;
+}
+
+/** Serialize a graph node for explore query (source|kind|id). */
+export function serializeExploreNode(node: {
+  source?: string;
+  kind: string;
+  id: string;
+}): string {
+  return `${node.source || 'tmdb'}|${node.kind}|${node.id}`;
+}
+
+/** Build the full hash for explore with a given node (and optional trail). */
+export function buildExploreNodeUrl(
+  node: { source?: string; kind: string; id: string; label?: string },
+  trail?: Array<{ source?: string; kind: string; id: string; label?: string }>,
+): string {
+  const query: Record<string, string> = {
+    node: serializeExploreNode(node),
+  };
+  const source = node.source || 'tmdb';
+  const nextTrail: Array<{ source?: string; kind: string; id: string; label?: string }> = [
+    ...(trail || []),
+    { source, kind: node.kind, id: node.id, label: node.label },
+  ];
+  if (nextTrail.length) {
+    query.trail = JSON.stringify(nextTrail.slice(-12));
+  }
+  return buildHash('explore', null, query);
 }
 
 export function parseRoute() {

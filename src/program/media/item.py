@@ -472,6 +472,8 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
 
         if isinstance(self, (Show, Season)):
             data["parent_ids"] = parent_ids
+        elif isinstance(self, Episode):
+            data["show_id"] = self.parent.parent.id
 
         return data
 

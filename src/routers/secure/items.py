@@ -3,7 +3,7 @@ import os
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Optional, Self
 from fastapi import APIRouter, Body, HTTPException, Path, status, Query
 from kink import di
 from kink.errors.service_error import ServiceError
@@ -1007,6 +1007,27 @@ class StreamsResponse(MessageResponse):
         list[dict[str, Any]],
         Field(description="The list of blacklisted streams"),
     ]
+    active_stream: Annotated[
+        Optional[dict[str, Any]],
+        Field(default=None, description="The stream currently pinned for this item, if any"),
+    ] = None
+
+
+def _streams_source_for_item(session: Session, item: MediaItem) -> tuple[MediaItem, list, list]:
+    """
+    Return (owner, streams, blacklisted_streams) for the item.
+    For episodes with no streams (e.g. season-pack flow), use the parent season's streams.
+    """
+    streams = list(item.streams)
+    blacklisted = list(item.blacklisted_streams)
+    owner = item
+    if isinstance(item, Episode) and not streams:
+        season = session.get(Season, item.parent_id) if item.parent_id else None
+        if season:
+            owner = season
+            streams = list(season.streams)
+            blacklisted = list(season.blacklisted_streams)
+    return (owner, streams, blacklisted)
 
 
 @router.get(
@@ -1029,15 +1050,19 @@ async def get_item_streams(
             .scalar_one_or_none()
         )
 
-    if not item:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
-        )
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+            )
+
+        _owner, streams, blacklisted = _streams_source_for_item(session, item)
+        active_stream = item.active_stream.model_dump() if item.active_stream else None
 
     return StreamsResponse(
         message=f"Retrieved streams for item {item_id}",
-        streams=[stream.to_dict() for stream in item.streams],
-        blacklisted_streams=[stream.to_dict() for stream in item.blacklisted_streams],
+        streams=[stream.to_dict() for stream in streams],
+        blacklisted_streams=[stream.to_dict() for stream in blacklisted],
+        active_stream=active_stream,
     )
 
 
@@ -1077,9 +1102,8 @@ async def blacklist_stream(
                 detail="Item not found",
             )
 
-        stream = next(
-            (stream for stream in item.streams if stream.id == stream_id), None
-        )
+        stream_owner, streams, _blacklisted = _streams_source_for_item(session, item)
+        stream = next((s for s in streams if s.id == stream_id), None)
 
         if not stream:
             raise HTTPException(
@@ -1093,7 +1117,7 @@ async def blacklist_stream(
         apply_item_mutation(
             di[Program],
             session,
-            item,
+            stream_owner,
             mutation,
             bubble_parents=True,
         )
@@ -1140,8 +1164,9 @@ async def unblacklist_stream(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
             )
 
+        stream_owner, _streams, blacklisted = _streams_source_for_item(db, item)
         stream = next(
-            (stream for stream in item.blacklisted_streams if stream.id == stream_id),
+            (s for s in blacklisted if s.id == stream_id),
             None,
         )
 
@@ -1153,7 +1178,7 @@ async def unblacklist_stream(
         def mutation(i: MediaItem, s: Session):
             i.unblacklist_stream(stream)
 
-        apply_item_mutation(di[Program], db, item, mutation, bubble_parents=True)
+        apply_item_mutation(di[Program], db, stream_owner, mutation, bubble_parents=True)
 
         db.commit()
 

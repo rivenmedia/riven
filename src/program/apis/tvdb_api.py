@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from program.utils import data_dir_path
 from program.utils.request import SmartSession
 from schemas.tvdb import (
+    EpisodeExtendedRecord,
     SearchByRemoteIdResult,
     SeasonExtendedRecord,
     SeriesExtendedRecord,
@@ -244,6 +245,25 @@ class TVDBApi:
             return validated_data.data
         except Exception as e:
             logger.error(f"Error getting season details: {str(e)}")
+            return None
+
+    def get_episode_extended(self, episode_id: int | str) -> EpisodeExtendedRecord | None:
+        """Get extended details for a specific episode by TVDB episode ID."""
+        try:
+            response = self.session.get(
+                f"episodes/{episode_id}/extended",
+                headers=self._get_headers(),
+            )
+            if not response.ok:
+                logger.error(f"Failed to get episode details: {response.status_code}")
+                return None
+            from schemas.tvdb import GetEpisodeExtended200Response
+            validated = GetEpisodeExtended200Response.model_validate(response.json())
+            if not validated.data:
+                return None
+            return validated.data
+        except Exception as e:
+            logger.error(f"Error getting episode details: {str(e)}")
             return None
 
     def get_translation(self, series_id: int, language: str) -> Translation | None:

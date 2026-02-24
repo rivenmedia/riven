@@ -1,0 +1,180 @@
+/**
+ * Shared panel styles for Cast & Crew, Similar/Recommendations, Streams, Entity header, etc.
+ * Used by item detail and explore so both stay visually consistent.
+ */
+
+/* Entity header: title row, meta grid (2 cols), synopsis row; height matches poster */
+.entity-header__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--font-size-1);
+}
+
+.entity-header__title {
+  margin: 0;
+  font-size: var(--font-size-3);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.entity-header__meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 0.2rem 1rem;
+  font-size: var(--font-size-1);
+  align-content: start;
+}
+
+.entity-header__meta-grid .entity-header__detail {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.entity-header__synopsis {
+  margin-top: 0.15rem;
+  font-size: var(--font-size-1);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.entity-header__genres-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.entity-header__genres-row .entity-header__detail-label {
+  flex-shrink: 0;
+}
+
+.entity-header__genre-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.entity-header__meta-row .state-pill {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+.entity-header__detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.entity-header__detail-label {
+  color: var(--text-2);
+  font-size: var(--font-size-1);
+}
+
+.entity-header__links-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.entity-header__links {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.entity-header__tmdb {
+  margin-top: 0.5rem;
+  font-size: var(--font-size-1);
+}
+
+.entity-header__tagline {
+  font-style: italic;
+  color: var(--text-2);
+  margin: 0 0 0.25rem;
+}
+
+.entity-header__overview {
+  margin: 0;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+/* Cast & Crew panel */
+.cast-crew-panel .section-head {
+  margin-bottom: 0.4rem;
+}
+
+.cast-crew-panel .cast-crew-dl {
+  display: grid;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+}
+
+.cast-crew-panel .cast-crew-dl dt {
+  font-weight: 600;
+  color: var(--text-2);
+  font-size: var(--font-size-0);
+}
+
+.cast-crew-panel .pill-list-wrap {
+  display: inline;
+}
+
+.cast-crew-panel .pill-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* Pills as links (library mode) or text */
+.pill--link {
+  text-decoration: none;
+}
+
+.pill--link:hover {
+  text-decoration: underline;
+}
+
+.pill--text {
+  cursor: default;
+}
+
+/* Streams panel: row and pinned highlight */
+.stream-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  padding: 0.42rem;
+}
+
+.stream-row__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-row--pinned {
+  border-left: 3px solid var(--accent, #0a7ea4);
+  background: var(--panel-bg-hover, rgba(0, 0, 0, 0.03));
+}
+
+.stream-row__pinned-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--accent, #0a7ea4);
+  color: #fff;
+}
