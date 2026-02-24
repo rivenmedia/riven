@@ -20,11 +20,34 @@ import type { AppRoute } from '../app/routeTypes';
 function buildEntityHeaderData(
   item: Record<string, unknown>,
   tmdbData: Record<string, unknown> | null | undefined,
+  tvdbData: Record<string, unknown> | null | undefined,
 ): EntityHeaderData {
   const type = (item.type as string) ?? 'media';
   const seasons = item.seasons as { number?: number; episodes?: unknown[] }[] | undefined;
   const seasonsCount = seasons?.length;
   const episodesCount = seasons?.reduce((acc, s) => acc + (s.episodes?.length ?? 0), 0);
+  const tvdbOverview = (tvdbData?.overview as string) || undefined;
+  const tmdbSection: EntityHeaderData['tmdb'] = tmdbData
+    ? {
+        tagline: tmdbData.tagline as string | undefined,
+        overview: (tmdbData.overview as string) || tvdbOverview,
+        runtime: tmdbData.runtime as number | undefined,
+        releaseDate: tmdbData.release_date as string | undefined,
+        firstAirDate: tmdbData.first_air_date as string | undefined,
+        lastAirDate: tmdbData.last_air_date as string | undefined,
+        genres: tmdbData.genres as Array<{ name?: string }> | undefined,
+        productionCompanies: tmdbData.production_companies as Array<{ name?: string }> | undefined,
+        voteAverage: tmdbData.vote_average as number | undefined,
+        voteCount: tmdbData.vote_count as number | undefined,
+        numSeasons: tmdbData.number_of_seasons as number | undefined,
+        numEpisodes: tmdbData.number_of_episodes as number | undefined,
+      }
+    : tvdbOverview
+      ? {
+          overview: tvdbOverview,
+          firstAirDate: (tvdbData?.first_aired ?? tvdbData?.aired) as string | undefined,
+        }
+      : null;
   return {
     posterPath: (item.poster_path as string) ?? null,
     title: formatEpisodeDisplayTitle(item as any),
@@ -32,7 +55,7 @@ function buildEntityHeaderData(
     meta: {
       type,
       year: item.year != null ? String(item.year) : undefined,
-      voteAverage: tmdbData?.vote_average as number | undefined,
+      voteAverage: (tmdbData?.vote_average as number) ?? undefined,
       state: (item.state as string) ?? undefined,
       genres: (item.genres as EntityHeaderData['meta'] extends { genres?: infer G } ? G : never) ?? undefined,
     },
@@ -55,22 +78,7 @@ function buildEntityHeaderData(
           }
         : undefined,
     },
-    tmdb: tmdbData
-      ? {
-          tagline: tmdbData.tagline as string | undefined,
-          overview: tmdbData.overview as string | undefined,
-          runtime: tmdbData.runtime as number | undefined,
-          releaseDate: tmdbData.release_date as string | undefined,
-          firstAirDate: tmdbData.first_air_date as string | undefined,
-          lastAirDate: tmdbData.last_air_date as string | undefined,
-          genres: tmdbData.genres as Array<{ name?: string }> | undefined,
-          productionCompanies: tmdbData.production_companies as Array<{ name?: string }> | undefined,
-          voteAverage: tmdbData.vote_average as number | undefined,
-          voteCount: tmdbData.vote_count as number | undefined,
-          numSeasons: tmdbData.number_of_seasons as number | undefined,
-          numEpisodes: tmdbData.number_of_episodes as number | undefined,
-        }
-      : null,
+    tmdb: tmdbSection,
   };
 }
 
@@ -278,6 +286,52 @@ type EpisodeLike = {
 type SeasonLike = { number?: number; episodes?: EpisodeLike[] };
 type ShowLike = { type: string; title?: string; poster_path?: string | null; seasons?: SeasonLike[] };
 
+type TvdbCharacterEntry = {
+  people_type?: string;
+  person_name?: string;
+  name?: string;
+  person_img_url?: string | null;
+};
+
+function EpisodeCastCrewList({ characters }: { characters: TvdbCharacterEntry[] }) {
+  const byType = characters.reduce<Record<string, TvdbCharacterEntry[]>>((acc, c) => {
+    const type = c.people_type || 'Other';
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(c);
+    return acc;
+  }, {});
+  const order = ['Director', 'Writer', 'Guest Star', 'Star', 'Cast', 'Other'];
+  const types = [...new Set([...order.filter((t) => byType[t]), ...Object.keys(byType)])];
+  return (
+    <dl className="cast-crew-dl episode-cast-crew__dl">
+      {types.flatMap((type) => {
+        const list = byType[type] ?? [];
+        if (!list.length) return [];
+        return [
+          <dt key={`${type}-dt`}>{type}</dt>,
+          <dd key={`${type}-dd`} className="pill-list-wrap">
+            <div className="pill-list">
+              {list.map((c, i) => {
+                const label = c.name
+                  ? `${c.person_name ?? 'Unknown'} (${c.name})`
+                  : (c.person_name ?? 'Unknown');
+                return (
+                  <span
+                    key={c.person_name && c.name ? `${c.person_name}-${c.name}-${i}` : i}
+                    className="pill pill--text"
+                  >
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
+          </dd>,
+        ];
+      })}
+    </dl>
+  );
+}
+
 function isInLibrary(state: string): boolean {
   const s = (state || '').toString();
   return s === 'Completed' || s === 'Symlinked' || s === 'Downloaded' || s === 'Scraped';
@@ -443,6 +497,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const itemId = route.param;
   const [item, setItem] = useState<any>(null);
   const [tmdbData, setTmdbData] = useState<Record<string, unknown> | null>(null);
+  const [tvdbData, setTvdbData] = useState<Record<string, unknown> | null>(null);
   const [streamData, setStreamData] = useState<any>(null);
   const [metadata, setMetadata] = useState<Record<string, unknown> | null>(null);
   const [similarData, setSimilarData] = useState<{ recommendations: any[]; similar: any[] } | null>(null);
@@ -471,27 +526,42 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
     setMetadata(metadataRes.ok ? metadataRes.data : null);
 
     let tmdb: Record<string, unknown> | null = null;
+    let tvdb: Record<string, unknown> | null = null;
     if (it.type === 'movie' && it.tmdb_id) {
       const r = await apiGet(`/tmdb/movie/${it.tmdb_id}`);
       if (r.ok && r.data) tmdb = r.data as Record<string, unknown>;
-    } else if (it.type === 'show' && it.tmdb_id) {
-      const r = await apiGet(`/tmdb/tv/${it.tmdb_id}`);
-      if (r.ok && r.data) tmdb = r.data as Record<string, unknown>;
+    } else if (it.type === 'show') {
+      if (it.tmdb_id) {
+        const r = await apiGet(`/tmdb/tv/${it.tmdb_id}`);
+        if (r.ok && r.data) tmdb = r.data as Record<string, unknown>;
+      }
+      if (it.tvdb_id) {
+        const r = await apiGet(`/tvdb/series/${it.tvdb_id}`);
+        if (r.ok && r.data) tvdb = r.data as Record<string, unknown>;
+      }
     } else if (
       it.type === 'episode' &&
       it.show_id != null &&
       it.season_number != null &&
       it.episode_number != null
     ) {
-      const showRes = await apiGet(`/items/${it.show_id}`);
-      if (showRes.ok && showRes.data?.tmdb_id) {
+      const showRes = await apiGet(`/items/${it.show_id}`, { media_type: 'item' });
+      const show = showRes.ok ? showRes.data : null;
+      if (show?.tmdb_id) {
         const r = await apiGet(
-          `/tmdb/tv/${showRes.data.tmdb_id}/season/${it.season_number}/episode/${it.episode_number}`,
+          `/tmdb/tv/${show.tmdb_id}/season/${it.season_number}/episode/${it.episode_number}`,
         );
         if (r.ok && r.data) tmdb = r.data as Record<string, unknown>;
       }
+      if (show?.tvdb_id) {
+        const tvdbRes = await apiGet(
+          `/tvdb/series/${show.tvdb_id}/season/${it.season_number}/episode/${it.episode_number}`,
+        );
+        if (tvdbRes.ok && tvdbRes.data) tvdb = tvdbRes.data as Record<string, unknown>;
+      }
     }
     setTmdbData(tmdb);
+    setTvdbData(tvdb);
 
     if ((it.type === 'movie' || it.type === 'show') && tmdb) {
       const kind = it.type === 'movie' ? 'movie' : 'tv';
@@ -590,6 +660,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   };
 
   const credits = tmdbData?.credits as Record<string, unknown> | undefined;
+  const episodeCharacters = (tvdbData?.characters as TvdbCharacterEntry[] | undefined) ?? [];
 
   return (
     <ViewLayout className="view-item-detail" view="item-detail">
@@ -645,7 +716,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
         <div className="item-main">
           {activeTab === 'overview' && (
             <div className="item-detail-panel item-detail-panel--overview" role="tabpanel">
-              <EntityHeader data={buildEntityHeaderData(item, tmdbData)} />
+              <EntityHeader data={buildEntityHeaderData(item, tmdbData, tvdbData)} />
               <div className="item-actions-bar">
                 <button
                   type="button"
@@ -708,6 +779,14 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                   Remove
                 </button>
               </div>
+              {isEpisode && episodeCharacters.length > 0 && (
+                <div className="panel episode-cast-crew">
+                  <div className="section-head">
+                    <h3>Cast &amp; Crew</h3>
+                  </div>
+                  <EpisodeCastCrewList characters={episodeCharacters} />
+                </div>
+              )}
               <SeasonsEpisodes item={item as ShowLike} refresh={refresh} />
               <CastCrew credits={credits ?? null} exploreLinkBase="#/explore" />
               {tmdbData && (

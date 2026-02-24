@@ -175,15 +175,17 @@ export function EntityHeader({ data }: { data: EntityHeaderData }) {
     if (library.country) metaEntries.push({ key: 'country', label: 'Country', value: library.country });
     if (library.language) metaEntries.push({ key: 'language', label: 'Language', value: library.language });
     if (library.network) metaEntries.push({ key: 'network', label: 'Network', value: library.network });
-    if (!hasTmdb && data.itemType === 'show') {
-      if (library.seasonsCount != null) {
+    if (data.itemType === 'show') {
+      const haveSeasonsFromTmdb = hasTmdb && tmdb && tmdb.numSeasons != null;
+      const haveEpisodesFromTmdb = hasTmdb && tmdb && tmdb.numEpisodes != null;
+      if (!haveSeasonsFromTmdb && library.seasonsCount != null) {
         metaEntries.push({
           key: 'seasons',
           label: 'Seasons',
           value: `${library.seasonsCount} season${library.seasonsCount !== 1 ? 's' : ''}`,
         });
       }
-      if (library.episodesCount != null) {
+      if (!haveEpisodesFromTmdb && library.episodesCount != null) {
         metaEntries.push({ key: 'episodes', label: 'Episodes', value: `${library.episodesCount} ep` });
       }
     }
@@ -237,12 +239,12 @@ export function EntityHeader({ data }: { data: EntityHeaderData }) {
             <MetaRow key={key} label={label} value={value} />
           ))}
         </div>
-        {(hasTmdb ? (tmdb?.tagline || tmdb?.overview) : false) && (
+        {hasTmdb && tmdb && (
           <div className="entity-header__synopsis">
-            {tmdb?.tagline && (
+            {tmdb.tagline && (
               <p className="entity-header__tagline">{tmdb.tagline}</p>
             )}
-            {tmdb?.overview && (
+            {tmdb.overview && (
               <p className="entity-header__overview">{tmdb.overview}</p>
             )}
           </div>
@@ -256,34 +258,34 @@ export function EntityHeader({ data }: { data: EntityHeaderData }) {
               </span>
             </div>
           )}
-        {Array.isArray(meta?.genres) && meta.genres.length > 0 && !hasTmdb && (
-          <div className="entity-header__genres-row">
-            <span className="entity-header__detail-label">Genres:</span>
-            <span className="entity-header__genre-chips">
-              {meta.genres.map((g) => {
-                const name =
+        {(() => {
+          const genresFromTmdb =
+            hasTmdb && Array.isArray(tmdb?.genres) && tmdb.genres.length > 0
+              ? tmdb.genres.map((g) => g?.name).filter(Boolean) as string[]
+              : null;
+          const genresFromMeta =
+            Array.isArray(meta?.genres) && meta.genres.length > 0
+              ? meta.genres.map((g) =>
                   typeof g === 'object' && g != null && 'name' in g
                     ? (g as { name?: string }).name
-                    : String(g);
-                return name ? (
+                    : typeof g === 'string'
+                      ? g
+                      : null,
+                ).filter(Boolean) as string[]
+              : null;
+          const genres = genresFromTmdb?.length ? genresFromTmdb : genresFromMeta;
+          if (!genres?.length) return null;
+          return (
+            <div className="entity-header__genres-row">
+              <span className="entity-header__detail-label">Genres:</span>
+              <span className="entity-header__genre-chips">
+                {genres.map((name) => (
                   <Chip key={name} text={name} className="legend-chip--genre" />
-                ) : null;
-              })}
-            </span>
-          </div>
-        )}
-        {hasTmdb && Array.isArray(tmdb?.genres) && tmdb.genres.length > 0 && (
-          <div className="entity-header__genres-row">
-            <span className="entity-header__detail-label">Genres:</span>
-            <span className="entity-header__genre-chips">
-              {tmdb.genres.map((g) =>
-                g?.name ? (
-                  <Chip key={g.name} text={g.name} className="legend-chip--genre" />
-                ) : null,
-              )}
-            </span>
-          </div>
-        )}
+                ))}
+              </span>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

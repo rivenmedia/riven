@@ -508,3 +508,35 @@ async def tvdb_series_details(series_id: str) -> dict[str, Any]:
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
     return series.model_dump()
+
+
+@router.get(
+    "/tvdb/series/{series_id}/season/{season_number}/episode/{episode_number}",
+    summary="TVDB episode details",
+)
+async def tvdb_episode_details(
+    series_id: str, season_number: int, episode_number: int
+) -> dict[str, Any]:
+    tvdb = _get_tvdb()
+    series = tvdb.get_series(series_id)
+    if not series or not series.seasons:
+        raise HTTPException(status_code=404, detail="Series or seasons not found")
+    season_match = next(
+        (s for s in series.seasons if s.number is not None and s.number == season_number),
+        None,
+    )
+    if not season_match or season_match.id is None:
+        raise HTTPException(status_code=404, detail="Season not found")
+    season = tvdb.get_season(season_match.id)
+    if not season or not season.episodes:
+        raise HTTPException(status_code=404, detail="Season or episodes not found")
+    ep_match = next(
+        (e for e in season.episodes if e.number is not None and e.number == episode_number),
+        None,
+    )
+    if not ep_match or ep_match.id is None:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    episode = tvdb.get_episode_extended(ep_match.id)
+    if not episode:
+        raise HTTPException(status_code=404, detail="Episode details not found")
+    return episode.model_dump()

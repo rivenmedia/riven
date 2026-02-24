@@ -272,8 +272,8 @@ export default function ExploreView({ route }: { route: AppRoute }) {
     return () => { cancelled = true; };
   }, [fetchResults]);
 
-  // Status polling for grid/detail cards
-  useEffect(() => {
+  // Stable key so we only restart polling when the set of ids changes (new results), not when we merge status into items
+  const statusIdsKey = useMemo(() => {
     const ids = { tmdb: new Set<string>(), tvdb: new Set<string>() };
     items.forEach((item) => {
       const k = getMediaKind(item);
@@ -286,12 +286,22 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       if (detailData.tmdb_id || detailData.id) ids.tmdb.add(String(detailData.tmdb_id || detailData.id));
       if (detailData.tvdb_id) ids.tvdb.add(String(detailData.tvdb_id));
     }
-    if (ids.tmdb.size === 0 && ids.tvdb.size === 0) return;
+    return `${toCsv([...ids.tmdb].sort())}|${toCsv([...ids.tvdb].sort())}`;
+  }, [items, detailData]);
+
+  const lastStatusIdsKeyRef = useRef<string | null>(null);
+
+  // Status polling for grid/detail cards — only (re)start when statusIdsKey changes (new results), not on status merge
+  useEffect(() => {
+    if (!statusIdsKey || statusIdsKey === '|') return;
+    if (lastStatusIdsKeyRef.current === statusIdsKey) return;
+    lastStatusIdsKeyRef.current = statusIdsKey;
+    const [tmdbCsv, tvdbCsv] = statusIdsKey.split('|');
 
     const poll = async () => {
       const res = await apiGet('/items/library/status', {
-        tmdb_ids: toCsv(Array.from(ids.tmdb)),
-        tvdb_ids: toCsv(Array.from(ids.tvdb)),
+        tmdb_ids: tmdbCsv || undefined,
+        tvdb_ids: tvdbCsv || undefined,
       });
       if (!res.ok) return;
       const tmdb = res.data?.tmdb || {};
@@ -306,19 +316,24 @@ export default function ExploreView({ route }: { route: AppRoute }) {
         });
         return next;
       });
-      if (detailData && (getMediaKind(detailData) === 'movie' || getMediaKind(detailData) === 'tv')) {
-        const key = detailData.indexer === 'tvdb' ? String(detailData.tvdb_id || detailData.id) : String(detailData.tmdb_id || detailData.id);
-        const status = detailData.indexer === 'tvdb' ? tvdb[key] : tmdb[key] || tvdb[String(detailData.tvdb_id)];
-        if (status) setDetailData((d: any) => d ? { ...d, in_library: Boolean(status.in_library), library_item_id: status.library_item_id, library_state: status.library_state } : d);
-      }
+      setDetailData((d: any) => {
+        if (!d || (getMediaKind(d) !== 'movie' && getMediaKind(d) !== 'tv')) return d;
+        const key = d.indexer === 'tvdb' ? String(d.tvdb_id || d.id) : String(d.tmdb_id || d.id);
+        const status = d.indexer === 'tvdb' ? tvdb[key] : tmdb[key] || tvdb[String(d.tvdb_id)];
+        if (!status) return d;
+        return { ...d, in_library: Boolean(status.in_library), library_item_id: status.library_item_id, library_state: status.library_state };
+      });
     };
 
     poll();
     statusPollRef.current = setInterval(poll, POLL_STATUS_MS);
     return () => {
-      if (statusPollRef.current) clearInterval(statusPollRef.current);
+      if (statusPollRef.current) {
+        clearInterval(statusPollRef.current);
+        statusPollRef.current = null;
+      }
     };
-  }, [items, detailData]);
+  }, [statusIdsKey]);
 
   const selectNode = useCallback(async (node: ExploreNode, updateHistory = true) => {
     if (updateHistory) {
