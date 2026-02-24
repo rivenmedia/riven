@@ -1,3 +1,5 @@
+import type { ComponentType } from "react";
+
 export type RouteName =
   | "library"
   | "movies"
@@ -24,6 +26,10 @@ export interface AppRoute {
   path: string;
 }
 
-export interface ViewLoaderModule {
-  load?: (route: AppRoute, container: HTMLElement) => Promise<void> | void;
+/** Props for React route view components. */
+export interface ViewComponentProps {
+  route: AppRoute;
 }
+
+/** React component type for a route view. */
+export type ViewComponent = ComponentType<ViewComponentProps>;

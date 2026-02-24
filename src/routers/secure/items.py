@@ -3,7 +3,7 @@ import os
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Optional, Self
 from fastapi import APIRouter, Body, HTTPException, Path, status, Query
 from kink import di
 from kink.errors.service_error import ServiceError
@@ -1007,6 +1007,10 @@ class StreamsResponse(MessageResponse):
         list[dict[str, Any]],
         Field(description="The list of blacklisted streams"),
     ]
+    active_stream: Annotated[
+        Optional[dict[str, Any]],
+        Field(default=None, description="The stream currently pinned for this item, if any"),
+    ] = None
 
 
 def _streams_source_for_item(session: Session, item: MediaItem) -> tuple[MediaItem, list, list]:
@@ -1052,11 +1056,13 @@ async def get_item_streams(
             )
 
         _owner, streams, blacklisted = _streams_source_for_item(session, item)
+        active_stream = item.active_stream.model_dump() if item.active_stream else None
 
     return StreamsResponse(
         message=f"Retrieved streams for item {item_id}",
         streams=[stream.to_dict() for stream in streams],
         blacklisted_streams=[stream.to_dict() for stream in blacklisted],
+        active_stream=active_stream,
     )
 
 

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { hasKey, logout, setKey, validateKey } from "../services/auth";
 import { parseRoute, replaceRoute } from "../services/router";
-import * as statusTracker from "../services/statusTracker";
 import LoginView from "../components/LoginView";
 import ManualScrapeModalTemplate from "../components/ManualScrapeModalTemplate";
 import Sidebar from "../components/Sidebar";
@@ -28,6 +27,7 @@ const ROUTE_TITLES: Record<RouteName, string> = {
   library: "All Media",
   movies: "Movies",
   shows: "TV Shows",
+  episodes: "TV Episodes",
   explore: "Discover",
   trending: "Trending",
   dashboard: "Overview",
@@ -97,11 +97,9 @@ export default function App() {
     }
 
     window.addEventListener("hashchange", handleHashChange);
-    statusTracker.start();
 
     return () => {
       window.removeEventListener("hashchange", handleHashChange);
-      statusTracker.stop();
     };
   }, []);
 

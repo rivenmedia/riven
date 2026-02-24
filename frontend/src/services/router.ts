@@ -57,6 +57,29 @@ export function buildHash(route, param = null, query = {}) {
   return `#${path}${buildQueryString(query)}`;
 }
 
+/** Serialize a graph node for explore query (source|kind|id). */
+export function serializeExploreNode(node: {
+  source?: string;
+  kind: string;
+  id: string;
+}): string {
+  return `${node.source || 'tmdb'}|${node.kind}|${node.id}`;
+}
+
+/** Build the full hash for explore with a given node (and optional trail). */
+export function buildExploreNodeUrl(
+  node: { source?: string; kind: string; id: string },
+  trail?: Array<{ source?: string; kind: string; id: string; label?: string }>,
+): string {
+  const query: Record<string, string> = {
+    node: serializeExploreNode(node),
+  };
+  if (trail?.length) {
+    query.trail = JSON.stringify(trail.slice(-12));
+  }
+  return buildHash('explore', null, query);
+}
+
 export function parseRoute() {
   const { pathPart, queryPart } = splitHash(window.location.hash);
   const segments = pathPart.split('/').filter(Boolean);
