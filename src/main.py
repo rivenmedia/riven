@@ -52,7 +52,7 @@ def _apache_log_line(
 
 
 class LoguruMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, log_requests: bool = True) -> None:
+    def __init__(self, app: ASGIApp, log_requests: bool = False) -> None:
         super().__init__(app)
         self.log_requests = log_requests
 
