@@ -163,6 +163,28 @@
   white-space: nowrap;
 }
 
+.stream-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.stream-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  font-size: var(--font-size-0);
+  color: var(--text-2);
+}
+
+.stream-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .stream-row--pinned {
   border-left: 3px solid var(--accent, #0a7ea4);
   background: var(--panel-bg-hover, rgba(0, 0, 0, 0.03));

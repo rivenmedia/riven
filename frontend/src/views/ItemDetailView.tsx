@@ -174,15 +174,23 @@ function TmdbDetailsPanel({
 
 function ManualScrapeModal({
   itemId,
+  item,
   onClose,
   onSuccess,
 }: {
   itemId: string;
+  item: { type?: string } | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  type Mode = 'magnet' | 'pick';
+  const [mode, setMode] = useState<Mode>('magnet');
   const [magnet, setMagnet] = useState('');
+  const [scrapeLoading, setScrapeLoading] = useState(false);
+  const [scrapeStreams, setScrapeStreams] = useState<Record<string, { infohash: string; raw_title: string; is_cached?: boolean }>>({});
+  const [pickLoading, setPickLoading] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const mediaType = item?.type === 'movie' ? 'movie' : 'tv';
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -191,16 +199,24 @@ function ManualScrapeModal({
     };
   }, []);
 
-  const handleStart = async () => {
-    const m = magnet.trim();
-    if (!m) {
-      notify('Paste a magnet URI first', 'warning');
+  const searchScrapers = async () => {
+    if (!itemId) return;
+    setScrapeLoading(true);
+    setScrapeStreams({});
+    const res = await apiGet('/scrape', { item_id: itemId, media_type: mediaType });
+    setScrapeLoading(false);
+    if (!res.ok) {
+      notify(res.error || 'Scrape failed', 'error');
       return;
     }
-    const params = new URLSearchParams({ magnet: m, item_id: String(itemId) });
-    const response = await apiFetch(`/scrape/start_session?${params.toString()}`, {
-      method: 'POST',
-    });
+    const streams = (res.data as { streams?: Record<string, { infohash: string; raw_title: string; is_cached?: boolean }> })?.streams ?? {};
+    setScrapeStreams(streams);
+    if (Object.keys(streams).length === 0) notify('No streams found', 'warning');
+  };
+
+  const startSessionWithMagnet = async (magnetUri: string) => {
+    const params = new URLSearchParams({ magnet: magnetUri, item_id: String(itemId) });
+    const response = await apiFetch(`/scrape/start_session?${params.toString()}`, { method: 'POST' });
     if (!response.ok) {
       notify(response.error || 'Failed to start manual session', 'error');
       return;
@@ -210,6 +226,24 @@ function ManualScrapeModal({
     onSuccess();
   };
 
+  const handleStartMagnet = async () => {
+    const m = magnet.trim();
+    if (!m) {
+      notify('Paste a magnet URI first', 'warning');
+      return;
+    }
+    await startSessionWithMagnet(m);
+  };
+
+  const handlePickStream = async (infohash: string) => {
+    setPickLoading(true);
+    const magnetUri = `magnet:?xt=urn:btih:${infohash}`;
+    await startSessionWithMagnet(magnetUri);
+    setPickLoading(false);
+  };
+
+  const streamList = Object.entries(scrapeStreams);
+
   return (
     <dialog ref={dialogRef} className="modal" onClose={onClose}>
       <header>
@@ -218,17 +252,78 @@ function ManualScrapeModal({
           &times;
         </button>
       </header>
-      <div className="modal-body">
-        <label>Magnet URL</label>
-        <textarea
-          data-slot="magnet"
-          placeholder="Paste magnet link..."
-          value={magnet}
-          onChange={(e) => setMagnet(e.target.value)}
-        />
-        <button type="button" data-action="start-session" onClick={handleStart}>
-          Start Session
-        </button>
+      <div className="modal-body manual-scrape-modal">
+        <div className="manual-scrape-modes" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'magnet'}
+            className={mode === 'magnet' ? 'active' : ''}
+            onClick={() => setMode('magnet')}
+          >
+            Paste magnet link
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'pick'}
+            className={mode === 'pick' ? 'active' : ''}
+            onClick={() => setMode('pick')}
+          >
+            Pick from scrapers
+          </button>
+        </div>
+
+        {mode === 'magnet' && (
+          <>
+            <label>Magnet URL</label>
+            <textarea
+              data-slot="magnet"
+              placeholder="Paste magnet link..."
+              value={magnet}
+              onChange={(e) => setMagnet(e.target.value)}
+            />
+            <button type="button" data-action="start-session" onClick={handleStartMagnet}>
+              Start Session
+            </button>
+          </>
+        )}
+
+        {mode === 'pick' && (
+          <>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={searchScrapers}
+              disabled={scrapeLoading}
+            >
+              {scrapeLoading ? 'Searching…' : 'Search scrapers'}
+            </button>
+            {streamList.length > 0 && (
+              <div className="manual-scrape-stream-list" data-slot="stream-options">
+                <label>Pick a stream</label>
+                <ul>
+                  {streamList.map(([ih, s]) => (
+                    <li key={ih}>
+                      <button
+                        type="button"
+                        className="manual-scrape-stream-option"
+                        onClick={() => handlePickStream(ih)}
+                        disabled={pickLoading}
+                        title={s.raw_title}
+                      >
+                        <span className="stream-title">{s.raw_title}</span>
+                        {s.is_cached != null && (
+                          <span className="stream-cached">{s.is_cached ? '✓ cached' : 'uncached'}</span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </dialog>
   );
@@ -826,6 +921,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
       {showManualScrape && (
         <ManualScrapeModal
           itemId={itemId}
+          item={item}
           onClose={() => setShowManualScrape(false)}
           onSuccess={refresh}
         />

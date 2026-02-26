@@ -70,29 +70,50 @@ export function Streams({ data, itemId, onRefresh }: StreamsProps) {
             activeStream &&
             (String(stream.id) === String(activeStream.id) ||
               stream.infohash === activeStream.infohash);
+
+          const resolution = stream.resolution;
+          const cached =
+            typeof stream.is_cached === 'boolean'
+              ? stream.is_cached
+              : typeof stream.cached === 'boolean'
+                ? stream.cached
+                : null;
+
           return (
             <div
               key={stream.id ?? stream.infohash}
               className={`stream-row ${isPinned ? 'stream-row--pinned' : ''}`}
             >
-              <span className="stream-row__title">
-                {stream.raw_title || stream.infohash || `Stream ${stream.id}`}
-              </span>
-              {isPinned && (
-                <span
-                  className="stream-row__pinned-badge"
-                  aria-label="Currently pinned stream"
+              <div className="stream-row__main">
+                <div className="stream-row__title">
+                  {stream.raw_title || stream.infohash || `Stream ${stream.id}`}
+                </div>
+                <div className="stream-row__meta">
+                  {typeof stream.rank === 'number' && <span>rank {stream.rank}</span>}
+                  {resolution && <span>{resolution}</span>}
+                  {cached !== null && <span>{cached ? 'cached' : 'uncached'}</span>}
+                  {typeof stream.lev_ratio === 'number' && (
+                    <span>score {stream.lev_ratio.toFixed(2)}</span>
+                  )}
+                </div>
+              </div>
+              <div className="stream-row__actions">
+                {isPinned && (
+                  <span
+                    className="stream-row__pinned-badge"
+                    aria-label="Currently pinned stream"
+                  >
+                    Pinned
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn--small btn--secondary"
+                  onClick={() => handleBlacklist(stream)}
                 >
-                  Pinned
-                </span>
-              )}
-              <button
-                type="button"
-                className="btn btn--small btn--secondary"
-                onClick={() => handleBlacklist(stream)}
-              >
-                {stream.blacklisted ? 'Unblacklist' : 'Blacklist'}
-              </button>
+                  {stream.blacklisted ? 'Unblacklist' : 'Blacklist'}
+                </button>
+              </div>
             </div>
           );
         })
