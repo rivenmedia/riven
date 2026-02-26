@@ -17,7 +17,7 @@ from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, Json, RootModel
 from sqlalchemy.orm import Session
-
+from sqlalchemy.orm.attributes import flag_modified
 from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import MediaItem, Show, Season, ProcessedItemType
@@ -727,6 +727,8 @@ async def start_manual_session(
         # Clear existing active stream so the new manual session becomes the source of truth;
         # otherwise the item stays pinned to the old stream until this session completes.
         item.active_stream = None
+        flag_modified(item, "active_stream")
+        logger.info(f"Cleared active stream for item {item.log_string}")
         session.commit()
 
         # Use async container resolution with fallback
