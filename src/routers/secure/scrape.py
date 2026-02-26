@@ -724,13 +724,6 @@ async def start_manual_session(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        # Clear existing active stream so the new manual session becomes the source of truth;
-        # otherwise the item stays pinned to the old stream until this session completes.
-        item.active_stream = None
-        flag_modified(item, "active_stream")
-        logger.info(f"Cleared active stream for item {item.log_string}")
-        session.commit()
-
         # Use async container resolution with fallback
         # Cast type to ProcessedItemType if it's not 'mediaitem'
         item_type: ProcessedItemType = item.type if item.type != "mediaitem" else "movie"
