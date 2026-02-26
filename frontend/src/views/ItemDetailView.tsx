@@ -187,7 +187,9 @@ function ManualScrapeModal({
   const [mode, setMode] = useState<Mode>('magnet');
   const [magnet, setMagnet] = useState('');
   const [scrapeLoading, setScrapeLoading] = useState(false);
-  const [scrapeStreams, setScrapeStreams] = useState<Record<string, { infohash: string; raw_title: string; is_cached?: boolean }>>({});
+  const [scrapeStreams, setScrapeStreams] = useState<
+    Record<string, { infohash: string; raw_title: string; rank?: number; is_cached?: boolean }>
+  >({});
   const [pickLoading, setPickLoading] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const mediaType = item?.type === 'movie' ? 'movie' : 'tv';
@@ -209,7 +211,14 @@ function ManualScrapeModal({
       notify(res.error || 'Scrape failed', 'error');
       return;
     }
-    const streams = (res.data as { streams?: Record<string, { infohash: string; raw_title: string; is_cached?: boolean }> })?.streams ?? {};
+    const streams = (
+      res.data as {
+        streams?: Record<
+          string,
+          { infohash: string; raw_title: string; rank?: number; is_cached?: boolean }
+        >;
+      }
+    )?.streams ?? {};
     setScrapeStreams(streams);
     if (Object.keys(streams).length === 0) notify('No streams found', 'warning');
   };
@@ -242,7 +251,9 @@ function ManualScrapeModal({
     setPickLoading(false);
   };
 
-  const streamList = Object.entries(scrapeStreams);
+  const streamList = Object.entries(scrapeStreams).sort(
+    ([, a], [, b]) => (b.rank ?? 0) - (a.rank ?? 0),
+  );
 
   return (
     <dialog ref={dialogRef} className="modal" onClose={onClose}>
@@ -268,7 +279,10 @@ function ManualScrapeModal({
             role="tab"
             aria-selected={mode === 'pick'}
             className={mode === 'pick' ? 'active' : ''}
-            onClick={() => setMode('pick')}
+            onClick={() => {
+              setMode('pick');
+              void searchScrapers();
+            }}
           >
             Pick from scrapers
           </button>
@@ -313,9 +327,16 @@ function ManualScrapeModal({
                         title={s.raw_title}
                       >
                         <span className="stream-title">{s.raw_title}</span>
-                        {s.is_cached != null && (
-                          <span className="stream-cached">{s.is_cached ? '✓ cached' : 'uncached'}</span>
-                        )}
+                        <span className="stream-meta">
+                          {typeof s.rank === 'number' && (
+                            <span className="stream-rank">rank {s.rank}</span>
+                          )}
+                          {s.is_cached != null && (
+                            <span className="stream-cached">
+                              {s.is_cached ? '✓ cached' : 'uncached'}
+                            </span>
+                          )}
+                        </span>
                       </button>
                     </li>
                   ))}

@@ -25,6 +25,9 @@ export function Streams({ data, itemId, onRefresh }: StreamsProps) {
       blacklisted: true,
     })),
   ];
+  const mergedSorted = [...merged].sort(
+    (a: any, b: any) => (b.rank ?? 0) - (a.rank ?? 0),
+  );
   const activeStream = data.active_stream ?? null;
 
   const handleReset = async () => {
@@ -53,7 +56,7 @@ export function Streams({ data, itemId, onRefresh }: StreamsProps) {
   return (
     <div className="panel item-streams">
       <div className="section-head">
-        <h3>Streams ({merged.length})</h3>
+        <h3>Streams ({mergedSorted.length})</h3>
         <button
           type="button"
           className="btn btn--secondary btn--small"
@@ -62,10 +65,10 @@ export function Streams({ data, itemId, onRefresh }: StreamsProps) {
           Reset Streams
         </button>
       </div>
-      {merged.length === 0 ? (
+      {mergedSorted.length === 0 ? (
         <p className="muted">No streams stored for this item.</p>
       ) : (
-        merged.map((stream: any) => {
+        mergedSorted.map((stream: any) => {
           const isPinned =
             activeStream &&
             (String(stream.id) === String(activeStream.id) ||

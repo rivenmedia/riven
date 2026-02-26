@@ -439,7 +439,7 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 280px;
+  max-height: 420px;
   overflow-y: auto;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
@@ -469,6 +469,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-right: 0.5rem;
+}
+.manual-scrape-modal .manual-scrape-stream-option .stream-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .manual-scrape-modal .manual-scrape-stream-option .stream-cached {
   flex-shrink: 0;
