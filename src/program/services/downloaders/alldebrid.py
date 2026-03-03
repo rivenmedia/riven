@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 
 from loguru import logger
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from program.services.downloaders.models import (
     DebridFile,
@@ -119,6 +119,16 @@ class AllDebridMagnetStatusResponse(BaseModel):
         error: AllDebridErrorDetail
 
     magnets: list[MagnetInfo | MagnetErrorInfo]
+
+    @field_validator("magnets", mode="before")
+    @classmethod
+    def normalize_magnets(cls, v: Any):
+        logger.debug(f"Normalizing magnets field: {v}")
+
+        if isinstance(v, dict):
+            return cast(list[dict[Any, Any]], [v])
+
+        return v
 
 
 class AllDebridError(Exception):
@@ -432,7 +442,11 @@ class AllDebridDownloader(DownloaderBase):
                     AllDebridFile(
                         n=file_obj.n,
                         s=file_obj.s,
-                        l=download_link,
+                        l=(
+                            # Use the file's own link if present, otherwise inherit from parent
+                            file_obj.l
+                            or download_link
+                        ),
                     )
                 )
 
