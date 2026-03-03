@@ -276,32 +276,44 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
             .options(selectinload(Show.seasons).selectinload(Season.episodes))
             .where(MediaItem.aired_at.is_not(None))
             .where(MediaItem.aired_at >= datetime.now() - timedelta(days=30))
-            .execution_options(stream_results=True)
         ).unique()
 
-    calendar = dict[int, dict[str, Any]]()
+        calendar = dict[int, dict[str, Any]]()
 
-    for item in result.scalars().yield_per(500):
-        title = item.top_title
-        calendar[item.id] = {
-            "item_id": item.id,
-            "tvdb_id": item.tvdb_id,
-            "tmdb_id": item.tmdb_id,
-            "show_title": title,
-            "item_type": item.type,
-            "aired_at": item.aired_at,
-            "last_state": item.last_state,
-        }
+        for item in result.scalars().all():
+            title = item.top_title
 
-        if isinstance(item, Show):
-            calendar[item.id]["release_data"] = item.release_data
+            # For episodes/seasons, use the parent show's IDs so the frontend
+            # can navigate to the correct show detail page.
+            if isinstance(item, Episode):
+                show_tvdb_id = item.parent.parent.tvdb_id
+                show_tmdb_id = item.parent.parent.tmdb_id
+            elif isinstance(item, Season):
+                show_tvdb_id = item.parent.tvdb_id
+                show_tmdb_id = item.parent.tmdb_id
+            else:
+                show_tvdb_id = item.tvdb_id
+                show_tmdb_id = item.tmdb_id
 
-        if isinstance(item, Season):
-            calendar[item.id]["season"] = item.number
+            calendar[item.id] = {
+                "item_id": item.id,
+                "tvdb_id": show_tvdb_id,
+                "tmdb_id": show_tmdb_id,
+                "show_title": title,
+                "item_type": item.type,
+                "aired_at": item.aired_at,
+                "last_state": item.last_state,
+            }
 
-        if isinstance(item, Episode):
-            calendar[item.id]["season"] = item.parent.number
-            calendar[item.id]["episode"] = item.number
+            if isinstance(item, Show):
+                calendar[item.id]["release_data"] = item.release_data
+
+            if isinstance(item, Season):
+                calendar[item.id]["season"] = item.number
+
+            if isinstance(item, Episode):
+                calendar[item.id]["season"] = item.parent.number
+                calendar[item.id]["episode"] = item.number
 
     return calendar
 
