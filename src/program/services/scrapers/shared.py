@@ -194,22 +194,28 @@ def parse_results(
                     continue
 
             if isinstance(item, Episode) and not manual:
-                # Disregard torrents with incorrect episode number logic:
+                # Disregard torrents with incorrect episode/season logic:
                 skip = False
+                parent_season = cast(Season, item.parent)
 
-                # If the torrent has episodes, but the episode number is not present
+                # If the torrent has episodes, check both episode AND season match
                 if torrent.data.episodes:
-                    if (
-                        item.number not in torrent.data.episodes
-                        and item.absolute_number not in torrent.data.episodes
-                    ):
+                    # First check episode number matches
+                    episode_matches = (
+                        item.number in torrent.data.episodes
+                        or item.absolute_number in torrent.data.episodes
+                    )
+                    # Also verify season matches if torrent has season info
+                    # This prevents e.g. S12E05 from matching episode S22E05
+                    season_matches = True
+                    if torrent.data.seasons:
+                        season_matches = parent_season.number in torrent.data.seasons
+
+                    if not episode_matches or not season_matches:
                         skip = True
 
-                # If the torrent does not have episodes, but has seasons, and the parent season is not present
+                # If the torrent does not have episodes, but has seasons, check season matches
                 elif torrent.data.seasons:
-                    # item is confirmed to be Episode at line 197
-                    # Episode.parent is a Season, and Season has a 'number' attribute
-                    parent_season = cast(Season, item.parent)
                     if parent_season.number not in torrent.data.seasons:
                         skip = True
 
