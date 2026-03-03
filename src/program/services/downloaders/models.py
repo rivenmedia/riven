@@ -68,6 +68,17 @@ class BitrateLimitExceededException(InvalidDebridFileException):
     """Exception raised when a file exceeds the allowed bitrate limit"""
 
 
+class InfringingTorrentException(Exception):
+    """Exception raised when debrid service returns 451 (infringing torrent).
+
+    This should trigger immediate blacklisting of the stream since the torrent
+    is permanently blocked by the debrid service and will never succeed.
+    """
+    def __init__(self, infohash: str):
+        self.infohash = infohash
+        super().__init__(f"Torrent {infohash} is flagged as infringing by debrid service")
+
+
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 
