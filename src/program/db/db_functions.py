@@ -281,7 +281,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
 
         calendar = dict[int, dict[str, Any]]()
 
-        for item in result.scalars().all():
+        for item in result.scalars().yield_per(500):
             title = item.top_title
 
             # For episodes/seasons, use the parent show's IDs so the frontend
@@ -300,7 +300,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
                 "item_id": item.id,
                 "tvdb_id": show_tvdb_id,
                 "tmdb_id": show_tmdb_id,
-                "show_title": title,
+            bn,     "show_title": title,
                 "item_type": item.type,
                 "aired_at": item.aired_at,
                 "last_state": item.last_state,
