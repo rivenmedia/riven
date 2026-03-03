@@ -62,7 +62,7 @@ def get_item_by_id(
 
     from program.media.item import MediaItem
 
-    with _maybe_session(session) as (_s, _):
+    with _maybe_session(session) as (_s, _owns):
         query = select(MediaItem).where(MediaItem.id == item_id)
 
         if item_types:
@@ -70,7 +70,7 @@ def get_item_by_id(
 
         item = _s.execute(query).unique().scalar_one_or_none()
 
-        if item:
+        if item and _owns:
             _s.expunge(item)
 
         return item
@@ -124,7 +124,7 @@ def get_item_by_external_id(
 
         item = _s.execute(query).unique().scalar_one_or_none()
 
-        if item:
+        if item and _owns:
             _s.expunge(item)
 
         return item
