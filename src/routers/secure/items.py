@@ -526,7 +526,7 @@ def _reset_scrape_state(item: MediaItem) -> None:
     item.streams.clear()
     item.blacklisted_streams.clear()
     item.active_stream = None
-    item.store_state(States.Indexed)
+    MediaItem.store_state(item, States.Indexed)
 
     if isinstance(item, Show):
         for season in item.seasons:
