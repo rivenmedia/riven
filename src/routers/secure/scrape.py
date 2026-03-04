@@ -599,7 +599,27 @@ def scrape_item(
                 
                 # Detach item from session to avoid threading issues in scraper
                 try:
+                    # Explicitly link parents to avoid lazy-loading on detached objects
+                    if isinstance(item, Show):
+                        for season in item.seasons:
+                            season.parent = item
+                            for episode in season.episodes:
+                                episode.parent = season
+                                
+                    elif isinstance(item, Season):
+                        for episode in item.episodes:
+                            episode.parent = item
+
                     session.expunge(item)
+                    if isinstance(item, Show):
+                        for season in item.seasons:
+                            session.expunge(season)
+                            for episode in season.episodes:
+                                session.expunge(episode)
+                    elif isinstance(item, Season):
+                        for episode in item.episodes:
+                            session.expunge(episode)
+
                 except InvalidRequestError:
                     pass
                 
@@ -618,35 +638,43 @@ def scrape_item(
                 yield f"data: {start_event.model_dump_json()}\n\n"
 
                 with settings_manager.override(**overrides):
-                    for service_name, parsed_streams in scraper.scrape_streaming(
-                        item, manual=True
-                    ):
-                        services_completed += 1
-                        new_streams: dict[str, Stream] = {}
+                    items_to_scrape = [item]
+                    if isinstance(item, Show):
+                        # For shows, scrape each season individually like auto-scraping does
+                        items_to_scrape = [season for season in item.seasons if season.state != States.Unreleased]
+                        if not items_to_scrape:
+                            items_to_scrape = [item] # Fallback if no seasons
 
-                        for infohash, s in parsed_streams.items():
-                            if infohash not in all_streams:
-                                stream_obj = Stream(
-                                    infohash=s.infohash,
-                                    raw_title=s.raw_title,
-                                    parsed_title=s.parsed_title,
-                                    parsed_data=s.parsed_data,
-                                    rank=s.rank,
-                                    lev_ratio=s.lev_ratio,
-                                )
-                                all_streams[infohash] = stream_obj
-                                new_streams[infohash] = stream_obj
-
-                        event = ScrapeStreamEvent(
-                            event="streams" if new_streams else "progress",
-                            service=service_name,
-                            message=f"{service_name} found {len(new_streams)} new streams" if new_streams else f"{service_name} completed",
-                            streams=new_streams if new_streams else None,
-                            total_streams=len(all_streams),
-                            services_completed=services_completed,
-                            total_services=total_services,
-                        )
-                        yield f"data: {event.model_dump_json()}\n\n"
+                    for target_item in items_to_scrape:
+                        for service_name, parsed_streams in scraper.scrape_streaming(
+                            target_item, manual=True
+                        ):
+                            services_completed += 1
+                            new_streams: dict[str, Stream] = {}
+    
+                            for infohash, s in parsed_streams.items():
+                                if infohash not in all_streams:
+                                    stream_obj = Stream(
+                                        infohash=s.infohash,
+                                        raw_title=s.raw_title,
+                                        parsed_title=s.parsed_title,
+                                        parsed_data=s.parsed_data,
+                                        rank=s.rank,
+                                        lev_ratio=s.lev_ratio,
+                                    )
+                                    all_streams[infohash] = stream_obj
+                                    new_streams[infohash] = stream_obj
+    
+                            event = ScrapeStreamEvent(
+                                event="streams" if new_streams else "progress",
+                                service=service_name,
+                                message=f"{service_name} found {len(new_streams)} new streams for {target_item.log_string}" if new_streams else f"{service_name} completed for {target_item.log_string}",
+                                streams=new_streams if new_streams else None,
+                                total_streams=len(all_streams),
+                                services_completed=services_completed,
+                                total_services=total_services * len(items_to_scrape),
+                            )
+                            yield f"data: {event.model_dump_json()}\n\n"
 
                 complete_event = ScrapeStreamEvent(
                     event="complete",
@@ -672,7 +700,18 @@ def scrape_item(
         apply_custom_params(item, custom_title, custom_imdb_id)
 
         with settings_manager.override(**overrides):
-            streams = scraper.scrape(item, manual=True)
+            items_to_scrape = [item]
+            if isinstance(item, Show):
+                items_to_scrape = [season for season in item.seasons if season.state != States.Unreleased]
+                if not items_to_scrape:
+                    items_to_scrape = [item]
+            
+            streams = {}
+            for target_item in items_to_scrape:
+                target_streams = scraper.scrape(target_item, manual=True)
+                for infohash, stream in target_streams.items():
+                    if infohash not in streams:
+                        streams[infohash] = stream
 
         return ScrapeItemResponse(
             message=f"Manually scraped streams for item {item.log_string}",
