@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, cast, TypeAlias
 from uuid import uuid4
 
-from RTN import ParsedData, parse, Torrent
+from RTN import ParsedData, Torrent
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -17,15 +17,17 @@ from loguru import logger
 from PTT import parse_title  # pyright: ignore[reportUnknownVariableType]
 from pydantic import BaseModel, Json, RootModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import InvalidRequestError
 
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import MediaItem, Show, Season, ProcessedItemType
+from program.media.item import MediaItem, Show, Season, ProcessedItemType, Episode, Movie
 from program.media.state import States
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import (
     DebridFile,
+    DownloadedTorrent,
     TorrentContainer,
     TorrentInfo,
 )
@@ -76,6 +78,8 @@ class StartSessionResponse(MessageResponse):
     session_id: str
     item_id: int
     media_type: Literal["movie", "tv"] | None = None
+    requested_season: int | None = None
+    requested_episode: int | None = None
     tmdb_id: str | None = None
     tvdb_id: str | None = None
     imdb_id: str | None = None
@@ -470,6 +474,46 @@ def resolve_media_item(
     
     return item
 
+def get_overrides_dict(
+    ranking_overrides: Json[dict[str, list[str]]] | dict[str, list[str]] | None = None,
+    min_filesize_override: int | None = None,
+    max_filesize_override: int | None = None,
+) -> dict[str, Any]:
+    """Helper to construct search rank/filter overrides from request params"""
+    rtn_settings_override_model = get_ranking_overrides(ranking_overrides)
+    if not rtn_settings_override_model:
+        rtn_settings_override_model = RTNSettingsModel(
+            **settings_manager.settings.ranking.model_dump()
+        )
+
+    overrides: dict[str, Any] = rtn_settings_override_model.model_dump()
+
+    if min_filesize_override is not None:
+        overrides["min_filesize"] = min_filesize_override
+    if max_filesize_override is not None:
+        overrides["max_filesize"] = max_filesize_override
+    
+    return overrides
+
+def apply_custom_params(item: MediaItem, custom_title: str | None = None, custom_imdb_id: str | None = None) -> None:
+    """Apply custom scrape parameters (not persisted to DB)"""
+    # If any custom param is used, clear strict metadata to allow overrides
+    if custom_title or custom_imdb_id:
+        item.tmdb_id = None
+        item.tvdb_id = None
+        item.year = None  # pyright: ignore[reportAttributeAccessIssue]
+        item.aired_at = None  # pyright: ignore[reportAttributeAccessIssue]
+    
+    if custom_title:
+        item.title = custom_title
+        # If no custom IMDB ID provided, clear original IMDB ID to force text search
+        if not custom_imdb_id:
+            item.imdb_id = None
+
+    if custom_imdb_id:
+        item.imdb_id = custom_imdb_id
+
+
 @router.get(
     "",
     summary="Get streams for an item",
@@ -533,30 +577,11 @@ def scrape_item(
         media_type if media_type in ("movie", "tv") else None
     )
     
-    rtn_settings_override_model = get_ranking_overrides(ranking_overrides)
-    overrides: dict[str, Any] = rtn_settings_override_model.model_dump() if rtn_settings_override_model else {}
-    if min_filesize_override is not None:
-        overrides["min_filesize"] = min_filesize_override
-    if max_filesize_override is not None:
-        overrides["max_filesize"] = max_filesize_override
-
-    def apply_custom_params(item: MediaItem) -> None:
-        """Apply custom scrape parameters (not persisted to DB)"""
-        # If any custom param is used, clear strict metadata to allow overrides
-        if custom_title or custom_imdb_id:
-            item.tmdb_id = None
-            item.tvdb_id = None
-            item.year = None
-            item.aired_at = None
-        
-        if custom_title:
-            item.title = custom_title
-            # If no custom IMDB ID provided, clear original IMDB ID to force text search
-            if not custom_imdb_id:
-                item.imdb_id = None
-
-        if custom_imdb_id:
-            item.imdb_id = custom_imdb_id
+    overrides = get_overrides_dict(
+        ranking_overrides=ranking_overrides,
+        min_filesize_override=min_filesize_override,
+        max_filesize_override=max_filesize_override,
+    )
 
     if stream:
         # SSE streaming mode
@@ -573,10 +598,13 @@ def scrape_item(
                     return
                 
                 # Detach item from session to avoid threading issues in scraper
-                session.expunge(item)
+                try:
+                    session.expunge(item)
+                except InvalidRequestError:
+                    pass
                 
                 # Apply custom params to the detached item
-                apply_custom_params(item)
+                apply_custom_params(item, custom_title, custom_imdb_id)
 
                 all_streams: dict[str, Stream] = {}
                 total_services = len(scraper.initialized_services)
@@ -641,7 +669,7 @@ def scrape_item(
     with db_session() as session:
         item = resolve_media_item(session, item_id, tmdb_id, tvdb_id, imdb_id, target_media_type)
         assert item
-        apply_custom_params(item)
+        apply_custom_params(item, custom_title, custom_imdb_id)
 
         with settings_manager.override(**overrides):
             streams = scraper.scrape(item, manual=True)
@@ -778,25 +806,37 @@ async def start_manual_session(
                     continue
 
                 try:
-                    parsed_data = cast(dict[str, Any], parse_title(file.filename))
+                    ptt_data = parse_title(file.filename)
+                    ptt_data["raw_title"] = file.filename
+                    parsed_metadata = ParsedData(**ptt_data)
                     parsed_files.append(
                         ParsedFile(
                             file_id=file.file_id,
                             filename=file.filename,
                             filesize=file.filesize,
                             download_url=file.download_url,
-                            parsed_metadata=parsed_data,
+                            parsed_metadata=parsed_metadata.model_dump(),
                         )
                     )
                 except Exception as e:
                     logger.warning(f"Failed to parse title for {file.filename}: {e}")
                     continue
 
+        requested_season = None
+        requested_episode = None
+        if isinstance(item, Season):
+            requested_season = item.number
+        elif isinstance(item, Episode):
+            requested_season = item.parent.number
+            requested_episode = item.number
+
         return StartSessionResponse(
             message="Started manual scraping session",
             session_id=session_obj.id,
             item_id=item.id,
             media_type=media_type,
+            requested_season=requested_season,
+            requested_episode=requested_episode,
             tmdb_id=tmdb_id,
             tvdb_id=tvdb_id,
             imdb_id=imdb_id,
@@ -806,6 +846,126 @@ async def start_manual_session(
             parsed_files=parsed_files,
             expires_at=session_obj.expires_at.isoformat(),
         )
+
+
+def _download_and_update(scraping_session: ScrapingSession, file_ids: list[int]) -> str:
+    """Resolve a torrent, match files to episodes, update states, and emit events.
+
+    Shared by the ``update_attributes`` and ``complete`` session actions.
+    Returns the item's log_string on success.
+    """
+    if services := di[Program].services:
+        downloader = services.downloader
+    else:
+        raise HTTPException(status_code=500, detail="Downloader service not available")
+
+    assert downloader.service
+    debrid_service = downloader.service
+
+    with db_session() as session:
+        item = resolve_media_item(
+            session=session,
+            item_id=scraping_session.item_id,
+            tmdb_id=scraping_session.tmdb_id,
+            tvdb_id=scraping_session.tvdb_id,
+            imdb_id=scraping_session.imdb_id,
+            media_type=cast(Literal["movie", "tv"] | None, scraping_session.media_type),
+        )
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        item = session.merge(item)
+
+        info = debrid_service.get_torrent_info(scraping_session.torrent_id)
+        if not info or not info.files:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve torrent info — torrent may have expired",
+            )
+
+        item_type = item.type if item.type != "mediaitem" else "movie"
+        file_id_set = set(file_ids)
+        container_files = list[DebridFile]()
+
+        for fid, meta in info.files.items():
+            if fid not in file_id_set:
+                continue
+            if not meta.download_url:
+                logger.warning(f"No download URL for file {fid} ({meta.filename}), skipping")
+                continue
+            try:
+                df = DebridFile.create(
+                    path=meta.path,
+                    filename=meta.filename,
+                    filesize_bytes=meta.bytes,
+                    filetype=item_type,
+                    file_id=fid,
+                )
+                df.download_url = meta.download_url
+                container_files.append(df)
+            except Exception as e:
+                logger.warning(f"Skipping file {meta.filename}: {e}")
+
+        if not container_files:
+            raise HTTPException(
+                status_code=500,
+                detail="No files with download URLs found — torrent may not be cached",
+            )
+
+        assert scraping_session.torrent_info
+        assert scraping_session.magnet
+
+        download_result = DownloadedTorrent(
+            id=scraping_session.torrent_id,
+            infohash=scraping_session.magnet,
+            container=TorrentContainer(
+                infohash=scraping_session.magnet,
+                files=container_files,
+            ),
+            info=info,
+        )
+
+        processed_ids: set[str] = set()
+        if not downloader.update_item_attributes(
+            item, download_result, debrid_service, processed_ids
+        ):
+            raise HTTPException(status_code=500, detail="No files matched any episodes")
+
+        # Matched episodes → Downloaded.
+        # Unmatched episodes still in idle states → Paused.
+        # Episodes already Downloaded/Symlinked/Completed are left untouched.
+        _IDLE_STATES = frozenset({
+            States.Indexed, States.Unknown, States.Requested, States.Scraped,
+        })
+
+        if isinstance(item, (Show, Season)):
+            seasons = item.seasons if isinstance(item, Show) else [item]
+            for season in seasons:
+                for episode in season.episodes:
+                    if str(episode.id) in processed_ids:
+                        MediaItem.store_state(episode, States.Downloaded)
+                    elif episode.last_state in _IDLE_STATES:
+                        MediaItem.store_state(episode, States.Paused)
+                MediaItem.store_state(season)
+            if isinstance(item, Show):
+                MediaItem.store_state(item)
+        elif isinstance(item, Movie):
+            if str(item.id) in processed_ids:
+                MediaItem.store_state(item, States.Downloaded)
+
+        session.commit()
+
+        # Emit events for matched items → Filesystem → Symlinker
+        if isinstance(item, (Show, Season)):
+            for season in (item.seasons if isinstance(item, Show) else [item]):
+                for episode in season.episodes:
+                    if str(episode.id) in processed_ids:
+                        di[Program].em.add_event(Event("Downloader", episode.id))
+        else:
+            di[Program].em.add_event(Event("Downloader", item.id))
+
+        return item.log_string
 
 
 @router.post(
@@ -833,9 +993,12 @@ async def session_action(
     - abort: Cancel the session and clean up
     - complete: Finalize the session
     """
+    logger.debug(f"Session action: {request.action} for session {session_id}")
     scraping_session = scraping_session_manager.get_session(session_id)
-    
+
     if not scraping_session:
+        known_ids = list(scraping_session_manager.sessions.keys())
+        logger.warning(f"Session {session_id} not found. Active sessions: {known_ids}")
         raise HTTPException(status_code=404, detail="Session not found or expired")
 
     # === SELECT FILES ===
@@ -872,105 +1035,33 @@ async def session_action(
     if request.action == "update_attributes":
         if not request.file_data:
             raise HTTPException(status_code=400, detail="file_data required for update_attributes action")
-        
+
         if not scraping_session.item_id:
             scraping_session_manager.abort_session(session_id)
             raise HTTPException(status_code=500, detail="No item ID found")
-        
+
+        if not scraping_session.torrent_id:
+            scraping_session_manager.abort_session(session_id)
+            raise HTTPException(status_code=500, detail="No torrent ID found in session")
+
         data = request.file_data
-        
-        if services := di[Program].services:
-            downloader = services.downloader
+
+        # Extract file IDs from payload
+        file_ids = list[int]()
+        if isinstance(data, DebridFile):
+            if data.file_id is not None:
+                file_ids.append(data.file_id)
         else:
-            raise HTTPException(status_code=500, detail="Downloader service not available")
-        
-        with db_session() as session:
-            item = resolve_media_item(
-                session=session,
-                tmdb_id=scraping_session.tmdb_id,
-                tvdb_id=scraping_session.tvdb_id,
-                imdb_id=scraping_session.imdb_id,
-                media_type=cast(Literal["movie", "tv"] | None, scraping_session.media_type),
-            )
-            
-            if not item:
-                raise HTTPException(status_code=404, detail="Item not found")
-            
-            # Ensure attached to session
-            item = session.merge(item)
-            
-            # Extract selected file IDs and active seasons from payload
-            file_ids = list[int]()
-            active_seasons = set[int]()
-            
-            if isinstance(data, DebridFile):
-                if data.file_id:
-                    file_ids.append(data.file_id)
-            else:
-                 # Extract file IDs and Season numbers
-                 root_data = data.root
-                 for season_num, episodes in root_data.items():
-                     active_seasons.add(season_num)
-                     for ep_data in episodes.values():
-                         if ep_data.file_id:
-                             file_ids.append(ep_data.file_id)
+            for season_num, episodes in data.root.items():
+                for ep_num, ep_data in episodes.items():
+                    if ep_data.file_id is not None:
+                        file_ids.append(ep_data.file_id)
 
-            # Construct synthetic Stream object for the downloader
-            # We use RTN to parse the release title to satisfy Stream requirements
-            assert scraping_session.torrent_info
-            parsed_data = parse(scraping_session.torrent_info.name)
-            assert scraping_session.magnet
-            torrent = Torrent(
-                raw_title=scraping_session.torrent_info.name,
-                infohash=scraping_session.magnet,
-                data=parsed_data,
-                rank=0,
-                lev_ratio=1.0
-            )
-            stream = ItemStream(torrent)
-            
-            assert downloader.service
-            # Start Manual Download via Downloader Service
-            # This handles validation, downloading, and attribute updates in one go
-            success = downloader.start_manual_download(
-                item=item,
-                stream=stream,
-                service=downloader.service, # Use primary service
-                file_ids=file_ids,
-            )
-            
-            if not success:
-               logger.error(f"Manual download failed for {item.log_string}")
-               raise HTTPException(status_code=500, detail="Failed to start manual download")
-            
-            # Update Season States (Pause unselected / Unpause selected)
-            # Update Season States (Pause unselected / Unpause selected)
-            if isinstance(item, Show) and active_seasons:
+        if not file_ids:
+            raise HTTPException(status_code=400, detail="No file IDs in payload")
 
-                logger.info(f"Updating season states for {item.log_string}. Active seasons: {active_seasons}")
-                
-                for season in item.seasons:
-                    if season.number in active_seasons:
-                        if season.last_state == States.Paused:
-                            season.store_state(States.Unknown)
-                        # Ensure episodes are also unpaused
-                        for episode in season.episodes:
-                            if episode.last_state == States.Paused:
-                                episode.store_state(States.Unknown)
-                    else:
-                        if season.last_state != States.Paused:
-                            season.store_state(States.Paused)
-                        # Ensure episodes are also paused
-                        for episode in season.episodes:
-                            if episode.last_state != States.Paused:
-                                episode.store_state(States.Paused)
-                
-            session.commit()
-            
-            # Emit event as if Downloader just finished, to trigger Symlinker/Filesystem
-            di[Program].em.add_event(Event("Downloader", item.id))
-            
-            return MessageResponse(message=f"Updated given data to {item.log_string}")
+        result = _download_and_update(scraping_session, file_ids)
+        return MessageResponse(message=f"Updated given data to {result}")
 
     # === ABORT ===
     if request.action == "abort":
@@ -981,6 +1072,17 @@ async def session_action(
     if request.action == "complete":
         if not all([scraping_session.torrent_id, scraping_session.selected_files]):
             raise HTTPException(status_code=400, detail="Session is incomplete")
+
+        if not scraping_session.item_id:
+            scraping_session_manager.abort_session(session_id)
+            raise HTTPException(status_code=500, detail="No item ID found")
+
+        # Extract file IDs from selected_files (set during select_files action)
+        file_ids = [int(fid) for fid in scraping_session.selected_files.keys() if str(fid).isdigit()]
+        if not file_ids:
+            raise HTTPException(status_code=400, detail="No file IDs in selected files")
+
+        _download_and_update(scraping_session, file_ids)
         scraping_session_manager.complete_session(session_id)
         return MessageResponse(message=f"Completed session {session_id}")
 
@@ -1025,19 +1127,11 @@ async def auto_scrape(
 ) -> MessageResponse:
     """Trigger auto scraping. For TV shows, optionally provide season_numbers to scrape specific seasons."""
 
-    rtn_settings_override_model = get_ranking_overrides(request.ranking_overrides)
-    if not rtn_settings_override_model:
-        rtn_settings_override_model = RTNSettingsModel(
-            **settings_manager.settings.ranking.model_dump()
-        )
-
-    # Create overrides dict
-    overrides: dict[str, Any] = rtn_settings_override_model.model_dump()
-
-    if request.min_filesize_override is not None:
-        overrides["min_filesize"] = request.min_filesize_override
-    if request.max_filesize_override is not None:
-        overrides["max_filesize"] = request.max_filesize_override
+    overrides = get_overrides_dict(
+        ranking_overrides=request.ranking_overrides,
+        min_filesize_override=request.min_filesize_override,
+        max_filesize_override=request.max_filesize_override,
+    )
 
     with db_session() as session:
         item = resolve_media_item(
@@ -1082,39 +1176,51 @@ async def auto_scrape(
 
             # 1. Update states first (Unpause selected, Pause unselected)
             for season in seasons_to_scrape:
+                # Unpause episodes first so season state correctly evaluates them
+                for episode in season.episodes:
+                    MediaItem.store_state(episode, None)
+
                 if season.last_state == States.Paused:
                     logger.info(f"Unpausing season {season.number}")
-                    season.last_state = States.Unknown
-                    session.merge(season)
-                
-                # Also unpause episodes in the selected season
-                for episode in season.episodes:
-                    if episode.last_state == States.Paused:
-                        episode.last_state = States.Unknown
-                        session.merge(episode)
+                    MediaItem.store_state(season, None)
 
             for season in seasons_to_pause:
-                if season.state != States.Paused:
-                    season.last_state = States.Paused
-                    session.merge(season)
-                
+                # Find which episodes in this unselected season need to be paused
+                episodes_to_pause = []
+                has_active_episodes = False
+
                 for episode in season.episodes:
                     if episode.state not in (
                         States.Downloaded,
                         States.Symlinked,
                         States.Completed,
                         States.PartiallyCompleted,
-                        States.Paused
+                        States.Paused,
                     ):
-                        episode.last_state = States.Paused
-                        session.merge(episode)
+                        episodes_to_pause.append(episode)
+                    elif episode.state != States.Paused:
+                        has_active_episodes = True
+
+                # Only pause the season itself if it has NO active/completed episodes
+                if not has_active_episodes and season.state != States.Paused:
+                    MediaItem.store_state(season, States.Paused)
+                elif has_active_episodes and season.last_state == States.Paused:
+                    # If it has active episodes but was paused, unpause it
+                    MediaItem.store_state(season, None)
+                
+                # Pause the unselected/incomplete episodes
+                for episode in episodes_to_pause:
+                    MediaItem.store_state(episode, States.Paused)
 
             # Commit state changes so Event Manager sees them
             session.commit()
 
-            # 2. Dispatch events
+            # 2. Dispatch season-level events only.
+            # The scraper will find season packs and individual episodes alike;
+            # the downloader will match files to child episodes automatically.
+            # Do NOT dispatch per-episode events here — they would race with the
+            # season event and cause redundant per-episode scraping.
             for season in seasons_to_scrape:
-                # Dispatch for Season (Packs)
                 di[Program].em.add_event(
                     Event(
                         "API",
@@ -1122,15 +1228,6 @@ async def auto_scrape(
                         overrides=overrides,
                     )
                 )
-                # Dispatch for Episodes (Individual files)
-                for episode in season.episodes:
-                    di[Program].em.add_event(
-                        Event(
-                            "API",
-                            episode.id,
-                            overrides=overrides,
-                        )
-                    )
 
             return MessageResponse(
                 message=f"Started scrape for {len(seasons_to_scrape)} seasons of {item.log_string} (paused {len(seasons_to_pause)} others)"

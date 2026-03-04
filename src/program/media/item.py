@@ -206,7 +206,16 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         """Store the state of the item and notify about state changes."""
 
         previous_state = self.last_state
-        new_state = given_state or self.state
+
+        if given_state is None:
+            # Temporarily clear last_state to break feedback loops (like Paused -> Paused)
+            # when dynamically recalculating the item's true current state
+            self.last_state = States.Unknown
+            new_state = self.state
+            self.last_state = previous_state
+        else:
+            new_state = given_state
+
         self.last_state = new_state
 
         # Notify about state change via NotificationService
@@ -371,30 +380,32 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         if not self.aired_at:
             return False
 
-        return self.aired_at and self.aired_at <= datetime.now()
+        now = datetime.now()
+        if not isinstance(self.aired_at, datetime):
+            now = now.date()
+        return self.aired_at <= now
 
     @property
     def state(self) -> States:
         return self._determine_state()
 
     def _determine_state(self) -> States:
+        if self.updated:
+            return States.Completed
+        elif self.available_in_vfs:
+            return States.Symlinked
+
         if self.last_state == States.Paused:
             return States.Paused
 
         if self.last_state == States.Failed:
             return States.Failed
-
-        if self.updated:
-            return States.Completed
-        elif self.available_in_vfs:
-            # Consider Symlinked (available) when VFS has the entry mounted
-            return States.Symlinked
         elif self.filesystem_entry:
-            # Downloaded if we have filesystem_entry (from downloader)
             return States.Downloaded
         elif self.is_scraped():
             return States.Scraped
-        elif self.title and self.is_released:
+        
+        if self.title and self.is_released:
             return States.Indexed
         elif self.title:
             return States.Unreleased
@@ -406,18 +417,20 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
     def is_scraped(self) -> bool:
         """Check if the item has been scraped."""
 
-        session = object_session(self)
+        try:
+            has_streams = len(self.streams) > 0
+            if not has_streams:
+                return False
 
-        if session and session.is_active:
-            try:
-                session.refresh(self, attribute_names=["blacklisted_streams"])
-                return len(self.streams) > 0 and any(
-                    stream not in self.blacklisted_streams for stream in self.streams
-                )
-            except:
-                pass
-
-        return False
+            return any(
+                stream not in self.blacklisted_streams for stream in self.streams
+            )
+        except DetachedInstanceError:
+            # If detached, we can only return true if the relationship was already loaded
+            return False
+        except Exception as e:
+            logger.error(f"Error in is_scraped for {self.log_string}: {e}")
+            return False
 
     def to_dict(self) -> dict[str, Any]:
         """Convert item to dictionary (API response)"""
@@ -834,61 +847,65 @@ class Show(MediaItem):
         super().__init__(item)
 
     def _determine_state(self):
-        if all(season.state == States.Paused for season in self.seasons):
-            return States.Paused
+        if len(self.seasons) > 0:
+            if all(season.state == States.Paused for season in self.seasons):
+                return States.Paused
 
-        if all(season.state == States.Failed for season in self.seasons):
-            return States.Failed
+            if all(season.state == States.Failed for season in self.seasons):
+                return States.Failed
 
-        if all(season.state == States.Completed for season in self.seasons):
-            # Check TVDB status - only mark as Completed if the show has ended
-            # If status is "Continuing" or "Upcoming", the show is still ongoing
-            if self.tvdb_status and self.tvdb_status.lower() in [
-                "continuing",
-                "upcoming",
-            ]:
+            if all(season.state == States.Completed for season in self.seasons):
+                # Check TVDB status - only mark as Completed if the show has ended
+                # If status is "Continuing" or "Upcoming", the show is still ongoing
+                if self.tvdb_status and self.tvdb_status.lower() in [
+                    "continuing",
+                    "upcoming",
+                ]:
+                    return States.Ongoing
+
+                return States.Completed
+
+            if any(
+                season.state in [States.Ongoing, States.Unreleased]
+                for season in self.seasons
+            ):
                 return States.Ongoing
 
-            return States.Completed
+            if any(
+                season.state in (States.Completed, States.PartiallyCompleted)
+                for season in self.seasons
+            ):
+                return States.PartiallyCompleted
 
-        if any(
-            season.state in [States.Ongoing, States.Unreleased]
-            for season in self.seasons
-        ):
-            return States.Ongoing
+            if any(season.state == States.Symlinked for season in self.seasons):
+                return States.Symlinked
 
-        if any(
-            season.state in (States.Completed, States.PartiallyCompleted)
-            for season in self.seasons
-        ):
-            return States.PartiallyCompleted
+            if any(season.state == States.Downloaded for season in self.seasons):
+                return States.Downloaded
 
-        if any(season.state == States.Symlinked for season in self.seasons):
-            return States.Symlinked
+            if self.is_scraped():
+                return States.Scraped
 
-        if any(season.state == States.Downloaded for season in self.seasons):
-            return States.Downloaded
+            if any(season.state == States.Indexed for season in self.seasons):
+                return States.Indexed
 
-        if self.is_scraped():
-            return States.Scraped
+            if all(not season.is_released for season in self.seasons):
+                return States.Unreleased
 
-        if any(season.state == States.Indexed for season in self.seasons):
-            return States.Indexed
+            if any(season.state == States.Requested for season in self.seasons):
+                return States.Requested
 
-        if all(not season.is_released for season in self.seasons):
+            return States.Unknown
+        else:
             return States.Unreleased
-
-        if any(season.state == States.Requested for season in self.seasons):
-            return States.Requested
-
-        return States.Unknown
 
     def store_state(
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
-        for season in self.seasons:
-            season.store_state(given_state)
+        if given_state is not None:
+            for season in self.seasons:
+                season.store_state(given_state)
 
         return super().store_state(given_state)
 
@@ -992,8 +1009,9 @@ class Season(MediaItem):
         self,
         given_state: States | None = None,
     ) -> tuple[States | None, States]:
-        for episode in self.episodes:
-            episode.store_state(given_state)
+        if given_state is not None:
+            for episode in self.episodes:
+                episode.store_state(given_state)
 
         return super().store_state(given_state)
 
