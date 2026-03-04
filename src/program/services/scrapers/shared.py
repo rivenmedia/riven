@@ -239,7 +239,7 @@ def parse_results(
                 not manual
                 and torrent.data.year
                 and item.aired_at
-                and not _check_item_year(item.aired_at, torrent.data)
+                and not _check_item_year(item, torrent.data)
             ):
                 # If year is present, then check to make sure it's correct
                 logger.trace(
@@ -287,14 +287,32 @@ def parse_results(
 # helper functions
 
 
-def _check_item_year(aired_at: datetime, data: ParsedData) -> bool:
-    """Check if the year of the torrent is within the range of the item."""
+def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
+    """Check if the year of the torrent is within the range of the item or its top-level parent."""
+    
+    valid_years = set()
 
-    return data.year in [
-        aired_at.year - 1,
-        aired_at.year,
-        aired_at.year + 1,
-    ]
+    if item.aired_at:
+        valid_years.update([
+            item.aired_at.year - 1,
+            item.aired_at.year,
+            item.aired_at.year + 1,
+        ])
+
+    # Also check the top-level parent's release year, since many show torrents use the premiere year (e.g., Lucifer (2016) S04)
+    if isinstance(item, (Season, Episode)):
+        top_parent = item.top_parent if hasattr(item, "top_parent") else getattr(item, "parent", None)
+        if hasattr(top_parent, "parent"):
+            top_parent = top_parent.parent
+            
+        if top_parent and getattr(top_parent, "aired_at", None):
+            valid_years.update([
+                top_parent.aired_at.year - 1,
+                top_parent.aired_at.year,
+                top_parent.aired_at.year + 1,
+            ])
+
+    return data.year in valid_years
 
 
 def _get_item_country(item: MediaItem) -> str | None:
