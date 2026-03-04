@@ -97,6 +97,11 @@ class Updater(Runner[None, BaseUpdater]):
                         refreshed_paths.add(refresh_path)
 
             _item.updated = True
+            # Persist the state: updated=True makes _determine_state() return
+            # Completed.  The framework only calls store_state() on the
+            # top-level Show after a runner yields, so individual episode/movie
+            # states must be updated explicitly here.
+            _item.store_state()
             logger.debug(f"Updated {_item.log_string}")
 
         logger.info(

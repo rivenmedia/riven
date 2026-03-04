@@ -372,13 +372,15 @@ def run_thread_with_db_item(
                         run_at = runner_result.run_at
 
                         if not cancellation_event.is_set():
-                            # Update parent item based on type
+                            # Update item state
+                            item.store_state()
+
+                            # Update parent item(s) up the tree
                             if isinstance(input_item, Episode):
+                                input_item.parent.store_state()
                                 input_item.parent.parent.store_state()
                             elif isinstance(input_item, Season):
                                 input_item.parent.store_state()
-                            else:
-                                item.store_state()
 
                             session.commit()
 

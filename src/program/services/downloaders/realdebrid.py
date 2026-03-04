@@ -225,6 +225,7 @@ class RealDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        greedy: bool = True,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
@@ -237,7 +238,7 @@ class RealDebridDownloader(DownloaderBase):
         try:
             torrent_id = self.add_torrent(infohash)
             container, reason, info = self._process_torrent(
-                torrent_id, infohash, item_type
+                torrent_id, infohash, item_type, greedy=greedy
             )
 
             if container is None and reason:
@@ -326,6 +327,7 @@ class RealDebridDownloader(DownloaderBase):
         torrent_id: str,
         infohash: str,
         item_type: ProcessedItemType,
+        greedy: bool = True,
     ) -> tuple[TorrentContainer | None, str | None, TorrentInfo | None]:
         """
         Process a single torrent and return (container, reason, info).
@@ -355,8 +357,25 @@ class RealDebridDownloader(DownloaderBase):
             if not video_ids:
                 return None, "no video files found to select", None
 
-            # Select only video files
-            self.select_files(torrent_id, video_ids)
+            # Select only video files if greedy is enabled
+            if greedy:
+                self.select_files(torrent_id, video_ids)
+            else:
+                # Return container without selecting - caller will handle specific selection
+                files = list[DebridFile]()
+                for file_id, meta in info.files.items():
+                    try:
+                        df = DebridFile.create(
+                            path=meta.path,
+                            filename=meta.filename,
+                            filesize_bytes=meta.bytes,
+                            filetype=item_type,
+                            file_id=file_id,
+                        )
+                        files.append(df)
+                    except InvalidDebridFileException:
+                        continue
+                return TorrentContainer(infohash=infohash, files=files), None, info
 
             # Refresh info - REQUIRED to verify torrent is actually downloaded after selection
             # Real-Debrid may still be processing, so we need to check the actual status
