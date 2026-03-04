@@ -17,8 +17,8 @@ from program.db import db_functions
 from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
-from program.types import Event, Service
 from program.media.state import States
+from program.types import Event, Service
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -84,7 +84,7 @@ class EventManager:
 
         _executor = ThreadPoolExecutor(
             thread_name_prefix=service_name,
-            max_workers=5,
+            max_workers=1,
         )
 
         self._executors.append(
@@ -117,55 +117,8 @@ class EventManager:
             try:
                 result = future_with_event.future.result()
             except Exception as e:
-                import httpx
-                from program.utils.exceptions import RateLimitError
-                
-                is_transient = isinstance(e, (httpx.TimeoutException, ConnectionError, RateLimitError))
-                
-                if is_transient and future_with_event.event and future_with_event.event.item_id:
-                    event = future_with_event.event
-                    event.failure_count += 1
-                    
-                    if event.failure_count >= 5:
-                        logger.error(f"Item ID {event.item_id} failed 5 times. Marking as Failed.")
-                        from program.media.item import MediaItem as MediaItemModel
-                        from program.db.db import db_session
-                        
-                        with db_session() as session:
-                            item = session.get(MediaItemModel, event.item_id)
-                            if item:
-                                item.store_state(States.Failed)
-                                session.commit()
-                    else:
-                        base_delay = 60  # 1 minute base
-                        
-                        if isinstance(e, RateLimitError) and e.retry_after:
-                            delay = e.retry_after
-                        else:
-                            # Exponential backoff: 1m, 2m, 4m, 8m
-                            delay = base_delay * (2 ** (event.failure_count - 1))
-                            
-                        logger.warning(
-                            f"Transient error for {event.log_message}: {e.__class__.__name__}. "
-                            f"Retry {event.failure_count}/5 in {delay}s."
-                        )
-                        
-                        from datetime import timedelta
-                        retry_event = Event(
-                            emitted_by=event.emitted_by,
-                            item_id=event.item_id,
-                            content_item=event.content_item,
-                            run_at=datetime.now() + timedelta(seconds=delay),
-                            overrides=event.overrides,
-                            failure_count=event.failure_count
-                        )
-                        
-                        # Re-queue using the proper API (handles dedup + state caching)
-                        self.add_event_to_queue(retry_event, log_message=False)
-                else:
-                    logger.error(f"Error in future for {future_with_event}: {e}")
-                    logger.exception(traceback.format_exc())
-                    
+                logger.error(f"Error in future for {future_with_event}: {e}")
+                logger.exception(traceback.format_exc())
                 return  # finally still runs
 
             if isinstance(result, tuple):
@@ -473,8 +426,7 @@ class EventManager:
                         raise Empty
 
                     # Define state priority (lower number = higher priority).
-                    # Items closest to completion are processed first to avoid
-                    # PartiallyCompleted shows starving Symlinked/Downloaded items.
+                    # Items closest to completion are processed first.
                     state_priority = dict[States, int](
                         {
                             States.Completed: 0,
@@ -489,14 +441,11 @@ class EventManager:
                     def get_event_priority(event: Event) -> tuple[int, datetime]:
                         """
                         Returns a tuple for sorting: (state_priority, run_at)
-                        Items with higher priority states come first, then sorted by run_at.
                         Uses cached item_state to avoid database queries.
                         """
                         if event.item_state:
                             priority = state_priority.get(event.item_state, 999)
                             return (priority, event.run_at)
-
-                        # Default priority for items without state or content-only events
                         return (0, event.run_at)
 
                     # Sort by priority (state first, then run_at)

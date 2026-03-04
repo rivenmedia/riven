@@ -4,16 +4,14 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
-from typing import TYPE_CHECKING
 from loguru import logger
 
+from program.media.item import MediaItem
+from program.media.state import States
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from program.settings.models import FilesystemModel
-
-if TYPE_CHECKING:
-    from program.media.item import MediaItem
 
 
 class FilesystemService(Runner[FilesystemModel]):
@@ -74,13 +72,26 @@ class FilesystemService(Runner[FilesystemModel]):
 
         # Process each episode/movie
         for episode_or_movie in items_to_process:
+            if not episode_or_movie.media_entry:
+                logger.warning(
+                    f"Item {episode_or_movie.log_string} has no media entry, "
+                    f"resetting to Indexed to prevent re-queue loop"
+                )
+                MediaItem.store_state(episode_or_movie, States.Indexed)
+                continue
+
             success = self.riven_vfs.add(episode_or_movie)
 
             if not success:
-                logger.error(f"Failed to register {item.log_string} with RivenVFS")
+                logger.error(f"Failed to register {episode_or_movie.log_string} with RivenVFS")
                 continue
 
-            logger.debug(f"Registered {item.log_string} with RivenVFS")
+            # Persist the state change: available_in_vfs is now True so
+            # _determine_state() returns Symlinked.  The framework only calls
+            # store_state() on the top-level Show after a runner yields, so
+            # individual episode/movie states must be updated explicitly here.
+            episode_or_movie.store_state()
+            logger.debug(f"Registered {episode_or_movie.log_string} with RivenVFS")
 
         logger.info(f"Filesystem processing complete for {item.log_string}")
 
