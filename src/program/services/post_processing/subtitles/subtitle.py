@@ -18,7 +18,6 @@ from program.services.post_processing.subtitles.providers.base import (
     SubtitleProvider,
 )
 from program.core.analysis_service import AnalysisService
-from .providers.opensubtitles import OpenSubtitlesProvider
 from .utils import calculate_opensubtitles_hash
 
 
@@ -36,18 +35,17 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             return
 
         # Initialize providers
-        self.providers = list[SubtitleProvider]()
+        self.providers: list[SubtitleProvider] = []
         self._initialize_providers()
 
         if not self.providers:
             logger.warning("No subtitle providers initialized")
             return
 
-        # Parse language codes
-        self.languages = self._parse_languages(self.settings.languages)
+        self.languages = self.settings.languages
 
         if not self.languages:
-            logger.warning("No valid languages configured for subtitles")
+            logger.warning("No languages configured for subtitles")
             return
 
         self.initialized = True
@@ -59,61 +57,29 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
     def get_key(cls) -> str:
         return "subtitle"
 
-    def _initialize_providers(self):
+    def _initialize_providers(self) -> None:
         """Initialize configured subtitle providers."""
 
         provider_configs = self.settings.providers
 
-        # Initialize OpenSubtitles provider
-        if provider_configs.opensubtitles.enabled:
-            try:
-                provider = OpenSubtitlesProvider()
-                self.providers.append(provider)
-                logger.debug("OpenSubtitles provider initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize OpenSubtitles provider: {e}")
+        # Initialize OpenSubtitles.com REST API provider
+        if provider_configs.opensubtitles_com.enabled:
+            config = provider_configs.opensubtitles_com
+            if not config.api_key:
+                logger.warning(
+                    "OpenSubtitles.com enabled but no API key configured"
+                )
+            else:
+                try:
+                    from .providers.opensubtitles_com import OpenSubtitlesComProvider
 
-        # Add more providers here in the future
-        # if provider_configs.get("opensubtitlescom", {}).get("enabled"):
-        #     ...
-
-    @classmethod
-    def _parse_languages(cls, language_codes: list[str]) -> list[str]:
-        """
-        Parse and validate language codes.
-
-        Args:
-            language_codes: list of language codes (ISO 639-1, ISO 639-2, or ISO 639-3)
-
-        Returns:
-            list of valid ISO 639-3 language codes
-        """
-
-        from .providers.opensubtitles import normalize_language_to_alpha3
-
-        valid_languages = list[str]()
-
-        for lang_code in language_codes:
-            try:
-                normalized = normalize_language_to_alpha3(lang_code)
-
-                if (
-                    normalized
-                    and normalized != "eng"
-                    or lang_code.lower() in ["en", "eng"]
-                ):
-                    valid_languages.append(normalized)
-                elif normalized == "eng" and lang_code.lower() not in ["en", "eng"]:
-                    # Only add 'eng' if it was explicitly requested
-                    logger.warning(
-                        f"Language code '{lang_code}' normalized to 'eng' (fallback)"
+                    provider = OpenSubtitlesComProvider(config)
+                    self.providers.append(provider)
+                    logger.debug("OpenSubtitles.com provider initialized")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to initialize OpenSubtitles.com provider: {e}"
                     )
-                else:
-                    valid_languages.append(normalized)
-            except Exception as e:
-                logger.error(f"Failed to parse language code '{lang_code}': {e}")
-
-        return list(set(valid_languages))  # Remove duplicates
 
     @property
     def enabled(self) -> bool:
@@ -176,8 +142,8 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             # NOT full filenames - see https://trac.opensubtitles.org/opensubtitles/wiki/XMLRPC#Supportedtags
             search_tags = self._build_search_tags(item)
 
-            # Get IMDB ID
-            imdb_id = item.imdb_id
+            # Get IMDB ID (use get_top_imdb_id for episodes to get parent Show's imdb_id)
+            imdb_id = item.get_top_imdb_id()
 
             # Get season/episode info for TV shows
             season = None
@@ -240,7 +206,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             Set of ISO 639-3 language codes (e.g., {'eng', 'spa', 'fre'})
         """
 
-        embedded_languages = set[str]()
+        embedded_languages: set[str] = set()
 
         try:
             media_entry = item.media_entry
@@ -280,7 +246,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             Comma-separated tags string (e.g., "BluRay,ETRG") or None
         """
 
-        tags = list[str]()
+        tags: list[str] = []
 
         try:
             if not (media_entry := item.media_entry) or not media_entry.media_metadata:
@@ -451,7 +417,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
             return
 
         # Search for subtitles across all providers
-        all_results = list[SubtitleItem]()
+        all_results: list[SubtitleItem] = []
 
         for provider in self.providers:
             try:
@@ -614,7 +580,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
         embedded_languages = self._get_embedded_subtitle_languages(item)
 
         # Get already downloaded subtitle languages from database
-        downloaded_languages = set[str]()
+        downloaded_languages: set[str] = set()
 
         try:
             with db_session() as session:
@@ -631,7 +597,7 @@ class SubtitleService(AnalysisService[SubtitleConfig]):
         available_languages = embedded_languages | downloaded_languages
 
         # Check if any wanted language is missing
-        languages = self._parse_languages(language_codes=self.settings.languages)
+        languages = self.settings.languages
 
         missing_languages = set(languages) - available_languages
 
