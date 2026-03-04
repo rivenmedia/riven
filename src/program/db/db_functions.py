@@ -300,7 +300,7 @@ def create_calendar(session: Session | None = None) -> dict[int, dict[str, Any]]
                 "item_id": item.id,
                 "tvdb_id": show_tvdb_id,
                 "tmdb_id": show_tmdb_id,
-            bn,     "show_title": title,
+                "show_title": title,
                 "item_type": item.type,
                 "aired_at": item.aired_at,
                 "last_state": item.last_state,
@@ -564,3 +564,4 @@ reset = os.getenv("HARD_RESET", None)
 if reset is not None and reset.lower() in ["true", "1"]:
     hard_reset_database()
     exit(0)
+
