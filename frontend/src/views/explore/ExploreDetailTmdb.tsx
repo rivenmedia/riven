@@ -56,71 +56,73 @@ export function ExploreDetailTmdb({
   };
 
   return (
-    <section className="panel">
-      <div className="detail-head">
-        {posterUrl && <img src={posterUrl} alt={media.title || media.name || 'media'} />}
-        <div>
-          <h3>{media.title || media.name || 'Unknown'}</h3>
-          <p className="muted">
-            {[kind.toUpperCase(), formatYear(media), media.vote_average ? `Rating ${Number(media.vote_average).toFixed(1)}` : null, lib?.library_state]
-              .filter(Boolean)
-              .join(' · ') || '—'}
-          </p>
-          <p className="muted">{media.overview || media.biography || 'No summary available.'}</p>
-          {kind === 'tv' && !isInLibrary && seasons.length > 0 && (
-            <div className="season-selector">
-              <div className="season-selector__header">
-                <span className="season-selector__label">
-                  Seasons: {selectedSeasons.size} of {seasons.length} selected
-                </span>
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--small"
-                  onClick={() =>
-                    setSelectedSeasons((prev) =>
-                      prev.size === seasons.length ? new Set() : new Set(seasons.map((s: any) => s.season_number ?? s.number ?? 0)),
-                    )
-                  }
-                >
-                  Toggle All
-                </button>
+    <>
+      <section className="panel">
+        <div className="detail-head">
+          {posterUrl && <img src={posterUrl} alt={media.title || media.name || 'media'} />}
+          <div>
+            <h3>{media.title || media.name || 'Unknown'}</h3>
+            <p className="muted">
+              {[kind.toUpperCase(), formatYear(media), media.vote_average ? `Rating ${Number(media.vote_average).toFixed(1)}` : null, lib?.library_state]
+                .filter(Boolean)
+                .join(' · ') || '—'}
+            </p>
+            <p className="muted">{media.overview || media.biography || 'No summary available.'}</p>
+            {kind === 'tv' && !isInLibrary && seasons.length > 0 && (
+              <div className="season-selector">
+                <div className="season-selector__header">
+                  <span className="season-selector__label">
+                    Seasons: {selectedSeasons.size} of {seasons.length} selected
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--small"
+                    onClick={() =>
+                      setSelectedSeasons((prev) =>
+                        prev.size === seasons.length ? new Set() : new Set(seasons.map((s: any) => s.season_number ?? s.number ?? 0)),
+                      )
+                    }
+                  >
+                    Toggle All
+                  </button>
+                </div>
+                <div className="season-selector__list">
+                  {seasons.map((s: any) => {
+                    const num = s.season_number ?? s.number ?? 0;
+                    return (
+                      <label key={num} className="season-selector__item">
+                        <input
+                          type="checkbox"
+                          checked={selectedSeasons.has(num)}
+                          onChange={(e) =>
+                            setSelectedSeasons((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(num);
+                              else next.delete(num);
+                              return next;
+                            })
+                          }
+                        />
+                        <span>
+                          {s.name || `Season ${num}`}
+                          {(s.episode_count ?? s.episodes?.length) ? ` (${s.episode_count ?? s.episodes?.length} eps)` : ''}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="season-selector__list">
-                {seasons.map((s: any) => {
-                  const num = s.season_number ?? s.number ?? 0;
-                  return (
-                    <label key={num} className="season-selector__item">
-                      <input
-                        type="checkbox"
-                        checked={selectedSeasons.has(num)}
-                        onChange={(e) =>
-                          setSelectedSeasons((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(num);
-                            else next.delete(num);
-                            return next;
-                          })
-                        }
-                      />
-                      <span>
-                        {s.name || `Season ${num}`}
-                        {(s.episode_count ?? s.episodes?.length) ? ` (${s.episode_count ?? s.episodes?.length} eps)` : ''}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
+            )}
+            <div className="toolbar">
+              <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
+                {isInLibrary ? 'Open Library Item' : 'Add to Library'}
+              </button>
             </div>
-          )}
-          <div className="toolbar">
-            <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
-              {isInLibrary ? 'Open Library Item' : 'Add to Library'}
-            </button>
           </div>
         </div>
-      </div>
+      </section>
       <CastCrew credits={media.credits ?? null} onPersonSelect={onPersonSelect} />
       <SimilarRecommendations data={{ recommendations, similar }} onMediaSelect={onMediaSelect} />
-    </section>
+    </>
   );
 }

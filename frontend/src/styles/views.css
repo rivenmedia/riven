@@ -633,6 +633,14 @@ button.release-bar,
   align-content: start;
 }
 
+.explore-detail--empty {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem;
+  background: var(--panel);
+  min-width: 0;
+}
+
 .detail-head {
   display: grid;
   grid-template-columns: 90px 1fr;

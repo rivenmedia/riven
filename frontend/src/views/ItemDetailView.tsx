@@ -255,30 +255,54 @@ function ManualScrapeModal({
 
   const startSessionWithMagnet = async (magnetUri: string) => {
     setSessionLoading(true);
-    const params = new URLSearchParams({ magnet: magnetUri, item_id: String(itemId) });
-    const response = await apiFetch<ManualSession>(`/scrape/start_session?${params.toString()}`, {
-      method: 'POST',
-    });
-    setSessionLoading(false);
-    if (!response.ok) {
-      notify(response.error || 'Failed to start manual session', 'error');
-      return;
+    try {
+      const params = new URLSearchParams({ magnet: magnetUri, item_id: String(itemId) });
+      const response = await apiFetch<Record<string, unknown>>(
+        `/scrape/start_session?${params.toString()}`,
+        { method: 'POST' },
+      );
+      if (!response.ok) {
+        notify(response.error || 'Failed to start manual session', 'error');
+        return;
+      }
+
+      const raw = response.data;
+      if (!raw || typeof raw !== 'object') {
+        notify('Manual session did not return a payload', 'error');
+        return;
+      }
+
+      // Normalize: backend may return snake_case (session_id, parsed_files) or camelCase
+      const session: ManualSession = {
+        session_id: (raw.session_id as string) ?? (raw.sessionId as string) ?? '',
+        item_id: (raw.item_id as number) ?? (raw.itemId as number) ?? 0,
+        media_type: (raw.media_type as ManualSession['media_type']) ?? (raw.mediaType as ManualSession['media_type']) ?? null,
+        tmdb_id: (raw.tmdb_id as string | null) ?? (raw.tmdbId as string | null) ?? null,
+        tvdb_id: (raw.tvdb_id as string | null) ?? (raw.tvdbId as string | null) ?? null,
+        imdb_id: (raw.imdb_id as string | null) ?? (raw.imdbId as string | null) ?? null,
+        torrent_id: (raw.torrent_id as number | string) ?? (raw.torrentId as number | string) ?? '',
+        torrent_info: raw.torrent_info ?? raw.torrentInfo ?? null,
+        containers: raw.containers ?? null,
+        parsed_files: (raw.parsed_files ?? raw.parsedFiles ?? null) as ManualSession['parsed_files'],
+        expires_at: (raw.expires_at as string) ?? (raw.expiresAt as string) ?? '',
+      };
+
+      if (!session.session_id) {
+        notify('Manual session did not return a session ID', 'error');
+        return;
+      }
+
+      const parsedFiles = (session.parsed_files ?? []) as ManualSessionParsedFile[];
+      const defaultSelection =
+        parsedFiles.length > 0 ? [parsedFiles[0].file_id].filter((id): id is number => !!id) : [];
+
+      setManualSession(session);
+      setSelectedFileIds(defaultSelection);
+      setStep('session');
+      notify('Manual scrape session started. Select files to download.', 'success');
+    } finally {
+      setSessionLoading(false);
     }
-
-    const session = response.data;
-    if (!session) {
-      notify('Manual session did not return a payload', 'error');
-      return;
-    }
-
-    const parsedFiles = (session.parsed_files ?? []) as ManualSessionParsedFile[];
-    const defaultSelection =
-      parsedFiles.length > 0 ? [parsedFiles[0].file_id].filter((id): id is number => !!id) : [];
-
-    setManualSession(session);
-    setSelectedFileIds(defaultSelection);
-    setStep('session');
-    notify('Manual scrape session started. Select files to download.', 'success');
   };
 
   const handleStartMagnet = async () => {
@@ -290,11 +314,16 @@ function ManualScrapeModal({
     await startSessionWithMagnet(m);
   };
 
-  const handlePickStream = async (infohash: string) => {
+  const handlePickStream = async (e: React.MouseEvent, infohash: string) => {
+    e.preventDefault();
+    e.stopPropagation();
     setPickLoading(true);
-    const magnetUri = `magnet:?xt=urn:btih:${infohash}`;
-    await startSessionWithMagnet(magnetUri);
-    setPickLoading(false);
+    try {
+      const magnetUri = `magnet:?xt=urn:btih:${infohash}`;
+      await startSessionWithMagnet(magnetUri);
+    } finally {
+      setPickLoading(false);
+    }
   };
 
   const streamList = Object.entries(scrapeStreams).sort(
@@ -375,7 +404,7 @@ function ManualScrapeModal({
                           <button
                             type="button"
                             className="manual-scrape-stream-option"
-                            onClick={() => handlePickStream(ih)}
+                            onClick={(e) => handlePickStream(e, ih)}
                             disabled={pickLoading || sessionLoading}
                             title={s.raw_title}
                           >
