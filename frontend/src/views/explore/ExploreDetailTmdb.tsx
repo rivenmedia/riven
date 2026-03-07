@@ -31,8 +31,7 @@ export function ExploreDetailTmdb({
   onMediaSelect,
 }: ExploreDetailTmdbProps) {
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
-  const lib = media.library;
-  const isInLibrary = lib?.in_library && lib?.library_item_id;
+  const isInLibrary = media.in_library && media.library_item_id;
   const seasons = (media.seasons || []).filter((s: any) => (s.season_number ?? s.number ?? 0) > 0);
   const posterUrl =
     media.poster_path || media.profile_path

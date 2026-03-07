@@ -88,32 +88,51 @@ def process_event(
     elif existing_item and existing_item.last_state == States.Indexed:
         next_service = services.scraping
 
-        if emitted_by != services.scraping and (
+        if isinstance(existing_item, Show):
+            if emitted_by != services.scraping and (
+                overrides is not None
+                or services.scraping.should_submit(existing_item)
+            ):
+                # Try pack-level scraping first when not already coming from scraper
+                items_to_submit = [existing_item]
+            else:
+                # After pack scraping (or when emitted by scraper), submit individual seasons
+                items_to_submit = [
+                    s
+                    for s in existing_item.seasons
+                    if s.last_state
+                    in [States.Indexed, States.PartiallyCompleted, States.Unknown]
+                    and (
+                        overrides is not None
+                        or services.scraping.should_submit(s)
+                    )
+                ]
+        elif isinstance(existing_item, Season):
+            if emitted_by != services.scraping and (
+                overrides is not None
+                or services.scraping.should_submit(existing_item)
+            ):
+                # Try season-level (pack) scraping first
+                items_to_submit = [existing_item]
+            else:
+                # After season pack scraping, submit individual episodes
+                items_to_submit = [
+                    e
+                    for e in existing_item.episodes
+                    if e.last_state in [States.Indexed, States.Unknown]
+                    and (
+                        overrides is not None
+                        or services.scraping.should_submit(e)
+                    )
+                ]
+        elif isinstance(existing_item, Episode):
+            if overrides is not None or services.scraping.should_submit(existing_item):
+                items_to_submit = [existing_item]
+        elif emitted_by != services.scraping and (
             overrides is not None
             or services.scraping.should_submit(existing_item)
         ):
             items_to_submit = [existing_item]
-        elif isinstance(existing_item, Show):
-            items_to_submit = [
-                s
-                for s in existing_item.seasons
-                if s.last_state
-                in [States.Indexed, States.PartiallyCompleted, States.Unknown]
-                and (
-                    overrides is not None
-                    or services.scraping.should_submit(s)
-                )
-            ]
-        elif isinstance(existing_item, Season):
-            items_to_submit = [
-                e
-                for e in existing_item.episodes
-                if e.last_state in [States.Indexed, States.Unknown]
-                and (
-                    overrides is not None
-                    or services.scraping.should_submit(e)
-                )
-            ]
 
     elif existing_item and existing_item.last_state == States.Scraped:
         next_service = services.downloader

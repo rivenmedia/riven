@@ -4,6 +4,7 @@ import { MediaGrid } from '../ui/MediaGrid';
 import { MediaTypeToggle, type MediaTypeValue } from '../ui/MediaTypeToggle';
 import { apiGet, apiPost } from '../services/api';
 import { notify } from '../services/notify';
+import { annotateLibraryStatus } from '../services/libraryStatus';
 import { getMediaKind } from '../services/utils';
 import type { AppRoute } from '../app/routeTypes';
 
@@ -52,7 +53,8 @@ export default function TrendingView({ route }: { route: AppRoute }) {
       setLoading(false);
       return;
     }
-    setItems(response.data?.results || []);
+    const results = await annotateLibraryStatus(response.data?.results || []);
+    setItems(results);
     setError(null);
     setLoading(false);
   }, [mediaType, timeWindow]);
