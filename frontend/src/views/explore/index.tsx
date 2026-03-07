@@ -188,9 +188,15 @@ export default function ExploreView({ route }: { route: AppRoute }) {
         else if (item.tmdb_id || item.id) ids.tmdb.add(String(item.tmdb_id || item.id));
       }
     });
-    if (detailData?.id && (detailData.media_type === 'movie' || detailData.media_type === 'tv' || getMediaKind(detailData) === 'tv')) {
-      if (detailData.tmdb_id || detailData.id) ids.tmdb.add(String(detailData.tmdb_id || detailData.id));
-      if (detailData.tvdb_id) ids.tvdb.add(String(detailData.tvdb_id));
+    // Include the currently-selected detail media so the poll keeps its library status up to date
+    const dm = detailData?.media;
+    if (dm) {
+      const k = getMediaKind(dm);
+      if (k === 'movie' || k === 'tv') {
+        if (dm.indexer === 'tvdb' && (dm.tvdb_id || dm.id)) ids.tvdb.add(String(dm.tvdb_id || dm.id));
+        else if (dm.tmdb_id || dm.id) ids.tmdb.add(String(dm.tmdb_id || dm.id));
+        if (dm.tvdb_id) ids.tvdb.add(String(dm.tvdb_id));
+      }
     }
     return `${toCsv([...ids.tmdb].sort())}|${toCsv([...ids.tvdb].sort())}`;
   }, [items, detailData]);
@@ -219,11 +225,14 @@ export default function ExploreView({ route }: { route: AppRoute }) {
         }),
       );
       setDetailData((d: any) => {
-        if (!d || (getMediaKind(d) !== 'movie' && getMediaKind(d) !== 'tv')) return d;
-        const key = d.indexer === 'tvdb' ? String(d.tvdb_id || d.id) : String(d.tmdb_id || d.id);
-        const status = d.indexer === 'tvdb' ? tvdb[key] : tmdb[key] || tvdb[String(d.tvdb_id)];
+        if (!d?.media) return d;
+        const dm = d.media;
+        const k = getMediaKind(dm);
+        if (k !== 'movie' && k !== 'tv') return d;
+        const key = dm.indexer === 'tvdb' ? String(dm.tvdb_id || dm.id) : String(dm.tmdb_id || dm.id);
+        const status = dm.indexer === 'tvdb' ? tvdb[key] : tmdb[key] || tvdb[String(dm.tvdb_id)];
         if (!status) return d;
-        return { ...d, in_library: Boolean(status.in_library), library_item_id: status.library_item_id, library_state: status.library_state };
+        return { ...d, media: { ...dm, in_library: Boolean(status.in_library), library_item_id: status.library_item_id ?? null, library_state: status.library_state ?? null } };
       });
     };
 
@@ -324,6 +333,18 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       const similar = (media.similar?.results || []).map((entry: any) => toCardItem(entry, node.kind));
       await annotateLibraryStatus(recommendations);
       await annotateLibraryStatus(similar);
+      // Fetch library status for this specific detail item (movie or TV show)
+      if (node.kind === 'movie' || node.kind === 'tv') {
+        const statusRes = await apiGet('/items/library/status', { tmdb_ids: String(node.id) });
+        if (statusRes.ok) {
+          const statusEntry = statusRes.data?.tmdb?.[String(node.id)];
+          if (statusEntry) {
+            media.in_library = Boolean(statusEntry.in_library);
+            media.library_item_id = statusEntry.library_item_id ?? null;
+            media.library_state = statusEntry.library_state ?? null;
+          }
+        }
+      }
       setDetailData({ kind: node.kind, media, recommendations, similar });
       setDetailLoading(false);
       syncRoute();

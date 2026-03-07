@@ -97,8 +97,8 @@ export function ExploreDetailPanel({
             node={detailNode!}
             onAdd={addItemToLibrary}
             onOpen={() => {
-              if (detailData.media.library?.library_item_id)
-                window.location.hash = `#/item/${detailData.media.library.library_item_id}`;
+              if (detailData.media.library_item_id)
+                window.location.hash = `#/item/${detailData.media.library_item_id}`;
             }}
             onRefresh={fetchResults}
             onReselect={() => detailNode && selectNode(detailNode, false)}
