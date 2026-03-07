@@ -1,7 +1,9 @@
 import type { ExploreNode } from './types';
 import { ExploreDetailPerson } from './ExploreDetailPerson';
 import { ExploreDetailTvdb } from './ExploreDetailTvdb';
-import { ExploreDetailTmdb } from './ExploreDetailTmdb';
+import { ExploreDetailTmdbMediaPanel } from './ExploreDetailTmdb';
+import { CastCrew } from '../../ui/panels/CastCrew';
+import { SimilarRecommendations } from '../../ui/panels/SimilarRecommendations';
 
 export type ExploreDetailPanelProps = {
   originLabel: string;
@@ -86,22 +88,29 @@ export function ExploreDetailPanel({
         />
       )}
       {(detailData?.kind === 'movie' || detailData?.kind === 'tv') && (
-        <ExploreDetailTmdb
-          media={detailData.media}
-          recommendations={detailData.recommendations}
-          similar={detailData.similar}
-          kind={detailData.kind}
-          node={detailNode!}
-          onAdd={addItemToLibrary}
-          onOpen={() => {
-            if (detailData.media.library?.library_item_id)
-              window.location.hash = `#/item/${detailData.media.library.library_item_id}`;
-          }}
-          onRefresh={fetchResults}
-          onReselect={() => detailNode && selectNode(detailNode, false)}
-          onPersonSelect={(p) => selectNode({ kind: 'person', id: p.id, label: p.name, source: 'tmdb' }, true)}
-          onMediaSelect={(node) => selectNode(node, true)}
-        />
+        <>
+          <ExploreDetailTmdbMediaPanel
+            media={detailData.media}
+            recommendations={detailData.recommendations}
+            similar={detailData.similar}
+            kind={detailData.kind}
+            node={detailNode!}
+            onAdd={addItemToLibrary}
+            onOpen={() => {
+              if (detailData.media.library?.library_item_id)
+                window.location.hash = `#/item/${detailData.media.library.library_item_id}`;
+            }}
+            onRefresh={fetchResults}
+            onReselect={() => detailNode && selectNode(detailNode, false)}
+            onPersonSelect={(p) => selectNode({ kind: 'person', id: p.id, label: p.name, source: 'tmdb' }, true)}
+            onMediaSelect={(node) => selectNode(node, true)}
+          />
+          <CastCrew credits={detailData.media?.credits ?? null} onPersonSelect={(p) => selectNode({ kind: 'person', id: p.id, label: p.name, source: 'tmdb' }, true)} />
+          <SimilarRecommendations
+            data={{ recommendations: detailData.recommendations ?? [], similar: detailData.similar ?? [] }}
+            onMediaSelect={(node) => selectNode(node, true)}
+          />
+        </>
       )}
     </>
   );
