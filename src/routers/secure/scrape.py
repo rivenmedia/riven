@@ -937,7 +937,11 @@ async def start_manual_session(
         )
 
 
-def _download_and_update(scraping_session: ScrapingSession, file_ids: list[int]) -> str:
+def _download_and_update(
+    scraping_session: ScrapingSession,
+    file_ids: list[int],
+    active_seasons: set[int] | None = None,
+) -> str:
     """Resolve a torrent, match files to episodes, update states, and emit events.
 
     Shared by the ``update_attributes`` and ``complete`` session actions.
@@ -1173,7 +1177,7 @@ async def session_action(
         if not file_ids:
             raise HTTPException(status_code=400, detail="No file IDs in payload")
 
-        result = _download_and_update(
+        result: str = _download_and_update(
             scraping_session, file_ids, active_seasons=active_seasons
         )
         return MessageResponse(message=f"Updated given data to {result}")

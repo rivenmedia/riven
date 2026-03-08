@@ -233,6 +233,7 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        **kwargs,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox

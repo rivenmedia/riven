@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from typing import cast
 from loguru import logger
 from RTN import ParsedData
 
@@ -307,9 +306,9 @@ class Downloader(Runner[None, DownloaderBase]):
             return None
 
         if service.key == "realdebrid":
-            container = service.get_instant_availability(stream.infohash, item.type, greedy=greedy)
+            container: TorrentContainer | None = service.get_instant_availability(stream.infohash, item.type, greedy=greedy)
         else:
-            container = service.get_instant_availability(stream.infohash, item.type)
+            container: TorrentContainer | None = service.get_instant_availability(stream.infohash, item.type)
 
         if not container:
             logger.debug(

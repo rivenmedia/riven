@@ -226,6 +226,7 @@ class RealDebridDownloader(DownloaderBase):
         infohash: str,
         item_type: ProcessedItemType,
         greedy: bool = True,
+        **kwargs,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),
