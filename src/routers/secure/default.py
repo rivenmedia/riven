@@ -541,21 +541,27 @@ async def fetch_calendar() -> CalendarResponse:
 
 
 class VFSStatsResponse(BaseModel):
-    stats: Annotated[
+    streams: Annotated[
         dict[str, dict[str, Any]],
-        Field(description="VFS statistics"),
+        Field(description="Active media stream statistics keyed by stream path:fh"),
+    ]
+    cache: Annotated[
+        dict[str, Any],
+        Field(description="Aggregate chunk-cache metrics"),
     ]
 
 
 @router.get(
     "/vfs_stats",
     summary="Get VFS Statistics",
-    description="Get statistics about the VFS",
+    description="Get statistics about the VFS including active streams and cache metrics",
     operation_id="get_vfs_stats",
     response_model=VFSStatsResponse,
 )
 async def get_vfs_stats() -> VFSStatsResponse:
     """Get statistics about the VFS"""
+
+    from program.services.streaming import Cache
 
     services = di[Program].services
 
@@ -565,7 +571,12 @@ async def get_vfs_stats() -> VFSStatsResponse:
 
     assert vfs
 
-    return VFSStatsResponse(stats=vfs.opener_stats)
+    try:
+        cache_snapshot: dict[str, Any] = dict(di[Cache].metrics.snapshot())
+    except Exception:
+        cache_snapshot = {}
+
+    return VFSStatsResponse(streams=vfs.opener_stats, cache=cache_snapshot)
 
 
 class DebugResponse(BaseModel):
