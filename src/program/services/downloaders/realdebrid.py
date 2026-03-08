@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 from loguru import logger
@@ -226,7 +226,7 @@ class RealDebridDownloader(DownloaderBase):
         infohash: str,
         item_type: ProcessedItemType,
         greedy: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent, selecting video files (if required),

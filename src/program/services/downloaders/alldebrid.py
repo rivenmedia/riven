@@ -289,7 +289,7 @@ class AllDebridDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
-        **kwargs,
+        **kwargs: Any,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the magnet to AllDebrid
