@@ -128,7 +128,7 @@ def _normalize_tvdb_item(entry: dict[str, Any]) -> dict[str, Any]:
 
 def _library_status_for_results(
     results: list[dict[str, Any]],
-) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], dict[str, str | None]]:
     from program.services import tmdb_tvdb_resolver
 
     tmdb_ids = {
@@ -159,7 +159,7 @@ def _library_status_for_results(
     tvdb_ids |= resolved_tvdb_ids
 
     if not tmdb_ids and not tvdb_ids:
-        return {}, {}
+        return {}, {}, tmdb_to_tvdb
 
     query = select(MediaItem).where(MediaItem.type.in_(["movie", "show"]))
     if tmdb_ids and tvdb_ids:
@@ -197,13 +197,23 @@ def _library_status_for_results(
         if tvdb_id and tvdb_id in tvdb_status and tmdb_id not in tmdb_status:
             tmdb_status[tmdb_id] = tvdb_status[tvdb_id]
 
-    return tmdb_status, tvdb_status
+    return tmdb_status, tvdb_status, tmdb_to_tvdb
 
 
 def _attach_library_status(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    tmdb_status, tvdb_status = _library_status_for_results(results)
+    tmdb_status, tvdb_status, tmdb_to_tvdb = _library_status_for_results(results)
 
     for item in results:
+        # Populate tvdb_id for TMDB TV items so the frontend can use it.
+        if (
+            item.get("media_type") == "tv"
+            and item.get("indexer") == "tmdb"
+            and not item.get("tvdb_id")
+        ):
+            tmdb_id = str(item.get("tmdb_id") or "")
+            if tmdb_id and tmdb_id in tmdb_to_tvdb:
+                item["tvdb_id"] = tmdb_to_tvdb[tmdb_id]
+
         library_payload = {
             "in_library": False,
             "library_item_id": None,

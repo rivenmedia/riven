@@ -39,9 +39,11 @@ function formatSpeed(bps: number): string {
 }
 
 function hitRate(cache: CacheStat): string {
-  const total = cache.hits + cache.misses;
+  const hits = cache.hits ?? 0;
+  const misses = cache.misses ?? 0;
+  const total = hits + misses;
   if (total === 0) return '—';
-  return `${((cache.hits / total) * 100).toFixed(1)}%`;
+  return `${((hits / total) * 100).toFixed(1)}%`;
 }
 
 function ProgressBar({ pct }: { pct: number }) {
@@ -128,11 +130,11 @@ function CachePanel({ cache }: { cache: CacheStat }) {
       }}
     >
       <Metric label="Hit rate" value={hitRate(cache)} />
-      <Metric label="Hits" value={cache.hits.toLocaleString()} />
-      <Metric label="Misses" value={cache.misses.toLocaleString()} />
-      <Metric label="Bytes served from cache" value={formatBytes(cache.bytes_from_cache)} />
-      <Metric label="Bytes written to cache" value={formatBytes(cache.bytes_written)} />
-      <Metric label="Evictions" value={cache.evictions.toLocaleString()} />
+      <Metric label="Hits" value={(cache.hits ?? 0).toLocaleString()} />
+      <Metric label="Misses" value={(cache.misses ?? 0).toLocaleString()} />
+      <Metric label="Bytes served from cache" value={formatBytes(cache.bytes_from_cache ?? 0)} />
+      <Metric label="Bytes written to cache" value={formatBytes(cache.bytes_written ?? 0)} />
+      <Metric label="Evictions" value={(cache.evictions ?? 0).toLocaleString()} />
       {cache.total_bytes != null && <Metric label="Cache size" value={formatBytes(cache.total_bytes)} />}
       {cache.entries != null && <Metric label="Cache entries" value={String(cache.entries)} />}
     </div>
