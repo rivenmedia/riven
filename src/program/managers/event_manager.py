@@ -155,6 +155,13 @@ class EventManager:
                     )
                 )
         except Exception as e:
+            # Remove the event from running queue so it does not get stuck
+            if future_with_event.event:
+                self.remove_event_from_running(future_with_event.event)
+                logger.debug(
+                    f"Removed {future_with_event.event.log_message} from running events due to error."
+                )
+            
             logger.error(f"Error in future for {future_with_event}: {e}")
             logger.exception(traceback.format_exc())
 
