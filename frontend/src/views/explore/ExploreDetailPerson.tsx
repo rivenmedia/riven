@@ -23,7 +23,7 @@ export function ExploreDetailPerson({ person, credits, onSelectNode, onBack }: E
               .filter(Boolean)
               .join(' · ') || '—'}
           </p>
-          <p className="muted">{person.biography || person.overview || 'No summary available.'}</p>
+          <p className="muted detail-head__synopsis">{person.biography || person.overview || 'No summary available.'}</p>
           <div className="toolbar">
             <button type="button" className="btn btn--primary btn--small" onClick={onBack}>
               Back to Results

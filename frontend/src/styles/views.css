@@ -577,7 +577,7 @@ button.release-bar,
 
 .explore-layout {
   display: grid;
-  gap: 0.85rem;
+  /* gap: 0.85rem; */
   grid-template-columns: 1fr;
 }
 
@@ -592,9 +592,9 @@ button.release-bar,
 
 .explore-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   gap: 0.75rem;
-  min-height: 400px;
+  align-content: start;
 }
 
 .explore-breadcrumbs {
@@ -643,15 +643,66 @@ button.release-bar,
 
 .detail-head {
   display: grid;
-  grid-template-columns: 90px 1fr;
+  grid-template-columns: 130px 1fr;
   gap: 0.75rem;
 }
 
+/* Discovery detail panel: gap between detail-head, toolbar, season-selector */
+.panel:has(> .detail-head) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.panel:has(> .detail-head) > .season-selector {
+  margin-top: 0;
+}
+
 .detail-head img {
-  width: 90px;
-  height: 130px;
+  width: 130px;
+  height: 165px;
   object-fit: cover;
   border-radius: var(--radius-sm);
+}
+
+.detail-head__synopsis {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0 0.6rem 0.75rem;
+  border-left: 3px solid var(--panel-border);
+  line-height: 1.5;
+  color: var(--text-2);
+  font-size: var(--font-size-1);
+}
+
+.detail-panel-meta {
+  margin-top: 0.5rem;
+}
+
+.detail-panel-meta__list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 0.5rem;
+  font-size: var(--font-size-1);
+}
+
+.detail-panel-meta__label {
+  color: var(--text-2);
+  font-weight: 500;
+  margin: 0;
+}
+
+.detail-panel-meta__value {
+  margin: 0;
+  color: var(--text-1);
+}
+
+.detail-panel-meta .media-metadata-chips {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
 }
 
 .season-tabs {
@@ -684,7 +735,8 @@ button.release-bar,
 }
 
 .season-selector {
-  margin-top: 0.45rem;
+  margin-top: 0.75rem;
+  width: 100%;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
   max-height: 200px;
@@ -734,6 +786,7 @@ button.release-bar,
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 0.55rem;
+  margin-top: 0.5rem;
 }
 
 .pill-list {

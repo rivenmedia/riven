@@ -150,16 +150,7 @@ export function EntityHeader({ data }: { data: EntityHeaderData }) {
     if (tmdb.lastAirDate && data.itemType === 'show') {
       metaEntries.push({ key: 'ended', label: 'Ended', value: tmdb.lastAirDate });
     }
-    if (typeof tmdb.voteAverage === 'number' && !Number.isNaN(tmdb.voteAverage)) {
-      metaEntries.push({
-        key: 'rating',
-        label: 'Rating',
-        value:
-          typeof tmdb.voteCount === 'number' && tmdb.voteCount > 0
-            ? `★ ${tmdb.voteAverage.toFixed(1)} (${tmdb.voteCount})`
-            : `★ ${tmdb.voteAverage.toFixed(1)}`,
-      });
-    }
+    // Rating is shown in a dedicated row after Links, not here
     if (Array.isArray(tmdb.productionCompanies) && tmdb.productionCompanies.length > 0) {
       metaEntries.push({
         key: 'studio',
@@ -202,13 +193,7 @@ export function EntityHeader({ data }: { data: EntityHeaderData }) {
   if (!hasTmdb && meta?.year) {
     metaEntries.push({ key: 'year', label: 'Year', value: meta.year });
   }
-  if (!hasTmdb && typeof meta?.voteAverage === 'number' && !Number.isNaN(meta.voteAverage)) {
-    metaEntries.push({
-      key: 'rating',
-      label: 'Rating',
-      value: `★ ${meta.voteAverage.toFixed(1)}`,
-    });
-  }
+  // Rating is shown in a dedicated row after Links, not in meta grid
 
   return (
     <div className="item-detail-header">
@@ -258,6 +243,25 @@ export function EntityHeader({ data }: { data: EntityHeaderData }) {
               </span>
             </div>
           )}
+        {(() => {
+          const avg =
+            typeof tmdb?.voteAverage === 'number' && !Number.isNaN(tmdb.voteAverage)
+              ? tmdb.voteAverage
+              : typeof meta?.voteAverage === 'number' && !Number.isNaN(meta.voteAverage)
+                ? meta.voteAverage
+                : null;
+          if (avg == null) return null;
+          const count = typeof tmdb?.voteCount === 'number' && tmdb.voteCount > 0 ? tmdb.voteCount : null;
+          const ratingText = count != null ? `★ ${avg.toFixed(1)} (${count} votes)` : `★ ${avg.toFixed(1)}`;
+          return (
+            <div className="entity-header__links-row">
+              <span className="entity-header__detail-label">Rating:</span>
+              <span className="entity-header__links">
+                <Chip text={ratingText} className="legend-chip--rating" />
+              </span>
+            </div>
+          );
+        })()}
         {(() => {
           const genresFromTmdb =
             hasTmdb && Array.isArray(tmdb?.genres) && tmdb.genres.length > 0

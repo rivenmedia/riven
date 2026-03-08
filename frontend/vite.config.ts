@@ -16,6 +16,10 @@ export default defineConfig(({ command }) => {
       host: true,
       port: 5173,
       strictPort: true,
+      watch: {
+        // Ensure CSS and other src files trigger HMR (don't ignore our source)
+        ignored: ["**/node_modules/**", "**/.git/**"],
+      },
       proxy: {
         "/api": {
           target: backendTarget,

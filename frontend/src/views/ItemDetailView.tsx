@@ -1240,7 +1240,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
               )}
               <SeasonsEpisodes item={item as ShowLike} refresh={refresh} />
               <CastCrew credits={credits ?? null} exploreLinkBase="#/explore" />
-              {tmdbData && (
+              {tmdbData && item.type === 'show' && (
                 <TmdbDetailsPanel tmdbData={tmdbData} itemType={item.type} />
               )}
               {similarData && (item.type === 'movie' || item.type === 'show') && (

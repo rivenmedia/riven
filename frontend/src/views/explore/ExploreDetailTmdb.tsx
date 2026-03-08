@@ -61,63 +61,159 @@ export function ExploreDetailTmdbMediaPanel({
         <div>
           <h3>{media.title || media.name || 'Unknown'}</h3>
           <p className="muted">
-            {[kind.toUpperCase(), formatYear(media), media.vote_average ? `Rating ${Number(media.vote_average).toFixed(1)}` : null, lib?.library_state]
+            {[kind.toUpperCase(), formatYear(media), media.library_state]
               .filter(Boolean)
               .join(' · ') || '—'}
           </p>
-          <p className="muted">{media.overview || media.biography || 'No summary available.'}</p>
-          {kind === 'tv' && !isInLibrary && seasons.length > 0 && (
-            <div className="season-selector">
-              <div className="season-selector__header">
-                <span className="season-selector__label">
-                  Seasons: {selectedSeasons.size} of {seasons.length} selected
-                </span>
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--small"
-                  onClick={() =>
-                    setSelectedSeasons((prev) =>
-                      prev.size === seasons.length ? new Set() : new Set(seasons.map((s: any) => s.season_number ?? s.number ?? 0)),
-                    )
-                  }
-                >
-                  Toggle All
-                </button>
-              </div>
-              <div className="season-selector__list">
-                {seasons.map((s: any) => {
-                  const num = s.season_number ?? s.number ?? 0;
-                  return (
-                    <label key={num} className="season-selector__item">
-                      <input
-                        type="checkbox"
-                        checked={selectedSeasons.has(num)}
-                        onChange={(e) =>
-                          setSelectedSeasons((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) next.add(num);
-                            else next.delete(num);
-                            return next;
-                          })
-                        }
-                      />
-                      <span>
-                        {s.name || `Season ${num}`}
-                        {(s.episode_count ?? s.episodes?.length) ? ` (${s.episode_count ?? s.episodes?.length} eps)` : ''}
+          <p className="muted detail-head__synopsis">{media.overview || media.biography || 'No summary available.'}</p>
+          {kind === 'tv' && (
+            <div className="detail-panel-meta">
+              <dl className="detail-panel-meta__list">
+                {Array.isArray(media.networks) && media.networks.length > 0 && (
+                  <>
+                    <dt className="detail-panel-meta__label">Network</dt>
+                    <dd className="detail-panel-meta__value">
+                      {media.networks.map((n: any) => n?.name).filter(Boolean).join(', ')}
+                    </dd>
+                  </>
+                )}
+                {media.number_of_seasons != null && (
+                  <>
+                    <dt className="detail-panel-meta__label">Seasons</dt>
+                    <dd className="detail-panel-meta__value">
+                      {media.number_of_seasons} season{media.number_of_seasons !== 1 ? 's' : ''}
+                    </dd>
+                  </>
+                )}
+                {media.number_of_episodes != null && (
+                  <>
+                    <dt className="detail-panel-meta__label">Episodes</dt>
+                    <dd className="detail-panel-meta__value">
+                      {media.number_of_episodes} episode{media.number_of_episodes !== 1 ? 's' : ''}
+                    </dd>
+                  </>
+                )}
+                {media.first_air_date && (
+                  <>
+                    <dt className="detail-panel-meta__label">First aired</dt>
+                    <dd className="detail-panel-meta__value">{media.first_air_date}</dd>
+                  </>
+                )}
+                {media.last_air_date && (
+                  <>
+                    <dt className="detail-panel-meta__label">Ended</dt>
+                    <dd className="detail-panel-meta__value">{media.last_air_date}</dd>
+                  </>
+                )}
+              </dl>
+              <div className="media-metadata-chips">
+                {Array.isArray(media.genres) &&
+                  media.genres.map((g: any) =>
+                    g?.name ? (
+                      <span key={g.name} className="legend-chip legend-chip--genre">
+                        {g.name}
                       </span>
-                    </label>
-                  );
-                })}
+                    ) : null,
+                  )}
+                {typeof media.vote_average === 'number' && !Number.isNaN(media.vote_average) && (
+                  <span className="legend-chip legend-chip--rating">
+                    ★ {media.vote_average.toFixed(1)}
+                    {typeof media.vote_count === 'number' && media.vote_count > 0
+                      ? ` (${media.vote_count} votes)`
+                      : ''}
+                  </span>
+                )}
               </div>
             </div>
           )}
-          <div className="toolbar">
-            <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
-              {isInLibrary ? 'Open Library Item' : 'Add to Library'}
-            </button>
-          </div>
+          {kind === 'movie' && (
+            <div className="detail-panel-meta">
+              <dl className="detail-panel-meta__list">
+                {media.runtime != null && media.runtime > 0 && (
+                  <>
+                    <dt className="detail-panel-meta__label">Runtime</dt>
+                    <dd className="detail-panel-meta__value">{media.runtime} min</dd>
+                  </>
+                )}
+                {media.release_date && (
+                  <>
+                    <dt className="detail-panel-meta__label">Release date</dt>
+                    <dd className="detail-panel-meta__value">{media.release_date}</dd>
+                  </>
+                )}
+              </dl>
+              <div className="media-metadata-chips">
+                {Array.isArray(media.genres) &&
+                  media.genres.map((g: any) =>
+                    g?.name ? (
+                      <span key={g.name} className="legend-chip legend-chip--genre">
+                        {g.name}
+                      </span>
+                    ) : null,
+                  )}
+                {typeof media.vote_average === 'number' && !Number.isNaN(media.vote_average) && (
+                  <span className="legend-chip legend-chip--rating">
+                    ★ {media.vote_average.toFixed(1)}
+                    {typeof media.vote_count === 'number' && media.vote_count > 0
+                      ? ` (${media.vote_count} votes)`
+                      : ''}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+      <div className="toolbar">
+        <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
+          {isInLibrary ? 'Open Library Item' : 'Add to Library'}
+        </button>
+      </div>
+      {kind === 'tv' && !isInLibrary && seasons.length > 0 && (
+        <div className="season-selector">
+          <div className="season-selector__header">
+            <span className="season-selector__label">
+              Seasons: {selectedSeasons.size} of {seasons.length} selected
+            </span>
+            <button
+              type="button"
+              className="btn btn--secondary btn--small"
+              onClick={() =>
+                setSelectedSeasons((prev) =>
+                  prev.size === seasons.length ? new Set() : new Set(seasons.map((s: any) => s.season_number ?? s.number ?? 0)),
+                )
+              }
+            >
+              Toggle All
+            </button>
+          </div>
+          <div className="season-selector__list">
+            {seasons.map((s: any) => {
+              const num = s.season_number ?? s.number ?? 0;
+              return (
+                <label key={num} className="season-selector__item">
+                  <input
+                    type="checkbox"
+                    checked={selectedSeasons.has(num)}
+                    onChange={(e) =>
+                      setSelectedSeasons((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(num);
+                        else next.delete(num);
+                        return next;
+                      })
+                    }
+                  />
+                  <span>
+                    {s.name || `Season ${num}`}
+                    {(s.episode_count ?? s.episodes?.length) ? ` (${s.episode_count ?? s.episodes?.length} eps)` : ''}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
