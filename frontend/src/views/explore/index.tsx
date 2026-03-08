@@ -218,12 +218,17 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       if (!res.ok) return;
       const tmdb = res.data?.tmdb || {};
       const tvdb = res.data?.tvdb || {};
+      const resolveStatus = (item: any) => {
+        if (item.indexer === 'tvdb') return tvdb[String(item.tvdb_id || item.id)];
+        const fromTmdb = tmdb[String(item.tmdb_id || item.id)];
+        const fromTvdb = item.tvdb_id ? tvdb[String(item.tvdb_id)] : null;
+        return fromTvdb?.in_library ? fromTvdb : fromTmdb;
+      };
       setItems((prev) =>
         prev.map((item) => {
           const k = getMediaKind(item);
           if (k !== 'movie' && k !== 'tv') return item;
-          const status =
-            item.indexer === 'tvdb' && item.tvdb_id ? tvdb[String(item.tvdb_id)] : tmdb[String(item.tmdb_id || item.id)] || tvdb[String(item.tvdb_id || item.id)];
+          const status = resolveStatus(item);
           if (!status) return item;
           return { ...item, in_library: Boolean(status.in_library), library_item_id: status.library_item_id ?? null, state: status.library_state ?? item.state };
         }),
@@ -233,8 +238,7 @@ export default function ExploreView({ route }: { route: AppRoute }) {
         const dm = d.media;
         const k = getMediaKind(dm);
         if (k !== 'movie' && k !== 'tv') return d;
-        const key = dm.indexer === 'tvdb' ? String(dm.tvdb_id || dm.id) : String(dm.tmdb_id || dm.id);
-        const status = dm.indexer === 'tvdb' ? tvdb[key] : tmdb[key] || tvdb[String(dm.tvdb_id)];
+        const status = resolveStatus(dm);
         if (!status) return d;
         return { ...d, media: { ...dm, in_library: Boolean(status.in_library), library_item_id: status.library_item_id ?? null, library_state: status.library_state ?? null } };
       });
