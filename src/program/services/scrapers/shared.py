@@ -1,6 +1,5 @@
 """Shared functions for scrapers."""
 
-from datetime import datetime
 from loguru import logger
 from RTN import (
     RTN,
@@ -290,7 +289,7 @@ def parse_results(
 def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
     """Check if the year of the torrent is within the range of the item or its top-level parent."""
     
-    valid_years = set()
+    valid_years: set[int] = set()
 
     if item.aired_at:
         valid_years.update([
@@ -301,11 +300,8 @@ def _check_item_year(item: MediaItem, data: ParsedData) -> bool:
 
     # Also check the top-level parent's release year, since many show torrents use the premiere year (e.g., Lucifer (2016) S04)
     if isinstance(item, (Season, Episode)):
-        top_parent = item.top_parent if hasattr(item, "top_parent") else getattr(item, "parent", None)
-        if hasattr(top_parent, "parent"):
-            top_parent = top_parent.parent
-            
-        if top_parent and getattr(top_parent, "aired_at", None):
+        top_parent: Show = item.top_parent
+        if top_parent.aired_at:
             valid_years.update([
                 top_parent.aired_at.year - 1,
                 top_parent.aired_at.year,

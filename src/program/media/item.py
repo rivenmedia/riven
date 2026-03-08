@@ -381,7 +381,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             return False
 
         now = datetime.now()
-        if not isinstance(self.aired_at, datetime):
+        if not isinstance(self.aired_at, datetime):  # pyright: ignore[reportUnnecessaryIsInstance]
             now = now.date()
         return self.aired_at <= now
 

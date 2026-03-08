@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import cast
 from loguru import logger
 from RTN import ParsedData
 
