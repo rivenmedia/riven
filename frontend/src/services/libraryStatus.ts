@@ -33,11 +33,20 @@ export async function annotateLibraryStatus(items: any[]): Promise<any[]> {
 
   media.forEach((item) => {
     const tmdbKey = String(item.tmdb_id || item.id);
-    const tvdbKey = String(item.tvdb_id || item.id);
-    const status =
-      (item.indexer === 'tvdb' ? res.data?.tvdb?.[tvdbKey] : null) ||
-      res.data?.tmdb?.[tmdbKey] ||
-      res.data?.tvdb?.[tvdbKey];
+    const tvdbKey = item.tvdb_id ? String(item.tvdb_id) : null;
+
+    let status: any;
+    if (item.indexer === 'tvdb') {
+      // TVDB-indexed items: look up exclusively by tvdb_id
+      status = res.data?.tvdb?.[String(item.tvdb_id || item.id)];
+    } else {
+      const fromTmdb = res.data?.tmdb?.[tmdbKey];
+      const fromTvdb = tvdbKey ? res.data?.tvdb?.[tvdbKey] : null;
+      // TV shows are stored by tvdb_id in the library, so prefer the tvdb result
+      // when it confirms in_library=true (movies only have tmdb, so fromTvdb is null).
+      status = fromTvdb?.in_library ? fromTvdb : fromTmdb;
+    }
+
     if (!status) return;
     item.in_library = Boolean(status.in_library);
     item.library_item_id = status.library_item_id ?? null;
