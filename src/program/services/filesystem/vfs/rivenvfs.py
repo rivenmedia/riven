@@ -202,8 +202,7 @@ class RivenVFS(pyfuse3.Operations):
         self._file_handles = dict[pyfuse3.FileHandleT, FileHandle]()
         self._next_fh = pyfuse3.FileHandleT(1)
 
-        # Opener statistics
-        self.opener_stats = dict[str, dict[str, Any]]()
+        # opener_stats is now a computed property (see below)
 
         # Mount management
         self.mounted = False
@@ -318,6 +317,59 @@ class RivenVFS(pyfuse3.Operations):
     def _stream_key(self, path: str, fh: int) -> str:
         """Generate unique key for stream tracking."""
         return f"{path}:{fh}"
+
+    @property
+    def opener_stats(self) -> dict[str, dict[str, Any]]:
+        """Return live statistics for all currently open media streams.
+
+        This property is read from the FastAPI thread, so it must not call any
+        trio-specific APIs (no ``trio.current_time()`` etc.).  It only reads
+        plain Python attributes from the active-stream objects.
+        """
+        import time
+
+        now = time.monotonic()
+        stats: dict[str, dict[str, Any]] = {}
+
+        for stream_key, stream in list(self._active_streams.items()):
+            try:
+                file_size = stream.file_metadata.file_size
+                path = stream.file_metadata.path
+                original_filename = stream.file_metadata.original_filename
+
+                # Current read position from the most recent read request.
+                current_read = stream.recent_reads.current_read.value
+                position: int = 0
+                if current_read is not None:
+                    try:
+                        position = current_read.chunk_range.request_range[0]
+                    except Exception:
+                        pass
+
+                progress_pct = round(position / file_size * 100, 1) if file_size > 0 else 0.0
+
+                # Download speed: bytes transferred over session duration.
+                bytes_transferred = stream.session_statistics.bytes_transferred
+                elapsed = now - stream.session_statistics.started_at
+                speed_bps = int(bytes_transferred / elapsed) if elapsed > 0 else 0
+
+                stats[stream_key] = {
+                    "path": path,
+                    "filename": os.path.basename(path),
+                    "original_filename": original_filename,
+                    "file_size": file_size,
+                    "position": position,
+                    "progress_pct": progress_pct,
+                    "provider": stream.provider,
+                    "bytes_transferred": bytes_transferred,
+                    "download_speed_bps": speed_bps,
+                    "is_streaming": stream.is_streaming.value,
+                    "connections": stream.session_statistics.total_session_connections,
+                }
+            except Exception:
+                pass
+
+        return stats
 
     # ========== VFS Tree Helper Methods ==========
 

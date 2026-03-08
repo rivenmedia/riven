@@ -129,6 +129,8 @@ def _normalize_tvdb_item(entry: dict[str, Any]) -> dict[str, Any]:
 def _library_status_for_results(
     results: list[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    from program.services import tmdb_tvdb_resolver
+
     tmdb_ids = {
         str(item.get("tmdb_id") or item.get("id"))
         for item in results
@@ -142,6 +144,19 @@ def _library_status_for_results(
         if (item.get("indexer") == "tvdb" or item.get("tvdb_id"))
         and (item.get("tvdb_id") or item.get("id"))
     }
+
+    # Resolve TMDB TV IDs to TVDB IDs so that shows stored only by tvdb_id
+    # can still be matched when browsing the TMDB discovery section.
+    tmdb_tv_ids = {
+        str(item.get("tmdb_id") or item.get("id"))
+        for item in results
+        if item.get("media_type") == "tv"
+        and item.get("indexer") == "tmdb"
+        and (item.get("tmdb_id") or item.get("id"))
+    }
+    tmdb_to_tvdb = tmdb_tvdb_resolver.resolve_batch(tmdb_tv_ids)
+    resolved_tvdb_ids = {v for v in tmdb_to_tvdb.values() if v}
+    tvdb_ids |= resolved_tvdb_ids
 
     if not tmdb_ids and not tvdb_ids:
         return {}, {}
@@ -174,6 +189,13 @@ def _library_status_for_results(
             tmdb_status[str(item.tmdb_id)] = payload
         if item.tvdb_id:
             tvdb_status[str(item.tvdb_id)] = payload
+
+    # For TMDB TV results that were matched via their resolved TVDB ID,
+    # also register the status under the original TMDB ID so that
+    # _attach_library_status can find it without extra lookups.
+    for tmdb_id, tvdb_id in tmdb_to_tvdb.items():
+        if tvdb_id and tvdb_id in tvdb_status and tmdb_id not in tmdb_status:
+            tmdb_status[tmdb_id] = tvdb_status[tvdb_id]
 
     return tmdb_status, tvdb_status
 
