@@ -1,15 +1,15 @@
 import type { ComponentType } from 'react';
 import type { AppRoute, RouteName, ViewComponentProps } from './routeTypes';
-import SettingsView from '../views/SettingsView';
-import TrendingView from '../views/TrendingView';
-import CalendarView from '../views/CalendarView';
-import MountView from '../views/MountView';
-import VfsStatsView from '../views/VfsStatsView';
-import InspectorView from '../views/InspectorView';
-import LibraryView from '../views/LibraryView';
-import ItemDetailView from '../views/ItemDetailView';
-import ExploreView from '../views/ExploreView';
-import DashboardView from '../views/DashboardView';
+import SettingsView from '../features/settings/SettingsView';
+import TrendingView from '../features/trending/TrendingView';
+import CalendarView from '../features/calendar/CalendarView';
+import MountView from '../features/mount/MountView';
+import VfsStatsView from '../features/vfs/VfsStatsView';
+import InspectorView from '../features/inspector/InspectorView';
+import LibraryView from '../features/library/LibraryView';
+import ItemDetailView from '../features/item-detail/ItemDetailView';
+import ExploreView from '../features/explore';
+import DashboardView from '../features/dashboard/DashboardView';
 
 export type { ViewComponentProps };
 

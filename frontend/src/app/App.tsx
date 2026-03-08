@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { hasKey, logout, setKey, validateKey } from "../services/auth";
-import { parseRoute, replaceRoute } from "../services/router";
-import LoginView from "../components/LoginView";
-import ManualScrapeModalTemplate from "../components/ManualScrapeModalTemplate";
-import Sidebar from "../components/Sidebar";
-import ViewHost from "../components/ViewHost";
+import { hasKey, logout, setKey, validateKey } from "../features/auth/auth";
+import { parseRoute, replaceRoute } from "../shared/routing/router";
+import LoginView from "../features/auth/LoginView";
+import ManualScrapeModalTemplate from "../shared/scraping/ManualScrapeModalTemplate";
+import Sidebar from "../shared/navigation/Sidebar";
+import ViewHost from "../shared/navigation/ViewHost";
 import type { AppRoute, RouteName } from "./routeTypes";
 
 /** Redirect legacy #/trending to graph with Trending — This Week filter. */
