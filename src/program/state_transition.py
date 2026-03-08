@@ -4,7 +4,7 @@ from loguru import logger
 
 from program.media import MediaItem, States
 from program.types import ProcessedEvent, Service
-from program.media.item import Season, Show
+from program.media.item import Episode, Season, Show
 
 
 def process_event(
