@@ -185,7 +185,11 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       const k = getMediaKind(item);
       if (k === 'movie' || k === 'tv') {
         if (item.indexer === 'tvdb' && (item.tvdb_id || item.id)) ids.tvdb.add(String(item.tvdb_id || item.id));
-        else if (item.tmdb_id || item.id) ids.tmdb.add(String(item.tmdb_id || item.id));
+        else if (item.tmdb_id || item.id) {
+          ids.tmdb.add(String(item.tmdb_id || item.id));
+          // TV shows are stored by tvdb_id in the library; include it so the poll can find them
+          if (k === 'tv' && item.tvdb_id) ids.tvdb.add(String(item.tvdb_id));
+        }
       }
     });
     // Include the currently-selected detail media so the poll keeps its library status up to date
@@ -333,17 +337,16 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       const similar = (media.similar?.results || []).map((entry: any) => toCardItem(entry, node.kind));
       await annotateLibraryStatus(recommendations);
       await annotateLibraryStatus(similar);
-      // Fetch library status for this specific detail item (movie or TV show)
-      if (node.kind === 'movie' || node.kind === 'tv') {
-        const statusRes = await apiGet('/items/library/status', { tmdb_ids: String(node.id) });
-        if (statusRes.ok) {
-          const statusEntry = statusRes.data?.tmdb?.[String(node.id)];
-          if (statusEntry) {
-            media.in_library = Boolean(statusEntry.in_library);
-            media.library_item_id = statusEntry.library_item_id ?? null;
-            media.library_state = statusEntry.library_state ?? null;
-          }
-        }
+      // Hoist tvdb_id from external_ids so the status poll can track it
+      if (node.kind === 'tv' && !media.tvdb_id && media.external_ids?.tvdb_id) {
+        media.tvdb_id = String(media.external_ids.tvdb_id);
+      }
+      // The detail endpoint already resolves library status via _attach_library_status (including
+      // TMDB→TVDB resolution). Use data.library directly instead of a redundant extra call.
+      if (media.library) {
+        media.in_library = Boolean(media.library.in_library);
+        media.library_item_id = media.library.library_item_id ?? null;
+        media.library_state = media.library.library_state ?? null;
       }
       setDetailData({ kind: node.kind, media, recommendations, similar });
       setDetailLoading(false);
