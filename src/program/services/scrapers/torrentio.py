@@ -1,5 +1,8 @@
 """Torrentio scraper module"""
 
+import re
+from typing import Optional
+
 from loguru import logger
 from pydantic import BaseModel, Field
 from requests import HTTPError
@@ -16,7 +19,8 @@ class TorrentioScrapeResponse(BaseModel):
 
     class Stream(BaseModel):
         title: str
-        info_hash: str = Field(alias="infoHash")
+        info_hash: Optional[str] = Field(default=None, alias="infoHash")
+        url: Optional[str] = None
 
     streams: list[Stream]
 
@@ -134,12 +138,20 @@ class Torrentio(ScraperService[TorrentioConfig]):
         torrents = dict[str, str]()
 
         for stream in data.streams:
-            if not stream.info_hash:
+            info_hash = stream.info_hash
+
+            # fallback: extract info_hash from URL
+            if not info_hash and stream.url:
+                match = re.search(r"/([0-9a-fA-F]{40})/", stream.url)
+                if match:
+                    info_hash = match.group(1)
+
+            if not info_hash:
                 continue
 
             stream_title = stream.title.split("\n👤")[0]
             raw_title = stream_title.split("\n")[0]
-            torrents[stream.info_hash] = raw_title
+            torrents[info_hash] = raw_title
 
         if torrents:
             logger.log(
