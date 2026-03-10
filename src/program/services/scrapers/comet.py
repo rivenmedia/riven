@@ -1,8 +1,5 @@
 """Comet scraper module"""
 
-import base64
-import json
-
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -36,23 +33,6 @@ class Comet(ScraperService[CometConfig]):
 
         self.settings = settings_manager.settings.scraping.comet
         self.timeout = self.settings.timeout or 15
-        self.encoded_string = base64.b64encode(
-            json.dumps(
-                {
-                    "maxResultsPerResolution": 0,
-                    "maxSize": 0,
-                    "cachedOnly": False,
-                    "removeTrash": True,
-                    "resultFormat": ["title", "metadata", "size", "languages"],
-                    "debridService": "torrent",
-                    "debridApiKey": "",
-                    "debridStreamProxyPassword": "",
-                    "languages": {"required": [], "exclude": [], "preferred": []},
-                    "resolutions": {},
-                    "options": {},
-                }
-            ).encode("utf-8")
-        ).decode("utf-8")
 
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
@@ -125,7 +105,7 @@ class Comet(ScraperService[CometConfig]):
         if not imdb_id:
             return {}
 
-        url = f"/{self.encoded_string}/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
+        url = f"/stream/{scrape_type}/{imdb_id}{identifier or ''}.json"
         response = self.session.get(url, timeout=self.timeout)
 
         if not response.ok:
