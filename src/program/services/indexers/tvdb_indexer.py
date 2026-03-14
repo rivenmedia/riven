@@ -416,6 +416,8 @@ class TVDBIndexer(BaseIndexer):
                 if season.number != 0 and season.type and season.type.type == "official"
             ]
 
+            requested_seasons = getattr(show, "requested_seasons", None)
+
             for season_data in filtered_seasons:
                 if season_data.id and (
                     extended_data := self.api.get_season(season_data.id)
@@ -435,11 +437,14 @@ class TVDBIndexer(BaseIndexer):
 
                         self._update_season_metadata(season_item, extended_data)
                     else:
-                        # Create new season
                         season_item = self._create_season_from_data(extended_data, show)
 
                         if not season_item:
                             continue
+                            
+                        if requested_seasons and season_item.number not in requested_seasons:
+                            from program.media.state import States
+                            season_item.last_state = States.Paused
 
                         show.add_season(season_item)
 

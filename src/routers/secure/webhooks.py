@@ -6,6 +6,10 @@ from loguru import logger
 from program.media.item import MediaItem
 from program.services.content.overseerr import Overseerr
 from program.program import Program
+from program.db.db import db_session
+from program.db.db_functions import get_item_by_external_id
+from program.media.state import States
+from program.types import Event
 
 from ..models.overseerr import OverseerrWebhook
 
@@ -71,13 +75,43 @@ async def overseerr(request: Request) -> OverseerrWebhookResponse:
                 }
             )
         elif item_type == "tv":
+            tvdb_id = req.media.tvdbId
+            tmdb_id = req.media.tmdbId
+            requested_seasons = req.requested_seasons
+
+            with db_session() as session:
+                existing_show = get_item_by_external_id(
+                    tvdb_id=str(tvdb_id) if tvdb_id else None,
+                    tmdb_id=str(tmdb_id) if tmdb_id else None,
+                    session=session
+                )
+                
+                if existing_show:
+                    logger.info(f"Show {existing_show.log_string} already exists, handling requested seasons from overseerr")
+                    
+                    if requested_seasons:
+                        for season in existing_show.seasons: # type: ignore
+                            if getattr(season, "number", None) in requested_seasons and season.last_state == States.Paused:
+                                season.store_state(States.Requested)
+                                
+                                di[Program].em.add_event(Event(
+                                    emitted_by=Overseerr.__class__.__name__,
+                                    item_id=season.id
+                                ))
+                                
+                        session.commit()
+                        return OverseerrWebhookResponse(success=True)
+
             new_item = MediaItem(
                 {
-                    "tvdb_id": req.media.tvdbId,
+                    "tvdb_id": tvdb_id,
                     "requested_by": "overseerr",
                     "overseerr_id": req.request.request_id if req.request else None,
                 }
             )
+            
+            if requested_seasons:
+                new_item.set("requested_seasons", requested_seasons)
 
         if not new_item:
             logger.error(

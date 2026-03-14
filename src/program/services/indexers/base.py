@@ -36,6 +36,7 @@ class BaseIndexer(Runner[IndexerModel]):
             "active_stream",
             "requested_id",
             "streams",
+            "requested_seasons",
         ]
 
         for attr in attributes:
