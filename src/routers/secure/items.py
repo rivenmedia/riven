@@ -500,6 +500,42 @@ async def get_item(
             raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+_SKIP_RESET_STATES = frozenset({
+    States.Completed, States.Unreleased,
+    States.Downloaded, States.Symlinked,
+    States.Paused,
+})
+
+
+def _reset_scrape_state(item: MediaItem) -> None:
+    """Recursively reset scraping state on incomplete children only.
+
+    Walks Show → Season → Episode and clears scraping metadata, streams,
+    and failed_attempts on any item not in _SKIP_RESET_STATES, then sets
+    its state to Indexed so it re-enters the scraping pipeline.
+
+    Completed / Downloaded / Symlinked / Unreleased / Paused items are
+    left untouched.
+    """
+    if item.last_state in _SKIP_RESET_STATES:
+        return
+
+    item.scraped_at = None
+    item.scraped_times = 0
+    item.failed_attempts = 0
+    item.streams.clear()
+    item.blacklisted_streams.clear()
+    item.active_stream = None
+    MediaItem.store_state(item, States.Indexed)
+
+    if isinstance(item, Show):
+        for season in item.seasons:
+            _reset_scrape_state(season)
+    elif isinstance(item, Season):
+        for episode in item.episodes:
+            _reset_scrape_state(episode)
+
+
 class ResetResponse(MessageResponse):
     ids: list[int]
 
@@ -587,7 +623,10 @@ async def reset_items(
                         """
 
                         i.blacklist_active_stream()
-                        i.reset()
+                        if isinstance(i, (Show, Season)):
+                            _reset_scrape_state(i)
+                        else:
+                            i.reset()
 
                     apply_item_mutation(
                         di[Program],
@@ -653,14 +692,12 @@ async def retry_items(
     with db_session() as session:
         for id in parsed_ids:
             try:
-                # Load item using ORM
                 item = session.get(MediaItem, id)
 
                 if item:
 
                     def mutation(i: MediaItem, s: Session):
-                        i.scraped_at = None
-                        i.scraped_times = 1
+                        _reset_scrape_state(i)
 
                     apply_item_mutation(
                         program=di[Program],

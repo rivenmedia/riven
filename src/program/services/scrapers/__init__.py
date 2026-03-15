@@ -67,6 +67,11 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     ) -> MediaItemGenerator:
         """Scrape an item."""
 
+        # Skip if item is already satisfied (e.g. by a parallel season scrape)
+        if item.last_state in (States.Downloaded, States.Symlinked, States.Completed):
+            logger.debug(f"Skipping scrape for {item.log_string}: Item is already {item.last_state}")
+            return
+
         sorted_streams = self.scrape(item)
 
         new_streams = [

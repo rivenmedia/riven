@@ -85,7 +85,7 @@ def process_event(
                 if processed_event.related_media_items:
                     items_to_submit += processed_event.related_media_items
 
-    elif existing_item and existing_item.last_state == States.Indexed:
+    elif existing_item and existing_item.last_state in [States.Indexed, States.Unknown]:
         next_service = services.scraping
 
         if emitted_by != services.scraping and (
@@ -94,6 +94,7 @@ def process_event(
         ):
             items_to_submit = [existing_item]
         elif isinstance(existing_item, Show):
+            # Decompose Show → Seasons (each season scrapes for packs)
             items_to_submit = [
                 s
                 for s in existing_item.seasons
@@ -105,15 +106,11 @@ def process_event(
                 )
             ]
         elif isinstance(existing_item, Season):
-            items_to_submit = [
-                e
-                for e in existing_item.episodes
-                if e.last_state in [States.Indexed, States.Unknown]
-                and (
-                    overrides is not None
-                    or services.scraping.should_submit(e)
-                )
-            ]
+            # Keep the Season as a unit — the scraper finds both season packs
+            # and individual episodes.  Decomposing to per-episode scraping
+            # here would prevent season-pack matching.
+            if services.scraping.should_submit(existing_item):
+                items_to_submit = [existing_item]
 
     elif existing_item and existing_item.last_state == States.Scraped:
         next_service = services.downloader

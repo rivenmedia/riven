@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -233,6 +233,7 @@ class DebridLinkDownloader(DownloaderBase):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        **kwargs: Any,
     ) -> TorrentContainer | None:
         """
         Attempt a quick availability check by adding the torrent to the seedbox

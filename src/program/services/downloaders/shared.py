@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Any
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -38,6 +39,7 @@ class DownloaderBase(ABC):
         self,
         infohash: str,
         item_type: ProcessedItemType,
+        **kwargs: Any,
     ) -> TorrentContainer | None:
         """
         Get instant availability for a single infohash
