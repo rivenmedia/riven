@@ -117,6 +117,34 @@ findmnt -T /path/to/riven/mount -o TARGET,PROPAGATION  # expect: shared or rshar
 >- On SELinux systems, add :z to the bind mount if needed.
 
 
+## Overseerr Webhook Configuration
+
+If you are using Overseerr with the Webhook feature enabled (`RIVEN_CONTENT_OVERSEERR_USE_WEBHOOK=true`), you **must** configure the webhook JSON payload in Overseerr to pass the requested seasons. This ensures Riven correctly parses and downloads only the seasons that were explicitly requested.
+
+In your Overseerr Webhook settings, include the following in your JSON Payload:
+
+```json
+{
+  "notification_type": "{{notification_type}}",
+  "event": "{{event}}",
+  "subject": "{{subject}}",
+  "media": {
+    "media_type": "{{media_type}}",
+    "tmdbId": "{{media_tmdbid}}",
+    "tvdbId": "{{media_tvdbid}}",
+    "status": "{{media_status}}"
+  },
+  "extra": [
+    {
+      "name": "Requested Seasons",
+      "value": "{{requestedSeasons}}"
+    }
+  ]
+}
+```
+
+Riven requires the `"extra"` array to contain the exact name `"Requested Seasons"` paired with the `{{requestedSeasons}}` variable!
+
 ## Plex
 
 Plex libraries that are currently required to have sections:

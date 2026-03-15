@@ -46,7 +46,7 @@ class TVDBIndexer(BaseIndexer):
 
         # Scenario 1: Fresh indexing - create new Show from API data
         if item.type == "mediaitem":
-            if indexed_item := self._create_show_from_id(item.imdb_id, item.tvdb_id):
+            if indexed_item := self._create_show_from_id(item.imdb_id, item.tvdb_id, item):
                 indexed_item = self.copy_items(item, indexed_item)
                 indexed_item.indexed_at = datetime.now()
 
@@ -226,7 +226,7 @@ class TVDBIndexer(BaseIndexer):
             return False
 
     def _create_show_from_id(
-        self, imdb_id: str | None = None, tvdb_id: str | None = None
+        self, imdb_id: str | None = None, tvdb_id: str | None = None, item: MediaItem | None = None
     ) -> Show | None:
         """Create a show item from TVDB using available IDs."""
 
@@ -243,6 +243,8 @@ class TVDBIndexer(BaseIndexer):
                     show_item = self._map_show_from_tvdb_data(show_details, imdb_id)
 
                     if show_item:
+                        if item:
+                            setattr(show_item, "requested_seasons", getattr(item, "requested_seasons", None))
                         self._add_seasons_to_show(show_item, show_details)
 
                         return show_item
@@ -268,6 +270,8 @@ class TVDBIndexer(BaseIndexer):
                             )
 
                             if show_item:
+                                if item:
+                                    setattr(show_item, "requested_seasons", getattr(item, "requested_seasons", None))
                                 self._add_seasons_to_show(show_item, show_details)
                                 return show_item
                     else:
