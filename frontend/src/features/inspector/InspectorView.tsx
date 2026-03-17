@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { apiFetch, apiGet } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
@@ -28,6 +28,9 @@ export default function InspectorView({ route }: { route: AppRoute }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [logSearch, setLogSearch] = useState('');
   const [logsLoading, setLogsLoading] = useState(false);
+  const [stickToBottom, setStickToBottom] = useState(true);
+
+  const logScrollRef = useRef<HTMLDivElement | null>(null);
 
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true);
@@ -53,10 +56,25 @@ export default function InspectorView({ route }: { route: AppRoute }) {
         .filter((row) =>
           row.raw.toLowerCase().includes(logSearch.toLowerCase()),
         )
-        .reverse()
-    : logs
-        .map((raw, index) => ({ raw: String(raw), index: index + 1 }))
-        .reverse();
+    : logs.map((raw, index) => ({ raw: String(raw), index: index + 1 }));
+
+  const handleLogScroll = () => {
+    const el = logScrollRef.current;
+    if (!el) return;
+
+    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    const threshold = 20;
+
+    setStickToBottom(distanceFromBottom <= threshold);
+  };
+
+  useEffect(() => {
+    if (!stickToBottom) return;
+    const el = logScrollRef.current;
+    if (!el) return;
+
+    el.scrollTop = el.scrollHeight;
+  }, [stickToBottom, filteredLogs.length]);
 
   const handleQuickEndpoint = async (endpointPath: string) => {
     setQuickOutput('Loading…');
@@ -177,16 +195,22 @@ export default function InspectorView({ route }: { route: AppRoute }) {
           {filteredLogs.length === 0 ? (
             <p className="muted">No logs matched.</p>
           ) : (
-            <div className="log-list">
-              {filteredLogs.map((row) => (
-                <div
-                  key={`${row.index}-${row.raw.slice(0, 40)}`}
-                  className="log-row"
-                  title={row.raw}
-                >
-                  <span className="muted">#{row.index}</span> {row.raw}
-                </div>
-              ))}
+            <div
+              className="log-scroll"
+              ref={logScrollRef}
+              onScroll={handleLogScroll}
+            >
+              <div className="log-list">
+                {filteredLogs.map((row) => (
+                  <div
+                    key={`${row.index}-${row.raw.slice(0, 40)}`}
+                    className="log-row"
+                    title={row.raw}
+                  >
+                    <span className="muted">#{row.index}</span> {row.raw}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

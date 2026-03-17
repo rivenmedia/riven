@@ -366,6 +366,8 @@ class LogsResponse(BaseModel):
     response_model=LogsResponse,
 )
 async def get_logs() -> LogsResponse:
+    MAX_LOG_LINES = 1000
+
     log_file_path: str | None = None
 
     for (
@@ -389,6 +391,11 @@ async def get_logs() -> LogsResponse:
         ) as log_file:
             # Read the file and split into lines without newline characters
             log_contents = log_file.read().splitlines()
+
+        if len(log_contents) > MAX_LOG_LINES:
+            # Keep only the last MAX_LOG_LINES entries while preserving
+            # chronological order (oldest -> newest)
+            log_contents = log_contents[-MAX_LOG_LINES:]
 
         return LogsResponse(logs=log_contents)
     except Exception as e:

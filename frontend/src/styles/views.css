@@ -1175,6 +1175,18 @@ button.release-bar,
   margin-bottom: 0.45rem;
 }
 
+.log-container {
+  position: relative;
+}
+
+.log-scroll {
+  max-height: 48vh;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: rgba(10, 16, 28, 0.6);
+}
+
 [data-slot='log-container'] .virtual-list {
   height: 48vh;
 }
