@@ -24,7 +24,6 @@ from .exceptions import (
     ChunksTooSlowException,
     EmptyDataException,
     FatalMediaStreamException,
-    ByteLengthMismatchException,
     RecoverableMediaStreamException,
     DebridServiceClosedConnectionException,
     DebridServiceException,
@@ -36,6 +35,7 @@ from .exceptions import (
     MediaStreamKilledException,
     DebridServiceLinkUnavailable,
 )
+from .exceptions.media_stream_data_exception import ByteLengthMismatchException
 from .file_metadata import FileMetadata
 from .recent_reads import Read, RecentReads
 from .session_statistics import SessionStatistics
@@ -1071,7 +1071,26 @@ class MediaStream:
 
             self.session_statistics.bytes_transferred += len(data)
 
-            verified_data = self._verify_scan_integrity((start, start + size), data)
+            try:
+                verified_data = self._verify_scan_integrity(
+                    (start, start + size),
+                    data,
+                )
+            except ByteLengthMismatchException as e:
+                # Respect settings toggle; allow operators to fall back to strict behavior if desired.
+                if settings_manager.settings.stream.ignore_scan_length_mismatch_as_missing:
+                    # Some providers will return a short HTML/404 body whilst still
+                    # reporting a successful 200/206 response for the requested range.
+                    #
+                    # During scanning (header/footer/general_scan), this manifests as a
+                    # ByteLengthMismatchException. Treat this as a dead/unavailable link
+                    # so that higher layers (RivenVFS) can surface ENOENT to Plex rather
+                    # than a hard EIO that stalls library scans.
+                    await response.aclose()
+
+                    raise DebridServiceLinkUnavailable from e
+
+                raise
 
             if should_cache:
                 await self._cache_chunk(

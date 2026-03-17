@@ -929,6 +929,14 @@ class StreamModel(Observable):
         ge=1,
         description="Timeout in seconds before a stream is considered inactive during resource cleanup (60 seconds default)",
     )
+    ignore_scan_length_mismatch_as_missing: bool = Field(
+        default=True,
+        description=(
+            "When enabled, treat scan-time byte length mismatches as a dead link so media "
+            "servers (e.g., Plex) see the file as missing instead of encountering hard I/O errors "
+            "that can stall library scans."
+        ),
+    )
 
 
 class AppModel(Observable):

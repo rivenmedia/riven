@@ -758,6 +758,57 @@ class RivenVFS(pyfuse3.Operations):
         except Exception:
             logger.exception("pyfuse3.terminate() failed")
 
+    def _mark_item_for_rescrape(self, original_filename: str) -> None:
+        """
+        Best-effort helper to mark the owning MediaItem for rescrape when a stream link
+        becomes unavailable during VFS reads.
+
+        This mirrors the behavior used when URL unrestriction fails:
+        - blacklist the active stream
+        - reset the item so it can be processed again
+        - emit a VFS event to drive the pipeline
+        """
+
+        from program.media.media_entry import MediaEntry
+        from program.media.item import MediaItem
+        from program.program import Program
+        from program.types import Event
+        from routers.secure.items import apply_item_mutation
+
+        with db_session() as session:
+            entry = (
+                session.query(MediaEntry)
+                .filter(MediaEntry.original_filename == original_filename)
+                .first()
+            )
+
+            if not entry or not entry.media_item:
+                return
+
+            item: MediaItem = entry.media_item
+            item_id = item.id
+
+            def mutation(i: MediaItem, s) -> None:
+                i.blacklist_active_stream()
+                i.reset()
+
+            apply_item_mutation(
+                program=di[Program],
+                item=item,
+                mutation_fn=mutation,
+                session=session,
+                bubble_parents=True,
+            )
+
+            session.commit()
+
+            di[Program].em.add_event(
+                Event(
+                    "VFS",
+                    item_id,
+                )
+            )
+
     def _sync_full(self) -> None:
         """
         Full VFS sync: Re-match all entries and rebuild entire VFS tree.
@@ -1950,6 +2001,18 @@ class RivenVFS(pyfuse3.Operations):
                 for exc in e.exceptions:
                     logger.error(
                         stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
+                    )
+
+                # Mark the backing MediaItem for rescrape in the background.
+                try:
+                    if stream and stream.file_metadata.original_filename:
+                        await trio.to_thread.run_sync(
+                            self._mark_item_for_rescrape,
+                            stream.file_metadata.original_filename,
+                        )
+                except Exception:
+                    logger.exception(
+                        "Failed to mark media item for rescrape after link unavailability"
                     )
 
                 raise pyfuse3.FUSEError(errno.ENOENT) from e
