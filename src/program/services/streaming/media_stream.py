@@ -1088,7 +1088,9 @@ class MediaStream:
                     # than a hard EIO that stalls library scans.
                     await response.aclose()
 
-                    raise DebridServiceLinkUnavailable from e
+                    raise DebridServiceLinkUnavailable(
+                        self.provider, self.target_url.value
+                    ) from e
 
                 raise
 
