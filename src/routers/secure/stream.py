@@ -109,6 +109,59 @@ def _get_client(provider: str) -> httpx.AsyncClient:
     return di[ProxyClient] if use_proxy else di[AsyncClient]
 
 
+def _get_downloader_service(provider: str):
+    """Return the downloader service instance for the given provider key, or None."""
+    from program.program import Program
+
+    if Program not in di:
+        return None
+    program = di[Program]
+    if not program.services or not program.services.downloader:
+        return None
+    for svc in program.services.downloader.services.values():
+        if getattr(svc, "key", None) == provider:
+            return svc
+    return None
+
+
+def _refresh_unrestricted_url_for_item(item_id: int, current_url: str) -> str | None:
+    """
+    Unrestrict MediaEntry.download_url for the given item and return the new URL, or None.
+    Persists the new unrestricted_url to the DB on success.
+    """
+    with db_session() as session:
+        item = session.get(MediaItem, item_id)
+        if not item or not item.media_entry:
+            return None
+        entry = item.media_entry
+        provider = entry.provider or ""
+        download_url = entry.download_url or current_url
+        if not entry.download_url:
+            logger.debug(
+                f"stream_file: no download_url for item_id={item_id}, using current url for unrestrict"
+            )
+        downloader = _get_downloader_service(provider)
+        if not downloader:
+            logger.warning(
+                f"stream_file: no downloader for provider={provider!r} (item_id={item_id})"
+            )
+            return None
+        try:
+            result = downloader.unrestrict_link(download_url)
+        except Exception as e:
+            logger.warning(f"stream_file: unrestrict failed for item_id={item_id}: {e}")
+            return None
+        if not result or not result.download:
+            return None
+        new_url = result.download
+        if new_url == current_url:
+            return None
+        entry.unrestricted_url = new_url
+        session.merge(entry)
+        session.commit()
+        return new_url
+
+
 def _build_forward_headers(request: Request) -> dict[str, str]:
     """Build headers to forward to upstream."""
     headers: dict[str, str] = {}
@@ -175,8 +228,35 @@ async def stream_file(
         try:
             upstream_response = await client.send(req, stream=True)
         except Exception as e:
-            logger.error(f"Failed to connect to upstream: {e}")
+            logger.error(
+                f"stream_file item_id={item_id} provider={provider!r} url={url!r} failed to connect: {e}"
+            )
             raise HTTPException(status_code=502, detail="Upstream connection failed")
+
+        if upstream_response.status_code in (404, 410, 503):
+            refreshed_url = _refresh_unrestricted_url_for_item(item_id, url)
+            if refreshed_url:
+                await upstream_response.aclose()
+                req = client.build_request("GET", refreshed_url, headers=forward_headers)
+                try:
+                    upstream_response = await client.send(req, stream=True)
+                except Exception as e:
+                    logger.error(
+                        f"stream_file item_id={item_id} provider={provider!r} refreshed_url={refreshed_url!r} retry connect failed: {e}"
+                    )
+                    raise HTTPException(
+                        status_code=502, detail="Upstream connection failed"
+                    ) from e
+                if upstream_response.status_code >= 400:
+                    logger.error(
+                        f"stream_file item_id={item_id} provider={provider!r} refreshed_url={refreshed_url!r} upstream status={upstream_response.status_code}"
+                    )
+                    await _handle_upstream_error(upstream_response)
+            else:
+                logger.error(
+                    f"stream_file item_id={item_id} provider={provider!r} url={url!r} upstream status={upstream_response.status_code} refresh failed or unchanged"
+                )
+                await _handle_upstream_error(upstream_response)
 
         if upstream_response.status_code >= 400:
             await _handle_upstream_error(upstream_response)
