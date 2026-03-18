@@ -17,10 +17,14 @@ class ProxyClient(httpx.AsyncClient):
     """
 
     def __init__(self, *, proxy_url: str) -> None:
-        super().__init__(
-            http2=True,
-            proxy=proxy_url,
-        )
+        token = sniffio.current_async_library_cvar.set("asyncio")
+        try:
+            super().__init__(
+                http2=True,
+                proxy=proxy_url,
+            )
+        finally:
+            sniffio.current_async_library_cvar.reset(token)
 
     async def send(
         self,

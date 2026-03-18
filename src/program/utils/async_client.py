@@ -20,16 +20,20 @@ class AsyncClient(httpx.AsyncClient):
     """
 
     def __init__(self) -> None:
-        super().__init__(
-            http2=True,
-            follow_redirects=True,
-            limits=httpx.Limits(
-                max_keepalive_connections=100,
-                max_connections=1000,
-                keepalive_expiry=60,
-            ),
-            event_hooks={"response": [self.raise_on_4xx_5xx]},
-        )
+        token = sniffio.current_async_library_cvar.set("asyncio")
+        try:
+            super().__init__(
+                http2=True,
+                follow_redirects=True,
+                limits=httpx.Limits(
+                    max_keepalive_connections=100,
+                    max_connections=1000,
+                    keepalive_expiry=60,
+                ),
+                event_hooks={"response": [self.raise_on_4xx_5xx]},
+            )
+        finally:
+            sniffio.current_async_library_cvar.reset(token)
 
         enable_network_tracing = settings_manager.settings.enable_network_tracing
 
