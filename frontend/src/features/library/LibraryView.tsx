@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader } from '../../shared/ui/PagePrimitives';
 import { LibraryFilterBar, type LibraryFilterState } from './LibraryFilterBar';
 import { MediaGrid } from './MediaGrid';
@@ -135,6 +135,7 @@ export default function LibraryView({ route }: { route: AppRoute }) {
   const [states, setStates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const fetchItemsRequestIdRef = useRef(0);
 
   const fetchStates = useCallback(async () => {
     const res = await apiGet('/items/states');
@@ -148,6 +149,7 @@ export default function LibraryView({ route }: { route: AppRoute }) {
   }, [fetchStates]);
 
   const fetchItems = useCallback(async () => {
+    const requestId = ++fetchItemsRequestIdRef.current;
     setLoading(true);
     const params = {
       page,
@@ -158,6 +160,7 @@ export default function LibraryView({ route }: { route: AppRoute }) {
       states: filters.state || undefined,
     };
     const res = await apiGet('/items', params);
+    if (requestId !== fetchItemsRequestIdRef.current) return;
     if (!res.ok) {
       setError(res.error || 'Failed to load library.');
       setItems([]);
@@ -200,7 +203,6 @@ export default function LibraryView({ route }: { route: AppRoute }) {
         onChange={handleFilterChange}
         autoApply
         showApplyButton={false}
-        searchDebounceMs={350}
         stateOptions={
           <>
             <option value="">All states</option>

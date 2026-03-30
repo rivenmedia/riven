@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SEARCH_DEBOUNCE_MS } from '../../shared/constants/searchDebounce';
 
 /**
  * Library filter bar: search, state, sort, limit. Controlled component with optional auto-apply.
@@ -36,24 +37,31 @@ const LIMIT_OPTIONS = [
 export function LibraryFilterBar({
   value,
   onChange,
-  searchDebounceMs = 350,
+  searchDebounceMs = SEARCH_DEBOUNCE_MS,
   autoApply = true,
   showApplyButton = false,
   stateOptions,
 }: LibraryFilterBarProps) {
   const [localSearch, setLocalSearch] = useState(value.search);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Sync with input on every keystroke so the debounced callback never sees a stale pre-setState string. */
+  const localSearchRef = useRef(localSearch);
+  const valueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  localSearchRef.current = localSearch;
+  valueRef.current = value;
+  onChangeRef.current = onChange;
 
   useEffect(() => {
     setLocalSearch(value.search);
   }, [value.search]);
 
   const apply = useCallback(() => {
-    onChange({
-      ...value,
-      search: localSearch.trim(),
+    onChangeRef.current({
+      ...valueRef.current,
+      search: localSearchRef.current.trim(),
     });
-  }, [value, localSearch, onChange]);
+  }, []);
 
   const scheduleApply = useCallback(() => {
     if (searchDebounceMs <= 0) {
@@ -73,7 +81,9 @@ export function LibraryFilterBar({
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalSearch(e.target.value);
+    const next = e.target.value;
+    localSearchRef.current = next;
+    setLocalSearch(next);
     if (autoApply) scheduleApply();
   };
 

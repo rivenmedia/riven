@@ -15,6 +15,7 @@ import {
   parsePositiveInt,
   toCardItem,
 } from './types';
+import { SEARCH_DEBOUNCE_MS } from '../../shared/constants/searchDebounce';
 import { ExploreToolbar } from './ExploreToolbar';
 import { ExploreResults } from './ExploreResults';
 import { ExploreDetailPanel } from './ExploreDetailPanel';
@@ -72,7 +73,10 @@ export default function ExploreView({ route }: { route: AppRoute }) {
   );
   const [timeWindow, setTimeWindow] = useState<'day' | 'week'>(query.window === 'day' ? 'day' : 'week');
   const [trendingMode, setTrendingMode] = useState(!!query.window);
+  const [searchInput, setSearchInput] = useState(query.q || '');
   const [searchQuery, setSearchQuery] = useState(query.q || '');
+  const searchInputRef = useRef(searchInput);
+  searchInputRef.current = searchInput;
   const [page, setPage] = useState(parsePositiveInt(query.page, 1));
   const [totalPages, setTotalPages] = useState(1);
   const [history, setHistory] = useState<ExploreNode[]>(() => {
@@ -91,12 +95,18 @@ export default function ExploreView({ route }: { route: AppRoute }) {
   const [resultsTitle, setResultsTitle] = useState('Results');
 
   const statusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchRequestIdRef = useRef(0);
 
   const routeQueryKey = route.name === 'explore' ? JSON.stringify(route.query || {}) : '';
   const prevRouteQueryKeyRef = useRef(routeQueryKey);
   useEffect(() => {
     if (route.name !== 'explore' || routeQueryKey === prevRouteQueryKeyRef.current) return;
     prevRouteQueryKeyRef.current = routeQueryKey;
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
     const q = route.query || {};
     const trail = parseTrail(q.trail);
     const nodeFromQuery = parseNode(q.node);
@@ -106,7 +116,9 @@ export default function ExploreView({ route }: { route: AppRoute }) {
     setMediaType((['movie', 'tv', 'all'].includes(q.type) ? q.type : 'movie') as 'movie' | 'tv' | 'all');
     setTimeWindow(q.window === 'day' ? 'day' : 'week');
     setTrendingMode(!!q.window);
-    setSearchQuery(q.q || '');
+    const nextQ = q.q || '';
+    setSearchInput(nextQ);
+    setSearchQuery(nextQ);
     setPage(parsePositiveInt(q.page, 1));
     setHistory(nextHistory);
     setTotalPages(1);
@@ -118,56 +130,96 @@ export default function ExploreView({ route }: { route: AppRoute }) {
     didRestoreHistory.current = false;
   }, [route.name, routeQueryKey]);
 
-  const syncRoute = useCallback(() => {
-    replaceRoute('explore', null, buildRouteQuery({ source, mode, type: mediaType, window: timeWindow, query: searchQuery, page, history, trendingMode }));
-  }, [source, mode, mediaType, timeWindow, searchQuery, page, history, trendingMode]);
+  useEffect(
+    () => () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    },
+    [],
+  );
 
-  const fetchResults = useCallback(async () => {
-    setResultsLoading(true);
-    setResultsError(null);
-    setResultsTitle('Loading…');
+  const scheduleCommittedSearch = useCallback((value: string) => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      searchDebounceRef.current = null;
+      setSearchQuery(value);
+      setPage(1);
+      setHistory([]);
+      setDetailNode(null);
+      setDetailData(null);
+    }, SEARCH_DEBOUNCE_MS);
+  }, []);
 
-    let response: any;
+  /** Use searchInputRef for `q` when no override so URL never lags behind what the user typed (avoids route effect clobbering the box). */
+  const syncRoute = useCallback(
+    (queryOverride?: string) => {
+      const q = queryOverride !== undefined ? queryOverride : searchInputRef.current;
+      replaceRoute(
+        'explore',
+        null,
+        buildRouteQuery({ source, mode, type: mediaType, window: timeWindow, query: q, page, history, trendingMode }),
+      );
+    },
+    [source, mode, mediaType, timeWindow, page, history, trendingMode],
+  );
 
-    if (source === 'tvdb') {
-      if (!searchQuery.trim()) {
-        setResultsError('TVDB search requires a query.');
+  const fetchResults = useCallback(
+    async (queryOverride?: string) => {
+      const effectiveQuery = queryOverride !== undefined ? queryOverride : searchQuery;
+      const requestId = ++fetchRequestIdRef.current;
+
+      setResultsLoading(true);
+      setResultsError(null);
+      setResultsTitle('Loading…');
+
+      let response: any;
+
+      if (source === 'tvdb') {
+        if (!effectiveQuery.trim()) {
+          if (requestId !== fetchRequestIdRef.current) return;
+          setResultsError('TVDB search requires a query.');
+          setItems([]);
+          setResultsLoading(false);
+          return;
+        }
+        response = await apiGet('/search/tvdb', { query: effectiveQuery, limit: 20, offset: (page - 1) * 20 });
+      } else if (mode === 'discover') {
+        const useTrending = mediaType === 'all' || trendingMode;
+        if (useTrending) {
+          const type = mediaType === 'all' ? 'movie' : mediaType;
+          response = await apiGet(`/trending/tmdb/${type}/${timeWindow}`);
+        } else {
+          response = await apiGet(`/discover/tmdb/${mediaType}`, { page });
+        }
+      } else if (mediaType === 'all') {
+        response = await apiGet('/search/tmdb/multi', { query: effectiveQuery, page, include_people: true });
+      } else {
+        response = await apiGet(`/search/tmdb/${mediaType}`, { query: effectiveQuery, page });
+      }
+
+      if (requestId !== fetchRequestIdRef.current) return;
+
+      if (!response?.ok) {
+        setResultsError(response?.error || 'Search failed.');
         setItems([]);
+        setResultsTitle('Results');
         setResultsLoading(false);
         return;
       }
-      response = await apiGet('/search/tvdb', { query: searchQuery, limit: 20, offset: (page - 1) * 20 });
-    } else if (mode === 'discover') {
-      const useTrending = mediaType === 'all' || trendingMode;
-      if (useTrending) {
-        const type = mediaType === 'all' ? 'movie' : mediaType;
-        response = await apiGet(`/trending/tmdb/${type}/${timeWindow}`);
-      } else {
-        response = await apiGet(`/discover/tmdb/${mediaType}`, { page });
-      }
-    } else if (mediaType === 'all') {
-      response = await apiGet('/search/tmdb/multi', { query: searchQuery, page, include_people: true });
-    } else {
-      response = await apiGet(`/search/tmdb/${mediaType}`, { query: searchQuery, page });
-    }
 
-    if (!response?.ok) {
-      setResultsError(response?.error || 'Search failed.');
-      setItems([]);
-      setResultsTitle('Results');
+      const rawItems = response.data?.results || [];
+      const cardItems = rawItems.map((entry: any) => toCardItem(entry));
+      const annotated = await annotateLibraryStatus(cardItems);
+
+      if (requestId !== fetchRequestIdRef.current) return;
+
+      setItems(annotated);
+      setTotalPages(Number(response.data?.total_pages || 1));
+      setResultsTitle(`Results (${response.data?.total_results ?? annotated.length})`);
       setResultsLoading(false);
-      return;
-    }
-
-    const rawItems = response.data?.results || [];
-    const cardItems = rawItems.map((entry: any) => toCardItem(entry));
-    const annotated = await annotateLibraryStatus(cardItems);
-    setItems(annotated);
-    setTotalPages(Number(response.data?.total_pages || 1));
-    setResultsTitle(`Results (${response.data?.total_results ?? annotated.length})`);
-    setResultsLoading(false);
-    syncRoute();
-  }, [source, mode, mediaType, timeWindow, trendingMode, searchQuery, page, syncRoute]);
+      syncRoute();
+    },
+    [source, mode, mediaType, timeWindow, trendingMode, searchQuery, page, syncRoute],
+  );
 
   const didRestoreHistory = useRef(false);
   useEffect(() => {
@@ -385,17 +437,23 @@ export default function ExploreView({ route }: { route: AppRoute }) {
   const handleFormSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = null;
+      }
+      const q = searchInput.trim();
+      setSearchQuery(q);
       setPage(1);
       setHistory([]);
       setDetailNode(null);
       setDetailData(null);
       if (source === 'tvdb' && mediaType === 'all') setMediaType('tv');
-      if (mode === 'search' && !searchQuery.trim() && source === 'tmdb') {
+      if (mode === 'search' && !q && source === 'tmdb') {
         notify('Enter a query for TMDB search', 'warning');
       }
-      fetchResults();
+      fetchResults(q);
     },
-    [source, mode, mediaType, searchQuery, fetchResults],
+    [source, mode, mediaType, searchInput, fetchResults],
   );
 
   const handleMediaTypeChange = useCallback(
@@ -494,7 +552,7 @@ export default function ExploreView({ route }: { route: AppRoute }) {
         mediaType={mediaType}
         timeWindow={timeWindow}
         trendingMode={trendingMode}
-        searchQuery={searchQuery}
+        searchQuery={searchInput}
         onSourceChange={setSource}
         onModeChange={(v) => {
           setMode(v);
@@ -503,9 +561,10 @@ export default function ExploreView({ route }: { route: AppRoute }) {
         onMediaTypeChange={handleMediaTypeChange}
         onTimeWindowChange={handleTimeWindowChange}
         onSearchQueryChange={(v) => {
-          setSearchQuery(v);
+          setSearchInput(v);
           setMode('search');
           setTrendingMode(false);
+          scheduleCommittedSearch(v);
         }}
         onSubmit={handleFormSubmit}
         showTrendingWindow={showTrendingWindow}
