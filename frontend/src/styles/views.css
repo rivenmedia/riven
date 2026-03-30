@@ -1133,6 +1133,18 @@ button.release-bar,
   align-items: center;
 }
 
+button.mount-row {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+}
+
+button.mount-row:hover {
+  border-color: rgba(163, 186, 230, 0.35);
+  background: rgba(144, 162, 197, 0.08);
+}
+
 .mount-row strong,
 .mount-row span {
   white-space: nowrap;

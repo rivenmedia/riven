@@ -186,6 +186,10 @@ class RivenVFS(pyfuse3.Operations):
         # pyfuse3 runs FUSE operations in threads, so we use threading.RLock()
         self._tree_lock = threading.RLock()
 
+        # Cached inventory for GET /api/v1/mount (avoid scanning the FUSE mount)
+        self._mount_inventory_cache: dict[str, str] | None = None
+        self._mount_inventory_cache_dirty: bool = True
+
         # Pending invalidations for batching (optimization: collect during sync, invalidate at end)
         self._pending_invalidations = set[pyfuse3.InodeT]()
 
@@ -237,6 +241,42 @@ class RivenVFS(pyfuse3.Operations):
 
         # Synchronize library profiles with VFS structure
         self.sync()
+
+    def get_mount_files_inventory(self) -> dict[str, str]:
+        """
+        Return a VFS-path->absolute-path mapping for all files currently registered in the VFS.
+
+        This intentionally does NOT touch the mounted FUSE directory (no scandir/walk).
+        It walks the in-memory VFS tree and is safe to call from the API layer.
+        """
+        with self._tree_lock:
+            if not self._mount_inventory_cache_dirty and self._mount_inventory_cache is not None:
+                return self._mount_inventory_cache
+
+            file_map: dict[str, str] = {}
+
+            stack: list[VFSNode] = [self._root]
+            while stack:
+                node = stack.pop()
+
+                if isinstance(node, VFSDirectory):
+                    # Depth-first traversal over children
+                    stack.extend(node.children.values())
+                    continue
+
+                if isinstance(node, VFSFile):
+                    # API expects `absolute_path` under mount. For our VFS tree, node.path is the mount-relative path.
+                    # Combine with actual mountpoint so callers get the real absolute path visible on disk.
+                    abs_path = os.path.join(self._mountpoint, node.path.lstrip("/"))
+                    # Key by full VFS path so clients can reconstruct the directory tree.
+                    file_map[node.path] = abs_path
+
+            self._mount_inventory_cache = file_map
+            self._mount_inventory_cache_dirty = False
+            return file_map
+
+    def _mark_mount_inventory_dirty(self) -> None:
+        self._mount_inventory_cache_dirty = True
 
     @asynccontextmanager
     async def mountpoint_lifecycle(self) -> AsyncGenerator[None]:
@@ -569,6 +609,9 @@ class RivenVFS(pyfuse3.Operations):
         else:
             self._sync_individual(item)
 
+        # VFS tree may have changed; invalidate mount inventory cache.
+        self._mark_mount_inventory_dirty()
+
     def add(self, item: MediaItem) -> bool:
         """
         Add a MediaItem to the VFS.
@@ -602,6 +645,7 @@ class RivenVFS(pyfuse3.Operations):
             self._register_filesystem_entry(subtitle, video_paths=video_paths)
             subtitle.available_in_vfs = True
 
+        self._mark_mount_inventory_dirty()
         return True
 
     def remove(self, item: MediaItem) -> bool:
@@ -658,6 +702,7 @@ class RivenVFS(pyfuse3.Operations):
                 f"Removed item {item.id} from VFS ({len(video_paths)} path(s))"
             )
 
+            self._mark_mount_inventory_dirty()
             return True
 
         return False

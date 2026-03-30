@@ -428,24 +428,17 @@ class MountResponse(BaseModel):
 )
 async def get_mount_files() -> MountResponse:
     """Get all files in the Riven VFS mount."""
+    from fastapi.concurrency import run_in_threadpool
 
-    import os
+    services = di[Program].services
+    assert services
 
-    mount_dir = str(settings_manager.settings.filesystem.mount_path)
+    vfs = services.filesystem.riven_vfs
+    if not vfs:
+        raise HTTPException(status_code=503, detail="VFS not initialized")
 
-    # `filename: filepath`
-    file_map = dict[str, str]()
-
-    def scan_dir(path: str):
-        with os.scandir(path) as entries:
-            for entry in entries:
-                if entry.is_file():
-                    file_map[entry.name] = entry.path
-                elif entry.is_dir():
-                    scan_dir(entry.path)
-
-    scan_dir(mount_dir)
-
+    # Inventory build can be O(N) on first call; keep it off the event loop.
+    file_map = await run_in_threadpool(vfs.get_mount_files_inventory)
     return MountResponse(files=file_map)
 
 

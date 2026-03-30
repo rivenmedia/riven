@@ -76,5 +76,5 @@ flowchart LR
 
 ## API endpoints
 
-- **GET /api/v1/mount**: Lists filenames and absolute paths under the mount (scandir). See [api-default.md](api-default.md).
+- **GET /api/v1/mount**: Lists filenames and absolute paths under the mount (from the in-memory VFS tree; no filesystem scan). See [api-default.md](api-default.md).
 - **GET /api/v1/vfs_stats**: Returns active stream stats and cache metrics. See [api-default.md](api-default.md).
