@@ -190,6 +190,24 @@
   background: var(--panel-bg-hover, rgba(0, 0, 0, 0.03));
 }
 
+.stream-row--clickable {
+  cursor: pointer;
+}
+
+.stream-row--clickable:hover:not(.stream-row--activating) {
+  background: var(--panel-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
+.stream-row--blacklisted {
+  opacity: 0.72;
+  cursor: default;
+}
+
+.stream-row--activating {
+  pointer-events: none;
+  opacity: 0.75;
+}
+
 .stream-row__pinned-badge {
   font-size: 0.7rem;
   font-weight: 600;

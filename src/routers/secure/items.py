@@ -1188,6 +1188,102 @@ async def unblacklist_stream(
 
 
 @router.post(
+    "/{item_id}/streams/{stream_id}/activate",
+    summary="Activate stream for media item",
+    description=(
+        "Switch the item to this scraped stream: validate on debrid, fetch links, "
+        "update filesystem metadata and active_stream, then enqueue downloader follow-up."
+    ),
+    operation_id="activate_item_stream",
+    response_model=MessageResponse,
+)
+async def activate_item_stream(
+    item_id: Annotated[
+        int,
+        Path(description="The ID of the media item", ge=1),
+    ],
+    stream_id: Annotated[
+        int,
+        Path(description="The ID of the Stream row to activate", ge=1),
+    ],
+) -> MessageResponse:
+    program = di[Program]
+    if not program.services or not program.services.downloader:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Downloader service not available",
+        )
+    downloader = program.services.downloader
+    if not downloader.service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No downloader service configured",
+        )
+
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
+        )
+
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found",
+            )
+
+        _owner, streams, blacklisted = _streams_source_for_item(session, item)
+        stream = next((s for s in streams if s.id == stream_id), None)
+        if stream is None:
+            if any(s.id == stream_id for s in blacklisted):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot activate a blacklisted stream",
+                )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Stream not found",
+            )
+
+        item_merged = session.merge(item)
+
+        try:
+            success = downloader.start_manual_download(
+                item=item_merged,
+                stream=stream,
+                service=downloader.service,
+                file_ids=None,
+            )
+        except Exception as e:
+            logger.exception("activate_item_stream: start_manual_download failed")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to activate stream: {e}",
+            ) from e
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Failed to activate stream (not cached on debrid or no matching files "
+                    "for this item)"
+                ),
+            )
+
+        session.commit()
+
+    try:
+        program.em.add_event(Event("Downloader", item_id))
+    except Exception:
+        logger.warning("activate_item_stream: could not emit Downloader event for {}", item_id)
+
+    return MessageResponse(
+        message=f"Activated stream {stream_id} for item {item_id}",
+    )
+
+
+@router.post(
     path="/{item_id}/streams/reset",
     summary="Reset Media Item Streams",
     description="Reset all streams for a media item",
