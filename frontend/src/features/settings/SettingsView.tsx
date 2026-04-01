@@ -1,14 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ViewLayout, ViewHeader } from '../../shared/ui/PagePrimitives';
 import { apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import type { AppRoute } from '../../app/routeTypes';
+
+import { SettingsGroupForm } from './components/SettingsGroupForm';
+import {
+  buildGroupSchema,
+  type JsonSchema,
+} from './schema/settingsSchema';
 
 export default function SettingsView({ route }: { route: AppRoute }) {
   const [settings, setSettings] = useState<Record<string, unknown>>({});
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [schema, setSchema] = useState<JsonSchema | null>(null);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
 
   const fetchSettings = useCallback(async () => {
     const response = await apiGet('/settings/get/all');
@@ -23,9 +32,29 @@ export default function SettingsView({ route }: { route: AppRoute }) {
     return true;
   }, []);
 
+  const fetchSchemaForAllTopLevelKeys = useCallback(async (keys: string[]) => {
+    if (!keys.length) return;
+    const response = await apiGet('/settings/schema/keys', {
+      keys: keys.join(','),
+      title: 'RivenSettings',
+    });
+    if (!response.ok) {
+      setSchema(null);
+      setSchemaError(response.error || 'Failed to fetch settings schema.');
+      return;
+    }
+    setSchema((response.data as JsonSchema) || null);
+    setSchemaError(null);
+  }, []);
+
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
+
+  useEffect(() => {
+    const topKeys = Object.keys(settings).sort();
+    fetchSchemaForAllTopLevelKeys(topKeys);
+  }, [fetchSchemaForAllTopLevelKeys, settings]);
 
   const handleReload = async () => {
     const response = await apiGet('/settings/load');
@@ -46,7 +75,7 @@ export default function SettingsView({ route }: { route: AppRoute }) {
     notify(response.data?.message || 'Settings written to disk', 'success');
   };
 
-  const handleSaveGroup = async (key: string, valueStr: string) => {
+  const handleSaveGroupJson = async (key: string, valueStr: string) => {
     let parsed: unknown;
     try {
       parsed = JSON.parse(valueStr);
@@ -54,19 +83,53 @@ export default function SettingsView({ route }: { route: AppRoute }) {
       notify(`Invalid JSON for "${key}"`, 'error');
       return;
     }
-    const response = await apiPost(`/settings/set/${key}`, { [key]: parsed });
+    await handleSaveGroupValue(key, parsed);
+  };
+
+  const handleSaveGroupValue = async (key: string, value: unknown) => {
+    const response = await apiPost('/settings/set/all', { [key]: value });
     if (!response.ok) {
       notify(response.error || `Failed to save ${key}`, 'error');
       return;
     }
     notify(`Saved "${key}"`, 'success');
+    await fetchSettings();
   };
 
-  const keys = Object.keys(settings)
-    .sort()
-    .filter((key) =>
-      key.toLowerCase().includes(filter.toLowerCase()),
-    );
+  const keys = useMemo(
+    () =>
+      Object.keys(settings)
+        .sort()
+        .filter((key) => key.toLowerCase().includes(filter.toLowerCase())),
+    [filter, settings],
+  );
+
+  useEffect(() => {
+    if (!keys.length) {
+      setActiveGroupKey(null);
+      return;
+    }
+    if (activeGroupKey && keys.includes(activeGroupKey)) return;
+    setActiveGroupKey(keys[0]);
+  }, [activeGroupKey, keys]);
+
+  const activeValue = activeGroupKey ? settings[activeGroupKey] : undefined;
+  const activeSchema = useMemo(() => {
+    if (!activeGroupKey) return null;
+    if (!schema) return null;
+    return buildGroupSchema(schema, activeGroupKey);
+  }, [activeGroupKey, schema]);
+
+  const activeDescription = useMemo(() => {
+    if (!activeGroupKey) return null;
+    if (!schema) return null;
+    const properties = schema.properties;
+    if (!properties || typeof properties !== 'object') return null;
+    const s = (properties as Record<string, any>)[activeGroupKey];
+    if (!s || typeof s !== 'object') return null;
+    if (typeof s.description === 'string' && s.description.trim()) return s.description;
+    return null;
+  }, [activeGroupKey, schema]);
 
   return (
     <ViewLayout className="view-settings" view="settings">
@@ -100,6 +163,9 @@ export default function SettingsView({ route }: { route: AppRoute }) {
           onChange={(e) => setFilter(e.target.value)}
         />
       </div>
+      {schemaError ? (
+        <p className="muted">{schemaError}</p>
+      ) : null}
       {loading ? (
         <p className="muted">Loading settings…</p>
       ) : error ? (
@@ -107,29 +173,62 @@ export default function SettingsView({ route }: { route: AppRoute }) {
       ) : !keys.length ? (
         <p className="muted">No settings groups matched the filter.</p>
       ) : (
-        <div className="settings-groups">
-          {keys.map((key) => (
-            <SettingsGroup
-              key={key}
-              groupKey={key}
-              value={settings[key]}
-              onSave={(valueStr) => handleSaveGroup(key, valueStr)}
-            />
-          ))}
+        <div className="settings-layout">
+          <aside className="settings-sidebar">
+            <div className="settings-sidebar__list">
+              {keys.map((key) => {
+                const isActive = key === activeGroupKey;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`settings-sidebar__item${isActive ? ' is-active' : ''}`}
+                    onClick={() => setActiveGroupKey(key)}
+                  >
+                    {key}
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+          <section className="settings-editor">
+            {activeGroupKey ? (
+              <SettingsEditor
+                groupKey={activeGroupKey}
+                value={activeValue}
+                groupSchema={activeSchema}
+                description={activeDescription}
+                onSaveJson={(valueStr) =>
+                  handleSaveGroupJson(activeGroupKey, valueStr)
+                }
+                onSaveValue={(value) =>
+                  handleSaveGroupValue(activeGroupKey, value)
+                }
+              />
+            ) : (
+              <p className="muted">Select a settings group.</p>
+            )}
+          </section>
         </div>
       )}
     </ViewLayout>
   );
 }
 
-function SettingsGroup({
+function SettingsEditor({
   groupKey,
   value,
-  onSave,
+  groupSchema,
+  description,
+  onSaveJson,
+  onSaveValue,
 }: {
   groupKey: string;
   value: unknown;
-  onSave: (valueStr: string) => void;
+  groupSchema: JsonSchema | null;
+  description: string | null;
+  onSaveJson: (valueStr: string) => void;
+  onSaveValue: (value: unknown) => Promise<void> | void;
 }) {
   const [localValue, setLocalValue] = useState(
     () => JSON.stringify(value, null, 2),
@@ -140,23 +239,42 @@ function SettingsGroup({
   }, [value]);
 
   return (
-    <details className="settings-group" open>
-      <summary>{groupKey}</summary>
-      <div className="settings-group__body">
-        <textarea
-          value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
-        />
-        <div className="toolbar">
-          <button
-            type="button"
-            className="btn btn--primary btn--small"
-            onClick={() => onSave(localValue)}
-          >
-            Save {groupKey}
-          </button>
+    <div className="settings-editor__inner">
+      <div className="settings-editor__header">
+        <div>
+          <div className="settings-editor__title">{groupKey}</div>
+          <div className="settings-editor__subtitle muted">
+            {description
+              ? description
+              : 'Edit this settings group. Changes validate against the backend schema.'}
+          </div>
         </div>
       </div>
-    </details>
+      <div className="settings-editor__body">
+        <SettingsGroupForm
+          groupKey={groupKey}
+          value={value}
+          schema={groupSchema}
+          onSave={onSaveValue}
+          jsonFallback={
+            <>
+              <textarea
+                value={localValue}
+                onChange={(e) => setLocalValue(e.target.value)}
+              />
+              <div className="toolbar">
+                <button
+                  type="button"
+                  className="btn btn--primary btn--small"
+                  onClick={() => onSaveJson(localValue)}
+                >
+                  Save {groupKey}
+                </button>
+              </div>
+            </>
+          }
+        />
+      </div>
+    </div>
   );
 }

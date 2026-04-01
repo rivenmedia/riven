@@ -1066,33 +1066,178 @@ button.release-bar,
   max-height: 70vh;
 }
 
-.settings-groups {
+.settings-layout {
   display: grid;
-  gap: 0.65rem;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
 }
 
-.settings-group {
+.settings-sidebar {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  padding: 0.5rem;
+  position: sticky;
+  top: 0.85rem;
+  max-height: calc(100vh - 10rem);
+  overflow: auto;
+}
+
+.settings-sidebar__list {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.settings-sidebar__item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  font-size: var(--font-size-1);
+}
+
+.settings-sidebar__item:hover {
+  border-color: rgba(163, 186, 230, 0.25);
+  background: rgba(144, 162, 197, 0.08);
+}
+
+.settings-sidebar__item.is-active {
+  border-color: rgba(163, 186, 230, 0.4);
+  background: rgba(144, 162, 197, 0.14);
+}
+
+.settings-editor__inner {
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
   background: var(--panel);
 }
 
-.settings-group summary {
-  cursor: pointer;
-  padding: 0.7rem;
-  font-weight: 600;
+.settings-editor__header {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid rgba(137, 158, 196, 0.16);
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: start;
 }
 
-.settings-group__body {
-  padding: 0 0.7rem 0.7rem;
+.settings-editor__title {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.settings-editor__subtitle {
+  margin-top: 0.2rem;
+}
+
+.settings-editor__body {
+  padding: 0.9rem 1rem;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
-.settings-group__body textarea {
+.settings-editor__body textarea {
   min-height: 210px;
   font-family: 'SF Mono', ui-monospace, Menlo, monospace;
   font-size: var(--font-size-1);
+}
+
+.settings-form .rjsf {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.settings-form .form-group {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.3rem 0;
+}
+
+.settings-form label {
+  font-weight: 600;
+}
+
+.settings-form .field-description,
+.settings-form .help-block,
+.settings-form .form-text {
+  color: var(--text-2);
+  font-size: var(--font-size-1);
+}
+
+.settings-form .field-description + *,
+.settings-form .help-block + *,
+.settings-form .form-text + * {
+  margin-top: 0.55rem;
+}
+
+.settings-form input[type='text'],
+.settings-form input[type='password'],
+.settings-form input[type='number'],
+.settings-form input[type='search'],
+.settings-form input[type='url'],
+.settings-form textarea,
+.settings-form select {
+  width: 100%;
+}
+
+.settings-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.settings-form legend {
+  padding: 0;
+  margin: 0 0 0.45rem;
+  color: var(--text-1);
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  font-size: var(--font-size-2);
+}
+
+.settings-form legend + .form-group,
+.settings-form legend + .field {
+  margin-top: 0.15rem;
+}
+
+.settings-form .object-field > legend {
+  font-size: var(--font-size-1);
+  font-weight: 700;
+  color: var(--text-1);
+  margin-bottom: 0.5rem;
+}
+
+.settings-form .array-item {
+  display: grid;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  background: rgba(144, 162, 197, 0.08);
+}
+
+.settings-form .array-item-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.settings-form .btn-group,
+.settings-form .array-item-toolbox {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.settings-form .object-field {
+  padding: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: rgba(144, 162, 197, 0.06);
 }
 
 .mount-list {
