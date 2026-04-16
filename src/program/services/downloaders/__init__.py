@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
@@ -699,7 +700,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
         self.service.delete_torrent(torrent_id)
 
-    def _any_service_subscription_active(self, services: list["DownloaderBase"]) -> bool:
+    def _any_service_subscription_active(self, services: Sequence[DownloaderBase]) -> bool:
         """Return True if at least one service currently has an active premium subscription."""
         for service in services:
             try:
