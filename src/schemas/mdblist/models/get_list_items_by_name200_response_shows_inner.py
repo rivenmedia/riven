@@ -29,7 +29,7 @@ class GetListItemsByName200ResponseShowsInner(BaseModel):
     """  # noqa: E501
 
     id: Union[StrictFloat, StrictInt]
-    rank: Union[StrictFloat, StrictInt]
+    rank: Union[StrictFloat, StrictInt] | None  # SCHEMA FIX: Must be optional
     adult: Union[StrictFloat, StrictInt]
     title: StrictStr
     imdb_id: StrictStr

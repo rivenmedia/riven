@@ -93,7 +93,7 @@ class MdblistAPI:
         class ListItems(BaseModel):
             class ListItem(BaseModel):
                 id: StrictInt
-                rank: StrictInt
+                rank: StrictInt | None
                 adult: Literal[0, 1]
                 title: StrictStr
                 imdb_id: StrictStr | None = None
