@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from loguru import logger
 from RTN import ParsedData
@@ -105,6 +106,17 @@ class Downloader(Runner[None, DownloaderBase]):
             )
 
             yield RunnerResult(media_items=[item], run_at=next_attempt)
+            return
+
+        # Check subscription status once before attempting any stream checks.
+        # If no service has an active premium subscription (e.g. debrid expired),
+        # bail out early without blacklisting any streams so they remain available
+        # for when the subscription is renewed.
+        if not self._any_service_subscription_active(available_services):
+            logger.warning(
+                f"No downloader has an active subscription for {item.log_string} ({item.id}), skipping stream checks"
+            )
+            yield RunnerResult(media_items=[item])
             return
 
         download_success = False
@@ -687,6 +699,17 @@ class Downloader(Runner[None, DownloaderBase]):
         assert self.service
 
         self.service.delete_torrent(torrent_id)
+
+    def _any_service_subscription_active(self, services: Sequence[DownloaderBase]) -> bool:
+        """Return True if at least one service currently has an active premium subscription."""
+        for service in services:
+            try:
+                user_info = service.get_user_info()
+                if user_info and user_info.premium_status == "premium":
+                    return True
+            except Exception as e:
+                logger.debug(f"Failed to check subscription status for {service.key}: {e}")
+        return False
 
     def get_user_info(self, service: "DownloaderBase") -> UserInfo | None:
         """Get user information"""
