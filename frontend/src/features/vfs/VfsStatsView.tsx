@@ -124,8 +124,8 @@ function CachePanel({ cache }: { cache: CacheStat }) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-        gap: '0.75rem',
+        gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+        gap: '0.6rem',
         fontSize: '0.85rem',
       }}
     >
@@ -176,6 +176,13 @@ export default function VfsStatsView({ route }: { route: AppRoute }) {
         subtitle="Live streaming sessions and chunk-cache metrics. Refreshes every 3 seconds."
       />
 
+      {cache && (
+        <Panel>
+          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Cache Metrics</h2>
+          <CachePanel cache={cache} />
+        </Panel>
+      )}
+
       <Panel>
         <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Active Streams</h2>
         {error ? (
@@ -186,13 +193,6 @@ export default function VfsStatsView({ route }: { route: AppRoute }) {
           streams.map((s) => <StreamCard key={s.path + s.original_filename} stat={s} />)
         )}
       </Panel>
-
-      {cache && (
-        <Panel>
-          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Cache Metrics</h2>
-          <CachePanel cache={cache} />
-        </Panel>
-      )}
     </ViewLayout>
   );
 }

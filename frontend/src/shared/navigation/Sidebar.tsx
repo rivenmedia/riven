@@ -79,15 +79,20 @@ const NAV_SECTIONS: NavSection[] = [
       { hash: "#/dashboard-services", label: "Services", route: "dashboard-services", nested: true },
       { hash: "#/dashboard-states", label: "State Distribution", route: "dashboard-states", nested: true },
       { hash: "#/dashboard-releases", label: "Releases by Year", route: "dashboard-releases", nested: true },
+      { hash: "#/calendar", label: "Calendar", route: "calendar", nested: true },
+    ],
+  },
+  {
+    title: "VFS",
+    links: [
+      { hash: "#/vfs-stats", label: "Stats", route: "vfs-stats", nested: true },
+      { hash: "#/mount", label: "Mount", route: "mount", nested: true },
     ],
   },
   {
     title: "System",
     links: [
       { hash: "#/inspector", label: "Inspector & Logs", route: "inspector" },
-      { hash: "#/vfs-stats", label: "VFS Stats", route: "vfs-stats" },
-      { hash: "#/calendar", label: "Calendar", route: "calendar" },
-      { hash: "#/mount", label: "Mount", route: "mount" },
       { hash: "#/settings", label: "Settings", route: "settings" },
     ],
   },
