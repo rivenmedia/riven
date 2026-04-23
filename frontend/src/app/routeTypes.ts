@@ -5,6 +5,7 @@ export type RouteName =
   | "movies"
   | "shows"
   | "episodes"
+  | "search"
   | "explore"
   | "trending"
   | "dashboard"
@@ -16,7 +17,8 @@ export type RouteName =
   | "vfs-stats"
   | "item"
   | "calendar"
-  | "mount";
+  | "mount"
+  | "discover-item";
 
 export interface AppRoute {
   name: RouteName;

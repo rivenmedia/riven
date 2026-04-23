@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader } from '../../shared/ui/PagePrimitives';
-import { apiGet, apiPost } from '../../shared/api/api';
+import { apiGet } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import { replaceRoute } from '../../shared/routing/router';
 import { annotateLibraryStatus } from '../library/libraryStatus';
-import { getMediaKind, sortByPopularity, toCsv } from '../../shared/utils/utils';
+import { getMediaKind, toCsv } from '../../shared/utils/utils';
+import { addDiscoverItemToLibrary } from '../discovery/discoverItemLibrary';
 import type { AppRoute } from '../../app/routeTypes';
 import {
   type ExploreNode,
@@ -22,49 +23,8 @@ import { ExploreDetailPanel } from './ExploreDetailPanel';
 
 const POLL_STATUS_MS = 5000;
 
-async function addItemToLibrary(item: any, seasonNumbers: number[] | null = null): Promise<boolean> {
-  const kind = getMediaKind(item);
-  if (kind !== 'movie' && kind !== 'tv') return false;
-
-  let payload: any;
-  if (kind === 'movie') {
-    payload = { tmdb_ids: [String(item.tmdb_id || item.id)], media_type: 'movie' };
-  } else if (item.indexer === 'tvdb') {
-    payload = { tvdb_ids: [String(item.tvdb_id || item.id)], media_type: 'tv' };
-  } else {
-    payload = { tmdb_ids: [String(item.tmdb_id || item.id)], media_type: 'tv' };
-  }
-
-  const res = await apiPost('/items/add', payload);
-  if (!res.ok) {
-    notify(res.error || 'Failed to add media', 'error');
-    return false;
-  }
-
-  if (kind === 'tv' && seasonNumbers && seasonNumbers.length > 0) {
-    const scrapePayload: any = {
-      media_type: 'tv',
-      season_numbers: seasonNumbers,
-    };
-    if (item.indexer === 'tvdb') {
-      scrapePayload.tvdb_id = String(item.tvdb_id || item.id);
-    } else {
-      scrapePayload.tmdb_id = String(item.tmdb_id || item.id);
-    }
-    const scrapeRes = await apiPost('/scrape/auto', scrapePayload);
-    if (!scrapeRes.ok) {
-      notify(`Added to library but failed to start season scrape: ${scrapeRes.error}`, 'warning');
-      return true;
-    }
-    notify(`Added "${item.title || item.name}" — scraping ${seasonNumbers.length} season(s)`, 'success');
-    return true;
-  }
-
-  notify(`Added "${item.title || item.name}" to library`, 'success');
-  return true;
-}
-
 export default function ExploreView({ route }: { route: AppRoute }) {
+  const baseRoute: 'explore' | 'search' = route.name === 'search' ? 'search' : 'explore';
   const query = route.query || {};
   const [source, setSource] = useState<'tmdb' | 'tvdb'>(query.source === 'tvdb' ? 'tvdb' : 'tmdb');
   const [mode, setMode] = useState<'search' | 'discover'>(query.mode === 'discover' ? 'discover' : 'search');
@@ -88,8 +48,6 @@ export default function ExploreView({ route }: { route: AppRoute }) {
 
   const [items, setItems] = useState<any[]>([]);
   const [detailNode, setDetailNode] = useState<ExploreNode | null>(null);
-  const [detailData, setDetailData] = useState<any>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [resultsLoading, setResultsLoading] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [resultsTitle, setResultsTitle] = useState('Results');
@@ -98,10 +56,10 @@ export default function ExploreView({ route }: { route: AppRoute }) {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchRequestIdRef = useRef(0);
 
-  const routeQueryKey = route.name === 'explore' ? JSON.stringify(route.query || {}) : '';
+  const routeQueryKey = route.name === baseRoute ? JSON.stringify(route.query || {}) : '';
   const prevRouteQueryKeyRef = useRef(routeQueryKey);
   useEffect(() => {
-    if (route.name !== 'explore' || routeQueryKey === prevRouteQueryKeyRef.current) return;
+    if (route.name !== baseRoute || routeQueryKey === prevRouteQueryKeyRef.current) return;
     prevRouteQueryKeyRef.current = routeQueryKey;
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
@@ -124,11 +82,10 @@ export default function ExploreView({ route }: { route: AppRoute }) {
     setTotalPages(1);
     setItems([]);
     setDetailNode(null);
-    setDetailData(null);
     setResultsError(null);
     setResultsTitle('Results');
     didRestoreHistory.current = false;
-  }, [route.name, routeQueryKey]);
+  }, [route.name, routeQueryKey, baseRoute]);
 
   useEffect(
     () => () => {
@@ -145,7 +102,6 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       setPage(1);
       setHistory([]);
       setDetailNode(null);
-      setDetailData(null);
     }, SEARCH_DEBOUNCE_MS);
   }, []);
 
@@ -154,12 +110,12 @@ export default function ExploreView({ route }: { route: AppRoute }) {
     (queryOverride?: string) => {
       const q = queryOverride !== undefined ? queryOverride : searchInputRef.current;
       replaceRoute(
-        'explore',
+        baseRoute,
         null,
         buildRouteQuery({ source, mode, type: mediaType, window: timeWindow, query: q, page, history, trendingMode }),
       );
     },
-    [source, mode, mediaType, timeWindow, page, history, trendingMode],
+    [baseRoute, source, mode, mediaType, timeWindow, page, history, trendingMode],
   );
 
   const fetchResults = useCallback(
@@ -244,18 +200,8 @@ export default function ExploreView({ route }: { route: AppRoute }) {
         }
       }
     });
-    // Include the currently-selected detail media so the poll keeps its library status up to date
-    const dm = detailData?.media;
-    if (dm) {
-      const k = getMediaKind(dm);
-      if (k === 'movie' || k === 'tv') {
-        if (dm.indexer === 'tvdb' && (dm.tvdb_id || dm.id)) ids.tvdb.add(String(dm.tvdb_id || dm.id));
-        else if (dm.tmdb_id || dm.id) ids.tmdb.add(String(dm.tmdb_id || dm.id));
-        if (dm.tvdb_id) ids.tvdb.add(String(dm.tvdb_id));
-      }
-    }
     return `${toCsv([...ids.tmdb].sort())}|${toCsv([...ids.tvdb].sort())}`;
-  }, [items, detailData]);
+  }, [items]);
 
   const lastStatusIdsKeyRef = useRef<string | null>(null);
 
@@ -285,15 +231,6 @@ export default function ExploreView({ route }: { route: AppRoute }) {
           return { ...item, in_library: Boolean(status.in_library), library_item_id: status.library_item_id ?? null, state: status.library_state ?? item.state };
         }),
       );
-      setDetailData((d: any) => {
-        if (!d?.media) return d;
-        const dm = d.media;
-        const k = getMediaKind(dm);
-        if (k !== 'movie' && k !== 'tv') return d;
-        const status = resolveStatus(dm);
-        if (!status) return d;
-        return { ...d, media: { ...dm, in_library: Boolean(status.in_library), library_item_id: status.library_item_id ?? null, library_state: status.library_state ?? null } };
-      });
     };
 
     poll();
@@ -307,7 +244,7 @@ export default function ExploreView({ route }: { route: AppRoute }) {
   }, [statusIdsKey]);
 
   const selectNode = useCallback(
-    async (node: ExploreNode, updateHistory = true) => {
+    (node: ExploreNode, updateHistory = true) => {
       if (updateHistory) {
         setHistory((prev) => {
           const last = prev[prev.length - 1];
@@ -317,95 +254,7 @@ export default function ExploreView({ route }: { route: AppRoute }) {
           return [...prev, node];
         });
       }
-
       setDetailNode(node);
-      setDetailLoading(true);
-      setDetailData(null);
-
-      if (node.kind === 'person') {
-        try {
-          const personRes = await apiGet(`/tmdb/person/${node.id}`);
-          if (!personRes.ok) {
-            setDetailData({ error: personRes.error || 'Failed to load person.' });
-            setDetailLoading(false);
-            return;
-          }
-          const person = personRes.data || {};
-          let rawCredits: any[] = [];
-          if (person.combined_credits?.cast || person.combined_credits?.crew) {
-            rawCredits = [...(person.combined_credits.cast || []), ...(person.combined_credits.crew || [])];
-          } else {
-            const creditsRes = await apiGet(`/tmdb/person/${node.id}/combined_credits`);
-            if (creditsRes.ok && creditsRes.data) {
-              rawCredits = [...(creditsRes.data.cast || []), ...(creditsRes.data.crew || [])];
-            }
-          }
-          const credits = rawCredits
-            .map((entry: any) => toCardItem(entry))
-            .filter((entry: any, index: number, arr: any[]) => arr.findIndex((c: any) => c.id === entry.id && getMediaKind(c) === getMediaKind(entry)) === index);
-          const annotated = await annotateLibraryStatus(credits);
-          const ranked = sortByPopularity(annotated).slice(0, 24);
-          setDetailData({ kind: 'person', person, credits: ranked });
-        } catch (e) {
-          setDetailData({ error: e instanceof Error ? e.message : 'Failed to load person.' });
-        }
-        setDetailLoading(false);
-        syncRoute();
-        return;
-      }
-
-      if (node.source === 'tvdb' && node.kind === 'tv') {
-        const [tvdbRes, statusRes] = await Promise.all([
-          apiGet(`/tvdb/series/${node.id}`),
-          apiGet('/items/library/status', { tvdb_ids: String(node.id) }),
-        ]);
-        if (!tvdbRes.ok) {
-          setDetailData({ error: tvdbRes.error || 'Failed to load TVDB details.' });
-          setDetailLoading(false);
-          return;
-        }
-        const series = tvdbRes.data || {};
-        const status = statusRes.data?.tvdb?.[String(node.id)] || null;
-        setDetailData({
-          kind: 'tvdb-tv',
-          media: {
-            ...series,
-            in_library: Boolean(status?.in_library),
-            library_item_id: status?.library_item_id ?? null,
-            library_state: status?.library_state ?? null,
-            poster_path: series.image || series.poster_path,
-            title: series.name || series.title,
-          },
-        });
-        setDetailLoading(false);
-        syncRoute();
-        return;
-      }
-
-      const detailRes = await apiGet(`/tmdb/${node.kind}/${node.id}`);
-      if (!detailRes.ok) {
-        setDetailData({ error: detailRes.error || 'Failed to load media details.' });
-        setDetailLoading(false);
-        return;
-      }
-      const media = detailRes.data || {};
-      const recommendations = (media.recommendations?.results || []).map((entry: any) => toCardItem(entry, node.kind));
-      const similar = (media.similar?.results || []).map((entry: any) => toCardItem(entry, node.kind));
-      await annotateLibraryStatus(recommendations);
-      await annotateLibraryStatus(similar);
-      // Hoist tvdb_id from external_ids so the status poll can track it
-      if (node.kind === 'tv' && !media.tvdb_id && media.external_ids?.tvdb_id) {
-        media.tvdb_id = String(media.external_ids.tvdb_id);
-      }
-      // The detail endpoint already resolves library status via _attach_library_status (including
-      // TMDB→TVDB resolution). Use data.library directly instead of a redundant extra call.
-      if (media.library) {
-        media.in_library = Boolean(media.library.in_library);
-        media.library_item_id = media.library.library_item_id ?? null;
-        media.library_state = media.library.library_state ?? null;
-      }
-      setDetailData({ kind: node.kind, media, recommendations, similar });
-      setDetailLoading(false);
       syncRoute();
     },
     [syncRoute],
@@ -422,7 +271,6 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       if (clickedIndex === 0) {
         setHistory([]);
         setDetailNode(null);
-        setDetailData(null);
         syncRoute();
         return;
       }
@@ -446,7 +294,6 @@ export default function ExploreView({ route }: { route: AppRoute }) {
       setPage(1);
       setHistory([]);
       setDetailNode(null);
-      setDetailData(null);
       if (source === 'tvdb' && mediaType === 'all') setMediaType('tv');
       if (mode === 'search' && !q && source === 'tmdb') {
         notify('Enter a query for TMDB search', 'warning');
@@ -492,7 +339,7 @@ export default function ExploreView({ route }: { route: AppRoute }) {
           setPage(1);
           const node: ExploreNode = { kind: seed.kind, id: String(seed.id), label: seed.label || `${seed.kind} ${seed.id}`, source: seed.source || 'tmdb' };
           setHistory([node]);
-          replaceRoute('explore', null, buildRouteQuery({ source: 'tmdb', mode: 'discover', type: seed.kind === 'tv' ? 'tv' : 'movie', query: '', page: 1, history: [node] }));
+          replaceRoute(baseRoute, null, buildRouteQuery({ source: 'tmdb', mode: 'discover', type: seed.kind === 'tv' ? 'tv' : 'movie', query: '', page: 1, history: [node] }));
           fetchResults();
           selectNode(node, false);
         }
@@ -520,7 +367,7 @@ export default function ExploreView({ route }: { route: AppRoute }) {
           label: 'Add',
           tone: 'primary',
           onClick: async () => {
-            const ok = await addItemToLibrary(item);
+            const ok = await addDiscoverItemToLibrary(item);
             if (ok) fetchResults();
           },
         });
@@ -541,10 +388,17 @@ export default function ExploreView({ route }: { route: AppRoute }) {
   }, [selectNode]);
 
   return (
-    <ViewLayout className="view-explore" view="explore">
+    <ViewLayout
+      className={baseRoute === 'search' ? 'view-search view-explore' : 'view-explore'}
+      view={baseRoute}
+    >
       <ViewHeader
-        title="Discovery Graph"
-        subtitle={<p>Traverse TMDB/TVDB metadata across movies, TV shows, cast and related works.</p>}
+        title={baseRoute === 'search' ? 'Search' : 'Discovery Graph'}
+        subtitle={
+          baseRoute === 'search'
+            ? <p>Search TMDB/TVDB metadata graph (movies, TV, people).</p>
+            : <p>Traverse TMDB/TVDB metadata across movies, TV shows, cast and related works.</p>
+        }
       />
       <ExploreToolbar
         source={source}
@@ -589,11 +443,8 @@ export default function ExploreView({ route }: { route: AppRoute }) {
             originLabel={originLabel}
             history={history}
             detailNode={detailNode}
-            detailLoading={detailLoading}
-            detailData={detailData}
             onBreadcrumbClick={handleBreadcrumbClick}
             selectNode={selectNode}
-            addItemToLibrary={addItemToLibrary}
             fetchResults={fetchResults}
           />
         )}

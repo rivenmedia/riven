@@ -37,10 +37,9 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Discovery",
     links: [
       {
-        hash: "#/explore",
-        label: "Discover",
-        route: "explore",
-        isActive: (q) => !q.mode,
+        hash: "#/search",
+        label: "Search",
+        route: "search",
       },
       {
         hash: "#/explore?mode=discover&type=movie",
@@ -95,6 +94,12 @@ const NAV_SECTIONS: NavSection[] = [
 ];
 
 function isLinkActive(link: NavLink, currentRoute: RouteName, route: AppRoute | null): boolean {
+  // Treat the Explore "search" mode as equivalent to the Search page so the nav highlight
+  // remains correct if the user is on #/explore without ?mode=discover.
+  if (link.route === "search" && currentRoute === "explore") {
+    const mode = route?.query?.mode;
+    return mode !== "discover";
+  }
   if (currentRoute !== link.route) return false;
   if (link.isActive && route?.query) return link.isActive(route.query);
   return true;

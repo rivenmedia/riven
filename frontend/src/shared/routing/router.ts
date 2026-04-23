@@ -7,6 +7,7 @@ export const ROUTES = {
   movies: 'view-movies',
   shows: 'view-shows',
   episodes: 'view-episodes',
+  search: 'view-search',
   explore: 'view-explore',
   trending: 'view-trending',
   dashboard: 'view-dashboard',
@@ -19,9 +20,22 @@ export const ROUTES = {
   calendar: 'view-calendar',
   mount: 'view-mount',
   item: 'view-item-detail',
+  'discover-item': 'view-discover-item',
 };
 
 const DEFAULT_ROUTE = 'library';
+
+/** Build hash path segments after the route name. */
+function buildPathSegments(safeRoute, param) {
+  if (param == null || param === '') {
+    return `/${safeRoute}`;
+  }
+  if (Array.isArray(param)) {
+    const encoded = param.map((p) => encodeURIComponent(String(p))).join('/');
+    return `/${safeRoute}/${encoded}`;
+  }
+  return `/${safeRoute}/${encodeURIComponent(String(param))}`;
+}
 
 function splitHash(rawHash) {
   const normalized = rawHash.replace(/^#/, '').trim();
@@ -51,10 +65,23 @@ function buildQueryString(query = {}) {
 
 export function buildHash(route, param = null, query = {}) {
   const safeRoute = route && ROUTES[route] ? route : DEFAULT_ROUTE;
-  const path = param
-    ? `/${safeRoute}/${encodeURIComponent(String(param))}`
-    : `/${safeRoute}`;
+  const path = buildPathSegments(safeRoute, param);
   return `#${path}${buildQueryString(query)}`;
+}
+
+/**
+ * e.g. #/discover-item/tmdb/movie/123, #/discover-item/tvdb/tv/456, #/discover-item/tmdb/person/789
+ * @param source 'tmdb' | 'tvdb'
+ * @param kind 'movie' | 'tv' | 'person' (tmdb) or 'tv' (tvdb)
+ */
+export function buildDiscoverItemHash(
+  source: 'tmdb' | 'tvdb',
+  kind: 'movie' | 'tv' | 'person',
+  id: string,
+  query: Record<string, string> = {},
+) {
+  const segments = source === 'tvdb' ? ['tvdb', 'tv', id] : [source, kind, id];
+  return buildHash('discover-item', segments, query);
 }
 
 /** Serialize a graph node for explore query (source|kind|id). */

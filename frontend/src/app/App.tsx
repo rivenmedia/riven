@@ -28,6 +28,7 @@ const ROUTE_TITLES: Record<RouteName, string> = {
   movies: "Movies",
   shows: "TV Shows",
   episodes: "TV Episodes",
+  search: "Search",
   explore: "Discover",
   trending: "Trending",
   dashboard: "Overview",
@@ -40,9 +41,13 @@ const ROUTE_TITLES: Record<RouteName, string> = {
   item: "Item Details",
   calendar: "Calendar",
   mount: "Mount",
+  "discover-item": "Title",
 };
 
 function getMobileRouteTitle(route: AppRoute): string {
+  if (route.name === "discover-item") {
+    return "Details";
+  }
   if (route.name === "explore") {
     const { mode, type, window: timeWindow } = route.query;
     if (mode === "discover" && type === "movie") {

@@ -7,6 +7,7 @@ import "./styles/layout.css";
 import "./styles/components.css";
 import "./styles/panels.css";
 import "./styles/views.css";
+import "./styles/discovery-search.css";
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {
