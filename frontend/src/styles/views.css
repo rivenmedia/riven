@@ -594,6 +594,22 @@ button.release-bar,
   min-width: 0;
 }
 
+.explore-results {
+  position: sticky;
+  top: 1.25rem;
+  max-height: calc(100vh - 2.5rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.explore-results__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .explore-panel {
   /* Breadcrumb-only panel: keep it visually tight. */
   padding: 0.45rem 0.6rem;
@@ -607,6 +623,8 @@ button.release-bar,
   flex-wrap: nowrap;
   gap: 0.45rem;
   align-items: center;
+  font-size: 1.15rem;
+  line-height: 1.25;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.2rem 0.15rem;
@@ -695,6 +713,10 @@ button.release-bar,
 .detail-head__title-row > h3 {
   margin: 0;
   min-width: 0;
+}
+
+.detail-head .pill-list {
+  margin-top: 0.75rem;
 }
 
 /* Discovery detail panel: gap between detail-head, toolbar, season-selector */

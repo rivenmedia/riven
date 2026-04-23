@@ -88,11 +88,13 @@ export function MediaCard({
           {formatYear(item) ? (
             <Tag label={formatYear(item)} className="media-tag--neutral" />
           ) : null}
-          {item?.state ? (
-            <Tag label={item.state} className="media-tag--state" />
-          ) : null}
           {item?.in_library ? (
-            <Tag label="In Library" className="media-tag--library" />
+            <Tag
+              label={item?.state ? `In Library - ${item.state}` : "In Library"}
+              className="media-tag--library"
+            />
+          ) : item?.state ? (
+            <Tag label={item.state} className="media-tag--state" />
           ) : null}
         </div>
         {(item?.overview || item?.biography) && (

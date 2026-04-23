@@ -43,21 +43,23 @@ export function ExploreResults({
           </div>
         )}
       </div>
-      {loading ? (
-        <p className="muted">Loading…</p>
-      ) : error ? (
-        <p className="empty-state">{error}</p>
-      ) : items.length === 0 ? (
-        <p className="empty-state">No results.</p>
-      ) : (
-        <MediaGrid
-          items={items}
-          href={null}
-          onSelect={onCardSelect}
-          actions={getGridActions}
-          className="media-grid--dense"
-        />
-      )}
+      <div className="explore-results__scroll">
+        {loading ? (
+          <p className="muted">Loading…</p>
+        ) : error ? (
+          <p className="empty-state">{error}</p>
+        ) : items.length === 0 ? (
+          <p className="empty-state">No results.</p>
+        ) : (
+          <MediaGrid
+            items={items}
+            href={null}
+            onSelect={onCardSelect}
+            actions={getGridActions}
+            className="media-grid--dense"
+          />
+        )}
+      </div>
     </section>
   );
 }

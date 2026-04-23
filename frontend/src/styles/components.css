@@ -214,6 +214,7 @@
   background: rgba(11, 18, 33, 0.85);
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 
 .media-card--movie {
@@ -226,7 +227,9 @@
 
 .media-card__trigger {
   all: unset;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   cursor: pointer;
 }
 
@@ -258,6 +261,8 @@
   padding: 0.65rem;
   display: grid;
   gap: 0.45rem;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .media-card__title {
@@ -278,6 +283,7 @@
   display: flex;
   gap: 0.32rem;
   flex-wrap: wrap;
+  align-items: flex-start;
 }
 
 .media-tag {
@@ -286,6 +292,11 @@
   padding: 0.17rem 0.42rem;
   border: 1px solid transparent;
   background: rgba(116, 134, 176, 0.14);
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .media-tag--movie {

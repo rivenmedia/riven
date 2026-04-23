@@ -65,11 +65,13 @@ export function ExploreDetailTmdbMediaPanel({
               {isInLibrary ? 'Open Library Item' : 'Add to Library'}
             </button>
           </div>
-          <p className="muted">
-            {[kind.toUpperCase(), formatYear(media), media.library_state]
-              .filter(Boolean)
-              .join(' · ') || '—'}
-          </p>
+          <div className="pill-list" aria-label="Media metadata">
+            {kind ? <span className={`pill pill--text pill--${kind}`}>{kind.toUpperCase()}</span> : null}
+            {formatYear(media) ? <span className="pill pill--text">{formatYear(media)}</span> : null}
+            {media.library_state ? (
+              <span className="pill pill--text">{String(media.library_state)}</span>
+            ) : null}
+          </div>
           <p className="muted detail-head__synopsis">{media.overview || media.biography || 'No summary available.'}</p>
           {kind === 'tv' && (
             <div className="detail-panel-meta">
