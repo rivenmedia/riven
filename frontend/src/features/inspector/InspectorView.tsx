@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
+import { ViewLayout, ViewHeader, Panel, CollapsiblePanel } from '../../shared/ui/PagePrimitives';
 import { apiFetch, apiGet } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import type { AppRoute } from '../../app/routeTypes';
@@ -109,75 +109,69 @@ export default function InspectorView({ route }: { route: AppRoute }) {
   return (
     <ViewLayout className="view-inspector" view="inspector">
       <ViewHeader
-        title="Inspector"
+        title="Inspector & Logs"
         subtitle="Inspect backend internals, logs, and arbitrary API endpoint responses."
       />
-      <div className="split-grid">
-        <Panel>
-          <div className="section-head">
-            <h2>Quick Endpoints</h2>
-          </div>
-          <div className="quick-endpoints">
-            {QUICK_ENDPOINTS.map((endpointPath) => (
-              <button
-                key={endpointPath}
-                type="button"
-                className="btn btn--secondary btn--small"
-                onClick={() => handleQuickEndpoint(endpointPath)}
-              >
-                {endpointPath}
-              </button>
-            ))}
-          </div>
-          <pre className="json-output">{quickOutput || '\n'}</pre>
-        </Panel>
-        <Panel>
-          <div className="section-head">
-            <h2>Endpoint Runner</h2>
-          </div>
-          <form
-            className="endpoint-form"
-            onSubmit={handleRunnerSubmit}
-          >
-            <select
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-            >
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-              <option value="DELETE">DELETE</option>
-            </select>
-            <input
-              type="text"
-              placeholder="/stats"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-            />
-            <textarea
-              placeholder='{"example":"payload"}'
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-            />
-            <button className="btn btn--primary" type="submit">
-              Run
-            </button>
-          </form>
-          <pre className="json-output">{runnerOutput || '\n'}</pre>
-        </Panel>
-      </div>
-      <Panel>
-        <div className="section-head">
-          <h2>Logs (Virtualized)</h2>
-          <div className="toolbar">
+      <CollapsiblePanel title="Quick Endpoints">
+        <div className="quick-endpoints">
+          {QUICK_ENDPOINTS.map((endpointPath) => (
             <button
+              key={endpointPath}
               type="button"
               className="btn btn--secondary btn--small"
-              onClick={fetchLogs}
+              onClick={() => handleQuickEndpoint(endpointPath)}
             >
-              Refresh
+              {endpointPath}
             </button>
-          </div>
+          ))}
         </div>
+        <pre className="json-output">{quickOutput || '\n'}</pre>
+      </CollapsiblePanel>
+
+      <CollapsiblePanel title="Endpoint Runner">
+        <form
+          className="endpoint-form"
+          onSubmit={handleRunnerSubmit}
+        >
+          <select
+            value={method}
+            onChange={(e) => setMethod(e.target.value)}
+          >
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <input
+            type="text"
+            placeholder="/stats"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+          />
+          <textarea
+            placeholder='{"example":"payload"}'
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <button className="btn btn--primary" type="submit">
+            Run
+          </button>
+        </form>
+        <pre className="json-output">{runnerOutput || '\n'}</pre>
+      </CollapsiblePanel>
+
+      <CollapsiblePanel
+        title="Logs (Virtualized)"
+        defaultOpen
+        actions={
+          <button
+            type="button"
+            className="btn btn--secondary btn--small"
+            onClick={fetchLogs}
+          >
+            Refresh
+          </button>
+        }
+      >
         <div className="log-toolbar">
           <input
             type="search"
@@ -214,7 +208,7 @@ export default function InspectorView({ route }: { route: AppRoute }) {
             </div>
           )}
         </div>
-      </Panel>
+      </CollapsiblePanel>
     </ViewLayout>
   );
 }

@@ -84,7 +84,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "System",
     links: [
-      { hash: "#/inspector", label: "Inspector", route: "inspector" },
+      { hash: "#/inspector", label: "Inspector & Logs", route: "inspector" },
       { hash: "#/vfs-stats", label: "VFS Stats", route: "vfs-stats" },
       { hash: "#/calendar", label: "Calendar", route: "calendar" },
       { hash: "#/mount", label: "Mount", route: "mount" },

@@ -1,6 +1,7 @@
 .view {
   display: grid;
   gap: 0.95rem;
+  min-width: 0;
 }
 
 .view-header {
@@ -190,6 +191,33 @@
   display: grid;
   gap: 0.85rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Inspector: prevent wide content from forcing page horizontal scroll */
+.view-inspector {
+  min-width: 0;
+  overflow-x: clip;
+  gap: 0.55rem;
+}
+
+.view-inspector .panel,
+.view-inspector .split-grid > * {
+  min-width: 0;
+}
+
+.view-inspector .collapsible-panel {
+  margin: 0;
+}
+
+.view-inspector pre,
+.view-inspector code,
+.view-inspector textarea,
+.view-inspector input[type='text'] {
+  max-width: 100%;
+}
+
+.view-inspector .json-output {
+  overflow-wrap: anywhere;
 }
 
 .state-bar-list {
@@ -1423,6 +1451,15 @@ button.mount-row:hover {
 
 [data-slot='log-container'] .virtual-list {
   height: 48vh;
+}
+
+/* Inspector: give logs more vertical room */
+.view-inspector .log-scroll {
+  max-height: 72vh;
+}
+
+.view-inspector [data-slot='log-container'] .virtual-list {
+  height: 72vh;
 }
 
 /* Calendar view */
