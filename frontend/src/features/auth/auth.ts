@@ -4,12 +4,17 @@
 
 const KEY = 'riven_api_key';
 
+function getEnvKey(): string | null {
+  const fromEnv = (import.meta as any)?.env?.VITE_API_KEY;
+  return typeof fromEnv === 'string' && fromEnv.length > 0 ? fromEnv : null;
+}
+
 export function hasKey() {
-  return !!sessionStorage.getItem(KEY);
+  return !!sessionStorage.getItem(KEY) || !!getEnvKey();
 }
 
 export function getKey() {
-  return sessionStorage.getItem(KEY);
+  return sessionStorage.getItem(KEY) || getEnvKey();
 }
 
 export function setKey(key) {

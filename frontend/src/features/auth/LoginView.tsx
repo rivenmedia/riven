@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 interface LoginViewProps {
   loading: boolean;
@@ -11,7 +11,23 @@ export default function LoginView({
   error,
   onSubmit,
 }: LoginViewProps) {
-  const [apiKey, setApiKey] = useState<string>("");
+  const envKey =
+    typeof (import.meta as any)?.env?.VITE_API_KEY === "string"
+      ? ((import.meta as any).env.VITE_API_KEY as string)
+      : "";
+
+  const [apiKey, setApiKey] = useState<string>(() => envKey);
+  const autoSubmitAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (autoSubmitAttemptedRef.current) return;
+    if (loading) return;
+    const trimmed = envKey.trim();
+    if (!trimmed) return;
+
+    autoSubmitAttemptedRef.current = true;
+    void Promise.resolve(onSubmit(trimmed));
+  }, [envKey, loading, onSubmit]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();

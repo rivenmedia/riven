@@ -65,6 +65,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# Vite local env (not matched by *.env)
+frontend/.env.local
+frontend/.env.*.local
+
 # Rider IDE
 **/.idea/
 

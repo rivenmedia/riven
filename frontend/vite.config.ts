@@ -1,11 +1,28 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 
-export default defineConfig(({ command }) => {
-  const backendTarget = process.env.VITE_BACKEND_URL || "http://localhost:8080";
+export default defineConfig(({ command, mode }) => {
+  // Always resolve env files relative to this config file (frontend/),
+  // so running via npm --prefix / workspace root still works.
+  const configDir = dirname(fileURLToPath(import.meta.url));
+  const env = loadEnv(mode, configDir, "VITE_");
+
+  const backendUrlFromEnv = env.VITE_BACKEND_URL;
+  const backendHostFromEnv = env.VITE_BACKEND_HOST;
+  const backendPortFromEnv = env.VITE_BACKEND_PORT || "8080";
+  const backendProtoFromEnv = env.VITE_BACKEND_PROTO || "http";
+
+  const backendTarget =
+    backendUrlFromEnv ||
+    (backendHostFromEnv
+      ? `${backendProtoFromEnv}://${backendHostFromEnv}:${backendPortFromEnv}`
+      : "http://localhost:8080");
 
   return {
     plugins: [react()],
+    envDir: configDir,
     base: command === "build" ? "/static/ui/" : "/",
     build: {
       outDir: "../src/static/ui",

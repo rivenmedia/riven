@@ -15,7 +15,12 @@ export interface ApiResult<T = any> {
 }
 
 function getApiKey(): string | null {
-  return sessionStorage.getItem('riven_api_key');
+  const fromSession = sessionStorage.getItem('riven_api_key');
+  if (fromSession) return fromSession;
+
+  // Optional dev convenience: allow setting a default key via Vite env
+  const fromEnv = (import.meta as any)?.env?.VITE_API_KEY;
+  return typeof fromEnv === 'string' && fromEnv.length > 0 ? fromEnv : null;
 }
 
 function clearAuth(): void {

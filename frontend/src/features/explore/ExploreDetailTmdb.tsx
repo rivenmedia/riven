@@ -59,7 +59,12 @@ export function ExploreDetailTmdbMediaPanel({
       <div className="detail-head">
         {posterUrl && <img src={posterUrl} alt={media.title || media.name || 'media'} />}
         <div>
-          <h3>{media.title || media.name || 'Unknown'}</h3>
+          <div className="detail-head__title-row">
+            <h3>{media.title || media.name || 'Unknown'}</h3>
+            <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
+              {isInLibrary ? 'Open Library Item' : 'Add to Library'}
+            </button>
+          </div>
           <p className="muted">
             {[kind.toUpperCase(), formatYear(media), media.library_state]
               .filter(Boolean)
@@ -163,11 +168,6 @@ export function ExploreDetailTmdbMediaPanel({
             </div>
           )}
         </div>
-      </div>
-      <div className="toolbar">
-        <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
-          {isInLibrary ? 'Open Library Item' : 'Add to Library'}
-        </button>
       </div>
       {kind === 'tv' && !isInLibrary && seasons.length > 0 && (
         <div className="season-selector">

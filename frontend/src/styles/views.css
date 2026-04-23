@@ -595,16 +595,50 @@ button.release-bar,
 }
 
 .explore-panel {
+  /* Breadcrumb-only panel: keep it visually tight. */
+  padding: 0.45rem 0.6rem;
   display: grid;
   grid-template-rows: auto auto;
-  gap: 0.75rem;
   align-content: start;
 }
 
 .explore-breadcrumbs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  flex-wrap: nowrap;
+  gap: 0.45rem;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2rem 0.15rem;
+  align-self: center;
+  scrollbar-width: thin;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 18px), transparent 100%);
+}
+
+.explore-breadcrumbs::-webkit-scrollbar {
+  height: 8px;
+}
+
+.explore-breadcrumbs::-webkit-scrollbar-thumb {
+  background: rgba(166, 180, 210, 0.22);
+  border-radius: 999px;
+}
+
+.explore-breadcrumbs > .pill {
+  position: relative;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.explore-breadcrumbs > .pill:not(:last-child)::after {
+  content: '›';
+  position: absolute;
+  right: -0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(166, 180, 210, 0.55);
+  pointer-events: none;
 }
 
 .pill--origin {
@@ -649,6 +683,18 @@ button.release-bar,
   display: grid;
   grid-template-columns: 130px 1fr;
   gap: 0.75rem;
+}
+
+.detail-head__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+}
+
+.detail-head__title-row > h3 {
+  margin: 0;
+  min-width: 0;
 }
 
 /* Discovery detail panel: gap between detail-head, toolbar, season-selector */
@@ -800,16 +846,25 @@ button.release-bar,
 }
 
 .pill {
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--panel-border);
   background: rgba(21, 32, 58, 0.7);
   color: var(--text-1);
   border-radius: 999px;
-  padding: 0.2rem 0.5rem;
+  padding: 0.22rem 0.55rem;
   cursor: pointer;
+  font-size: var(--font-size-0);
+  line-height: 1.1;
 }
 
 .pill:hover {
   color: var(--text-0);
+}
+
+.pill--active {
+  box-shadow: 0 0 0 2px rgba(170, 116, 255, 0.16);
+  border-color: rgba(170, 116, 255, 0.35);
 }
 
 .json-output {

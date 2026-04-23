@@ -31,20 +31,20 @@ export function ExploreDetailPanel({
   return (
     <>
       <aside className="explore-panel" data-slot="detail-panel">
-        <div className="section-head">
-          <h2>Metadata Graph</h2>
-        </div>
         <div className="explore-breadcrumbs">
-          {[{ label: originLabel, kind: 'origin' }, ...history].map((node, index) => (
+          {[{ label: originLabel, kind: 'origin' }, ...history].map((node, index) => {
+            const isActive = index === history.length;
+            return (
             <button
               key={index}
               type="button"
-              className={`pill pill--${node.kind || 'origin'}`}
+              className={`pill pill--${node.kind || 'origin'}${isActive ? ' pill--active' : ''}`}
               onClick={() => onBreadcrumbClick(index)}
+              aria-current={isActive ? 'page' : undefined}
             >
               {node.label || (node.kind === 'origin' ? originLabel : `${node.kind} ${'id' in node ? node.id : ''}`)}
             </button>
-          ))}
+          )})}
         </div>
       </aside>
       {!detailNode && (
@@ -72,7 +72,7 @@ export function ExploreDetailPanel({
           person={detailData.person}
           credits={detailData.credits}
           onSelectNode={selectNode}
-          onBack={() => history[0] && selectNode(history[0], false)}
+          onBack={() => onBreadcrumbClick(Math.max(0, history.length - 1))}
         />
       )}
       {detailData?.kind === 'tvdb-tv' && (
