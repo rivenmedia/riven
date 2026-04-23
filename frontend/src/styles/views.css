@@ -792,13 +792,15 @@ button.release-bar,
   margin-top: 0.75rem;
 }
 
-/* Discovery detail panel: gap between detail-head, toolbar, season-selector */
+/* Discovery detail panel: gap between overview (EntityHeader), actions, season-selector */
+.panel:has(> .item-detail-panel),
 .panel:has(> .detail-head) {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 
+.panel:has(> .item-detail-panel) > .season-selector,
 .panel:has(> .detail-head) > .season-selector {
   margin-top: 0;
 }

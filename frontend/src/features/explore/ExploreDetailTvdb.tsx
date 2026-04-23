@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { formatYear } from '../../shared/utils/utils';
+import { EntityHeader } from '../item-detail/EntityHeader';
+import { tvdbSeriesToEntityHeaderData } from '../item-detail/discoveryEntityHeaderMappers';
 import type { ExploreNode } from './types';
 
 export type ExploreDetailTvdbProps = {
@@ -14,12 +15,8 @@ export type ExploreDetailTvdbProps = {
 export function ExploreDetailTvdb({ series, node, onAdd, onOpen, onRefresh, onReselect }: ExploreDetailTvdbProps) {
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
   const seasons = (series.seasons || []).filter((s: any) => (s.season_number ?? s.number ?? 0) > 0);
-  const posterUrl = series.poster_path
-    ? series.poster_path.startsWith('http')
-      ? series.poster_path
-      : `https://image.tmdb.org/t/p/w500${series.poster_path}`
-    : '';
   const inLibrary = series.in_library && series.library_item_id;
+  const headerData = tvdbSeriesToEntityHeaderData(series, String(node.id));
 
   const handleAdd = async () => {
     if (inLibrary) {
@@ -42,67 +39,17 @@ export function ExploreDetailTvdb({ series, node, onAdd, onOpen, onRefresh, onRe
 
   return (
     <section className="panel">
-      <div className="detail-head">
-        {posterUrl && <img src={posterUrl} alt={series.title || 'series'} />}
-        <div>
-          <h3>{series.title || series.name || 'Unknown'}</h3>
-          <p className="muted">{[formatYear(series), series.year, series.library_state].filter(Boolean).join(' · ') || '—'}</p>
-          <p className="muted detail-head__synopsis">{series.overview || 'No summary available.'}</p>
-          <div className="detail-panel-meta">
-            <dl className="detail-panel-meta__list">
-              {(series.original_network?.name || series.latest_network?.name) && (
-                <>
-                  <dt className="detail-panel-meta__label">Network</dt>
-                  <dd className="detail-panel-meta__value">
-                    {series.original_network?.name || series.latest_network?.name}
-                  </dd>
-                </>
-              )}
-              {series.first_aired && (
-                <>
-                  <dt className="detail-panel-meta__label">First aired</dt>
-                  <dd className="detail-panel-meta__value">{series.first_aired}</dd>
-                </>
-              )}
-              {series.last_aired && (
-                <>
-                  <dt className="detail-panel-meta__label">Ended</dt>
-                  <dd className="detail-panel-meta__value">{series.last_aired}</dd>
-                </>
-              )}
-              {series.year && (
-                <>
-                  <dt className="detail-panel-meta__label">Year</dt>
-                  <dd className="detail-panel-meta__value">{series.year}</dd>
-                </>
-              )}
-              {series.average_runtime != null && series.average_runtime > 0 && (
-                <>
-                  <dt className="detail-panel-meta__label">Avg runtime</dt>
-                  <dd className="detail-panel-meta__value">~{series.average_runtime} min</dd>
-                </>
-              )}
-            </dl>
-            <div className="media-metadata-chips">
-              {Array.isArray(series.genres) &&
-                series.genres.map((g: any) =>
-                  g?.name ? (
-                    <span key={g.name} className="legend-chip legend-chip--genre">
-                      {g.name}
-                    </span>
-                  ) : null,
-                )}
-              {series.library_state && (
-                <span className="legend-chip legend-chip--state">{series.library_state}</span>
-              )}
-            </div>
-          </div>
+      <div className="item-detail-panel item-detail-panel--overview">
+        <EntityHeader data={headerData} />
+        <div className="item-actions-bar">
+          <button
+            type="button"
+            className={`btn btn--small ${inLibrary ? 'btn--secondary' : 'btn--primary'}`}
+            onClick={handleAdd}
+          >
+            {inLibrary ? 'Open Library Item' : 'Add to Library'}
+          </button>
         </div>
-      </div>
-      <div className="toolbar">
-        <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
-          {inLibrary ? 'Open Library Item' : 'Add to Library'}
-        </button>
       </div>
       {!inLibrary && seasons.length > 0 && (
         <div className="season-selector">

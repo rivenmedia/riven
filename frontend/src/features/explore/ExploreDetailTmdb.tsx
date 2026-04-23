@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { formatYear } from '../../shared/utils/utils';
 import { CastCrew } from '../item-detail/CastCrew';
+import { EntityHeader } from '../item-detail/EntityHeader';
+import { tmdbMediaToEntityHeaderData } from '../item-detail/discoveryEntityHeaderMappers';
 import { SimilarRecommendations } from '../item-detail/SimilarRecommendations';
 import type { ExploreNode } from './types';
 
@@ -33,10 +34,8 @@ export function ExploreDetailTmdbMediaPanel({
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
   const isInLibrary = media.in_library && media.library_item_id;
   const seasons = (media.seasons || []).filter((s: any) => (s.season_number ?? s.number ?? 0) > 0);
-  const posterUrl =
-    media.poster_path || media.profile_path
-      ? (media.poster_path?.startsWith('http') ? media.poster_path : `https://image.tmdb.org/t/p/w500${media.poster_path || media.profile_path}`)
-      : '';
+  const mediaKind = kind === 'tv' || kind === 'movie' ? kind : 'movie';
+  const headerData = tmdbMediaToEntityHeaderData(media, mediaKind);
 
   const handleAdd = async () => {
     if (isInLibrary) {
@@ -56,119 +55,16 @@ export function ExploreDetailTmdbMediaPanel({
 
   return (
     <section className="panel">
-      <div className="detail-head">
-        {posterUrl && <img src={posterUrl} alt={media.title || media.name || 'media'} />}
-        <div>
-          <div className="detail-head__title-row">
-            <h3>{media.title || media.name || 'Unknown'}</h3>
-            <button type="button" className="btn btn--primary btn--small" onClick={handleAdd}>
-              {isInLibrary ? 'Open Library Item' : 'Add to Library'}
-            </button>
-          </div>
-          <div className="pill-list" aria-label="Media metadata">
-            {kind ? <span className={`pill pill--text pill--${kind}`}>{kind.toUpperCase()}</span> : null}
-            {formatYear(media) ? <span className="pill pill--text">{formatYear(media)}</span> : null}
-            {media.library_state ? (
-              <span className="pill pill--text">{String(media.library_state)}</span>
-            ) : null}
-          </div>
-          <p className="muted detail-head__synopsis">{media.overview || media.biography || 'No summary available.'}</p>
-          {kind === 'tv' && (
-            <div className="detail-panel-meta">
-              <dl className="detail-panel-meta__list">
-                {Array.isArray(media.networks) && media.networks.length > 0 && (
-                  <>
-                    <dt className="detail-panel-meta__label">Network</dt>
-                    <dd className="detail-panel-meta__value">
-                      {media.networks.map((n: any) => n?.name).filter(Boolean).join(', ')}
-                    </dd>
-                  </>
-                )}
-                {media.number_of_seasons != null && (
-                  <>
-                    <dt className="detail-panel-meta__label">Seasons</dt>
-                    <dd className="detail-panel-meta__value">
-                      {media.number_of_seasons} season{media.number_of_seasons !== 1 ? 's' : ''}
-                    </dd>
-                  </>
-                )}
-                {media.number_of_episodes != null && (
-                  <>
-                    <dt className="detail-panel-meta__label">Episodes</dt>
-                    <dd className="detail-panel-meta__value">
-                      {media.number_of_episodes} episode{media.number_of_episodes !== 1 ? 's' : ''}
-                    </dd>
-                  </>
-                )}
-                {media.first_air_date && (
-                  <>
-                    <dt className="detail-panel-meta__label">First aired</dt>
-                    <dd className="detail-panel-meta__value">{media.first_air_date}</dd>
-                  </>
-                )}
-                {media.last_air_date && (
-                  <>
-                    <dt className="detail-panel-meta__label">Ended</dt>
-                    <dd className="detail-panel-meta__value">{media.last_air_date}</dd>
-                  </>
-                )}
-              </dl>
-              <div className="media-metadata-chips">
-                {Array.isArray(media.genres) &&
-                  media.genres.map((g: any) =>
-                    g?.name ? (
-                      <span key={g.name} className="legend-chip legend-chip--genre">
-                        {g.name}
-                      </span>
-                    ) : null,
-                  )}
-                {typeof media.vote_average === 'number' && !Number.isNaN(media.vote_average) && (
-                  <span className="legend-chip legend-chip--rating">
-                    ★ {media.vote_average.toFixed(1)}
-                    {typeof media.vote_count === 'number' && media.vote_count > 0
-                      ? ` (${media.vote_count} votes)`
-                      : ''}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-          {kind === 'movie' && (
-            <div className="detail-panel-meta">
-              <dl className="detail-panel-meta__list">
-                {media.runtime != null && media.runtime > 0 && (
-                  <>
-                    <dt className="detail-panel-meta__label">Runtime</dt>
-                    <dd className="detail-panel-meta__value">{media.runtime} min</dd>
-                  </>
-                )}
-                {media.release_date && (
-                  <>
-                    <dt className="detail-panel-meta__label">Release date</dt>
-                    <dd className="detail-panel-meta__value">{media.release_date}</dd>
-                  </>
-                )}
-              </dl>
-              <div className="media-metadata-chips">
-                {Array.isArray(media.genres) &&
-                  media.genres.map((g: any) =>
-                    g?.name ? (
-                      <span key={g.name} className="legend-chip legend-chip--genre">
-                        {g.name}
-                      </span>
-                    ) : null,
-                  )}
-                {typeof media.vote_average === 'number' && !Number.isNaN(media.vote_average) && (
-                  <span className="legend-chip legend-chip--rating">
-                    ★ {media.vote_average.toFixed(1)}
-                    {typeof media.vote_count === 'number' && media.vote_count > 0
-                      ? ` (${media.vote_count} votes)`
-                      : ''}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
+      <div className="item-detail-panel item-detail-panel--overview">
+        <EntityHeader data={headerData} />
+        <div className="item-actions-bar">
+          <button
+            type="button"
+            className={`btn btn--small ${isInLibrary ? 'btn--secondary' : 'btn--primary'}`}
+            onClick={handleAdd}
+          >
+            {isInLibrary ? 'Open Library Item' : 'Add to Library'}
+          </button>
         </div>
       </div>
       {kind === 'tv' && !isInLibrary && seasons.length > 0 && (
