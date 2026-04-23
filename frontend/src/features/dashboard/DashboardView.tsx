@@ -296,39 +296,31 @@ function DashboardServices({ route }: { route: AppRoute }) {
   return (
     <ViewLayout className="view-dashboard view-dashboard--services" view="dashboard-services">
       <ViewHeader title="Dashboard — Services" subtitle="Backend service status by category." />
-      <Panel>
-        <div className="section-head">
-          <h2>Services</h2>
+      {loading ? (
+        <p className="muted">Loading…</p>
+      ) : orderedCategories.length === 0 ? (
+        <p className="muted">No services payload.</p>
+      ) : (
+        <div className="services-sections">
+          {orderedCategories.map((category) => (
+            <section key={category} className="services-section">
+              <h3 className="services-section__title">{category}</h3>
+              <div className="services-items">
+                {(byCategory.get(category)!).map(([name, isUp]) => (
+                  <div key={`${category}-${name}`} className="services-item">
+                    <span className="services-item__name">{name}</span>
+                    <span
+                      className={`service-row__status ${isUp ? 'service-row__status--up' : 'service-row__status--down'}`}
+                    >
+                      {isUp ? 'UP' : 'DOWN'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
-        {loading ? (
-          <p className="muted">Loading…</p>
-        ) : orderedCategories.length === 0 ? (
-          <p className="muted">No services payload.</p>
-        ) : (
-          <table className="services-table">
-            <thead>
-              <tr>
-                <th className="services-table__category">Category</th>
-                <th className="services-table__name">Service</th>
-                <th className="services-table__status">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orderedCategories.flatMap((category) =>
-                (byCategory.get(category)!).map(([name, isUp], i) => (
-                  <tr key={name} className="service-row">
-                    {i === 0 && <td className="services-table__category" rowSpan={byCategory.get(category)!.length}>{category}</td>}
-                    <td className="services-table__name">{name}</td>
-                    <td className="services-table__status">
-                      <span className={`service-row__status ${isUp ? 'service-row__status--up' : 'service-row__status--down'}`}>{isUp ? 'UP' : 'DOWN'}</span>
-                    </td>
-                  </tr>
-                )),
-              )}
-            </tbody>
-          </table>
-        )}
-      </Panel>
+      )}
     </ViewLayout>
   );
 }

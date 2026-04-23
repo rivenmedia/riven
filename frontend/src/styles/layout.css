@@ -65,8 +65,8 @@
 .sidebar-section a {
   display: block;
   border-radius: var(--radius-sm);
-  padding: 0.48rem 0.62rem;
-  color: var(--text-1);
+  padding: 0.48rem 0.62rem 0.48rem 0.9rem;
+  color: var(--text-2);
   border: 1px solid transparent;
 }
 

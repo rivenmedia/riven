@@ -28,9 +28,9 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Library",
     links: [
       { hash: "#/library", label: "All Media", route: "library" },
-      { hash: "#/movies", label: "Movies", route: "movies", nested: true },
-      { hash: "#/shows", label: "TV Shows", route: "shows", nested: true },
-      { hash: "#/episodes", label: "TV Episodes", route: "episodes", nested: true },
+      { hash: "#/movies", label: "Movies", route: "movies" },
+      { hash: "#/shows", label: "TV Shows", route: "shows" },
+      { hash: "#/episodes", label: "TV Episodes", route: "episodes" },
     ],
   },
   {
@@ -46,28 +46,24 @@ const NAV_SECTIONS: NavSection[] = [
         hash: "#/explore?mode=discover&type=movie",
         label: "Discover — Movies",
         route: "explore",
-        nested: true,
         isActive: (q) => q.mode === "discover" && q.type === "movie",
       },
       {
         hash: "#/explore?mode=discover&type=tv",
         label: "Discover — TV",
         route: "explore",
-        nested: true,
         isActive: (q) => q.mode === "discover" && q.type === "tv",
       },
       {
         hash: "#/explore?mode=discover&type=all&window=day",
         label: "Trending — Today",
         route: "explore",
-        nested: true,
         isActive: (q) => q.mode === "discover" && q.type === "all" && q.window === "day",
       },
       {
         hash: "#/explore?mode=discover&type=all&window=week",
         label: "Trending — This Week",
         route: "explore",
-        nested: true,
         isActive: (q) => q.mode === "discover" && q.type === "all" && (q.window === "week" || !q.window),
       },
     ],
@@ -76,17 +72,17 @@ const NAV_SECTIONS: NavSection[] = [
     title: "Dashboard",
     links: [
       { hash: "#/dashboard", label: "Overview", route: "dashboard" },
-      { hash: "#/dashboard-services", label: "Services", route: "dashboard-services", nested: true },
-      { hash: "#/dashboard-states", label: "State Distribution", route: "dashboard-states", nested: true },
-      { hash: "#/dashboard-releases", label: "Releases by Year", route: "dashboard-releases", nested: true },
-      { hash: "#/calendar", label: "Calendar", route: "calendar", nested: true },
+      { hash: "#/dashboard-services", label: "Services", route: "dashboard-services" },
+      { hash: "#/dashboard-states", label: "State Distribution", route: "dashboard-states" },
+      { hash: "#/dashboard-releases", label: "Releases by Year", route: "dashboard-releases" },
+      { hash: "#/calendar", label: "Calendar", route: "calendar" },
     ],
   },
   {
     title: "VFS",
     links: [
-      { hash: "#/vfs-stats", label: "Stats", route: "vfs-stats", nested: true },
-      { hash: "#/mount", label: "Mount", route: "mount", nested: true },
+      { hash: "#/vfs-stats", label: "Stats", route: "vfs-stats" },
+      { hash: "#/mount", label: "Mount", route: "mount" },
     ],
   },
   {
@@ -123,11 +119,6 @@ export default function Sidebar({
           Riven
         </a>
         <p className="sidebar-subtitle">Media Control Center</p>
-      </div>
-
-      <div className="sidebar-legend">
-        <span className="legend-chip legend-chip--movie">Movie</span>
-        <span className="legend-chip legend-chip--tv">TV</span>
       </div>
 
       <div className="sidebar-sections">
