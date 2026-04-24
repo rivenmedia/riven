@@ -54,16 +54,21 @@ class FormErrorBoundary extends Component<
 
 export function SettingsGroupForm({
   groupKey,
+  groupLabel,
   value,
   schema,
   onSave,
   jsonFallback,
+  noSchemaSlot,
 }: {
   groupKey: string;
+  groupLabel?: string;
   value: unknown;
   schema: JsonSchema | null;
   onSave: (value: unknown) => Promise<void> | void;
   jsonFallback: React.ReactNode;
+  /** When there is no JSON schema, show this instead of the raw JSON editor (e.g. empty parent panel). */
+  noSchemaSlot?: React.ReactNode;
 }) {
   const [formData, setFormData] = useState<any>(value ?? null);
 
@@ -71,13 +76,18 @@ export function SettingsGroupForm({
     setFormData(value ?? null);
   }, [value]);
 
+  const saveLabel = groupLabel ?? groupKey;
+
   const rjsfSchema = useMemo(() => schema as unknown as RJSFSchema, [schema]);
   const uiSchema = useMemo(() => {
     if (!schema) return {} as UiSchema;
     return buildUiSchemaFromSchema(schema) as UiSchema;
   }, [schema]);
 
-  if (!schema) return <>{jsonFallback}</>;
+  if (!schema) {
+    if (noSchemaSlot) return <>{noSchemaSlot}</>;
+    return <>{jsonFallback}</>;
+  }
 
   return (
     <FormErrorBoundary fallback={jsonFallback}>
@@ -150,7 +160,7 @@ export function SettingsGroupForm({
         >
           <div className="toolbar">
             <button type="submit" className="btn btn--primary btn--small">
-              Save {groupKey}
+              Save {saveLabel}
             </button>
           </div>
         </Form>

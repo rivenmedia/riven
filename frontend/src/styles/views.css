@@ -1631,6 +1631,22 @@ a.cast-crew-name-link {
   background: rgba(144, 162, 197, 0.14);
 }
 
+.settings-sidebar__item--nested {
+  margin-left: 0.65rem;
+  padding-left: 0.55rem;
+  border-left: 1px solid rgba(137, 158, 196, 0.22);
+  color: var(--text-2);
+  font-size: calc(var(--font-size-1) * 0.92);
+}
+
+.settings-sidebar__item--nested:hover {
+  color: var(--text-1);
+}
+
+.settings-sidebar__item--nested.is-active {
+  color: inherit;
+}
+
 .settings-editor__inner {
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
