@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader } from '../../shared/ui/PagePrimitives';
 import { BackButton } from '../../shared/ui/BackButton';
 import { EntityHeader } from './EntityHeader';
@@ -7,6 +7,16 @@ import { CastCrew } from './CastCrew';
 import { Streams } from './Streams';
 import { MediaMetadata } from './MediaMetadata';
 import { SimilarRecommendations } from './SimilarRecommendations';
+import { CollectionFranchiseStrip } from './CollectionFranchiseStrip';
+import { TmdbDetailsPanel } from './TmdbDetailsPanel';
+import {
+  MediaOverviewTabStrip,
+  MediaOverviewTabPanel,
+  mediaOverviewTabDefinitions,
+  type MediaOverviewTabId,
+} from './MediaOverviewTabs';
+import { creditsHaveContent } from './creditsUtils';
+import { DetailViewActionsToolbar } from '../../shared/ui/DetailViewActionsToolbar';
 import { apiDelete, apiFetch, apiGet, apiPost, getStreamUrl } from '../../shared/api/api';
 import { annotateLibraryStatus } from '../library/libraryStatus';
 import { notify } from '../../shared/notifications/notify';
@@ -103,96 +113,6 @@ function buildEntityHeaderData(
     },
     tmdb: tmdbSection,
   };
-}
-
-function TmdbDetailsPanel({
-  tmdbData,
-  itemType,
-}: {
-  tmdbData: Record<string, unknown>;
-  itemType: string;
-}) {
-  const overview = tmdbData.overview as string | undefined;
-  const tagline = tmdbData.tagline as string | undefined;
-  const runtime = tmdbData.runtime as number | undefined;
-  const releaseDate = (tmdbData.release_date || tmdbData.first_air_date) as string | undefined;
-  const genres = tmdbData.genres as { name?: string }[] | undefined;
-  const productionCompanies = tmdbData.production_companies as { name?: string }[] | undefined;
-  const voteAverage = tmdbData.vote_average as number | undefined;
-  const voteCount = tmdbData.vote_count as number | undefined;
-  const belongsToCollection = tmdbData.belongs_to_collection as { name?: string } | undefined;
-  const lastAirDate = tmdbData.last_air_date as string | undefined;
-  const numSeasons = tmdbData.number_of_seasons as number | undefined;
-  const numEpisodes = tmdbData.number_of_episodes as number | undefined;
-
-  const hasContent =
-    overview ||
-    tagline ||
-    (typeof runtime === 'number' && runtime > 0) ||
-    releaseDate ||
-    (Array.isArray(genres) && genres.length) ||
-    (Array.isArray(productionCompanies) && productionCompanies.length) ||
-    (typeof voteAverage === 'number' && !Number.isNaN(voteAverage)) ||
-    belongsToCollection?.name ||
-    (numSeasons != null && itemType === 'show');
-
-  if (!hasContent) return null;
-
-  return (
-    <div className="panel tmdb-details-panel">
-      <div className="section-head">
-        <h3>Details</h3>
-      </div>
-      {belongsToCollection?.name && (
-        <p className="tmdb-details-collection">
-          <strong>Part of collection:</strong> {belongsToCollection.name}
-        </p>
-      )}
-      {tagline && <p className="tmdb-details-tagline">{tagline}</p>}
-      {overview && <p className="tmdb-details-overview">{overview}</p>}
-      <div className="media-metadata-chips">
-        {typeof runtime === 'number' && runtime > 0 && (
-          <span className="legend-chip legend-chip--runtime">{runtime} min</span>
-        )}
-        {releaseDate && (
-          <span className="legend-chip legend-chip--date">{releaseDate}</span>
-        )}
-        {numSeasons != null && itemType === 'show' && (
-          <span className="legend-chip legend-chip--seasons">
-            {numSeasons} season{numSeasons !== 1 ? 's' : ''}
-          </span>
-        )}
-        {numEpisodes != null && itemType === 'show' && (
-          <span className="legend-chip legend-chip--episodes">
-            {numEpisodes} episode{numEpisodes !== 1 ? 's' : ''}
-          </span>
-        )}
-        {lastAirDate && itemType === 'show' && (
-          <span className="legend-chip legend-chip--ended">Ended {lastAirDate}</span>
-        )}
-        {Array.isArray(genres) &&
-          genres.map((g) =>
-            g?.name ? (
-              <span key={g.name} className="legend-chip legend-chip--genre">
-                {g.name}
-              </span>
-            ) : null,
-          )}
-        {typeof voteAverage === 'number' && !Number.isNaN(voteAverage) && (
-          <span className="legend-chip legend-chip--rating">
-            ★ {voteAverage.toFixed(1)}
-            {typeof voteCount === 'number' && voteCount > 0 ? ` (${voteCount} votes)` : ''}
-          </span>
-        )}
-      </div>
-      {Array.isArray(productionCompanies) && productionCompanies.length > 0 && (
-        <p className="tmdb-details-production">
-          <strong>Production:</strong>{' '}
-          {productionCompanies.map((c) => c?.name).filter(Boolean).join(', ')}
-        </p>
-      )}
-    </div>
-  );
 }
 
 function ManualScrapeModal({
@@ -944,6 +864,8 @@ function SeasonsEpisodes({
   );
 }
 
+const LIBRARY_MEDIA_OVERVIEW_PANEL_ID = 'library-item-media-overview-panel';
+
 export default function ItemDetailView({ route }: { route: AppRoute }) {
   const itemId = route.param;
   const [item, setItem] = useState<any>(null);
@@ -953,6 +875,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const [metadata, setMetadata] = useState<Record<string, unknown> | null>(null);
   const [similarData, setSimilarData] = useState<{ recommendations: any[]; similar: any[] } | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'streams' | 'playback'>('overview');
+  const [overviewSubTab, setOverviewSubTab] = useState<MediaOverviewTabId>('details');
   const [showManualScrape, setShowManualScrape] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1025,7 +948,11 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
       });
       let rec = ((tmdb.recommendations as any)?.results || []).map(toCard);
       let sim = ((tmdb.similar as any)?.results || []).map(toCard);
-      await annotateLibraryStatus([...rec, ...sim]);
+      try {
+        await annotateLibraryStatus([...rec, ...sim]);
+      } catch {
+        /* list still works without in-library chip */
+      }
       setSimilarData({ recommendations: rec, similar: sim });
     } else {
       setSimilarData(null);
@@ -1037,6 +964,27 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setOverviewSubTab('details');
+  }, [itemId]);
+
+  const showCollectionTab =
+    item &&
+    item.type === 'movie' &&
+    item.tmdb_id &&
+    (tmdbData?.belongs_to_collection as { id?: number } | null | undefined)?.id != null;
+
+  const mediaOverviewTabs = useMemo(
+    () => mediaOverviewTabDefinitions(Boolean(showCollectionTab)),
+    [showCollectionTab],
+  );
+
+  useEffect(() => {
+    if (!showCollectionTab && overviewSubTab === 'collection') {
+      setOverviewSubTab('details');
+    }
+  }, [showCollectionTab, overviewSubTab]);
 
   if (!itemId) {
     return (
@@ -1073,6 +1021,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const isEpisode = item.type === 'episode';
   const showId = isEpisode && item.show_id != null ? String(item.show_id) : null;
   const isShow = item.type === 'show';
+  const isTitleMedia = item.type === 'movie' || item.type === 'show';
 
   const state = (item.state || '').toString();
   const showPause =
@@ -1168,7 +1117,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
           {activeTab === 'overview' && (
             <div className="item-detail-panel item-detail-panel--overview" role="tabpanel">
               <EntityHeader data={buildEntityHeaderData(item, tmdbData, tvdbData)} />
-              <div className="item-actions-bar">
+              <DetailViewActionsToolbar aria-label="Library item actions">
                 <button
                   type="button"
                   className="btn btn--small btn--primary"
@@ -1229,7 +1178,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                 >
                   Remove
                 </button>
-              </div>
+              </DetailViewActionsToolbar>
               {isEpisode && episodeCharacters.length > 0 && (
                 <div className="panel episode-cast-crew">
                   <div className="section-head">
@@ -1238,16 +1187,96 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                   <EpisodeCastCrewList characters={episodeCharacters} />
                 </div>
               )}
-              <SeasonsEpisodes item={item as ShowLike} refresh={refresh} />
-              <CastCrew credits={credits ?? null} exploreLinkBase="#/explore" />
-              {tmdbData && item.type === 'show' && (
-                <TmdbDetailsPanel tmdbData={tmdbData} itemType={item.type} />
+              {isTitleMedia && (
+                <>
+                  <MediaOverviewTabStrip
+                    value={overviewSubTab}
+                    onChange={setOverviewSubTab}
+                    panelId={LIBRARY_MEDIA_OVERVIEW_PANEL_ID}
+                    ariaLabel="Library item sections"
+                    tabs={mediaOverviewTabs}
+                  />
+                  <MediaOverviewTabPanel id={LIBRARY_MEDIA_OVERVIEW_PANEL_ID}>
+                    {overviewSubTab === 'details' && (
+                      <>
+                        <SeasonsEpisodes item={item as ShowLike} refresh={refresh} />
+                        {tmdbData && (item.type === 'movie' || item.type === 'show') && (
+                          <TmdbDetailsPanel
+                            tmdbData={tmdbData}
+                            itemType={item.type}
+                            showCollectionLine={item.type !== 'movie'}
+                          />
+                        )}
+                        {!tmdbData && item.type === 'movie' && (
+                          <p className="muted media-overview-tabpanel__empty">
+                            No TMDB details for this title.
+                          </p>
+                        )}
+                        {!tmdbData && item.type === 'show' && !((item as ShowLike).seasons?.length) && (
+                          <p className="muted media-overview-tabpanel__empty">
+                            No season list and no TMDB data for this show.
+                          </p>
+                        )}
+                      </>
+                    )}
+                    {overviewSubTab === 'collection' &&
+                      showCollectionTab &&
+                      tmdbData &&
+                      item.tmdb_id && (
+                        <CollectionFranchiseStrip
+                          collectionId={Number(
+                            (tmdbData.belongs_to_collection as { id: number }).id,
+                          )}
+                          currentTmdbId={String(item.tmdb_id)}
+                          belongsHint={
+                            tmdbData.belongs_to_collection as {
+                              id?: number;
+                              name?: string;
+                              poster_path?: string | null;
+                            }
+                          }
+                        />
+                      )}
+                    {overviewSubTab === 'cast' &&
+                      (creditsHaveContent(credits) ? (
+                        <CastCrew credits={credits ?? null} exploreLinkBase="#/explore" />
+                      ) : (
+                        <p className="muted media-overview-tabpanel__empty">
+                          No cast or crew from TMDB.
+                        </p>
+                      ))}
+                    {overviewSubTab === 'recommendations' && (
+                      similarData && (similarData.recommendations?.length ?? 0) > 0 ? (
+                        <SimilarRecommendations
+                          data={similarData}
+                          exploreLinkBase="#/explore"
+                          variant="recommendations"
+                        />
+                      ) : (
+                        <p className="muted media-overview-tabpanel__empty">
+                          No recommendations from TMDB.
+                        </p>
+                      )
+                    )}
+                    {overviewSubTab === 'similar' && (
+                      similarData && (similarData.similar?.length ?? 0) > 0 ? (
+                        <SimilarRecommendations
+                          data={similarData}
+                          exploreLinkBase="#/explore"
+                          variant="similar"
+                        />
+                      ) : (
+                        <p className="muted media-overview-tabpanel__empty">No similar titles from TMDB.</p>
+                      )
+                    )}
+                  </MediaOverviewTabPanel>
+                </>
               )}
-              {similarData && (item.type === 'movie' || item.type === 'show') && (
-                <SimilarRecommendations
-                  data={similarData}
-                  exploreLinkBase="#/explore"
-                />
+              {!isTitleMedia && (
+                <>
+                  <SeasonsEpisodes item={item as ShowLike} refresh={refresh} />
+                  <CastCrew credits={credits ?? null} exploreLinkBase="#/explore" />
+                </>
               )}
             </div>
           )}

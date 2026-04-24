@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { EntityHeader } from '../item-detail/EntityHeader';
 import { tvdbSeriesToEntityHeaderData } from '../item-detail/discoveryEntityHeaderMappers';
+import { DetailViewActionsToolbar } from '../../shared/ui/DetailViewActionsToolbar';
 import type { ExploreNode } from './types';
 
 export type ExploreDetailTvdbProps = {
@@ -41,7 +42,7 @@ export function ExploreDetailTvdb({ series, node, onAdd, onOpen, onRefresh, onRe
     <section className="panel">
       <div className="item-detail-panel item-detail-panel--overview">
         <EntityHeader data={headerData} />
-        <div className="item-actions-bar">
+        <DetailViewActionsToolbar aria-label="Discover — add or open in library (TVDB)">
           <button
             type="button"
             className={`btn btn--small ${inLibrary ? 'btn--secondary' : 'btn--primary'}`}
@@ -49,7 +50,7 @@ export function ExploreDetailTvdb({ series, node, onAdd, onOpen, onRefresh, onRe
           >
             {inLibrary ? 'Open Library Item' : 'Add to Library'}
           </button>
-        </div>
+        </DetailViewActionsToolbar>
       </div>
       {!inLibrary && seasons.length > 0 && (
         <div className="season-selector">

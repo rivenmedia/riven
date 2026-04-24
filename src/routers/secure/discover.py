@@ -396,6 +396,11 @@ async def tmdb_tv_details(tv_id: str) -> dict[str, Any]:
     return data
 
 
+@router.get("/tmdb/collection/{collection_id}", summary="TMDB collection details")
+async def tmdb_collection_details(collection_id: str) -> dict[str, Any]:
+    return _tmdb_request(f"collection/{collection_id}")
+
+
 @router.get("/tmdb/movie/{movie_id}/credits", summary="TMDB movie credits")
 async def tmdb_movie_credits(movie_id: str) -> dict[str, Any]:
     return _tmdb_request(f"movie/{movie_id}/credits")

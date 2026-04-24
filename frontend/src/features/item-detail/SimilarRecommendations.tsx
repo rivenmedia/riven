@@ -28,23 +28,28 @@ export interface SimilarRecommendationsProps extends SimilarRecommendationsOptio
   data: SimilarRecommendationsData | null | undefined;
   maxRecommendations?: number;
   maxSimilar?: number;
+  /** default: show both sections; item overview tabs pass a single section */
+  variant?: 'all' | 'recommendations' | 'similar';
 }
 
 function Section({
   title,
   items,
   options,
+  showTitle = true,
 }: {
   title: string;
   items: any[];
   options: SimilarRecommendationsOptions;
+  /** when false, tab label replaces the in-panel heading (library item sub-tabs) */
+  showTitle?: boolean;
 }) {
   if (!items.length) return null;
   const { onMediaSelect, exploreLinkBase, trail } = options;
 
   return (
     <section className="panel">
-      <h3>{title}</h3>
+      {showTitle && <h3>{title}</h3>}
       <div className="detail-link-grid">
         {items.map((item: any) => {
           const kind = getMediaKind(item);
@@ -85,6 +90,7 @@ export function SimilarRecommendations({
   data,
   maxRecommendations = 12,
   maxSimilar = 12,
+  variant = 'all',
   ...options
 }: SimilarRecommendationsProps) {
   if (!data) return null;
@@ -94,6 +100,20 @@ export function SimilarRecommendations({
     maxRecommendations,
   ) as any[];
   const similar = (data.similar ?? []).slice(0, maxSimilar) as any[];
+
+  if (variant === 'recommendations') {
+    return (
+      <Section
+        title="Recommendations"
+        items={recommendations}
+        options={options}
+        showTitle={false}
+      />
+    );
+  }
+  if (variant === 'similar') {
+    return <Section title="Similar" items={similar} options={options} showTitle={false} />;
+  }
 
   const recSection = (
     <Section title="Recommendations" items={recommendations} options={options} />
