@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ViewLayout, ViewHeader } from '../../shared/ui/PagePrimitives';
 import { BackButton } from '../../shared/ui/BackButton';
 import { EntityHeader } from './EntityHeader';
@@ -17,7 +17,7 @@ import {
 } from './MediaOverviewTabs';
 import { creditsHaveContent } from './creditsUtils';
 import { DetailViewActionsToolbar } from '../../shared/ui/DetailViewActionsToolbar';
-import { apiDelete, apiFetch, apiGet, apiPost, getStreamUrl } from '../../shared/api/api';
+import { apiDelete, apiGet, apiPost, getStreamUrl } from '../../shared/api/api';
 import { annotateLibraryStatus } from '../library/libraryStatus';
 import { notify } from '../../shared/notifications/notify';
 import {
@@ -26,29 +26,6 @@ import {
   formatShortDate,
 } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
-
-type ManualSessionParsedFile = {
-  file_id: number;
-  filename: string;
-  filesize: number;
-  download_url?: string | null;
-  parsed_metadata?: Record<string, unknown> | null;
-};
-
-type ManualSession = {
-  session_id: string;
-  item_id: number;
-  media_type: 'movie' | 'tv' | null;
-  tmdb_id?: string | null;
-  tvdb_id?: string | null;
-  imdb_id?: string | null;
-  torrent_id: number | string;
-  // We don't need the full shape of these on the client yet
-  torrent_info: unknown;
-  containers: unknown;
-  parsed_files?: ManualSessionParsedFile[] | null;
-  expires_at: string;
-};
 
 function buildEntityHeaderData(
   item: Record<string, unknown>,
@@ -113,496 +90,6 @@ function buildEntityHeaderData(
     },
     tmdb: tmdbSection,
   };
-}
-
-function ManualScrapeModal({
-  itemId,
-  item,
-  onClose,
-  onSuccess,
-}: {
-  itemId: string;
-  item: { type?: string } | null;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  type Mode = 'magnet' | 'pick';
-  type Step = 'input' | 'session';
-
-  const [mode, setMode] = useState<Mode>('magnet');
-  const [step, setStep] = useState<Step>('input');
-  const [magnet, setMagnet] = useState('');
-  const [scrapeLoading, setScrapeLoading] = useState(false);
-  const [scrapeStreams, setScrapeStreams] = useState<
-    Record<string, { infohash: string; raw_title: string; rank?: number; is_cached?: boolean }>
-  >({});
-  const [pickLoading, setPickLoading] = useState(false);
-  const [sessionLoading, setSessionLoading] = useState(false);
-  const [manualSession, setManualSession] = useState<ManualSession | null>(null);
-  const [selectedFileIds, setSelectedFileIds] = useState<number[]>([]);
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const mediaType = item?.type === 'movie' ? 'movie' : 'tv';
-  const isMovie = mediaType === 'movie';
-
-  useEffect(() => {
-    dialogRef.current?.showModal();
-    return () => {
-      dialogRef.current?.close();
-    };
-  }, []);
-
-  const searchScrapers = async () => {
-    if (!itemId) return;
-    setScrapeLoading(true);
-    setScrapeStreams({});
-    const res = await apiGet('/scrape', { item_id: itemId, media_type: mediaType });
-    setScrapeLoading(false);
-    if (!res.ok) {
-      notify(res.error || 'Scrape failed', 'error');
-      return;
-    }
-    const streams = (
-      res.data as {
-        streams?: Record<
-          string,
-          { infohash: string; raw_title: string; rank?: number; is_cached?: boolean }
-        >;
-      }
-    )?.streams ?? {};
-    setScrapeStreams(streams);
-    if (Object.keys(streams).length === 0) notify('No streams found', 'warning');
-  };
-
-  const startSessionWithMagnet = async (magnetUri: string) => {
-    setSessionLoading(true);
-    try {
-      const params = new URLSearchParams({ magnet: magnetUri, item_id: String(itemId) });
-      const response = await apiFetch<Record<string, unknown>>(
-        `/scrape/start_session?${params.toString()}`,
-        { method: 'POST' },
-      );
-      if (!response.ok) {
-        notify(response.error || 'Failed to start manual session', 'error');
-        return;
-      }
-
-      const raw = response.data;
-      if (!raw || typeof raw !== 'object') {
-        notify('Manual session did not return a payload', 'error');
-        return;
-      }
-
-      // Normalize: backend may return snake_case (session_id, parsed_files) or camelCase
-      const session: ManualSession = {
-        session_id: (raw.session_id as string) ?? (raw.sessionId as string) ?? '',
-        item_id: (raw.item_id as number) ?? (raw.itemId as number) ?? 0,
-        media_type: (raw.media_type as ManualSession['media_type']) ?? (raw.mediaType as ManualSession['media_type']) ?? null,
-        tmdb_id: (raw.tmdb_id as string | null) ?? (raw.tmdbId as string | null) ?? null,
-        tvdb_id: (raw.tvdb_id as string | null) ?? (raw.tvdbId as string | null) ?? null,
-        imdb_id: (raw.imdb_id as string | null) ?? (raw.imdbId as string | null) ?? null,
-        torrent_id: (raw.torrent_id as number | string) ?? (raw.torrentId as number | string) ?? '',
-        torrent_info: raw.torrent_info ?? raw.torrentInfo ?? null,
-        containers: raw.containers ?? null,
-        parsed_files: (raw.parsed_files ?? raw.parsedFiles ?? null) as ManualSession['parsed_files'],
-        expires_at: (raw.expires_at as string) ?? (raw.expiresAt as string) ?? '',
-      };
-
-      if (!session.session_id) {
-        notify('Manual session did not return a session ID', 'error');
-        return;
-      }
-
-      const parsedFiles = (session.parsed_files ?? []) as ManualSessionParsedFile[];
-      const defaultSelection =
-        parsedFiles.length > 0 ? [parsedFiles[0].file_id].filter((id): id is number => !!id) : [];
-
-      setManualSession(session);
-      setSelectedFileIds(defaultSelection);
-      setStep('session');
-      notify('Manual scrape session started. Select files to download.', 'success');
-    } finally {
-      setSessionLoading(false);
-    }
-  };
-
-  const handleStartMagnet = async () => {
-    const m = magnet.trim();
-    if (!m) {
-      notify('Paste a magnet URI first', 'warning');
-      return;
-    }
-    await startSessionWithMagnet(m);
-  };
-
-  const handlePickStream = async (e: React.MouseEvent, infohash: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setPickLoading(true);
-    try {
-      const magnetUri = `magnet:?xt=urn:btih:${infohash}`;
-      await startSessionWithMagnet(magnetUri);
-    } finally {
-      setPickLoading(false);
-    }
-  };
-
-  const streamList = Object.entries(scrapeStreams).sort(
-    ([, a], [, b]) => (b.rank ?? 0) - (a.rank ?? 0),
-  );
-
-  return (
-    <dialog ref={dialogRef} className="modal" onClose={onClose}>
-      <header>
-        <h2>Manual Scrape</h2>
-        <button type="button" onClick={onClose} data-action="close">
-          &times;
-        </button>
-      </header>
-      <div className="modal-body manual-scrape-modal">
-        {step === 'input' && (
-          <>
-            <div className="manual-scrape-modes" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'magnet'}
-                className={mode === 'magnet' ? 'active' : ''}
-                onClick={() => setMode('magnet')}
-              >
-                Paste magnet link
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'pick'}
-                className={mode === 'pick' ? 'active' : ''}
-                onClick={() => {
-                  setMode('pick');
-                  void searchScrapers();
-                }}
-              >
-                Pick from scrapers
-              </button>
-            </div>
-
-            {mode === 'magnet' && (
-              <>
-                <label>Magnet URL</label>
-                <textarea
-                  data-slot="magnet"
-                  placeholder="Paste magnet link..."
-                  value={magnet}
-                  onChange={(e) => setMagnet(e.target.value)}
-                />
-                <button
-                  type="button"
-                  data-action="start-session"
-                  onClick={handleStartMagnet}
-                  disabled={sessionLoading}
-                >
-                  {sessionLoading ? 'Starting…' : 'Start Session'}
-                </button>
-              </>
-            )}
-
-            {mode === 'pick' && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={searchScrapers}
-                  disabled={scrapeLoading}
-                >
-                  {scrapeLoading ? 'Searching…' : 'Search scrapers'}
-                </button>
-                {streamList.length > 0 && (
-                  <div className="manual-scrape-stream-list" data-slot="stream-options">
-                    <label>Pick a stream</label>
-                    <ul>
-                      {streamList.map(([ih, s]) => (
-                        <li key={ih}>
-                          <button
-                            type="button"
-                            className="manual-scrape-stream-option"
-                            onClick={(e) => handlePickStream(e, ih)}
-                            disabled={pickLoading || sessionLoading}
-                            title={s.raw_title}
-                          >
-                            <span className="stream-title">{s.raw_title}</span>
-                            <span className="stream-meta">
-                              {typeof s.rank === 'number' && (
-                                <span className="stream-rank">rank {s.rank}</span>
-                              )}
-                              {s.is_cached != null && (
-                                <span className="stream-cached">
-                                  {s.is_cached ? '✓ cached' : 'uncached'}
-                                </span>
-                              )}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )}
-
-        {step === 'session' && manualSession && (
-          <ManualSessionStep
-            session={manualSession}
-            isMovie={isMovie}
-            selectedFileIds={selectedFileIds}
-            setSelectedFileIds={setSelectedFileIds}
-            onClose={onClose}
-            onSuccess={onSuccess}
-            onReset={() => {
-              setManualSession(null);
-              setSelectedFileIds([]);
-              setStep('input');
-            }}
-          />
-        )}
-      </div>
-    </dialog>
-  );
-}
-
-type ManualSessionStepProps = {
-  session: ManualSession;
-  isMovie: boolean;
-  selectedFileIds: number[];
-  setSelectedFileIds: (ids: number[]) => void;
-  onClose: () => void;
-  onSuccess: () => void;
-  onReset: () => void;
-};
-
-function ManualSessionStep({
-  session,
-  isMovie,
-  selectedFileIds,
-  setSelectedFileIds,
-  onClose,
-  onSuccess,
-  onReset,
-}: ManualSessionStepProps) {
-  const [submitting, setSubmitting] = useState(false);
-
-  const parsedFiles = (session.parsed_files ?? []) as ManualSessionParsedFile[];
-
-  const handleStartDownload = async () => {
-    if (!selectedFileIds.length) {
-      notify('Select at least one file', 'warning');
-      return;
-    }
-
-    setSubmitting(true);
-
-    const byId = new Map<number, ManualSessionParsedFile>();
-    for (const pf of parsedFiles) {
-      if (typeof pf.file_id === 'number') {
-        byId.set(pf.file_id, pf);
-      }
-    }
-
-    const selected = selectedFileIds
-      .map((id) => byId.get(id))
-      .filter((pf): pf is ManualSessionParsedFile => !!pf);
-
-    if (!selected.length) {
-      notify('Selected files are no longer available', 'error');
-      setSubmitting(false);
-      return;
-    }
-
-    const filesRoot: Record<
-      string,
-      { file_id: number; filename: string; filesize: number; download_url?: string | null }
-    > = {};
-
-    for (const pf of selected) {
-      if (typeof pf.file_id !== 'number') continue;
-      filesRoot[String(pf.file_id)] = {
-        file_id: pf.file_id,
-        filename: pf.filename,
-        filesize: pf.filesize,
-        download_url: pf.download_url ?? null,
-      };
-    }
-
-    const selectRes = await apiPost(`/scrape/session/${session.session_id}`, {
-      action: 'select_files',
-      files: { root: filesRoot },
-    });
-
-    if (!selectRes.ok) {
-      notify(selectRes.error || 'Failed to select files', 'error');
-      setSubmitting(false);
-      return;
-    }
-
-    let updatePayload: any;
-
-    if (isMovie) {
-      const pf = selected[0];
-      updatePayload = {
-        action: 'update_attributes',
-        file_data: {
-          file_id: pf.file_id,
-          filename: pf.filename,
-          filesize: pf.filesize,
-          download_url: pf.download_url ?? undefined,
-        },
-      };
-    } else {
-      const rootShow: Record<
-        number,
-        Record<
-          number,
-          { file_id: number; filename: string; filesize: number; download_url?: string | null }
-        >
-      > = {};
-
-      for (const pf of selected) {
-        const meta = (pf.parsed_metadata ?? {}) as Record<string, unknown>;
-        const seasonRaw =
-          (meta.season as number | string | undefined) ??
-          (meta.season_number as number | string | undefined);
-        let seasonNum =
-          typeof seasonRaw === 'string' ? parseInt(seasonRaw, 10) : seasonRaw ?? 1;
-        if (!seasonNum || Number.isNaN(seasonNum)) {
-          seasonNum = 1;
-        }
-
-        let episodeRaw: number | string | undefined;
-        const episodesField = (meta as any).episodes as unknown;
-        if (Array.isArray(episodesField) && episodesField.length > 0) {
-          episodeRaw = episodesField[0] as number | string;
-        } else {
-          episodeRaw =
-            (meta.episode as number | string | undefined) ??
-            (meta.episode_number as number | string | undefined);
-        }
-
-        let episodeNum =
-          typeof episodeRaw === 'string' ? parseInt(episodeRaw, 10) : episodeRaw ?? pf.file_id;
-        if (!episodeNum || Number.isNaN(episodeNum)) {
-          episodeNum = pf.file_id;
-        }
-
-        const seasonKey = seasonNum as number;
-        const episodeKey = episodeNum as number;
-
-        if (!rootShow[seasonKey]) {
-          rootShow[seasonKey] = {};
-        }
-
-        rootShow[seasonKey][episodeKey] = {
-          file_id: pf.file_id,
-          filename: pf.filename,
-          filesize: pf.filesize,
-          download_url: pf.download_url ?? undefined,
-        };
-      }
-
-      updatePayload = {
-        action: 'update_attributes',
-        file_data: {
-          root: rootShow,
-        },
-      };
-    }
-
-    const updateRes = await apiPost(`/scrape/session/${session.session_id}`, updatePayload);
-
-    if (!updateRes.ok) {
-      notify(updateRes.error || 'Failed to start manual download', 'error');
-      setSubmitting(false);
-      return;
-    }
-
-    void apiPost(`/scrape/session/${session.session_id}`, { action: 'complete' });
-
-    notify('Manual download started', 'success');
-    setSubmitting(false);
-    onClose();
-    onSuccess();
-  };
-
-  const handleAbort = async () => {
-    setSubmitting(true);
-    const res = await apiPost(`/scrape/session/${session.session_id}`, { action: 'abort' });
-    if (!res.ok) {
-      notify(res.error || 'Failed to abort session', 'error');
-      setSubmitting(false);
-      return;
-    }
-    notify('Manual session aborted', 'success');
-    setSubmitting(false);
-    onReset();
-  };
-
-  const files = parsedFiles;
-
-  return (
-    <div className="manual-scrape-session-step">
-      <h3>Select files to download</h3>
-      {files.length === 0 ? (
-        <p className="muted">No files returned for this torrent.</p>
-      ) : (
-        <ul className="manual-scrape-file-list">
-          {files.map((pf) => {
-            const checked = selectedFileIds.includes(pf.file_id);
-            const controlType = isMovie ? 'radio' : 'checkbox';
-            const labelParts = [`${pf.filename}`, `(${formatBytes(pf.filesize)})`];
-
-            return (
-              <li key={pf.file_id}>
-                <label>
-                  <input
-                    type={controlType}
-                    name="manual-session-file"
-                    checked={checked}
-                    onChange={() => {
-                      if (isMovie) {
-                        setSelectedFileIds([pf.file_id]);
-                      } else if (checked) {
-                        setSelectedFileIds(selectedFileIds.filter((id) => id !== pf.file_id));
-                      } else {
-                        setSelectedFileIds([...selectedFileIds, pf.file_id]);
-                      }
-                    }}
-                  />
-                  <span>{labelParts.join(' ')}</span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <div className="manual-scrape-session-actions">
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={handleStartDownload}
-          disabled={submitting || !files.length}
-        >
-          {submitting ? 'Starting…' : 'Start Download'}
-        </button>
-        <button
-          type="button"
-          className="btn btn--secondary"
-          onClick={handleAbort}
-          disabled={submitting}
-        >
-          Cancel Session
-        </button>
-      </div>
-    </div>
-  );
 }
 
 async function executeItemAction(action: string, itemId: string) {
@@ -876,7 +363,6 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const [similarData, setSimilarData] = useState<{ recommendations: any[]; similar: any[] } | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'streams' | 'playback'>('overview');
   const [overviewSubTab, setOverviewSubTab] = useState<MediaOverviewTabId>('details');
-  const [showManualScrape, setShowManualScrape] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1029,10 +515,6 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const showResume = state === 'Paused';
 
   const handleAction = async (action: string) => {
-    if (action === 'manual-scrape') {
-      setShowManualScrape(true);
-      return;
-    }
     if (action === 'auto-scrape') {
       const response = await runAutoScrape(item);
       if (!response.ok) {
@@ -1124,13 +606,6 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                   onClick={() => handleAction('auto-scrape')}
                 >
                   Auto Scrape
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--small btn--secondary"
-                  onClick={() => handleAction('manual-scrape')}
-                >
-                  Manual Scrape
                 </button>
                 <button
                   type="button"
@@ -1287,6 +762,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
               <Streams
                 data={streamData || {}}
                 itemId={itemId}
+                item={item}
                 onRefresh={refresh}
               />
             </div>
@@ -1303,14 +779,6 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
         </div>
       </div>
 
-      {showManualScrape && (
-        <ManualScrapeModal
-          itemId={itemId}
-          item={item}
-          onClose={() => setShowManualScrape(false)}
-          onSuccess={refresh}
-        />
-      )}
     </ViewLayout>
   );
 }

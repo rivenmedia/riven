@@ -451,6 +451,7 @@ class RivenVFS(pyfuse3.Operations):
         updated_at: str | None = None,
         file_size: int | None = None,
         entry_type: Literal["media", "subtitle"] | None = None,
+        media_item_id: int | None = None,
     ) -> VFSNode:
         """
         Get or create a node at the given path, creating parent directories as needed.
@@ -498,6 +499,7 @@ class RivenVFS(pyfuse3.Operations):
                             created_at=created_at,
                             updated_at=updated_at,
                             entry_type=entry_type,
+                            media_item_id=media_item_id,
                         )
                     else:
                         child = VFSDirectory(
@@ -630,6 +632,16 @@ class RivenVFS(pyfuse3.Operations):
         if not (entry := item.media_entry):
             logger.debug(f"Item {item.id} has no media entry, skipping VFS add")
             return False
+
+        # Remove any stale VFS nodes from a previous stream registration.
+        # This handles both same-path (original_filename changed) and different-path
+        # (e.g. extension changed) stream switches.
+        if entry.media_item_id is not None:
+            removed = self._remove_nodes_by_media_item_id(entry.media_item_id)
+            if removed:
+                logger.trace(
+                    f"Removed {len(removed)} stale VFS node(s) for item {entry.media_item_id} before re-registration"
+                )
 
         # Register the MediaEntry (video file)
         video_paths = self._register_filesystem_entry(entry)
@@ -1139,6 +1151,7 @@ class RivenVFS(pyfuse3.Operations):
                     created_at=(entry.created_at.isoformat()),
                     updated_at=(entry.updated_at.isoformat()),
                     entry_type="media",
+                    media_item_id=entry.media_item_id,
                 ):
                     registered_paths.append(path)
 
@@ -1171,6 +1184,7 @@ class RivenVFS(pyfuse3.Operations):
                     created_at=(entry.created_at.isoformat()),
                     updated_at=(entry.updated_at.isoformat()),
                     entry_type="subtitle",
+                    media_item_id=entry.media_item_id,
                 ):
                     registered_paths.append(subtitle_path)
 
@@ -1245,6 +1259,7 @@ class RivenVFS(pyfuse3.Operations):
         created_at: str,
         updated_at: str,
         entry_type: Literal["media", "subtitle"] = "media",
+        media_item_id: int | None = None,
     ) -> bool:
         """
         Register a clean VFS path with original_filename mapping.
@@ -1261,7 +1276,20 @@ class RivenVFS(pyfuse3.Operations):
             existing_node = self._get_node_by_path(clean_path)
 
             if existing_node:
-                logger.trace(f"Path already registered: {clean_path}")
+                if isinstance(existing_node, VFSFile) and existing_node.original_filename != original_filename:
+                    # Stream was switched: update stale metadata on the existing node in place
+                    logger.trace(
+                        f"Updating VFS node at {clean_path}: "
+                        f"{existing_node.original_filename!r} → {original_filename!r}"
+                    )
+                    existing_node.original_filename = original_filename
+                    existing_node.file_size = file_size
+                    existing_node.updated_at = updated_at
+                    existing_node.media_item_id = media_item_id
+                    parent_inodes = self._get_parent_inodes(existing_node)
+                    self._pending_invalidations.update(parent_inodes)
+                else:
+                    logger.trace(f"Path already registered: {clean_path}")
                 return True
 
             # Create node in tree
@@ -1273,6 +1301,7 @@ class RivenVFS(pyfuse3.Operations):
                 created_at=created_at,
                 updated_at=updated_at,
                 entry_type=entry_type,
+                media_item_id=media_item_id,
             )
 
             # Get parent inodes for invalidation (collect for batching)
@@ -1368,6 +1397,36 @@ class RivenVFS(pyfuse3.Operations):
                 unregistered_paths.append(node.path)
 
         return unregistered_paths
+
+    def _remove_nodes_by_media_item_id(self, media_item_id: int) -> list[str]:
+        """
+        Find and remove all VFS nodes belonging to a given media item.
+
+        Used to clean up stale nodes when a stream is switched — handles both
+        same-path (original_filename changed) and different-path (extension
+        changed) cases.
+
+        Args:
+            media_item_id: MediaItem.id whose nodes should be removed
+
+        Returns:
+            List of removed VFS paths
+        """
+
+        with self._tree_lock:
+            nodes_to_remove = [
+                node
+                for node in self._inode_to_node.values()
+                if isinstance(node, VFSFile) and node.media_item_id == media_item_id
+            ]
+
+        removed_paths = list[str]()
+
+        for node in nodes_to_remove:
+            if self._unregister_clean_path(node.path):
+                removed_paths.append(node.path)
+
+        return removed_paths
 
     def _unregister_clean_path(self, path: str) -> bool:
         """

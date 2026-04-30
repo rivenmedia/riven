@@ -147,6 +147,7 @@ class VFSFile(VFSNode):
     created_at: str
     updated_at: str
     entry_type: Literal["media", "subtitle"]
+    media_item_id: int | None
 
     def __init__(
         self,
@@ -159,6 +160,7 @@ class VFSFile(VFSNode):
         created_at: str,
         updated_at: str,
         entry_type: Literal["media", "subtitle"],
+        media_item_id: int | None = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -171,6 +173,7 @@ class VFSFile(VFSNode):
         self.created_at = created_at
         self.updated_at = updated_at
         self.entry_type = entry_type
+        self.media_item_id = media_item_id
 
     def __repr__(self) -> str:
         return (
