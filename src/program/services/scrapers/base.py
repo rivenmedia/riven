@@ -32,8 +32,15 @@ class ScraperService(Runner[T, "ScraperService", dict[str, str]]):
             if self.validate():
                 self.initialized = True
                 logger.success(f"{self.__class__.__name__} scraper initialized")
-        except Exception:
-            pass
+            else:
+                logger.warning(
+                    f"{self.__class__.__name__} scraper validate() returned False; "
+                    f"scraper is enabled in settings but will not be used"
+                )
+        except Exception as e:
+            logger.exception(
+                f"{self.__class__.__name__} scraper failed to initialize: {e}"
+            )
 
     @abstractmethod
     def validate(self) -> bool: ...

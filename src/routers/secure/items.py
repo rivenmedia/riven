@@ -672,6 +672,10 @@ async def retry_items(
 
                     session.commit()
 
+                    # Clear any stale queued/running event for this id before
+                    # re-adding, otherwise the dedupe in add_event will reject
+                    # the new event when an old one with a future run_at exists.
+                    di[Program].em.remove_id_from_queues(id)
                     di[Program].em.add_event(Event("RetryItem", id))
             except ValueError as e:
                 raise HTTPException(
@@ -695,6 +699,8 @@ async def retry_library_items() -> RetryResponse:
     item_ids = db_functions.retry_library()
 
     for item_id in item_ids:
+        # Same stale-event guard as retry_items / auto_scrape.
+        di[Program].em.remove_id_from_queues(item_id)
         di[Program].em.add_event(
             Event(
                 emitted_by="RetryLibrary",
