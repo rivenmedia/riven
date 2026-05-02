@@ -1112,9 +1112,11 @@ async def auto_scrape(
             # Commit state changes so Event Manager sees them
             session.commit()
 
-            # 2. Dispatch events
+            # 2. Dispatch events. Clear any stale queue/running entries first —
+            # otherwise an existing event with a future run_at (e.g. downloader
+            # cooldown) blocks the dedupe check and the manual trigger no-ops.
             for season in seasons_to_scrape:
-                # Dispatch for Season (Packs)
+                di[Program].em.remove_id_from_queues(season.id)
                 di[Program].em.add_event(
                     Event(
                         "API",
@@ -1122,8 +1124,8 @@ async def auto_scrape(
                         overrides=overrides,
                     )
                 )
-                # Dispatch for Episodes (Individual files)
                 for episode in season.episodes:
+                    di[Program].em.remove_id_from_queues(episode.id)
                     di[Program].em.add_event(
                         Event(
                             "API",
@@ -1136,7 +1138,8 @@ async def auto_scrape(
                 message=f"Started scrape for {len(seasons_to_scrape)} seasons of {item.log_string} (paused {len(seasons_to_pause)} others)"
             )
 
-        # Scrape entire item
+        # Scrape entire item. Clear stale queue entries first (see note above).
+        di[Program].em.remove_id_from_queues(item.id)
         di[Program].em.add_event(
             Event(
                 "API",
