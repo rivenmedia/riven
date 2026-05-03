@@ -134,6 +134,12 @@ class RivenVFS(pyfuse3.Operations):
 
         super().__init__()
 
+        # Stable timestamp for directory mtimes. Returning current time on each
+        # getattr() makes every directory appear "just modified" to clients,
+        # which triggers Plex's "directory changed" check on every metadata
+        # request and causes a runaway refresh loop while users browse.
+        self._mount_time_ns = self._current_time_ns()
+
         # Initialize VFS cache from settings
         self.fs = settings_manager.settings.filesystem
 
@@ -1460,11 +1466,12 @@ class RivenVFS(pyfuse3.Operations):
                 attrs.st_mode = pyfuse3.ModeT(stat.S_IFDIR | 0o755)
                 attrs.st_nlink = 2
                 attrs.st_size = 0
-                # Use current time for root directory
-                now_ns = self._current_time_ns()
-                attrs.st_atime_ns = now_ns
-                attrs.st_mtime_ns = now_ns
-                attrs.st_ctime_ns = now_ns
+                # Use stable mount time so Plex doesn't see "directory changed"
+                # on every getattr and trigger metadata refresh loops.
+                mount_ns = self._mount_time_ns
+                attrs.st_atime_ns = mount_ns
+                attrs.st_mtime_ns = mount_ns
+                attrs.st_ctime_ns = mount_ns
                 return attrs
 
             # For other paths, get node from tree
@@ -1478,10 +1485,11 @@ class RivenVFS(pyfuse3.Operations):
                 attrs.st_mode = pyfuse3.ModeT(stat.S_IFDIR | 0o755)
                 attrs.st_nlink = 2
                 attrs.st_size = 0
-                now_ns = self._current_time_ns()
-                attrs.st_atime_ns = now_ns
-                attrs.st_mtime_ns = now_ns
-                attrs.st_ctime_ns = now_ns
+                # Stable mount time, not current time — see __init__ for why.
+                mount_ns = self._mount_time_ns
+                attrs.st_atime_ns = mount_ns
+                attrs.st_mtime_ns = mount_ns
+                attrs.st_ctime_ns = mount_ns
                 return attrs
 
             # It's a file - use cached metadata from node (NO DATABASE QUERY!)
