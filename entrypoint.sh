@@ -26,6 +26,19 @@ mkdir -p "$USER_HOME"
 chown -R "$PUID:$PGID" "$USER_HOME"
 export HOME="$USER_HOME"
 
+# Clean up a stale FUSE mount left over from a previous container.
+# When a Riven container is killed without a clean shutdown, the kernel
+# keeps the FUSE session attached to the bind-mounted /mount target.
+# pyfuse3.init() in the new container then fails with
+# "fuse_session_new() failed" and Riven enters an infinite restart loop
+# that eventually exhausts pthread keys. fusermount -u releases the dead
+# session so the new container can mount cleanly.
+MOUNT_TARGET="${RIVEN_FILESYSTEM_MOUNT_PATH:-/mount}"
+if [ -d "$MOUNT_TARGET" ] && grep -qE "[[:space:]]${MOUNT_TARGET}[[:space:]]fuse" /proc/mounts 2>/dev/null; then
+    echo "Stale FUSE mount detected at $MOUNT_TARGET, unmounting..."
+    fusermount -u "$MOUNT_TARGET" 2>/dev/null || umount -l "$MOUNT_TARGET" 2>/dev/null || true
+fi
+
 # Define the command to run based on the DEBUG flag
 if [ "${DEBUG}" != "" ]; then
     echo "Installing debugpy..."
