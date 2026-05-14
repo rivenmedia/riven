@@ -10,11 +10,12 @@ export type ExploreDetailTvdbProps = {
   onAdd: (item: any, seasons?: number[] | null) => Promise<boolean>;
   onOpen: () => void;
   onRefresh: () => void;
-  onReselect: () => void;
+  onReselect: () => void | Promise<void>;
 };
 
 export function ExploreDetailTvdb({ series, node, onAdd, onOpen, onRefresh, onReselect }: ExploreDetailTvdbProps) {
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
+  const [addPending, setAddPending] = useState(false);
   const seasons = (series.seasons || []).filter((s: any) => (s.season_number ?? s.number ?? 0) > 0);
   const inLibrary = series.in_library && series.library_item_id;
   const headerData = tvdbSeriesToEntityHeaderData(series, String(node.id));
@@ -24,17 +25,22 @@ export function ExploreDetailTvdb({ series, node, onAdd, onOpen, onRefresh, onRe
       onOpen();
       return;
     }
-    const seasonNumbers =
-      selectedSeasons.size > 0 && selectedSeasons.size < seasons.length
-        ? Array.from(selectedSeasons).sort((a, b) => a - b)
-        : null;
-    const ok = await onAdd(
-      { ...series, media_type: 'tv', id: node.id, indexer: 'tvdb', tvdb_id: node.id },
-      seasonNumbers,
-    );
-    if (ok) {
-      onRefresh();
-      onReselect();
+    setAddPending(true);
+    try {
+      const seasonNumbers =
+        selectedSeasons.size > 0 && selectedSeasons.size < seasons.length
+          ? Array.from(selectedSeasons).sort((a, b) => a - b)
+          : null;
+      const ok = await onAdd(
+        { ...series, media_type: 'tv', id: node.id, indexer: 'tvdb', tvdb_id: node.id },
+        seasonNumbers,
+      );
+      if (ok) {
+        onRefresh();
+        await onReselect();
+      }
+    } finally {
+      setAddPending(false);
     }
   };
 
@@ -45,10 +51,21 @@ export function ExploreDetailTvdb({ series, node, onAdd, onOpen, onRefresh, onRe
         <DetailViewActionsToolbar aria-label="Discover — add or open in library (TVDB)">
           <button
             type="button"
-            className={`btn btn--small ${inLibrary ? 'btn--secondary' : 'btn--primary'}`}
+            className={`btn btn--small btn--with-spinner ${inLibrary ? 'btn--secondary' : 'btn--primary'}`}
             onClick={handleAdd}
+            disabled={addPending}
+            aria-busy={addPending}
           >
-            {inLibrary ? 'Open Library Item' : 'Add to Library'}
+            {addPending && !inLibrary ? (
+              <>
+                <span className="ui-spinner" aria-hidden />
+                Adding…
+              </>
+            ) : inLibrary ? (
+              'Open Library Item'
+            ) : (
+              'Add to Library'
+            )}
           </button>
         </DetailViewActionsToolbar>
       </div>

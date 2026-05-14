@@ -26,7 +26,7 @@ export type ExploreDetailTmdbProps = {
   onAdd: (item: any, seasons?: number[] | null) => Promise<boolean>;
   onOpen: () => void;
   onRefresh: () => void;
-  onReselect: () => void;
+  onReselect: () => void | Promise<void>;
   onPersonSelect: (p: { id: string; name: string }) => void;
   onMediaSelect: (node: ExploreNode) => void;
 };
@@ -46,6 +46,7 @@ export function ExploreDetailTmdb({
 }: ExploreDetailTmdbProps) {
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
   const [overviewSubTab, setOverviewSubTab] = useState<MediaOverviewTabId>('details');
+  const [addPending, setAddPending] = useState(false);
 
   const isInLibrary = media.in_library && media.library_item_id;
   const seasons = (media.seasons || []).filter((s: any) => (s.season_number ?? s.number ?? 0) > 0);
@@ -75,14 +76,19 @@ export function ExploreDetailTmdb({
       onOpen();
       return;
     }
-    const seasonNumbers =
-      kind === 'tv' && selectedSeasons.size > 0 && selectedSeasons.size < seasons.length
-        ? Array.from(selectedSeasons).sort((a, b) => a - b)
-        : null;
-    const ok = await onAdd({ ...media, media_type: kind }, seasonNumbers);
-    if (ok) {
-      onRefresh();
-      onReselect();
+    setAddPending(true);
+    try {
+      const seasonNumbers =
+        kind === 'tv' && selectedSeasons.size > 0 && selectedSeasons.size < seasons.length
+          ? Array.from(selectedSeasons).sort((a, b) => a - b)
+          : null;
+      const ok = await onAdd({ ...media, media_type: kind }, seasonNumbers);
+      if (ok) {
+        onRefresh();
+        await onReselect();
+      }
+    } finally {
+      setAddPending(false);
     }
   };
 
@@ -94,10 +100,21 @@ export function ExploreDetailTmdb({
       <DetailViewActionsToolbar aria-label="Discover — add or open in library">
         <button
           type="button"
-          className={`btn btn--small ${isInLibrary ? 'btn--secondary' : 'btn--primary'}`}
+          className={`btn btn--small btn--with-spinner ${isInLibrary ? 'btn--secondary' : 'btn--primary'}`}
           onClick={handleAdd}
+          disabled={addPending}
+          aria-busy={addPending}
         >
-          {isInLibrary ? 'Open Library Item' : 'Add to Library'}
+          {addPending && !isInLibrary ? (
+            <>
+              <span className="ui-spinner" aria-hidden />
+              Adding…
+            </>
+          ) : isInLibrary ? (
+            'Open Library Item'
+          ) : (
+            'Add to Library'
+          )}
         </button>
       </DetailViewActionsToolbar>
 
