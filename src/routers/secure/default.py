@@ -13,6 +13,7 @@ from sqlalchemy import Date, cast, func, select
 from program.apis import TraktAPI
 from program.db import db_functions
 from program.db.db import db_session
+from program.media.media_entry import MediaEntry
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.program import Program
@@ -582,6 +583,23 @@ async def fetch_calendar() -> CalendarResponse:
         return CalendarResponse(data=db_functions.create_calendar(session))
 
 
+class VFSLibraryStats(BaseModel):
+    """Sizes of video media entries currently marked available in the VFS."""
+
+    total_bytes: Annotated[
+        int,
+        Field(description="Sum of file_size for all media entries in VFS (non-directory)"),
+    ]
+    movies_bytes: Annotated[
+        int,
+        Field(description="Portion of total_bytes linked to movie MediaItems"),
+    ]
+    tv_bytes: Annotated[
+        int,
+        Field(description="Portion of total_bytes linked to episode MediaItems"),
+    ]
+
+
 class VFSStatsResponse(BaseModel):
     streams: Annotated[
         dict[str, dict[str, Any]],
@@ -590,6 +608,10 @@ class VFSStatsResponse(BaseModel):
     cache: Annotated[
         dict[str, Any],
         Field(description="Aggregate chunk-cache metrics"),
+    ]
+    library: Annotated[
+        VFSLibraryStats,
+        Field(description="Library file sizes for content exposed through the VFS"),
     ]
 
 
@@ -622,11 +644,42 @@ async def get_vfs_stats() -> VFSStatsResponse:
         )
 
     try:
-        cache_snapshot: dict[str, Any] = dict(di[Cache].metrics.snapshot())
+        cache_snapshot: dict[str, Any] = di[Cache].snapshot_for_http()
     except Exception:
         cache_snapshot = {}
 
-    return VFSStatsResponse(streams=vfs.opener_stats, cache=cache_snapshot)
+    base_media = (
+        MediaEntry.available_in_vfs.is_(True),
+        MediaEntry.is_directory.is_(False),
+    )
+    with db_session() as session:
+        total_bytes = int(
+            session.execute(
+                select(func.coalesce(func.sum(MediaEntry.file_size), 0)).where(*base_media)
+            ).scalar_one()
+        )
+        movies_bytes = int(
+            session.execute(
+                select(func.coalesce(func.sum(MediaEntry.file_size), 0))
+                .join(MediaItem, MediaItem.id == MediaEntry.media_item_id)
+                .where(*base_media, MediaItem.type == "movie")
+            ).scalar_one()
+        )
+        tv_bytes = int(
+            session.execute(
+                select(func.coalesce(func.sum(MediaEntry.file_size), 0))
+                .join(MediaItem, MediaItem.id == MediaEntry.media_item_id)
+                .where(*base_media, MediaItem.type == "episode")
+            ).scalar_one()
+        )
+
+    library = VFSLibraryStats(
+        total_bytes=total_bytes,
+        movies_bytes=movies_bytes,
+        tv_bytes=tv_bytes,
+    )
+
+    return VFSStatsResponse(streams=vfs.opener_stats, cache=cache_snapshot, library=library)
 
 
 class DebugResponse(BaseModel):

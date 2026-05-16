@@ -28,9 +28,16 @@ interface CacheStat {
   entries?: number;
 }
 
+interface VfsLibraryStat {
+  total_bytes: number;
+  movies_bytes: number;
+  tv_bytes: number;
+}
+
 interface VfsStatsData {
   streams: Record<string, StreamStat>;
   cache: CacheStat;
+  library: VfsLibraryStat;
 }
 
 function formatSpeed(bps: number): string {
@@ -119,6 +126,126 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** 0° = top, clockwise positive */
+function polar(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function pieSlicePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
+  if (endDeg - startDeg <= 0.01) return '';
+  const start = polar(cx, cy, r, endDeg);
+  const end = polar(cx, cy, r, startDeg);
+  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
+}
+
+function LibraryPanel({ library }: { library: VfsLibraryStat }) {
+  const { total_bytes, movies_bytes, tv_bytes } = library;
+  const videoSplit = movies_bytes + tv_bytes;
+  const moviePctOfSplit = videoSplit > 0 ? (movies_bytes / videoSplit) * 100 : 0;
+  const tvPctOfSplit = videoSplit > 0 ? (tv_bytes / videoSplit) * 100 : 0;
+  const otherBytes = Math.max(0, total_bytes - movies_bytes - tv_bytes);
+
+  const cx = 50;
+  const cy = 50;
+  const r = 38;
+  let a0 = -90;
+  const movieEnd = a0 + (360 * moviePctOfSplit) / 100;
+  const moviePath = videoSplit > 0 ? pieSlicePath(cx, cy, r, a0, movieEnd) : '';
+  const tvPath =
+    videoSplit > 0 && tv_bytes > 0 ? pieSlicePath(cx, cy, r, movieEnd, a0 + 360) : '';
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '1.5rem 2.5rem',
+        alignItems: 'flex-start',
+        justifyContent: 'flex-start',
+      }}
+    >
+      <div style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 'min(28rem, 100%)' }}>
+        <h2 style={{ margin: '0 0 0.75rem', fontSize: '1rem' }}>Library in VFS</h2>
+        <Metric label="Total VFS (video files)" value={formatBytes(total_bytes)} />
+        {otherBytes > 0 && (
+          <p style={{ margin: '0.6rem 0 0', fontSize: '0.78rem', opacity: 0.65 }}>
+            Other / unlinked in DB: {formatBytes(otherBytes)} (
+            {total_bytes > 0 ? ((otherBytes / total_bytes) * 100).toFixed(1) : '0'}% of total)
+          </p>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          gap: '1rem',
+          alignItems: 'center',
+          flexWrap: 'nowrap',
+          flex: '0 1 auto',
+        }}
+      >
+        {videoSplit > 0 ? (
+          <svg width={140} height={140} viewBox="0 0 100 100" aria-label="Movies versus TV by size">
+            {moviePath && (
+              <path d={moviePath} fill="var(--accent, #5b8ef0)" stroke="var(--surface-1, #1a1a1a)" strokeWidth={0.5} />
+            )}
+            {tvPath && (
+              <path d={tvPath} fill="var(--green, #4caf50)" stroke="var(--surface-1, #1a1a1a)" strokeWidth={0.5} />
+            )}
+          </svg>
+        ) : (
+          <p className="muted" style={{ margin: 0, maxWidth: 220 }}>
+            No movie or episode files in the VFS yet (sizes are split by linked library type).
+          </p>
+        )}
+        {videoSplit > 0 && (
+          <div style={{ fontSize: '0.82rem', lineHeight: 1.6 }}>
+            <div>
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 10,
+                  height: 10,
+                  borderRadius: 2,
+                  background: 'var(--accent, #5b8ef0)',
+                  marginRight: 8,
+                  verticalAlign: 'middle',
+                }}
+              />
+              Movies{' '}
+              <span style={{ opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}>
+                {moviePctOfSplit.toFixed(1)}% · {formatBytes(movies_bytes)}
+              </span>
+            </div>
+            <div>
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 10,
+                  height: 10,
+                  borderRadius: 2,
+                  background: 'var(--green, #4caf50)',
+                  marginRight: 8,
+                  verticalAlign: 'middle',
+                }}
+              />
+              TV (episodes){' '}
+              <span style={{ opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}>
+                {tvPctOfSplit.toFixed(1)}% · {formatBytes(tv_bytes)}
+              </span>
+            </div>
+            <div style={{ marginTop: 6, opacity: 0.55, fontSize: '0.75rem' }}>
+              Percentages are by movie + TV bytes only.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CachePanel({ cache }: { cache: CacheStat }) {
   return (
     <div
@@ -168,13 +295,20 @@ export default function VfsStatsView({ route }: { route: AppRoute }) {
 
   const streams = data ? Object.values(data.streams) : [];
   const cache = data?.cache ?? null;
+  const library = data?.library ?? null;
 
   return (
     <ViewLayout className="view-vfs-stats" view="vfs-stats">
       <ViewHeader
         title="VFS Statistics"
-        subtitle="Live streaming sessions and chunk-cache metrics. Refreshes every 3 seconds."
+        subtitle="Library size, movies vs TV mix, live streams, and chunk-cache metrics. Refreshes every 3 seconds."
       />
+
+      {library && (
+        <Panel>
+          <LibraryPanel library={library} />
+        </Panel>
+      )}
 
       {cache && (
         <Panel>

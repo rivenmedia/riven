@@ -12,7 +12,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from bisect import bisect_right, insort
-from typing import Literal, NotRequired, Required, TypedDict
+from typing import Literal, NotRequired, Required, TypedDict, Any
 
 
 from loguru import logger
@@ -102,6 +102,21 @@ class Cache:
             )
 
         trio.run(self._initialize)
+
+    @property
+    def metrics(self) -> Metrics:
+        """Counters safe to read from any thread (used by HTTP /vfs_stats)."""
+
+        return self._metrics
+
+    def snapshot_for_http(self) -> dict[str, Any]:
+        """Aggregate cache stats without trio; safe from the FastAPI thread."""
+
+        d: dict[str, Any] = dict(self._metrics.snapshot())
+        with self._thread_lock:
+            d["total_bytes"] = self._total_bytes
+            d["entries"] = len(self._index)
+        return d
 
     @asynccontextmanager
     async def locks(self) -> AsyncGenerator[None, None]:
