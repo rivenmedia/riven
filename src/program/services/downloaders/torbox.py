@@ -636,6 +636,8 @@ class TorBoxDownloader(DownloaderBase):
         Resolve a TorBox ``requestdl`` permalink (or follow redirects) to a direct CDN URL.
         """
 
+        from program.utils.debrid_cdn_url import _url_log_hint
+
         proxies: dict[str, str] | None = None
 
         if self.api and getattr(self.api.session, "proxies", None):
@@ -645,31 +647,38 @@ class TorBoxDownloader(DownloaderBase):
                 proxies = p
 
         try:
-            r = requests.get(
+            # stream=True: do not read the full response body; ``requestdl`` can redirect
+            # to the CDN with a multi-GB body; without streaming, urllib3 reads until EOF.
+            with requests.get(
                 link,
                 allow_redirects=True,
-                timeout=45,
+                timeout=(15.0, 45.0),
                 headers={"User-Agent": "Riven/1.0"},
                 proxies=proxies,
-            )
+                stream=True,
+            ) as r:
+                r.raise_for_status()
 
-            if not r.ok:
-                logger.debug(f"TorBox unrestrict/follow got HTTP {r.status_code} for {link!r}")
-                return None
+                logger.debug(
+                    f"TorBox unrestrict_link ok status={r.status_code} "
+                    f"final={_url_log_hint(r.url)}"
+                )
 
-            final_url = r.url
-            fname = _parse_content_disposition_filename(r.headers.get("Content-Disposition"))
-            clen = r.headers.get("Content-Length")
+                final_url = r.url
+                fname = _parse_content_disposition_filename(r.headers.get("Content-Disposition"))
+                clen = r.headers.get("Content-Length")
 
-            try:
-                fsize = int(clen) if clen else 0
-            except ValueError:
-                fsize = 0
+                try:
+                    fsize = int(clen) if clen else 0
+                except ValueError:
+                    fsize = 0
 
-            if not fname and final_url:
-                fname = final_url.rsplit("/", 1)[-1].split("?", 1)[0]
+                if not fname and final_url:
+                    fname = final_url.rsplit("/", 1)[-1].split("?", 1)[0]
 
-            return UnrestrictedLink(download=final_url, filename=fname or "download", filesize=fsize)
+                return UnrestrictedLink(download=final_url, filename=fname or "download", filesize=fsize)
         except Exception as e:
-            logger.debug(f"TorBox unrestrict_link failed for {link!r}: {e}")
+            logger.debug(
+                f"TorBox unrestrict_link failed for url={_url_log_hint(link)}: {e}"
+            )
             return None

@@ -1,6 +1,8 @@
 from typing import Self
+import time
 import httpx
 from loguru import logger
+from urllib.parse import urlparse
 
 from http import HTTPStatus
 from kink import di
@@ -18,6 +20,26 @@ class RefreshedURLIdenticalException(Exception):
     """Exception raised when a refreshed URL is identical to the previous URL."""
 
     pass
+
+
+def _url_log_hint(url: str | None) -> str:
+    """Short, log-safe description of a URL (host + path; query shown as length only)."""
+    if not url:
+        return "(empty)"
+    try:
+        p = urlparse(url)
+        path = p.path or ""
+        if len(path) > 72:
+            path = path[:72] + "..."
+        q = f"?…({len(p.query)} chars)" if p.query else ""
+        return f"{p.scheme}://{p.netloc}{path}{q}"
+    except Exception:
+        tail = 96
+        return url[:tail] + ("…" if len(url) > tail else "")
+
+
+# Sync validation runs in the FUSE thread; must not block indefinitely on slow CDNs.
+_VALIDATE_TIMEOUT = httpx.Timeout(45.0, connect=15.0)
 
 
 class DebridCDNUrl:
@@ -74,11 +96,31 @@ class DebridCDNUrl:
                     else:
                         return None
 
-                with httpx.Client(proxy=proxy) as client:
-                    with client.stream(method="GET", url=self.url) as response:
-                        response.raise_for_status()
+                t0 = time.monotonic()
+                hint = _url_log_hint(self.url)
+                logger.debug(
+                    f"CDN validate GET provider={self.provider} attempt={attempt} url={hint}"
+                )
 
-                        return self.url
+                with httpx.Client(proxy=proxy, timeout=_VALIDATE_TIMEOUT) as client:
+                    with client.stream(
+                        method="GET",
+                        url=self.url,
+                        follow_redirects=True,
+                    ) as response:
+                        response.raise_for_status()
+                        # Read one chunk so redirect/CDN pipelines complete; some stacks
+                        # stall until the first read.
+                        for _ in response.iter_bytes(chunk_size=65536):
+                            break
+
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                logger.debug(
+                    f"CDN validate ok provider={self.provider} attempt={attempt} "
+                    f"ms={elapsed_ms} url={hint}"
+                )
+
+                return self.url
             except httpx.TimeoutException as e:
                 logger.error(f"Timeout while validating CDN URL {self.url}: {e}")
             except httpx.ConnectError as e:

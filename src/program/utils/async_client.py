@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import sniffio
 from httpx._client import UseClientDefault
@@ -5,6 +7,21 @@ from httpx._types import AuthTypes
 from loguru import logger
 
 from program.settings import settings_manager
+
+
+def _should_force_asyncio_sniffio() -> bool:
+    """True only when an asyncio loop is running (API server thread).
+
+    RivenVFS / pyfuse3 runs on a dedicated Trio thread with no asyncio loop.
+    Forcing sniffio to \"asyncio\" there makes httpx schedule work on the wrong
+    backend and can hang reads forever.
+    """
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return False
+
 
 # Sentinel for default values
 USE_CLIENT_DEFAULT = UseClientDefault()
@@ -14,17 +31,22 @@ class AsyncClient(httpx.AsyncClient):
     """
     Async HTTP client configured for asyncio.
 
-    Uses sniffio's contextvar to force asyncio backend detection during requests.
-    This prevents conflicts when trio is imported by other modules (pyfuse3/VFS)
-    but we're running in an asyncio context (FastAPI/uvicorn).
+    Uses sniffio's contextvar to force asyncio backend detection during requests
+    **only** when running inside uvicorn's asyncio loop. On the Trio-based FUSE
+    thread we leave the current async library unchanged so httpx uses Trio.
     """
 
     def __init__(self) -> None:
-        token = sniffio.current_async_library_cvar.set("asyncio")
+        token = (
+            sniffio.current_async_library_cvar.set("asyncio")
+            if _should_force_asyncio_sniffio()
+            else None
+        )
         try:
             super().__init__(
                 http2=True,
                 follow_redirects=True,
+                timeout=httpx.Timeout(120.0, connect=30.0, read=120.0),
                 limits=httpx.Limits(
                     max_keepalive_connections=100,
                     max_connections=1000,
@@ -33,7 +55,8 @@ class AsyncClient(httpx.AsyncClient):
                 event_hooks={"response": [self.raise_on_4xx_5xx]},
             )
         finally:
-            sniffio.current_async_library_cvar.reset(token)
+            if token is not None:
+                sniffio.current_async_library_cvar.reset(token)
 
         enable_network_tracing = settings_manager.settings.enable_network_tracing
 
@@ -82,12 +105,17 @@ class AsyncClient(httpx.AsyncClient):
         follow_redirects: bool | UseClientDefault = USE_CLIENT_DEFAULT,
     ) -> httpx.Response:
         """
-        Send a request with forced asyncio backend detection.
-
-        This override ensures that sniffio reports 'asyncio' as the current
-        async library during the request, preventing runtime conflicts when
-        trio is also imported in the process (e.g., by pyfuse3 for VFS).
+        On the asyncio (uvicorn) thread, force sniffio to asyncio so Trio import
+        does not steal httpx's backend. On the Trio (FUSE) thread, do not override.
         """
+        if not _should_force_asyncio_sniffio():
+            return await super().send(
+                request,
+                stream=stream,
+                auth=auth,
+                follow_redirects=follow_redirects,
+            )
+
         token = sniffio.current_async_library_cvar.set("asyncio")
         try:
             return await super().send(

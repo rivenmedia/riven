@@ -1842,7 +1842,9 @@ class RivenVFS(pyfuse3.Operations):
             # Only validate the CDN URL for media entries; subtitles are read directly from the database
             if entry_type == "media":
                 try:
-                    logger.trace(f"Validating CDN URL for {node.path}...")
+                    logger.bind(component="RivenVFS").debug(
+                        f"open validate path={path} file={node.original_filename!r}"
+                    )
 
                     DebridCDNUrl.from_filename(node.original_filename).validate()
                 except DebridServiceLinkUnavailable:
