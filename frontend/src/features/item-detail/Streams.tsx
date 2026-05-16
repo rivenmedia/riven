@@ -108,6 +108,20 @@ function rankBackground(rank: number, maxRank: number): string {
   return `rgba(10, 126, 164, 0.${alpha.toString().padStart(2, '0')})`;
 }
 
+async function copyInfohashToClipboard(infohash: string) {
+  const text = infohash.trim();
+  if (!text) {
+    notify('No infohash to copy', 'error');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    notify('Infohash copied', 'success');
+  } catch {
+    notify('Could not copy to clipboard', 'error');
+  }
+}
+
 function ManualSessionStep({
   session,
   isMovie,
@@ -443,6 +457,19 @@ function StreamRow({
           </span>
         )}
         {extraActions}
+        {stream.infohash ? (
+          <button
+            type="button"
+            className="btn btn--small btn--secondary"
+            aria-label={`Copy infohash ${stream.infohash} to clipboard`}
+            onClick={() => {
+              const h = stream.infohash;
+              if (h) void copyInfohashToClipboard(h);
+            }}
+          >
+            Copy hash
+          </button>
+        ) : null}
         <button
           type="button"
           className="btn btn--small btn--secondary"
