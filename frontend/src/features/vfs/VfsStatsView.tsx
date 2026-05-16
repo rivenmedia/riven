@@ -34,10 +34,25 @@ interface VfsLibraryStat {
   tv_bytes: number;
 }
 
+interface ThroughputStat {
+  network_bytes_ingested: number;
+  client_bytes_served_warm: number;
+  client_bytes_served_cold: number;
+  client_warm_byte_ratio: number | null;
+}
+
+interface ThroughputSample {
+  t: number;
+  networkBps: number;
+  warmBps: number;
+  coldBps: number;
+}
+
 interface VfsStatsData {
   streams: Record<string, StreamStat>;
   cache: CacheStat;
   library: VfsLibraryStat;
+  throughput: ThroughputStat;
 }
 
 function formatSpeed(bps: number): string {
@@ -45,7 +60,7 @@ function formatSpeed(bps: number): string {
   return `${formatBytes(bps)}/s`;
 }
 
-function hitRate(cache: CacheStat): string {
+function chunkGetSuccessRate(cache: CacheStat): string {
   const hits = cache.hits ?? 0;
   const misses = cache.misses ?? 0;
   const total = hits + misses;
@@ -66,6 +81,81 @@ function ProgressBar({ pct }: { pct: number }) {
         }}
       />
     </div>
+  );
+}
+
+function ThroughputLineChart({ series }: { series: ThroughputSample[] }) {
+  const w = 720;
+  const h = 168;
+  const padL = 6;
+  const padR = 6;
+  const padT = 10;
+  const padB = 6;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+
+  if (series.length === 0) {
+    return (
+      <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
+        Chart builds after a few refreshes (3s polling). Current totals are above.
+      </p>
+    );
+  }
+
+  let maxV = 1;
+  for (const s of series) {
+    maxV = Math.max(maxV, s.networkBps, s.warmBps, s.coldBps);
+  }
+
+  const n = series.length;
+  const xAt = (i: number) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const yAt = (v: number) => padT + plotH - (v / maxV) * plotH;
+
+  const pointsFor = (key: keyof Pick<ThroughputSample, 'networkBps' | 'warmBps' | 'coldBps'>): string =>
+    series.map((s, i) => `${xAt(i)},${yAt(s[key])}`).join(' ');
+
+  return (
+    <svg
+      width="100%"
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      preserveAspectRatio="none"
+      aria-label="Throughput over recent polls"
+      style={{ display: 'block', marginTop: '0.75rem' }}
+    >
+      <line
+        x1={padL}
+        y1={padT + plotH}
+        x2={padL + plotW}
+        y2={padT + plotH}
+        stroke="var(--surface-3, #444)"
+        strokeWidth={1}
+      />
+      <polyline
+        fill="none"
+        stroke="var(--amber, #e6a23c)"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={pointsFor('networkBps')}
+      />
+      <polyline
+        fill="none"
+        stroke="var(--green, #4caf50)"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={pointsFor('warmBps')}
+      />
+      <polyline
+        fill="none"
+        stroke="var(--accent, #5b8ef0)"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={pointsFor('coldBps')}
+      />
+    </svg>
   );
 }
 
@@ -246,34 +336,95 @@ function LibraryPanel({ library }: { library: VfsLibraryStat }) {
   );
 }
 
+function cacheReadAmplification(cache: CacheStat): string {
+  const w = cache.bytes_written ?? 0;
+  const r = cache.bytes_from_cache ?? 0;
+  if (w <= 0) return '—';
+  return `${(r / w).toFixed(2)}×`;
+}
+
 function CachePanel({ cache }: { cache: CacheStat }) {
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-        gap: '0.6rem',
-        fontSize: '0.85rem',
-      }}
-    >
-      <Metric label="Hit rate" value={hitRate(cache)} />
-      <Metric label="Hits" value={(cache.hits ?? 0).toLocaleString()} />
-      <Metric label="Misses" value={(cache.misses ?? 0).toLocaleString()} />
-      <Metric label="Bytes served from cache" value={formatBytes(cache.bytes_from_cache ?? 0)} />
-      <Metric label="Bytes written to cache" value={formatBytes(cache.bytes_written ?? 0)} />
-      <Metric label="Evictions" value={(cache.evictions ?? 0).toLocaleString()} />
-      {cache.total_bytes != null && <Metric label="Cache size" value={formatBytes(cache.total_bytes)} />}
-      {cache.entries != null && <Metric label="Cache entries" value={String(cache.entries)} />}
+    <div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
+          gap: '0.6rem',
+          fontSize: '0.85rem',
+        }}
+      >
+        <Metric label="Chunk get success" value={chunkGetSuccessRate(cache)} />
+        <Metric label="Chunk get hits" value={(cache.hits ?? 0).toLocaleString()} />
+        <Metric label="Chunk get misses" value={(cache.misses ?? 0).toLocaleString()} />
+        <Metric label="Bytes read (chunk cache)" value={formatBytes(cache.bytes_from_cache ?? 0)} />
+        <Metric label="Bytes written (chunk cache)" value={formatBytes(cache.bytes_written ?? 0)} />
+        <Metric label="Read / write ratio" value={cacheReadAmplification(cache)} />
+        <Metric label="Evictions" value={(cache.evictions ?? 0).toLocaleString()} />
+        {cache.total_bytes != null && <Metric label="Cache size on disk" value={formatBytes(cache.total_bytes)} />}
+        {cache.entries != null && <Metric label="Cache entries" value={String(cache.entries)} />}
+      </div>
+      <p style={{ margin: '0.65rem 0 0', fontSize: '0.75rem', opacity: 0.55, lineHeight: 1.45 }}>
+        Chunk metrics count disk cache <code style={{ fontSize: '0.85em' }}>get</code>/<code style={{ fontSize: '0.85em' }}>put</code>{' '}
+        operations. After a fresh download, <code style={{ fontSize: '0.85em' }}>get</code>s still register as hits—use{' '}
+        <strong>Data origin</strong> above for true warm (disk-only) vs cold (needed network for this read) client bytes.
+      </p>
+    </div>
+  );
+}
+
+function ThroughputPanel({ tp, series }: { tp: ThroughputStat; series: ThroughputSample[] }) {
+  const warmPct =
+    tp.client_warm_byte_ratio != null ? `${(tp.client_warm_byte_ratio * 100).toFixed(1)}%` : '—';
+  const clientTotal = (tp.client_bytes_served_warm ?? 0) + (tp.client_bytes_served_cold ?? 0);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+          gap: '0.6rem',
+          fontSize: '0.85rem',
+        }}
+      >
+        <Metric label="Network ingress (cumulative)" value={formatBytes(tp.network_bytes_ingested)} />
+        <Metric label="Client bytes (warm)" value={formatBytes(tp.client_bytes_served_warm)} />
+        <Metric label="Client bytes (cold)" value={formatBytes(tp.client_bytes_served_cold)} />
+        <Metric label="Warm share of client reads" value={warmPct} />
+        <Metric label="Client bytes (total)" value={formatBytes(clientTotal)} />
+      </div>
+      <p style={{ margin: '0.65rem 0 0', fontSize: '0.75rem', opacity: 0.55, lineHeight: 1.45 }}>
+        <strong>Warm</strong>: read satisfied as <code style={{ fontSize: '0.85em' }}>cache_hit</code> (already on disk for
+        that request). <strong>Cold</strong>: playback body path, header/footer scans, etc. Chart shows average B/s since the
+        last poll (3s window).
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '0.35rem', fontSize: '0.78rem', opacity: 0.85 }}>
+        <span>
+          <span style={{ color: 'var(--amber, #e6a23c)', fontWeight: 600 }}>—</span> Network
+        </span>
+        <span>
+          <span style={{ color: 'var(--green, #4caf50)', fontWeight: 600 }}>—</span> Warm to client
+        </span>
+        <span>
+          <span style={{ color: 'var(--accent, #5b8ef0)', fontWeight: 600 }}>—</span> Cold to client
+        </span>
+      </div>
+      <ThroughputLineChart series={series} />
     </div>
   );
 }
 
 const POLL_INTERVAL_MS = 3000;
+const THROUGHPUT_HISTORY_MAX = 120;
 
 export default function VfsStatsView({ route }: { route: AppRoute }) {
   const [data, setData] = useState<VfsStatsData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [throughputSeries, setThroughputSeries] = useState<ThroughputSample[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastThroughputRef = useRef<ThroughputStat | null>(null);
+  const lastPerfRef = useRef<number | null>(null);
 
   const fetchStats = useCallback(async () => {
     const response = await apiGet('/vfs_stats');
@@ -293,15 +444,51 @@ export default function VfsStatsView({ route }: { route: AppRoute }) {
     };
   }, [fetchStats]);
 
+  useEffect(() => {
+    const raw = data?.throughput;
+    if (!raw) return;
+
+    const now = performance.now();
+    const prev = lastThroughputRef.current;
+    const prevT = lastPerfRef.current;
+
+    if (prev !== null && prevT !== null) {
+      const dt = (now - prevT) / 1000;
+      if (dt > 0) {
+        const dNet = raw.network_bytes_ingested - prev.network_bytes_ingested;
+        const dWarm = raw.client_bytes_served_warm - prev.client_bytes_served_warm;
+        const dCold = raw.client_bytes_served_cold - prev.client_bytes_served_cold;
+        if (dNet >= 0 && dWarm >= 0 && dCold >= 0) {
+          setThroughputSeries((buf) => {
+            const next = [
+              ...buf,
+              {
+                t: Date.now(),
+                networkBps: dNet / dt,
+                warmBps: dWarm / dt,
+                coldBps: dCold / dt,
+              },
+            ];
+            return next.length > THROUGHPUT_HISTORY_MAX ? next.slice(-THROUGHPUT_HISTORY_MAX) : next;
+          });
+        }
+      }
+    }
+
+    lastThroughputRef.current = raw;
+    lastPerfRef.current = now;
+  }, [data]);
+
   const streams = data ? Object.values(data.streams) : [];
   const cache = data?.cache ?? null;
   const library = data?.library ?? null;
+  const throughput = data?.throughput ?? null;
 
   return (
     <ViewLayout className="view-vfs-stats" view="vfs-stats">
       <ViewHeader
         title="VFS Statistics"
-        subtitle="Library size, movies vs TV mix, live streams, and chunk-cache metrics. Refreshes every 3 seconds."
+        subtitle="Library size, data origin (warm vs cold reads), chunk-cache metrics, live streams. Refreshes every 3 seconds."
       />
 
       {library && (
@@ -310,9 +497,16 @@ export default function VfsStatsView({ route }: { route: AppRoute }) {
         </Panel>
       )}
 
+      {throughput && (
+        <Panel>
+          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Data origin (VFS-wide)</h2>
+          <ThroughputPanel tp={throughput} series={throughputSeries} />
+        </Panel>
+      )}
+
       {cache && (
         <Panel>
-          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Cache Metrics</h2>
+          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Chunk cache (disk)</h2>
           <CachePanel cache={cache} />
         </Panel>
       )}

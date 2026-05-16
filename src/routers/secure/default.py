@@ -600,6 +600,31 @@ class VFSLibraryStats(BaseModel):
     ]
 
 
+class VfsThroughputStats(BaseModel):
+    """Cumulative VFS I/O accounting: network ingress vs client reads (warm cache_hit vs cold paths)."""
+
+    network_bytes_ingested: Annotated[
+        int,
+        Field(description="Total HTTP response body bytes ingested (streaming + discrete range reads)"),
+    ]
+    client_bytes_served_warm: Annotated[
+        int,
+        Field(
+            description="Bytes returned to FUSE where the read was satisfied as cache_hit (already on disk)"
+        ),
+    ]
+    client_bytes_served_cold: Annotated[
+        int,
+        Field(description="Bytes returned via body pipeline, header/footer scans, or other non-cache_hit paths"),
+    ]
+    client_warm_byte_ratio: Annotated[
+        float | None,
+        Field(
+            description="client_bytes_served_warm / (warm+cold) when volume > 0; else null",
+        ),
+    ]
+
+
 class VFSStatsResponse(BaseModel):
     streams: Annotated[
         dict[str, dict[str, Any]],
@@ -612,6 +637,10 @@ class VFSStatsResponse(BaseModel):
     library: Annotated[
         VFSLibraryStats,
         Field(description="Library file sizes for content exposed through the VFS"),
+    ]
+    throughput: Annotated[
+        VfsThroughputStats,
+        Field(description="VFS-wide origin / usefulness counters since mount"),
     ]
 
 
@@ -679,7 +708,20 @@ async def get_vfs_stats() -> VFSStatsResponse:
         tv_bytes=tv_bytes,
     )
 
-    return VFSStatsResponse(streams=vfs.opener_stats, cache=cache_snapshot, library=library)
+    throughput_raw = vfs.io_metrics_snapshot
+    throughput = VfsThroughputStats(
+        network_bytes_ingested=int(throughput_raw.get("network_bytes_ingested", 0)),
+        client_bytes_served_warm=int(throughput_raw.get("client_bytes_served_warm", 0)),
+        client_bytes_served_cold=int(throughput_raw.get("client_bytes_served_cold", 0)),
+        client_warm_byte_ratio=throughput_raw.get("client_warm_byte_ratio"),
+    )
+
+    return VFSStatsResponse(
+        streams=vfs.opener_stats,
+        cache=cache_snapshot,
+        library=library,
+        throughput=throughput,
+    )
 
 
 class DebugResponse(BaseModel):

@@ -15,6 +15,7 @@ from program.settings import settings_manager
 from program.utils import benchmark
 from program.utils.async_client import AsyncClient
 from program.utils.proxy_client import ProxyClient
+from .vfs_io_metrics import NOOP_VFS_IO_METRICS, VfsIoMetrics
 
 from .chunker import Chunk, ChunkCacheNotifier, ChunkRange, Chunker
 from .config import Config
@@ -74,6 +75,7 @@ class MediaStream:
         nursery: trio.Nursery,
         provider: str,
         initial_url: str,
+        io_metrics: VfsIoMetrics | None = None,
     ) -> None:
         stream_settings = settings_manager.settings.stream
         fs = settings_manager.settings.filesystem
@@ -100,6 +102,7 @@ class MediaStream:
         )
 
         self.session_statistics = SessionStatistics()
+        self._io_metrics = io_metrics if io_metrics is not None else NOOP_VFS_IO_METRICS
 
         self.file_metadata = FileMetadata(
             file_size=file_size,
@@ -381,9 +384,9 @@ class MediaStream:
                                                     data
                                                 )
 
-                                                self.session_statistics.bytes_transferred += len(
-                                                    data
-                                                )
+                                                n = len(data)
+                                                self.session_statistics.bytes_transferred += n
+                                                self._io_metrics.add_network(n)
 
                                 if seek_range:
                                     await _process_chunks(seek_range.uncached_chunks)
@@ -690,12 +693,12 @@ class MediaStream:
 
                 match read_type:
                     case "cache_hit":
-                        return await self._read_cache(
+                        data = await self._read_cache(
                             start=request_start,
                             end=request_end,
                         )
                     case "header_scan":
-                        return await self.scan_header(
+                        data = await self.scan_header(
                             read_position=request_start,
                             size=request_size,
                         )
@@ -706,20 +709,25 @@ class MediaStream:
                         #
                         # This can happen if the user's cache size is small,
                         # or during heavy scans with lots of competing streams.
-                        return await self.scan_footer(
+                        data = await self.scan_footer(
                             read_position=request_start,
                             size=request_size,
                         )
                     case "general_scan":
-                        return await self.scan(
+                        data = await self.scan(
                             read_position=request_start,
                             size=request_size,
                         )
                     case "body_read":
-                        return await self.read_bytes(chunk_range=read_range)
+                        data = await self.read_bytes(chunk_range=read_range)
                     case _:
                         # This should never happen due to prior validation
                         raise RuntimeError("Unknown read type")
+
+                self._io_metrics.record_client_served(
+                    len(data), warm=read_type == "cache_hit"
+                )
+                return data
 
     async def read_bytes(
         self,
@@ -856,6 +864,37 @@ class MediaStream:
                         continue
 
                     raise DebridServiceForbiddenException(provider=self.provider) from e
+                elif status_code in (
+                    HTTPStatus.BAD_GATEWAY,
+                    HTTPStatus.GATEWAY_TIMEOUT,
+                ):
+                    # CDN gateway blips surface as these; retries often succeed without a new URL.
+                    logger.warning(
+                        self.build_log_message(
+                            f"HTTP {status_code} from upstream — attempt {attempt + 1}/{max_attempts}"
+                        )
+                    )
+
+                    if attempt == 0:
+                        has_fresh_url = await self._refresh_download_url()
+
+                        if has_fresh_url:
+                            logger.warning(
+                                self.build_log_message(
+                                    f"URL refreshed after HTTP {status_code}"
+                                )
+                            )
+
+                    if await self._retry_with_backoff(
+                        attempt,
+                        max_attempts,
+                        backoffs,
+                    ):
+                        continue
+
+                    raise DebridServiceUnableToConnectException(
+                        provider=self.provider
+                    ) from e
                 elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE, HTTPStatus.SERVICE_UNAVAILABLE):
                     # File can't be found at this URL; try refreshing the URL once
                     if attempt == 0:
@@ -1068,7 +1107,9 @@ class MediaStream:
         ) as response:
             data = await response.aread()
 
-            self.session_statistics.bytes_transferred += len(data)
+            n = len(data)
+            self.session_statistics.bytes_transferred += n
+            self._io_metrics.add_network(n)
 
             try:
                 verified_data = self._verify_scan_integrity(

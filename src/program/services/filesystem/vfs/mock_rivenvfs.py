@@ -45,6 +45,15 @@ class MockRivenVFS:
     def opener_stats(self) -> dict[str, dict[str, Any]]:
         return {}
 
+    @property
+    def io_metrics_snapshot(self) -> dict[str, Any]:
+        return {
+            "network_bytes_ingested": 0,
+            "client_bytes_served_warm": 0,
+            "client_bytes_served_cold": 0,
+            "client_warm_byte_ratio": None,
+        }
+
     def _normalize_path(self, path: str) -> str:
         path = (path or "/").strip()
         if not path.startswith("/"):

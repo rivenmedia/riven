@@ -64,6 +64,7 @@ from program.services.filesystem.vfs.vfs_node import (
 from program.utils.logging import logger
 from program.settings import settings_manager
 from program.services.filesystem.vfs.db import VFSDatabase
+from program.services.streaming.vfs_io_metrics import VfsIoMetrics
 from program.services.streaming.exceptions import (
     MediaStreamDataException,
     DebridServiceException,
@@ -198,6 +199,9 @@ class RivenVFS(pyfuse3.Operations):
 
         # Set of paths currently being streamed
         self._active_streams = dict[str, MediaStream]()
+
+        # Cumulative network vs warm/cold client serves (see /vfs_stats throughput)
+        self._io_metrics = VfsIoMetrics()
 
         # Lock for managing active streams dict
         self._active_streams_lock = trio.Lock()
@@ -410,6 +414,12 @@ class RivenVFS(pyfuse3.Operations):
                 pass
 
         return stats
+
+    @property
+    def io_metrics_snapshot(self) -> dict[str, Any]:
+        """Snapshot for HTTP; safe from FastAPI thread."""
+
+        return self._io_metrics.snapshot()
 
     # ========== VFS Tree Helper Methods ==========
 
@@ -2290,6 +2300,7 @@ class RivenVFS(pyfuse3.Operations):
                     provider=entry_info.provider,
                     initial_url=entry_info.url,
                     nursery=self.stream_nursery,
+                    io_metrics=self._io_metrics,
                 )
 
         return self._active_streams[stream_key]
