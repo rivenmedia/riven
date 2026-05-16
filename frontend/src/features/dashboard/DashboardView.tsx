@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
@@ -113,6 +113,57 @@ const CATEGORY_ORDER = [
 
 const STATE_ITEMS_LIMIT = 25;
 const YEAR_ITEMS_LIMIT = 25;
+
+/** Min column width (px); row scrolls horizontally when `n * min + gaps` exceeds container. */
+const RELEASE_BAR_MIN_COL_PX = 44;
+/** Gap between bars in px (~0.4rem); keep in sync with `.release-bars` `gap`. */
+const RELEASE_BARS_GAP_PX = 7;
+
+/**
+ * Years from earliest library release through max(current calendar year, newest in data).
+ * Missing years get count 0 (empty bars); order ascending so latest year is on the right.
+ */
+function buildReleaseYearSeries(mediaYearReleases: unknown): { year: number; count: number }[] {
+  const currentYear = new Date().getFullYear();
+  const byYear = new Map<number, number>();
+  const rows = Array.isArray(mediaYearReleases) ? mediaYearReleases : [];
+  for (const raw of rows) {
+    if (raw == null || typeof raw !== 'object') continue;
+    const entry = raw as { year?: unknown; count?: unknown };
+    if (entry.year === undefined || entry.year === null) continue;
+    const y =
+      typeof entry.year === 'number' && Number.isFinite(entry.year)
+        ? Math.trunc(entry.year)
+        : parseInt(String(entry.year), 10);
+    if (!Number.isFinite(y)) continue;
+    const cRaw = entry.count;
+    const c =
+      typeof cRaw === 'number' && Number.isFinite(cRaw)
+        ? cRaw
+        : Number(cRaw ?? 0);
+    const cn =
+      Number.isFinite(c) ? Math.max(0, Math.round(c as number)) : 0;
+    byYear.set(y, (byYear.get(y) ?? 0) + cn);
+  }
+
+  let minYear: number;
+  let maxYear: number;
+  const keys = [...byYear.keys()];
+  if (!keys.length) {
+    minYear = currentYear;
+    maxYear = currentYear;
+  } else {
+    minYear = Math.min(...keys);
+    maxYear = Math.max(currentYear, Math.max(...keys));
+    if (maxYear < minYear) maxYear = minYear;
+  }
+
+  const out: { year: number; count: number }[] = [];
+  for (let year = minYear; year <= maxYear; year += 1) {
+    out.push({ year, count: byYear.get(year) ?? 0 });
+  }
+  return out;
+}
 
 /** Fixed order; aligned with backend downloader keys and GET `/services` map. */
 const DASHBOARD_DOWNLOADER_KEYS = ['realdebrid', 'alldebrid', 'debridlink', 'torbox'] as const;
@@ -817,7 +868,7 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
   );
 }
 
-function DashboardReleases({ route }: { route: AppRoute }) {
+function DashboardReleases({ route: _route }: { route: AppRoute }) {
   const [stats, setStats] = useState<Record<string, unknown>>({});
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [yearItems, setYearItems] = useState<StateListItem[]>([]);
@@ -841,12 +892,19 @@ function DashboardReleases({ route }: { route: AppRoute }) {
     setItemsLoading(false);
   }, []);
 
-  const releases = ((stats?.media_year_releases || []) as { year?: number; count?: number }[])
-    .map((e) => ({ year: e?.year, count: Number(e?.count || 0) }))
-    .filter((e) => Number.isFinite(e.year) && e.count! > 0)
-    .sort((a, b) => a.year! - b.year!)
-    .slice(-18);
-  const maxCount = Math.max(...releases.map((e) => e.count), 1);
+  const releases = useMemo(
+    () => buildReleaseYearSeries(stats?.media_year_releases),
+    [stats?.media_year_releases],
+  );
+
+  const maxCount = useMemo(
+    () => Math.max(...releases.map((e) => e.count), 1),
+    [releases],
+  );
+
+  const barCount = releases.length;
+  const gridMinWidthPx =
+    Math.max(1, barCount) * RELEASE_BAR_MIN_COL_PX + Math.max(0, barCount - 1) * RELEASE_BARS_GAP_PX;
 
   return (
     <ViewLayout className="view-dashboard view-dashboard--releases" view="dashboard-releases">
@@ -857,19 +915,46 @@ function DashboardReleases({ route }: { route: AppRoute }) {
         </div>
         {loading ? (
           <p className="muted">Loading…</p>
-        ) : !releases.length ? (
-          <p className="muted">No release-year data available.</p>
         ) : (
-          <div className="release-bars">
-            {releases.map((entry) => (
-              <button key={entry.year} type="button" className="release-bar release-bar--clickable" onClick={() => handleYearClick(entry.year!)}>
-                <div className="release-bar__track">
-                  <div className="release-bar__fill" style={{ height: `${Math.max((entry.count! / maxCount) * 100, 6)}%` }} />
-                </div>
-                <span className="release-bar__year">{entry.year}</span>
-                <span className="release-bar__value">{entry.count}</span>
-              </button>
-            ))}
+          <div className="release-bars-wrap">
+            <div
+              className="release-bars"
+              style={{
+                gridTemplateColumns: `repeat(${barCount}, minmax(${RELEASE_BAR_MIN_COL_PX}px, 1fr))`,
+                width: `max(100%, ${gridMinWidthPx}px)`,
+              }}
+            >
+              {releases.map((entry) => {
+                const isEmpty = entry.count === 0;
+                const fillPct = isEmpty
+                  ? undefined
+                  : Math.max((entry.count / maxCount) * 100, 8);
+                return (
+                  <button
+                    key={entry.year}
+                    type="button"
+                    className={`release-bar release-bar--clickable${isEmpty ? ' release-bar--empty' : ''}`}
+                    onClick={() => handleYearClick(entry.year)}
+                    aria-label={`${entry.year}${isEmpty ? ', no items' : `, ${entry.count} items`}`}
+                  >
+                    <div className="release-bar__track">
+                      {isEmpty ? (
+                        <div className="release-bar__fill release-bar__fill--zero" aria-hidden />
+                      ) : (
+                        <div
+                          className="release-bar__fill"
+                          style={{ height: `${fillPct}%` }}
+                        />
+                      )}
+                    </div>
+                    <span className="release-bar__year">{entry.year}</span>
+                    <span className={`release-bar__value${isEmpty ? ' release-bar__value--empty' : ''}`}>
+                      {isEmpty ? '—' : entry.count.toLocaleString()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </Panel>
