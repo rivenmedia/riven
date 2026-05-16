@@ -23,6 +23,12 @@ export default defineConfig(({ command, mode }) => {
   return {
     plugins: [react()],
     envDir: configDir,
+    // Never bake dev API keys into the production bundle (e.g. CI with VITE_API_KEY set).
+    // Dev-only usage still reads real values from .env.local when `vite` runs (mode development).
+    define:
+      mode === "production"
+        ? { "import.meta.env.VITE_API_KEY": JSON.stringify("") }
+        : undefined,
     base: command === "build" ? "/static/ui/" : "/",
     build: {
       outDir: "../src/static/ui",

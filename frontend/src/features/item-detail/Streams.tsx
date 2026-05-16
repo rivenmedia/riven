@@ -3,15 +3,45 @@
  * Highlights the pinned (active) stream. Click a non-blacklisted row to switch.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { apiFetch, apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
+import { buildHash } from '../../shared/routing/router';
 import { formatBytes } from '../../shared/utils/utils';
 
+export type StreamRowData = {
+  id?: number;
+  infohash?: string;
+  raw_title?: string;
+  rank?: number;
+  resolution?: string;
+  is_cached?: boolean;
+  cached?: boolean;
+  lev_ratio?: number;
+  blacklisted?: boolean;
+  relation_scope?: string;
+};
+
+export function episodeHasStreamOverride(data: StreamsData | null | undefined): boolean {
+  if (!data) return false;
+  if (data.has_episode_override != null) return data.has_episode_override;
+  if (data.active_stream == null) return false;
+  if (!data.season_active_stream) return true;
+  return data.active_stream.infohash !== data.season_active_stream.infohash;
+}
+
 export type StreamsData = {
-  streams?: unknown[];
-  blacklisted_streams?: unknown[];
+  streams?: StreamRowData[];
+  blacklisted_streams?: StreamRowData[];
   active_stream?: { id: number | string; infohash: string } | null;
+  streams_owner?: { id?: string; type?: string };
+  requested_item?: { id?: string; type?: string };
+  has_episode_override?: boolean | null;
+  season_id?: string | null;
+  season_active_stream?: { id: number | string; infohash: string } | null;
+  season_stream?: StreamRowData | null;
+  episode_streams?: StreamRowData[];
+  episode_blacklisted_streams?: StreamRowData[];
 };
 
 type ManualSessionParsedFile = {
@@ -128,7 +158,7 @@ function ManualSessionStep({
 
     const selectRes = await apiPost(`/scrape/session/${session.session_id}`, {
       action: 'select_files',
-      files: { root: filesRoot },
+      files: filesRoot,
     });
     if (!selectRes.ok) {
       notify(selectRes.error || 'Failed to select files', 'error');
@@ -188,7 +218,7 @@ function ManualSessionStep({
           download_url: pf.download_url ?? undefined,
         };
       }
-      updatePayload = { action: 'update_attributes', file_data: { root: rootShow } };
+      updatePayload = { action: 'update_attributes', file_data: rootShow };
     }
 
     const updateRes = await apiPost(`/scrape/session/${session.session_id}`, updatePayload);
@@ -276,10 +306,159 @@ function ManualSessionStep({
   );
 }
 
+function isStreamPinned(
+  stream: StreamRowData,
+  pin: { id?: number | string; infohash?: string } | null | undefined,
+): boolean {
+  if (!pin) return false;
+  return (
+    (stream.id != null && String(stream.id) === String(pin.id)) ||
+    (!!stream.infohash && stream.infohash === pin.infohash)
+  );
+}
+
+function mergeAndSortStreams(
+  streams: StreamRowData[] | undefined,
+  blacklisted: StreamRowData[] | undefined,
+): StreamRowData[] {
+  const merged = [
+    ...(streams || []),
+    ...(blacklisted || []).map((stream) => ({ ...stream, blacklisted: true })),
+  ];
+  return [...merged].sort((a, b) => {
+    const aBl = a.blacklisted ? 1 : 0;
+    const bBl = b.blacklisted ? 1 : 0;
+    if (aBl !== bBl) return aBl - bBl;
+    return (b.rank ?? 0) - (a.rank ?? 0);
+  });
+}
+
+function relationScopeLabel(scope: string | undefined): string | null {
+  switch (scope) {
+    case 'episode':
+      return 'Episode';
+    case 'season':
+      return 'Season';
+    case 'both':
+      return 'Episode + season';
+    default:
+      return null;
+  }
+}
+
+type StreamRowProps = {
+  stream: StreamRowData;
+  isPinned: boolean;
+  clickable: boolean;
+  isActivating: boolean;
+  maxRank: number;
+  showScopeChip?: boolean;
+  extraActions?: ReactNode;
+  onActivate: (stream: StreamRowData) => void;
+  onBlacklist: (stream: StreamRowData) => void;
+};
+
+function StreamRow({
+  stream,
+  isPinned,
+  clickable,
+  isActivating,
+  maxRank,
+  showScopeChip = false,
+  extraActions,
+  onActivate,
+  onBlacklist,
+}: StreamRowProps) {
+  const resolution = stream.resolution;
+  const cached =
+    typeof stream.is_cached === 'boolean'
+      ? stream.is_cached
+      : typeof stream.cached === 'boolean'
+        ? stream.cached
+        : null;
+  const isBlacklisted = Boolean(stream.blacklisted);
+  const scopeLabel = showScopeChip ? relationScopeLabel(stream.relation_scope) : null;
+  const rowClickable = clickable && !isBlacklisted && !isActivating;
+  const bg =
+    !isBlacklisted && typeof stream.rank === 'number'
+      ? rankBackground(stream.rank, maxRank)
+      : undefined;
+
+  return (
+    <div
+      role={rowClickable ? 'button' : undefined}
+      tabIndex={rowClickable ? 0 : undefined}
+      className={`stream-row ${isPinned ? 'stream-row--pinned' : ''} ${
+        isBlacklisted ? 'stream-row--blacklisted' : rowClickable ? 'stream-row--clickable' : ''
+      } ${isActivating ? 'stream-row--activating' : ''}`}
+      style={bg ? { background: bg } : undefined}
+      onClick={() => rowClickable && onActivate(stream)}
+      onKeyDown={(e) => {
+        if (!rowClickable) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onActivate(stream);
+        }
+      }}
+    >
+      <div className="stream-row__main">
+        <div className="stream-row__title">
+          {stream.raw_title || stream.infohash || `Stream ${stream.id}`}
+        </div>
+        <div className="stream-row__meta">
+          {scopeLabel && (
+            <span className="legend-chip legend-chip--scope">{scopeLabel}</span>
+          )}
+          {typeof stream.rank === 'number' && (
+            <span className="legend-chip legend-chip--rank">Rank {stream.rank}</span>
+          )}
+          {resolution && <ResolutionPill resolution={resolution} />}
+          {cached !== null && (
+            <span
+              className={`legend-chip ${cached ? 'legend-chip--cached' : 'legend-chip--uncached'}`}
+            >
+              {cached ? 'Cached' : 'Uncached'}
+            </span>
+          )}
+          {typeof stream.lev_ratio === 'number' && (
+            <span className="legend-chip legend-chip--score">
+              Score {stream.lev_ratio.toFixed(2)}
+            </span>
+          )}
+        </div>
+      </div>
+      <div
+        className="stream-row__actions"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        {isActivating && (
+          <span className="muted" style={{ fontSize: '0.75rem' }}>
+            Switching…
+          </span>
+        )}
+        {isPinned && (
+          <span className="stream-row__pinned-badge" aria-label="Currently pinned stream">
+            Pinned
+          </span>
+        )}
+        {extraActions}
+        <button
+          type="button"
+          className="btn btn--small btn--secondary"
+          onClick={() => onBlacklist(stream)}
+        >
+          {stream.blacklisted ? 'Unblacklist' : 'Blacklist'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export interface StreamsProps {
   data: StreamsData;
   itemId: string;
-  item?: { type?: string } | null;
+  item?: { type?: string; season_id?: string | number } | null;
   onRefresh: () => void;
 }
 
@@ -293,25 +472,55 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
   const [showMagnetInput, setShowMagnetInput] = useState(false);
   const [magnet, setMagnet] = useState('');
   const [sessionLoading, setSessionLoading] = useState(false);
+  const [clearingBlacklist, setClearingBlacklist] = useState(false);
+  const sessionDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = sessionDialogRef.current;
+    if (!dialog || !sessionData) return;
+    if (!dialog.open) dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [sessionData]);
 
   const mediaType = item?.type === 'movie' ? 'movie' : 'tv';
   const isMovie = mediaType === 'movie';
+  const isEpisode = item?.type === 'episode';
 
-  const merged = [
-    ...(data.streams || []),
-    ...(data.blacklisted_streams || []).map((stream: any) => ({
-      ...stream,
-      blacklisted: true,
-    })),
-  ];
-  const mergedSorted = [...merged].sort((a: any, b: any) => {
-    const aBl = a.blacklisted ? 1 : 0;
-    const bBl = b.blacklisted ? 1 : 0;
-    if (aBl !== bBl) return aBl - bBl;
-    return (b.rank ?? 0) - (a.rank ?? 0);
-  });
+  const hasEpisodeOverride = isEpisode && episodeHasStreamOverride(data);
+
+  const seasonId =
+    data.season_id ??
+    (item?.season_id != null ? String(item.season_id) : null) ??
+    (data.streams_owner?.type === 'season' ? data.streams_owner.id : null);
+
+  const seasonStreamsHref = seasonId ? buildHash('item', seasonId, { tab: 'streams' }) : null;
+
+  const seasonStream: StreamRowData | null = data.season_stream ?? null;
+
+  const episodeStreamsSorted = mergeAndSortStreams(
+    data.episode_streams ?? (isEpisode ? data.streams : undefined),
+    data.episode_blacklisted_streams ??
+      (isEpisode ? data.blacklisted_streams : undefined),
+  );
+
+  const mergedSorted = isEpisode
+    ? episodeStreamsSorted
+    : mergeAndSortStreams(data.streams, data.blacklisted_streams);
+
   const activeStream = data.active_stream ?? null;
-  const maxRank = mergedSorted.reduce((m: number, s: any) => Math.max(m, s.rank ?? 0), 0);
+  const seasonActiveStream = data.season_active_stream ?? null;
+
+  const allRowsForRank = [
+    ...(seasonStream ? [seasonStream] : []),
+    ...mergedSorted,
+  ];
+  const maxRank = allRowsForRank.reduce((m, s) => Math.max(m, s.rank ?? 0), 0);
+
+  const streamCount = isEpisode
+    ? (seasonStream ? 1 : 0) + (hasEpisodeOverride ? 0 : mergedSorted.length)
+    : mergedSorted.length;
 
   const handleReset = async () => {
     const response = await apiPost(`/items/${itemId}/streams/reset`);
@@ -323,7 +532,29 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     onRefresh();
   };
 
-  const handleBlacklist = async (stream: any) => {
+  const blacklistedCount = data.blacklisted_streams?.length ?? 0;
+
+  const handleClearBlacklist = async () => {
+    if (blacklistedCount === 0) return;
+    if (
+      !window.confirm(
+        `Restore ${blacklistedCount} blacklisted stream(s) to the available list?`,
+      )
+    ) {
+      return;
+    }
+    setClearingBlacklist(true);
+    const response = await apiPost(`/items/${itemId}/streams/clear-blacklist`);
+    setClearingBlacklist(false);
+    if (!response.ok) {
+      notify(response.error || 'Failed to clear blacklisted streams', 'error');
+      return;
+    }
+    notify((response.data as { message?: string })?.message || 'Blacklisted streams cleared', 'success');
+    onRefresh();
+  };
+
+  const handleBlacklist = async (stream: StreamRowData) => {
     const path = stream.blacklisted
       ? `/items/${itemId}/streams/${stream.id}/unblacklist`
       : `/items/${itemId}/streams/${stream.id}/blacklist`;
@@ -336,12 +567,13 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     onRefresh();
   };
 
-  const handleActivate = async (stream: any) => {
+  const handleActivate = async (
+    stream: StreamRowData,
+    pin?: { id?: number | string; infohash?: string } | null,
+  ) => {
     if (stream.blacklisted || typeof stream.id !== 'number') return;
-    const isPinned =
-      activeStream &&
-      (String(stream.id) === String(activeStream.id) || stream.infohash === activeStream.infohash);
-    if (isPinned) return;
+    const pinRef = pin === undefined ? activeStream : pin;
+    if (isStreamPinned(stream, pinRef)) return;
     if (activatingStreamId !== null) return;
 
     setActivatingStreamId(stream.id);
@@ -351,9 +583,35 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
       notify(response.error || 'Failed to switch stream', 'error');
       return;
     }
-    notify('Active stream updated', 'success');
+    const message =
+      (response.data as { message?: string })?.message || 'Active stream updated';
+    notify(message, 'success');
     onRefresh();
   };
+
+  const renderStreamList = (
+    streams: StreamRowData[],
+    options: {
+      pin?: { id?: number | string; infohash?: string } | null;
+      clickable?: boolean;
+      showScopeChip?: boolean;
+      rowExtraActions?: (stream: StreamRowData) => ReactNode;
+    } = {},
+  ) =>
+    streams.map((stream) => (
+      <StreamRow
+        key={stream.id ?? stream.infohash}
+        stream={stream}
+        isPinned={isStreamPinned(stream, options.pin ?? activeStream)}
+        clickable={options.clickable ?? true}
+        isActivating={activatingStreamId === stream.id}
+        maxRank={maxRank}
+        showScopeChip={options.showScopeChip}
+        extraActions={options.rowExtraActions?.(stream)}
+        onActivate={(s) => handleActivate(s, options.pin)}
+        onBlacklist={handleBlacklist}
+      />
+    ));
 
   const searchScrapers = async () => {
     setScrapeLoading(true);
@@ -452,8 +710,8 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
   return (
     <div className="panel item-streams">
       <div className="section-head">
-        <h3>Streams ({mergedSorted.length})</h3>
-        <div style={{ display: 'flex', gap: '0.4rem' }}>
+        <h3>Streams ({streamCount})</h3>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn btn--secondary btn--small"
@@ -468,6 +726,14 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
             disabled={scrapeLoading}
           >
             {scrapeLoading ? 'Searching…' : 'Search Scrapers'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary btn--small"
+            onClick={handleClearBlacklist}
+            disabled={clearingBlacklist || blacklistedCount === 0}
+          >
+            {clearingBlacklist ? 'Clearing…' : 'Clear blacklisted'}
           </button>
           <button
             type="button"
@@ -497,98 +763,62 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
         </div>
       )}
 
-      {mergedSorted.length === 0 ? (
+      {isEpisode ? (
+        <>
+          <section className="stream-section stream-section--season" aria-label="Season stream">
+            <h4 className="stream-section__heading">Season stream</h4>
+            {seasonStream ? (
+              renderStreamList([seasonStream], {
+                pin: hasEpisodeOverride ? null : seasonActiveStream,
+                clickable: false,
+                rowExtraActions: () =>
+                  hasEpisodeOverride ? (
+                    <button
+                      type="button"
+                      className="btn btn--small btn--secondary"
+                      onClick={() => handleActivate(seasonStream, null)}
+                    >
+                      Use season stream
+                    </button>
+                  ) : seasonStreamsHref ? (
+                    <a
+                      href={seasonStreamsHref}
+                      className="btn btn--small btn--secondary"
+                    >
+                      Manage on season
+                    </a>
+                  ) : null,
+              })
+            ) : (
+              <p className="muted stream-section__empty">
+                No season stream pinned.
+                {seasonStreamsHref ? (
+                  <>
+                    {' '}
+                    <a href={seasonStreamsHref}>Open season Streams / VFS</a>
+                  </>
+                ) : null}
+              </p>
+            )}
+          </section>
+
+          {!hasEpisodeOverride && (
+            <section className="stream-section stream-section--episode" aria-label="Episode streams">
+              <h4 className="stream-section__heading">
+                Episode streams ({mergedSorted.length})
+              </h4>
+              {mergedSorted.length === 0 ? (
+                <p className="muted stream-section__empty">No episode-specific streams stored.</p>
+              ) : (
+                renderStreamList(mergedSorted, { pin: activeStream, showScopeChip: true })
+              )}
+            </section>
+          )}
+        </>
+      ) : mergedSorted.length === 0 ? (
         <p className="muted">No streams stored for this item.</p>
       ) : (
-        mergedSorted.map((stream: any) => {
-          const isPinned =
-            activeStream &&
-            (String(stream.id) === String(activeStream.id) ||
-              stream.infohash === activeStream.infohash);
-
-          const resolution = stream.resolution as string | undefined;
-          const cached =
-            typeof stream.is_cached === 'boolean'
-              ? stream.is_cached
-              : typeof stream.cached === 'boolean'
-                ? stream.cached
-                : null;
-
-          const isBlacklisted = Boolean(stream.blacklisted);
-          const isActivating = activatingStreamId === stream.id;
-          const rowClickable = !isBlacklisted && !isActivating;
-          const bg =
-            !isBlacklisted && typeof stream.rank === 'number'
-              ? rankBackground(stream.rank, maxRank)
-              : undefined;
-
-          return (
-            <div
-              key={stream.id ?? stream.infohash}
-              role={rowClickable ? 'button' : undefined}
-              tabIndex={rowClickable ? 0 : undefined}
-              className={`stream-row ${isPinned ? 'stream-row--pinned' : ''} ${
-                isBlacklisted ? 'stream-row--blacklisted' : 'stream-row--clickable'
-              } ${isActivating ? 'stream-row--activating' : ''}`}
-              style={bg ? { background: bg } : undefined}
-              onClick={() => rowClickable && handleActivate(stream)}
-              onKeyDown={(e) => {
-                if (!rowClickable) return;
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleActivate(stream);
-                }
-              }}
-            >
-              <div className="stream-row__main">
-                <div className="stream-row__title">
-                  {stream.raw_title || stream.infohash || `Stream ${stream.id}`}
-                </div>
-                <div className="stream-row__meta">
-                  {typeof stream.rank === 'number' && (
-                    <span className="legend-chip legend-chip--rank">Rank {stream.rank}</span>
-                  )}
-                  {resolution && <ResolutionPill resolution={resolution} />}
-                  {cached !== null && (
-                    <span
-                      className={`legend-chip ${cached ? 'legend-chip--cached' : 'legend-chip--uncached'}`}
-                    >
-                      {cached ? 'Cached' : 'Uncached'}
-                    </span>
-                  )}
-                  {typeof stream.lev_ratio === 'number' && (
-                    <span className="legend-chip legend-chip--score">
-                      Score {stream.lev_ratio.toFixed(2)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div
-                className="stream-row__actions"
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-              >
-                {isActivating && (
-                  <span className="muted" style={{ fontSize: '0.75rem' }}>
-                    Switching…
-                  </span>
-                )}
-                {isPinned && (
-                  <span className="stream-row__pinned-badge" aria-label="Currently pinned stream">
-                    Pinned
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="btn btn--small btn--secondary"
-                  onClick={() => handleBlacklist(stream)}
-                >
-                  {stream.blacklisted ? 'Unblacklist' : 'Blacklist'}
-                </button>
-              </div>
-            </div>
-          );
-        })
+        renderStreamList(mergedSorted)
       )}
 
       {candidateList.length > 0 && (
@@ -630,10 +860,25 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
       )}
 
       {sessionData && (
-        <dialog open className="modal">
+        <dialog
+          ref={sessionDialogRef}
+          className="modal modal--session-files"
+          onCancel={(e) => {
+            e.preventDefault();
+            setSessionData(null);
+            setSelectedFileIds([]);
+          }}
+        >
           <header>
             <h2>Select Files</h2>
-            <button type="button" onClick={() => setSessionData(null)} data-action="close">
+            <button
+              type="button"
+              onClick={() => {
+                setSessionData(null);
+                setSelectedFileIds([]);
+              }}
+              data-action="close"
+            >
               &times;
             </button>
           </header>

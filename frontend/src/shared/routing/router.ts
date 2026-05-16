@@ -23,7 +23,7 @@ export const ROUTES = {
   'discover-item': 'view-discover-item',
 };
 
-const DEFAULT_ROUTE = 'library';
+const DEFAULT_ROUTE = 'dashboard';
 
 /** Build hash path segments after the route name. */
 function buildPathSegments(safeRoute, param) {

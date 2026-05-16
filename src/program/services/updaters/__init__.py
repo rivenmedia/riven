@@ -5,6 +5,7 @@ import os
 from loguru import logger
 
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.services.updaters.console import ConsoleUpdater
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
@@ -18,7 +19,8 @@ class Updater(Runner[None, BaseUpdater]):
     Main updater service that coordinates multiple media server updaters.
 
     This service manages multiple updater implementations (Plex, Emby, Jellyfin)
-    and triggers media server refreshes for items.
+    and triggers media server refreshes for items. If none of those are configured,
+    a ConsoleUpdater is used so the program stays valid and refresh calls are logged only.
     """
 
     def __init__(self):
@@ -30,7 +32,19 @@ class Updater(Runner[None, BaseUpdater]):
             JellyfinUpdater: JellyfinUpdater(),
             EmbyUpdater: EmbyUpdater(),
         }
+        if not any(service.initialized for service in self.services.values()):
+            logger.warning(
+                "No Plex, Jellyfin, or Emby updater is configured; using the console updater "
+                "(no-op library refresh). Configure settings under updaters to connect a real media server."
+            )
+            self.services[ConsoleUpdater] = ConsoleUpdater()
         self.initialized = self.validate()
+
+    @property
+    def uses_console_updater(self) -> bool:
+        """True when no Plex/Jellyfin/Emby updater is configured and the no-op console stand-in is used."""
+
+        return ConsoleUpdater in self.services
 
     def validate(self) -> bool:
         """Validate that at least one updater service is initialized."""

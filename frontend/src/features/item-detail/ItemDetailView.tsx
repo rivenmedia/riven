@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ViewLayout, ViewHeader } from '../../shared/ui/PagePrimitives';
-import { BackButton } from '../../shared/ui/BackButton';
+import { ViewLayout } from '../../shared/ui/PagePrimitives';
 import { EntityHeader } from './EntityHeader';
 import type { EntityHeaderData } from './EntityHeader';
 import { CastCrew } from './CastCrew';
-import { Streams } from './Streams';
+import { Streams, episodeHasStreamOverride, type StreamsData } from './Streams';
 import { MediaMetadata } from './MediaMetadata';
 import { SimilarRecommendations } from './SimilarRecommendations';
 import { CollectionFranchiseStrip } from './CollectionFranchiseStrip';
 import { TmdbDetailsPanel } from './TmdbDetailsPanel';
+import { ShowSeasonHierarchy, SeasonEpisodeRows, type EpisodeLike, type ShowLike } from './ShowSeasonHierarchy';
+import { TvdbSeasonDetailsPanel } from './TvdbSeasonDetailsPanel';
+import { TmdbSeasonDetailsPanel } from './TmdbSeasonDetailsPanel';
 import {
   MediaOverviewTabStrip,
   MediaOverviewTabPanel,
@@ -19,13 +21,11 @@ import { creditsHaveContent } from './creditsUtils';
 import { DetailViewActionsToolbar } from '../../shared/ui/DetailViewActionsToolbar';
 import { apiDelete, apiGet, apiPost, getStreamUrl } from '../../shared/api/api';
 import { annotateLibraryStatus } from '../library/libraryStatus';
+import { readLibraryReturnRoute } from '../../shared/navigation/libraryReturnRoute';
 import { notify } from '../../shared/notifications/notify';
-import {
-  formatBytes,
-  formatEpisodeDisplayTitle,
-  formatShortDate,
-} from '../../shared/utils/utils';
+import { formatEpisodeDisplayTitle } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
+import { buildHash } from '../../shared/routing/router';
 
 function buildEntityHeaderData(
   item: Record<string, unknown>,
@@ -123,27 +123,6 @@ async function runAutoScrape(item: any) {
   });
 }
 
-type EpisodeLike = {
-  id?: string;
-  number?: number;
-  title?: string;
-  state?: string;
-  parent_title?: string;
-  season_number?: number | null;
-  episode_number?: number | null;
-  aired_at?: string;
-  poster_path?: string | null;
-  network?: string | null;
-  content_rating?: string | null;
-  media_metadata?: {
-    video?: { resolution_width?: number; resolution_height?: number };
-    quality_source?: string | null;
-  } | null;
-  filesystem_entry?: { file_size?: number | null } | null;
-};
-type SeasonLike = { number?: number; episodes?: EpisodeLike[] };
-type ShowLike = { type: string; title?: string; poster_path?: string | null; seasons?: SeasonLike[] };
-
 type TvdbCharacterEntry = {
   people_type?: string;
   person_name?: string;
@@ -190,174 +169,109 @@ function EpisodeCastCrewList({ characters }: { characters: TvdbCharacterEntry[] 
   );
 }
 
-function isInLibrary(state: string): boolean {
-  const s = (state || '').toString();
-  return s === 'Completed' || s === 'Symlinked' || s === 'Downloaded' || s === 'Scraped';
-}
+const LIBRARY_MEDIA_OVERVIEW_PANEL_ID = 'library-item-media-overview-panel';
 
-function episodeQualityLabel(ep: EpisodeLike): string {
-  const meta = ep.media_metadata;
-  if (!meta) return '';
-  const parts: string[] = [];
-  const v = meta.video;
-  if (v?.resolution_height) parts.push(`${v.resolution_height}p`);
-  if (meta.quality_source) parts.push(meta.quality_source);
-  return parts.join(' ');
-}
+const RETURN_HASH: Record<string, string> = {
+  library: '#/library',
+  movies: '#/movies',
+  shows: '#/shows',
+  episodes: '#/episodes',
+};
 
-const TMDB_IMG = 'https://image.tmdb.org/t/p/w92';
-function posterUrl(item: { poster_path?: string | null }): string {
-  const path = item?.poster_path;
-  if (!path) return '';
-  return path.startsWith('http') ? path : `${TMDB_IMG}${path}`;
-}
+const RETURN_NAMES: Record<string, string> = {
+  library: 'Library',
+  movies: 'Movies',
+  shows: 'TV Shows',
+  episodes: 'TV Episodes',
+};
 
-function SeasonsEpisodes({
+function LibraryItemBreadcrumbs({
+  returnRoute,
   item,
-  refresh,
+  showId,
+  showTitle,
+  seasonId,
+  seasonLabel,
+  activeTab,
+  onGoOverview,
 }: {
-  item: ShowLike;
-  refresh: () => void;
+  returnRoute: string;
+  item: Record<string, unknown>;
+  showId: string | null;
+  showTitle: string | null;
+  seasonId: string | null;
+  seasonLabel: string | null;
+  activeTab: 'overview' | 'streams' | 'playback';
+  onGoOverview: () => void;
 }) {
-  const seasons = item?.seasons;
-  const [activeSeasonIdx, setActiveSeasonIdx] = useState(0);
-
-  if (item.type !== 'show' || !seasons?.length) return null;
-
-  const sortedSeasons = [...seasons]
-    .filter((s) => (s.number ?? 0) > 0)
-    .sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-  if (!sortedSeasons.length) return null;
-
-  const season = sortedSeasons[activeSeasonIdx];
-  const episodes = season?.episodes ?? [];
-  const sortedEps = [...episodes].sort(
-    (a, b) => (a.episode_number ?? a.number ?? 0) - (b.episode_number ?? b.number ?? 0),
-  );
-  const showTitle = item.title ?? '';
+  const listKey = returnRoute in RETURN_HASH ? returnRoute : 'library';
+  const listHref = RETURN_HASH[listKey];
+  const listLabel = RETURN_NAMES[listKey];
+  const isShow = item.type === 'show';
+  const isEpisode = item.type === 'episode';
+  const isSeason = item.type === 'season';
+  const onStreamsOrPlayback = !isShow && activeTab !== 'overview';
+  const subViewLabel =
+    activeTab === 'streams' ? 'Streams / VFS' : activeTab === 'playback' ? 'Playback' : null;
+  const titleLabel = formatEpisodeDisplayTitle(item as any);
+  const crumbShowLabel =
+    showTitle?.trim() ||
+    (typeof item.parent_title === 'string' && item.parent_title.trim()
+      ? (item.parent_title as string).trim()
+      : showId
+        ? 'Show'
+        : null);
+  const seasonCrumbLabel =
+    seasonLabel?.trim() ||
+    (item.season_number != null ? `Season ${item.season_number}` : null);
 
   return (
-    <div className="panel show-seasons-episodes">
-      <div className="section-head">
-        <h3>Seasons &amp; Episodes</h3>
-      </div>
-      <div className="season-tabs" role="tablist">
-        {sortedSeasons.map((s, idx) => (
-          <button
-            key={s.number}
-            type="button"
-            role="tab"
-            aria-selected={idx === activeSeasonIdx}
-            className={`season-tab ${idx === activeSeasonIdx ? 'season-tab--active' : ''}`}
-            onClick={() => setActiveSeasonIdx(idx)}
-          >
-            Season {s.number ?? 0}
-            {s.episodes?.length ? ` (${s.episodes.length})` : ''}
-          </button>
-        ))}
-      </div>
-      <div className="show-episodes-list media-list">
-        {sortedEps.length === 0 ? (
-          <p className="muted">No episodes in this season.</p>
+    <nav className="item-detail-breadcrumbs" aria-label="Breadcrumb">
+      <div className="explore-breadcrumbs">
+        <a className="pill pill--origin" href={listHref}>
+          {listLabel}
+        </a>
+        {isSeason && showId && crumbShowLabel ? (
+          <a className="pill pill--tv" href={`#/item/${showId}`}>
+            {crumbShowLabel}
+          </a>
+        ) : null}
+        {isEpisode && showId && crumbShowLabel ? (
+          <a className="pill pill--tv" href={`#/item/${showId}`}>
+            {crumbShowLabel}
+          </a>
+        ) : null}
+        {isEpisode && seasonId && seasonCrumbLabel ? (
+          <a className="pill pill--tv" href={`#/item/${seasonId}`}>
+            {seasonCrumbLabel}
+          </a>
+        ) : null}
+        {onStreamsOrPlayback && subViewLabel ? (
+          <>
+            <button type="button" className="pill pill--text" onClick={onGoOverview}>
+              {titleLabel}
+            </button>
+            <span className="pill pill--active" aria-current="page">
+              {subViewLabel}
+            </span>
+          </>
         ) : (
-          sortedEps.map((ep) => {
-            const state = (ep.state || '').toString();
-            const inLib = isInLibrary(state);
-            const hasFile =
-              inLib ||
-              (ep.filesystem_entry?.file_size != null && ep.filesystem_entry.file_size > 0);
-            const epForDisplay = {
-              ...ep,
-              type: 'episode' as const,
-              parent_title: ep.parent_title ?? showTitle,
-              season_number: ep.season_number ?? season?.number ?? null,
-              episode_number: ep.episode_number ?? ep.number ?? null,
-            };
-
-            const handleRetry = async () => {
-              const res = await apiPost('/items/retry', { ids: [String(ep.id)] });
-              if (!res.ok) {
-                notify(res.error || 'Retry failed', 'error');
-                return;
-              }
-              notify('Episode queued for retry', 'success');
-              refresh();
-            };
-
-            return (
-              <div key={ep.id ?? ep.number} className="media-list__row show-episode-row">
-                <span
-                  className={`episode-file-indicator episode-file-indicator--${hasFile ? 'has-file' : 'missing'}`}
-                  title={hasFile ? 'File available' : 'No file'}
-                  aria-hidden
-                >
-                  {hasFile ? '✓' : '○'}
-                </span>
-                <div className="media-list__poster">
-                  <img
-                    src={posterUrl(ep.poster_path ? ep : { poster_path: item.poster_path }) || undefined}
-                    alt=""
-                    loading="lazy"
-                  />
-                </div>
-                <div className="media-list__main">
-                  <a className="media-list__title" href={`#/item/${ep.id}`}>
-                    {formatEpisodeDisplayTitle(epForDisplay as any)}
-                  </a>
-                  <div className="media-list__meta">
-                    <span className="legend-chip legend-chip--tv">TV</span>
-                    <span
-                      className={`legend-chip ${inLib ? 'legend-chip--in-library' : 'legend-chip--missing'}`}
-                    >
-                      {inLib ? 'In library' : state || 'Missing'}
-                    </span>
-                    {formatShortDate(ep.aired_at) && (
-                      <span className="legend-chip">Aired: {formatShortDate(ep.aired_at)}</span>
-                    )}
-                    {ep.network && (
-                      <span className="legend-chip">Network: {ep.network}</span>
-                    )}
-                    {ep.content_rating && (
-                      <span className="legend-chip">Rating: {ep.content_rating}</span>
-                    )}
-                    {episodeQualityLabel(ep) && (
-                      <span className="legend-chip">Quality: {episodeQualityLabel(ep)}</span>
-                    )}
-                    {ep.filesystem_entry?.file_size != null &&
-                      ep.filesystem_entry.file_size > 0 && (
-                        <span className="legend-chip">
-                          Size: {formatBytes(ep.filesystem_entry.file_size)}
-                        </span>
-                      )}
-                  </div>
-                </div>
-                <div className="media-list__actions">
-                  {ep.id && (state === 'Requested' || state === 'Failed') && (
-                    <button
-                      type="button"
-                      className="btn btn--small btn--secondary"
-                      onClick={handleRetry}
-                    >
-                      Retry
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })
+          <span className="pill pill--active" aria-current="page">
+            {titleLabel}
+          </span>
         )}
       </div>
-    </div>
+    </nav>
   );
 }
-
-const LIBRARY_MEDIA_OVERVIEW_PANEL_ID = 'library-item-media-overview-panel';
 
 export default function ItemDetailView({ route }: { route: AppRoute }) {
   const itemId = route.param;
   const [item, setItem] = useState<any>(null);
   const [tmdbData, setTmdbData] = useState<Record<string, unknown> | null>(null);
   const [tvdbData, setTvdbData] = useState<Record<string, unknown> | null>(null);
+  const [tmdbSeasonData, setTmdbSeasonData] = useState<Record<string, unknown> | null>(null);
+  const [tvdbSeasonData, setTvdbSeasonData] = useState<Record<string, unknown> | null>(null);
   const [streamData, setStreamData] = useState<any>(null);
   const [metadata, setMetadata] = useState<Record<string, unknown> | null>(null);
   const [similarData, setSimilarData] = useState<{ recommendations: any[]; similar: any[] } | null>(null);
@@ -387,6 +301,9 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
 
     let tmdb: Record<string, unknown> | null = null;
     let tvdb: Record<string, unknown> | null = null;
+    let tmdbSeason: Record<string, unknown> | null = null;
+    let tvdbSeason: Record<string, unknown> | null = null;
+
     if (it.type === 'movie' && it.tmdb_id) {
       const r = await apiGet(`/tmdb/movie/${it.tmdb_id}`);
       if (r.ok && r.data) tmdb = r.data as Record<string, unknown>;
@@ -398,6 +315,22 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
       if (it.tvdb_id) {
         const r = await apiGet(`/tvdb/series/${it.tvdb_id}`);
         if (r.ok && r.data) tvdb = r.data as Record<string, unknown>;
+      }
+    } else if (it.type === 'season') {
+      const showRes = await apiGet(`/items/${it.show_id}`, { media_type: 'item' });
+      const show = showRes.ok ? showRes.data : null;
+      if (it.tvdb_id) {
+        const r = await apiGet(`/tvdb/season/${it.tvdb_id}`);
+        if (r.ok && r.data) tvdbSeason = r.data as Record<string, unknown>;
+      } else if (show?.tvdb_id != null && (it.season_number != null || it.number != null)) {
+        const sn = Number(it.season_number ?? it.number);
+        const r = await apiGet(`/tvdb/series/${show.tvdb_id}/season/${sn}`);
+        if (r.ok && r.data) tvdbSeason = r.data as Record<string, unknown>;
+      }
+      if (show?.tmdb_id != null && (it.number != null || it.season_number != null)) {
+        const sn = it.number ?? it.season_number;
+        const r = await apiGet(`/tmdb/tv/${show.tmdb_id}/season/${sn}`);
+        if (r.ok && r.data) tmdbSeason = r.data as Record<string, unknown>;
       }
     } else if (
       it.type === 'episode' &&
@@ -422,6 +355,8 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
     }
     setTmdbData(tmdb);
     setTvdbData(tvdb);
+    setTmdbSeasonData(tmdbSeason);
+    setTvdbSeasonData(tvdbSeason);
 
     if ((it.type === 'movie' || it.type === 'show') && tmdb) {
       const kind = it.type === 'movie' ? 'movie' : 'tv';
@@ -454,6 +389,15 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   useEffect(() => {
     setOverviewSubTab('details');
   }, [itemId]);
+
+  useEffect(() => {
+    const tab = route.query?.tab;
+    if (tab === 'streams' || tab === 'playback' || tab === 'overview') {
+      setActiveTab(tab);
+    } else {
+      setActiveTab('overview');
+    }
+  }, [itemId, route.query?.tab]);
 
   const showCollectionTab =
     item &&
@@ -496,23 +440,42 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
     );
   }
 
-  const returnRoute =
-    (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('riven_return_route')) || 'library';
-  const returnLabels: Record<string, string> = {
-    library: '← Back to Library',
-    movies: '← Back to Movies',
-    shows: '← Back to TV Shows',
-    episodes: '← Back to TV Episodes',
-  };
+  const returnRoute = readLibraryReturnRoute() ?? 'library';
   const isEpisode = item.type === 'episode';
-  const showId = isEpisode && item.show_id != null ? String(item.show_id) : null;
+  const isSeason = item.type === 'season';
   const isShow = item.type === 'show';
   const isTitleMedia = item.type === 'movie' || item.type === 'show';
+
+  const breadcrumbShowId =
+    isEpisode && item.show_id != null
+      ? String(item.show_id)
+      : isSeason && item.show_id != null
+        ? String(item.show_id)
+        : null;
+  const breadcrumbShowTitle =
+    (typeof item.parent_title === 'string' && item.parent_title.trim()
+      ? item.parent_title.trim()
+      : null) || null;
+  const breadcrumbSeasonId =
+    isEpisode && item.season_id != null ? String(item.season_id) : null;
+  const breadcrumbSeasonLabel =
+    item.season_number != null ? `Season ${item.season_number}` : null;
+
+  const tmdbHeader = isSeason ? tmdbSeasonData : tmdbData;
+  const tvdbHeader = isSeason ? tvdbSeasonData : tvdbData;
+
+  const hasPlaybackSource =
+    item.filesystem_entry &&
+    typeof (item.filesystem_entry as { file_size?: number }).file_size === 'number' &&
+    (item.filesystem_entry as { file_size?: number }).file_size! > 0;
 
   const state = (item.state || '').toString();
   const showPause =
     state !== 'Paused' && state !== 'Completed' && state !== 'Failed';
   const showResume = state === 'Paused';
+
+  const episodeStreamOverride =
+    isEpisode && episodeHasStreamOverride(streamData as StreamsData | null);
 
   const handleAction = async (action: string) => {
     if (action === 'auto-scrape') {
@@ -546,59 +509,57 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
 
   return (
     <ViewLayout className="view-item-detail" view="item-detail">
-      <ViewHeader
-        title="Library Item"
-        subtitle="Inspect metadata, stream state, and backend action controls."
+      <LibraryItemBreadcrumbs
+        returnRoute={returnRoute}
+        item={item}
+        showId={breadcrumbShowId}
+        showTitle={breadcrumbShowTitle}
+        seasonId={breadcrumbSeasonId}
+        seasonLabel={breadcrumbSeasonLabel}
+        activeTab={activeTab}
+        onGoOverview={() => setActiveTab('overview')}
       />
-      <div>
-        <BackButton
-          label={showId ? '← Back to Show' : returnLabels[returnRoute] || '← Back'}
-          href={showId ? `#/item/${showId}` : `#/${returnRoute}`}
-        />
-      </div>
 
-      <div className="item-detail-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'overview'}
-          className={`item-detail-tab ${activeTab === 'overview' ? 'item-detail-tab--active' : ''}`}
-          data-tab="overview"
-          onClick={() => setActiveTab('overview')}
-        >
-          Overview
-        </button>
-        {!isShow && (
-          <>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'streams'}
-              className={`item-detail-tab ${activeTab === 'streams' ? 'item-detail-tab--active' : ''}`}
-              data-tab="streams"
-              onClick={() => setActiveTab('streams')}
-            >
-              Streams / VFS
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'playback'}
-              className={`item-detail-tab ${activeTab === 'playback' ? 'item-detail-tab--active' : ''}`}
-              data-tab="playback"
-              onClick={() => setActiveTab('playback')}
-            >
-              Playback
-            </button>
-          </>
-        )}
-      </div>
+      {!isShow && (
+        <div className="item-detail-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'overview'}
+            className={`item-detail-tab ${activeTab === 'overview' ? 'item-detail-tab--active' : ''}`}
+            data-tab="overview"
+            onClick={() => setActiveTab('overview')}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'streams'}
+            className={`item-detail-tab ${activeTab === 'streams' ? 'item-detail-tab--active' : ''}`}
+            data-tab="streams"
+            onClick={() => setActiveTab('streams')}
+          >
+            Streams / VFS
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'playback'}
+            className={`item-detail-tab ${activeTab === 'playback' ? 'item-detail-tab--active' : ''}`}
+            data-tab="playback"
+            onClick={() => setActiveTab('playback')}
+          >
+            Playback
+          </button>
+        </div>
+      )}
 
       <div className="item-layout">
         <div className="item-main">
           {activeTab === 'overview' && (
             <div className="item-detail-panel item-detail-panel--overview" role="tabpanel">
-              <EntityHeader data={buildEntityHeaderData(item, tmdbData, tvdbData)} />
+              <EntityHeader data={buildEntityHeaderData(item, tmdbHeader, tvdbHeader)} />
               <DetailViewActionsToolbar aria-label="Library item actions">
                 <button
                   type="button"
@@ -674,7 +635,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                   <MediaOverviewTabPanel id={LIBRARY_MEDIA_OVERVIEW_PANEL_ID}>
                     {overviewSubTab === 'details' && (
                       <>
-                        <SeasonsEpisodes item={item as ShowLike} refresh={refresh} />
+                        <ShowSeasonHierarchy item={item} refresh={refresh} />
                         {tmdbData && (item.type === 'movie' || item.type === 'show') && (
                           <TmdbDetailsPanel
                             tmdbData={tmdbData}
@@ -747,10 +708,38 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                   </MediaOverviewTabPanel>
                 </>
               )}
-              {!isTitleMedia && (
+              {!isTitleMedia && item.type === 'episode' && (
+                <CastCrew credits={credits ?? null} exploreLinkBase="#/explore" />
+              )}
+              {!isTitleMedia && item.type === 'season' && (
                 <>
-                  <SeasonsEpisodes item={item as ShowLike} refresh={refresh} />
-                  <CastCrew credits={credits ?? null} exploreLinkBase="#/explore" />
+                  <div className="panel season-stream-coverage">
+                    <div className="section-head">
+                      <h3>Streams &amp; coverage</h3>
+                    </div>
+                    <p className="muted">
+                      <strong>Season-level streams</strong> ({item.streams_count ?? 0} available) are
+                      often whole-season packs. <strong>Per-episode counts</strong> in the list below
+                      reflect scrapes targeted at individual episodes. Episodes can inherit season
+                      streams when they have none of their own.
+                    </p>
+                  </div>
+                  <TvdbSeasonDetailsPanel data={tvdbSeasonData} />
+                  <TmdbSeasonDetailsPanel data={tmdbSeasonData} />
+                  <div className="panel show-seasons-episodes">
+                    <div className="section-head">
+                      <h3>Episodes</h3>
+                    </div>
+                    <div className="show-episodes-list media-list">
+                      <SeasonEpisodeRows
+                        episodes={(item.episodes as EpisodeLike[]) || []}
+                        showTitle={breadcrumbShowTitle || (item.parent_title as string) || 'Show'}
+                        showPosterPath={item.poster_path as string | null | undefined}
+                        seasonNumber={(item.number ?? item.season_number) as number | null | undefined}
+                        refresh={refresh}
+                      />
+                    </div>
+                  </div>
                 </>
               )}
             </div>
@@ -759,6 +748,24 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
           {activeTab === 'streams' && !isShow && (
             <div className="item-detail-panel item-detail-panel--streams" role="tabpanel">
               <MediaMetadata metadata={metadata} />
+              {episodeStreamOverride ? (
+                <div className="item-detail-stream-override-warning" role="status">
+                  <strong>Episode stream override</strong>
+                  <p>
+                    This episode is pinned to a different stream than the season pack. Playback
+                    and symlinks use the episode torrent below. To inherit the season stream again,
+                    choose <strong>Use season stream</strong> on the season row, or{' '}
+                    {breadcrumbSeasonId ? (
+                      <a href={buildHash('item', breadcrumbSeasonId, { tab: 'streams' })}>
+                        manage streams on the season
+                      </a>
+                    ) : (
+                      'manage streams on the season'
+                    )}
+                    .
+                  </p>
+                </div>
+              ) : null}
               <Streams
                 data={streamData || {}}
                 itemId={itemId}
@@ -772,7 +779,11 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
             <div className="item-detail-panel item-detail-panel--playback" role="tabpanel">
               <div className="panel item-video">
                 <h3>Playback</h3>
-                <video controls src={getStreamUrl(itemId)} />
+                {hasPlaybackSource ? (
+                  <video controls src={getStreamUrl(itemId)} />
+                ) : (
+                  <p className="muted">No media file on this item yet.</p>
+                )}
               </div>
             </div>
           )}

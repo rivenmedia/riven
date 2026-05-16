@@ -827,10 +827,10 @@ class RivenVFS(pyfuse3.Operations):
         """
 
         from program.media.media_entry import MediaEntry
-        from program.media.item import MediaItem
         from program.program import Program
         from program.types import Event
         from routers.secure.items import apply_item_mutation
+        from sqlalchemy.orm import Session
 
         with db_session() as session:
             entry = (
@@ -845,7 +845,7 @@ class RivenVFS(pyfuse3.Operations):
             item: MediaItem = entry.media_item
             item_id = item.id
 
-            def mutation(i: MediaItem, s) -> None:
+            def mutation(i: MediaItem, s: Session) -> None:
                 i.blacklist_active_stream()
                 i.reset()
 
@@ -878,69 +878,18 @@ class RivenVFS(pyfuse3.Operations):
         5. Batch invalidate all collected inodes
         """
 
-        from program.media.media_entry import MediaEntry
-        from program.services.library_profile_matcher import LibraryProfileMatcher
+        from .vfs_profile_rematch import rematch_profiles_collect_item_ids
 
         logger.log("VFS", "Full sync: re-matching library profiles")
 
-        try:
-            profiles = settings_manager.settings.filesystem.library_profiles or {}
-            current_profile_hash = hash(
-                frozenset(
-                    (k, hash(frozenset(v.filter_rules.model_dump().items())))
-                    for k, v in profiles.items()
-                )
-            )
-        except Exception:
-            current_profile_hash = None
-
-        # Skip re-matching if profiles haven't changed
-        if (
-            current_profile_hash is not None
-            and current_profile_hash == self._last_profile_hash
-        ):
-            logger.debug("Library profiles unchanged, skipping re-matching")
+        result = rematch_profiles_collect_item_ids(
+            last_profile_hash=self._last_profile_hash,
+        )
+        if result.skipped_profiles_unchanged:
             return
 
-        self._last_profile_hash = current_profile_hash
-
-        matcher = LibraryProfileMatcher()
-
-        # Step 1: Re-match all entries against current library profiles and collect item IDs
-        item_ids = list[int]()
-        rematched_count = 0
-
-        with db_session() as session:
-            entries = (
-                session.query(MediaEntry).filter(MediaEntry.is_directory == False).all()
-            )
-
-            for entry in entries:
-                # Get the MediaItem for this entry to re-match profiles
-                item = entry.media_item
-
-                if not item:
-                    logger.warning(
-                        f"MediaEntry {entry.id} has no associated MediaItem, skipping"
-                    )
-                    continue
-
-                # Re-match library profiles based on current settings
-                new_profiles = matcher.get_matching_profiles(item)
-                old_profiles = entry.library_profiles or []
-
-                # Update if profiles changed
-                if set(new_profiles) != set(old_profiles):
-                    entry.library_profiles = new_profiles
-                    rematched_count += 1
-
-                # Store item ID for later registration (avoid duplicates)
-                if item.id not in item_ids:
-                    item_ids.append(item.id)
-
-            session.commit()
-
-            logger.debug(f"Re-matched {rematched_count} entries with updated profiles")
+        self._last_profile_hash = result.profile_hash
+        item_ids = result.item_ids
 
         # Step 2: Clear VFS tree and rebuild from scratch
         logger.debug("Clearing VFS tree for rebuild")

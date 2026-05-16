@@ -42,7 +42,7 @@ async def health() -> MessageResponse:
 class DownloaderUserInfo(BaseModel):
     """Normalized downloader user information response"""
 
-    service: Literal["realdebrid", "alldebrid", "debridlink"]
+    service: Literal["realdebrid", "alldebrid", "debridlink", "torbox"]
     username: str | None = None
     email: str | None = None
     user_id: int | str
@@ -76,7 +76,11 @@ async def download_user_info() -> DownloaderUserInfoResponse:
         # Get the downloader service from the program
         services = di[Program].services
 
-        assert services
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
 
         downloader = services.downloader
 
@@ -134,8 +138,8 @@ async def download_user_info() -> DownloaderUserInfoResponse:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting downloader user info: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.exception("Error getting downloader user info")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
 
 
 @router.post(
@@ -151,9 +155,28 @@ async def generate_apikey() -> MessageResponse:
     return MessageResponse(message=new_key)
 
 
-@router.get("/services", operation_id="services")
-async def get_services() -> dict[str, bool]:
+class ServicesStatusResponse(BaseModel):
+    """Per-runner/sub-service initialization flags plus runtime fallback indicators."""
+
+    services: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Service key → whether that integration initialized successfully",
+    )
+    mock_vfs: bool = Field(
+        default=False,
+        description="True when FUSE is unavailable and the in-memory VFS inventory is used",
+    )
+    console_updater: bool = Field(
+        default=False,
+        description="True when only the console (no-op) library updater is active",
+    )
+
+
+@router.get("/services", operation_id="services", response_model=ServicesStatusResponse)
+async def get_services() -> ServicesStatusResponse:
     data = dict[str, bool]()
+    mock_vfs = False
+    console_updater = False
 
     services = di[Program].services
 
@@ -169,7 +192,14 @@ async def get_services() -> dict[str, bool]:
             else:
                 data[service.key] = service.initialized
 
-    return data
+        mock_vfs = services.filesystem.uses_mock_vfs
+        console_updater = services.updater.uses_console_updater
+
+    return ServicesStatusResponse(
+        services=data,
+        mock_vfs=mock_vfs,
+        console_updater=console_updater,
+    )
 
 
 class TraktOAuthInitiateResponse(BaseModel):
@@ -232,6 +262,8 @@ class StatsResponse(BaseModel):
     total_symlinks: int
     incomplete_items: int
     states: dict[States, int]
+    states_movies: dict[States, int]
+    states_episodes: dict[States, int]
     activity: Annotated[
         dict[str, int],
         Field(
@@ -255,10 +287,10 @@ async def get_stats() -> StatsResponse:
     """
     Produce aggregated statistics for the media library and its items.
 
-    The response includes total counts for media items, movies, shows, seasons, and episodes; the total number of filesystem symlinks (determined by existence of FilesystemEntry records linked to movie or episode items); a mapping of each state to its item count; the number of incomplete items; and a mapping of incomplete item IDs to their scraped attempt counts.
+    The response includes total counts for media items, movies, shows, seasons, and episodes; symlink totals; global state counts (`states`); counts for movies (`states_movies`); counts for TV episodes (`states_episodes`, one row per episode); incomplete item counts; activity by request date; and release-year aggregates.
 
     Returns:
-        StatsResponse: Aggregated statistics with keys `total_items`, `total_movies`, `total_shows`, `total_seasons`, `total_episodes`, `total_symlinks`, `incomplete_items`, `incomplete_retries`, and `states`.
+        StatsResponse: Aggregated statistics including `states`, `states_movies`, `states_episodes`, and library totals.
     """
 
     with db_session() as session:
@@ -334,12 +366,20 @@ async def get_stats() -> StatsResponse:
                     incomplete_retries[media_item_id] = scraped_times
 
             states = dict[States, int]()
+            states_movies = dict[States, int]()
+            states_episodes = dict[States, int]()
 
             for state in States:
                 states[state] = conn.execute(
                     select(func.count(MediaItem.id)).where(
                         MediaItem.last_state == state
                     )
+                ).scalar_one()
+                states_movies[state] = conn.execute(
+                    select(func.count(Movie.id)).where(Movie.last_state == state)
+                ).scalar_one()
+                states_episodes[state] = conn.execute(
+                    select(func.count(Episode.id)).where(Episode.last_state == state)
                 ).scalar_one()
 
     return StatsResponse(
@@ -351,6 +391,8 @@ async def get_stats() -> StatsResponse:
         total_symlinks=total_symlinks,
         incomplete_items=len(incomplete_retries),
         states=states,
+        states_movies=states_movies,
+        states_episodes=states_episodes,
         activity=activity,
         media_year_releases=media_year_releases,
     )
@@ -565,11 +607,19 @@ async def get_vfs_stats() -> VFSStatsResponse:
 
     services = di[Program].services
 
-    assert services
+    if services is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Program services are not ready yet; try again in a few seconds.",
+        )
 
     vfs = services.filesystem.riven_vfs
 
-    assert vfs
+    if vfs is None:
+        raise HTTPException(
+            status_code=503,
+            detail="VFS is not available yet; filesystem service may still be starting.",
+        )
 
     try:
         cache_snapshot: dict[str, Any] = dict(di[Cache].metrics.snapshot())

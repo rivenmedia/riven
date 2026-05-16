@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from program.db import db_functions
 from program.db.db import db_session
-from program.media.item import MediaItem, Show, Season, ProcessedItemType
+from program.media.item import Episode, MediaItem, Show, Season, ProcessedItemType
 from program.media.state import States
 from program.media.stream import Stream as ItemStream
 from program.services.downloaders import Downloader
@@ -741,14 +741,27 @@ async def start_manual_session(
                 detail=error or "Torrent is not cached, please try another stream"
             )
 
+        session_imdb_id = imdb_id or item.imdb_id
+        session_tvdb_id = tvdb_id or item.tvdb_id
+        session_tmdb_id = tmdb_id or item.tmdb_id
+        if isinstance(item, Episode):
+            show = item.top_parent
+            session_imdb_id = session_imdb_id or show.imdb_id
+            session_tvdb_id = session_tvdb_id or show.tvdb_id
+            session_tmdb_id = session_tmdb_id or show.tmdb_id
+        elif isinstance(item, Season):
+            show = item.parent
+            session_imdb_id = session_imdb_id or show.imdb_id
+            session_tvdb_id = session_tvdb_id or show.tvdb_id
+            session_tmdb_id = session_tmdb_id or show.tmdb_id
+
         session_obj = scraping_session_manager.create_session(
             item.id,
             info_hash,
-            media_type=media_type,
-            imdb_id=imdb_id,
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-
+            media_type=media_type or ("movie" if item.type == "movie" else "tv"),
+            imdb_id=session_imdb_id,
+            tmdb_id=session_tmdb_id,
+            tvdb_id=session_tvdb_id,
         )
 
         try:
@@ -887,6 +900,7 @@ async def session_action(
         with db_session() as session:
             item = resolve_media_item(
                 session=session,
+                item_id=scraping_session.item_id,
                 tmdb_id=scraping_session.tmdb_id,
                 tvdb_id=scraping_session.tvdb_id,
                 imdb_id=scraping_session.imdb_id,

@@ -6,8 +6,7 @@ import { MediaList } from './MediaList';
 import { apiDelete, apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import type { AppRoute } from '../../app/routeTypes';
-
-const RETURN_ROUTE_KEY = 'riven_return_route';
+import { LIBRARY_RETURN_ROUTE_KEY } from '../../shared/navigation/libraryReturnRoute';
 
 function normalizeLibraryItem(item: any) {
   return {
@@ -109,7 +108,7 @@ const TITLE_MAP: Record<string, string> = {
 
 export default function LibraryView({ route }: { route: AppRoute }) {
   try {
-    sessionStorage.setItem(RETURN_ROUTE_KEY, route.name);
+    sessionStorage.setItem(LIBRARY_RETURN_ROUTE_KEY, route.name);
   } catch (_) {}
 
   const forcedType =
@@ -135,6 +134,8 @@ export default function LibraryView({ route }: { route: AppRoute }) {
   const [states, setStates] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Movies + shows only on All Media; otherwise matches current list scope (e.g. episodes). */
+  const [titleTotal, setTitleTotal] = useState<number | null>(null);
   const fetchItemsRequestIdRef = useRef(0);
 
   const fetchStates = useCallback(async () => {
@@ -151,27 +152,58 @@ export default function LibraryView({ route }: { route: AppRoute }) {
   const fetchItems = useCallback(async () => {
     const requestId = ++fetchItemsRequestIdRef.current;
     setLoading(true);
-    const params = {
-      page,
-      limit: filters.limit,
+    const baseParams = {
       search: filters.search || undefined,
       sort: filters.sort,
-      type: forcedType || undefined,
       states: filters.state || undefined,
     };
-    const res = await apiGet('/items', params);
+    const listParams = {
+      ...baseParams,
+      page,
+      limit: filters.limit,
+      type: forcedType || undefined,
+    };
+    const needsSplitTitleCount =
+      route.name === 'library' && !forcedType;
+
+    const [res, movieCountRes, showCountRes] = await Promise.all([
+      apiGet('/items', listParams),
+      needsSplitTitleCount
+        ? apiGet('/items', { ...baseParams, page: 1, limit: 1, type: 'movie' })
+        : Promise.resolve(null as Awaited<ReturnType<typeof apiGet>> | null),
+      needsSplitTitleCount
+        ? apiGet('/items', { ...baseParams, page: 1, limit: 1, type: 'show' })
+        : Promise.resolve(null as Awaited<ReturnType<typeof apiGet>> | null),
+    ]);
+
     if (requestId !== fetchItemsRequestIdRef.current) return;
     if (!res.ok) {
       setError(res.error || 'Failed to load library.');
       setItems([]);
+      setTitleTotal(null);
       setLoading(false);
       return;
     }
+
+    let nextTitleTotal: number | null = null;
+    if (
+      needsSplitTitleCount &&
+      movieCountRes?.ok &&
+      showCountRes?.ok
+    ) {
+      nextTitleTotal =
+        (movieCountRes.data?.total_items ?? 0) +
+        (showCountRes.data?.total_items ?? 0);
+    } else {
+      nextTitleTotal = res.data?.total_items ?? null;
+    }
+
+    setTitleTotal(nextTitleTotal);
     setTotalPages(res.data?.total_pages ?? 1);
     setItems((res.data?.items || []).map(normalizeLibraryItem));
     setError(null);
     setLoading(false);
-  }, [page, filters, forcedType]);
+  }, [page, filters, forcedType, route.name]);
 
   useEffect(() => {
     fetchItems();
@@ -182,12 +214,53 @@ export default function LibraryView({ route }: { route: AppRoute }) {
     setPage(1);
   }, []);
 
-  const subtitle =
+  const subtitleDesc =
     route.name === 'episodes'
       ? 'TV episodes only.'
       : forcedType
-        ? `Filtered by ${forcedType === 'movie' ? 'movies' : 'TV shows'}.`
+        ? ''
         : 'Manage your local media queue, statuses, and backend actions.';
+
+  const titleCountLabel =
+    titleTotal === null
+      ? null
+      : route.name === 'movies'
+        ? titleTotal === 1
+          ? '1 movie'
+          : `${titleTotal.toLocaleString()} movies`
+        : route.name === 'shows'
+          ? titleTotal === 1
+            ? '1 TV show'
+            : `${titleTotal.toLocaleString()} TV shows`
+          : route.name === 'episodes'
+            ? titleTotal === 1
+              ? '1 episode'
+              : `${titleTotal.toLocaleString()} episodes`
+            : titleTotal === 1
+              ? '1 title · movie or TV series'
+              : `${titleTotal.toLocaleString()} titles · movies & TV series`;
+
+  const subtitle = error
+    ? null
+    : !loading && titleCountLabel
+      ? (
+      <>
+        <span className="library-title-total">{titleCountLabel}</span>
+        {subtitleDesc ? (
+          <>
+            {' '}
+            <span className="muted">{subtitleDesc}</span>
+          </>
+        ) : null}
+      </>
+    )
+    : loading ? (
+      <span className="muted">Loading…</span>
+    ) : (
+      subtitleDesc || (
+        <span className="muted">Manage your local media queue, statuses, and backend actions.</span>
+      )
+    );
 
   return (
     <ViewLayout

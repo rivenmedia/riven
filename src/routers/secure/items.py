@@ -10,12 +10,13 @@ from kink.errors.service_error import ServiceError
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session, object_session, selectinload
 
 from program.apis.tmdb_api import TMDBApi
 from program.db import db_functions
 from program.db.db import db_session
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.stream import Stream
 from program.media.state import States
 from program.types import Event
 from program.program import Program
@@ -178,6 +179,20 @@ class StatesFilter(str, Enum):
     All = "All"
 
 
+def _extended_dict_for_item(session: Session, item: MediaItem) -> dict[str, Any]:
+    """Build extended payload with correct stream counts (ORM collections are often empty here)."""
+
+    if isinstance(item, Show):
+        ids: set[int] = {item.id}
+        for season in item.seasons:
+            ids.add(season.id)
+            ids.update(ep.id for ep in season.episodes)
+        cmap = MediaItem._batch_relation_stream_row_counts(session, ids)
+        return item.to_extended_dict(stream_counts_map=cmap)
+
+    return item.to_extended_dict()
+
+
 @router.get(
     "",
     summary="Search Media Items",
@@ -320,7 +335,7 @@ async def get_items(
         return ItemsResponse(
             success=True,
             items=[
-                item.to_extended_dict() if extended else item.to_dict()
+                _extended_dict_for_item(session, item) if extended else item.to_dict()
                 for item in items
             ],
             page=page,
@@ -622,8 +637,15 @@ async def get_item(
             if not item:
                 raise HTTPException(status_code=404, detail="Item not found")
 
+            if extended and isinstance(item, Season):
+                item = session.execute(
+                    select(Season)
+                    .options(selectinload(Season.episodes))
+                    .where(Season.id == item.id)
+                ).scalar_one()
+
             if extended:
-                return item.to_extended_dict()
+                return _extended_dict_for_item(session, item)
 
             return item.to_dict()
         except Exception as e:
@@ -998,6 +1020,13 @@ async def remove_item(
     )
 
 
+class StreamItemRef(BaseModel):
+    """Identifies a media item in stream API responses."""
+
+    id: Annotated[str, Field(description="MediaItem id")]
+    type: Annotated[str, Field(description="Polymorphic type, e.g. episode, season")]
+
+
 class StreamsResponse(MessageResponse):
     streams: Annotated[
         list[dict[str, Any]],
@@ -1011,6 +1040,53 @@ class StreamsResponse(MessageResponse):
         Optional[dict[str, Any]],
         Field(default=None, description="The stream currently pinned for this item, if any"),
     ] = None
+    streams_owner: Annotated[
+        StreamItemRef,
+        Field(description="MediaItem that owns StreamRelation rows for the listed streams"),
+    ]
+    requested_item: Annotated[
+        StreamItemRef,
+        Field(description="MediaItem id/type for the URL path (may differ from streams_owner)"),
+    ]
+    has_episode_override: Annotated[
+        Optional[bool],
+        Field(
+            default=None,
+            description="Episode only: true when this episode has its own active_stream pin",
+        ),
+    ] = None
+    season_id: Annotated[
+        Optional[str],
+        Field(default=None, description="Episode only: parent season MediaItem id"),
+    ] = None
+    season_active_stream: Annotated[
+        Optional[dict[str, Any]],
+        Field(
+            default=None,
+            description="Episode only: active_stream on the parent season, if any",
+        ),
+    ] = None
+    season_stream: Annotated[
+        Optional[dict[str, Any]],
+        Field(
+            default=None,
+            description="Episode only: single season-pinned stream row, if season has active_stream",
+        ),
+    ] = None
+    episode_streams: Annotated[
+        Optional[list[dict[str, Any]]],
+        Field(
+            default=None,
+            description="Episode only: streams linked on the episode (episode or both scope)",
+        ),
+    ] = None
+    episode_blacklisted_streams: Annotated[
+        Optional[list[dict[str, Any]]],
+        Field(
+            default=None,
+            description="Episode only: blacklisted streams linked on the episode",
+        ),
+    ] = None
 
 
 def _streams_source_for_item(session: Session, item: MediaItem) -> tuple[MediaItem, list, list]:
@@ -1018,16 +1094,135 @@ def _streams_source_for_item(session: Session, item: MediaItem) -> tuple[MediaIt
     Return (owner, streams, blacklisted_streams) for the item.
     For episodes with no streams (e.g. season-pack flow), use the parent season's streams.
     """
-    streams = list(item.streams)
-    blacklisted = list(item.blacklisted_streams)
-    owner = item
-    if isinstance(item, Episode) and not streams:
-        season = session.get(Season, item.parent_id) if item.parent_id else None
-        if season:
-            owner = season
-            streams = list(season.streams)
-            blacklisted = list(season.blacklisted_streams)
-    return (owner, streams, blacklisted)
+    return item.streams_source_for_api(session=session)
+
+
+def _episode_season(session: Session, episode: Episode) -> Season | None:
+    season = episode.parent
+    if season is None and episode.parent_id:
+        season = session.get(Season, episode.parent_id)
+    return season
+
+
+def _stream_relation_scope(
+    stream: Stream,
+    episode_id: int | None,
+    season_id: int | None,
+) -> Literal["episode", "season", "both"]:
+    parent_ids = {p.id for p in stream.parents}
+    on_episode = episode_id is not None and episode_id in parent_ids
+    on_season = season_id is not None and season_id in parent_ids
+    if on_episode and on_season:
+        return "both"
+    if on_episode:
+        return "episode"
+    if on_season:
+        return "season"
+    return "episode"
+
+
+def _episode_streams_union(
+    session: Session,
+    episode: Episode,
+) -> tuple[list[Stream], list[Stream], Season | None]:
+    """Union episode + season streams and blacklisted lists (deduped by stream id)."""
+    season = _episode_season(session, episode)
+    streams_by_id: dict[int, Stream] = {}
+    blacklisted_by_id: dict[int, Stream] = {}
+
+    for stream in episode.streams:
+        streams_by_id[stream.id] = stream
+    for stream in episode.blacklisted_streams:
+        blacklisted_by_id[stream.id] = stream
+
+    if season is not None:
+        for stream in season.streams:
+            streams_by_id.setdefault(stream.id, stream)
+        for stream in season.blacklisted_streams:
+            blacklisted_by_id.setdefault(stream.id, stream)
+
+    return list(streams_by_id.values()), list(blacklisted_by_id.values()), season
+
+
+def _stream_to_dict_with_scope(
+    stream: Stream,
+    episode_id: int | None,
+    season_id: int | None,
+) -> dict[str, Any]:
+    payload = stream.to_dict()
+    payload["relation_scope"] = _stream_relation_scope(stream, episode_id, season_id)
+    return payload
+
+
+def _is_episode_scoped_stream(
+    stream: Stream,
+    episode_id: int,
+    season_id: int | None,
+) -> bool:
+    scope = _stream_relation_scope(stream, episode_id, season_id)
+    return scope in ("episode", "both")
+
+
+def _episode_scoped_streams(
+    streams: list[Stream],
+    episode_id: int,
+    season_id: int | None,
+) -> list[Stream]:
+    return [s for s in streams if _is_episode_scoped_stream(s, episode_id, season_id)]
+
+
+def _resolve_season_pinned_stream(season: Season | None) -> Stream | None:
+    """Return the season stream row matching season.active_stream, if pinned."""
+    if season is None or not season.active_stream:
+        return None
+
+    active_hash = season.active_stream.infohash
+    for stream in list(season.streams) + list(season.blacklisted_streams):
+        if stream.infohash == active_hash:
+            return stream
+
+    return None
+
+
+def _episode_has_stream_override(episode: Episode, season: Season | None) -> bool:
+    """
+    True when the episode pins a stream other than the season pack (explicit override).
+
+    Season-pack downloads copy active_stream onto each episode; those match the season
+    pin and are not treated as overrides.
+    """
+    if episode.active_stream is None:
+        return False
+
+    if season is None or season.active_stream is None:
+        return True
+
+    return episode.active_stream.infohash != season.active_stream.infohash
+
+
+def _find_stream_in_episode_union(
+    session: Session,
+    episode: Episode,
+    stream_id: int,
+) -> tuple[Stream | None, Literal["episode", "season", "both"] | None, Season | None]:
+    streams, blacklisted, season = _episode_streams_union(session, episode)
+    stream = next((s for s in streams if s.id == stream_id), None)
+    if stream is None:
+        stream = next((s for s in blacklisted if s.id == stream_id), None)
+    if stream is None:
+        return None, None, season
+    scope = _stream_relation_scope(stream, episode.id, season.id if season else None)
+    return stream, scope, season
+
+
+def _stream_mutation_owner(
+    episode: Episode,
+    season: Season | None,
+    relation_scope: Literal["episode", "season", "both"],
+) -> MediaItem:
+    if relation_scope == "season" and season is not None:
+        return season
+    return episode
 
 
 @router.get(
@@ -1057,12 +1252,59 @@ async def get_item_streams(
 
         _owner, streams, blacklisted = _streams_source_for_item(session, item)
         active_stream = item.active_stream.model_dump() if item.active_stream else None
+        streams_owner = StreamItemRef(id=str(_owner.id), type=str(_owner.type))
+        requested_item = StreamItemRef(id=str(item.id), type=str(item.type))
+
+        has_episode_override: bool | None = None
+        season_id_str: str | None = None
+        season_active_stream: dict[str, Any] | None = None
+        season_stream_payload: dict[str, Any] | None = None
+        episode_streams_payload: list[dict[str, Any]] | None = None
+        episode_blacklisted_payload: list[dict[str, Any]] | None = None
+
+        if isinstance(item, Episode):
+            season = _episode_season(session, item)
+            season_id = season.id if season else None
+            season_id_str = str(season_id) if season_id is not None else None
+            has_episode_override = _episode_has_stream_override(item, season)
+            if season is not None and season.active_stream:
+                season_active_stream = season.active_stream.model_dump()
+
+            pinned = _resolve_season_pinned_stream(season)
+            if pinned is not None:
+                season_stream_payload = _stream_to_dict_with_scope(
+                    pinned, item.id, season_id
+                )
+
+            episode_only = _episode_scoped_streams(item.streams, item.id, season_id)
+            episode_bl_only = _episode_scoped_streams(
+                item.blacklisted_streams, item.id, season_id
+            )
+            streams_payload = [
+                _stream_to_dict_with_scope(s, item.id, season_id) for s in episode_only
+            ]
+            blacklisted_payload = [
+                _stream_to_dict_with_scope(s, item.id, season_id) for s in episode_bl_only
+            ]
+            episode_streams_payload = streams_payload
+            episode_blacklisted_payload = blacklisted_payload
+        else:
+            streams_payload = [stream.to_dict() for stream in streams]
+            blacklisted_payload = [stream.to_dict() for stream in blacklisted]
 
     return StreamsResponse(
         message=f"Retrieved streams for item {item_id}",
-        streams=[stream.to_dict() for stream in streams],
-        blacklisted_streams=[stream.to_dict() for stream in blacklisted],
+        streams=streams_payload,
+        blacklisted_streams=blacklisted_payload,
         active_stream=active_stream,
+        streams_owner=streams_owner,
+        requested_item=requested_item,
+        has_episode_override=has_episode_override,
+        season_id=season_id_str,
+        season_active_stream=season_active_stream,
+        season_stream=season_stream_payload,
+        episode_streams=episode_streams_payload,
+        episode_blacklisted_streams=episode_blacklisted_payload,
     )
 
 
@@ -1102,14 +1344,22 @@ async def blacklist_stream(
                 detail="Item not found",
             )
 
-        stream_owner, streams, _blacklisted = _streams_source_for_item(session, item)
-        stream = next((s for s in streams if s.id == stream_id), None)
-
-        if not stream:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Stream not found",
-            )
+        if isinstance(item, Episode):
+            stream, scope, season = _find_stream_in_episode_union(session, item, stream_id)
+            if not stream or scope is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Stream not found",
+                )
+            stream_owner = _stream_mutation_owner(item, season, scope)
+        else:
+            stream_owner, streams, _blacklisted = _streams_source_for_item(session, item)
+            stream = next((s for s in streams if s.id == stream_id), None)
+            if not stream:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Stream not found",
+                )
 
         def mutation(i: MediaItem, s: Session):
             i.blacklist_stream(stream)
@@ -1164,16 +1414,29 @@ async def unblacklist_stream(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
             )
 
-        stream_owner, _streams, blacklisted = _streams_source_for_item(db, item)
-        stream = next(
-            (s for s in blacklisted if s.id == stream_id),
-            None,
-        )
-
-        if not stream:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found"
+        if isinstance(item, Episode):
+            stream, scope, season = _find_stream_in_episode_union(db, item, stream_id)
+            if not stream or scope is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found"
+                )
+            if stream not in item.blacklisted_streams and (
+                season is None or stream not in season.blacklisted_streams
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found"
+                )
+            stream_owner = _stream_mutation_owner(item, season, scope)
+        else:
+            stream_owner, _streams, blacklisted = _streams_source_for_item(db, item)
+            stream = next(
+                (s for s in blacklisted if s.id == stream_id),
+                None,
             )
+            if not stream:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found"
+                )
 
         def mutation(i: MediaItem, s: Session):
             i.unblacklist_stream(stream)
@@ -1233,54 +1496,206 @@ async def activate_item_stream(
                 detail="Item not found",
             )
 
-        _owner, streams, blacklisted = _streams_source_for_item(session, item)
-        stream = next((s for s in streams if s.id == stream_id), None)
-        if stream is None:
-            if any(s.id == stream_id for s in blacklisted):
+        activate_message = f"Activated stream {stream_id} for item {item_id}"
+        emit_downloader = True
+
+        if isinstance(item, Episode):
+            stream, scope, season = _find_stream_in_episode_union(session, item, stream_id)
+            if not stream or scope is None:
+                union_streams, union_blacklisted, _ = _episode_streams_union(session, item)
+                if any(s.id == stream_id for s in union_blacklisted):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot activate a blacklisted stream",
+                    )
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot activate a blacklisted stream",
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Stream not found",
                 )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Stream not found",
-            )
 
-        item_merged = session.merge(item)
+            if scope == "season":
+                episode_merged = session.merge(item)
 
+                def clear_episode_override(i: MediaItem, s: Session):
+                    i.streams.clear()
+                    i.active_stream = None
+
+                apply_item_mutation(
+                    program,
+                    session,
+                    episode_merged,
+                    clear_episode_override,
+                    bubble_parents=True,
+                )
+                session.commit()
+                activate_message = (
+                    "Cleared episode stream override; using season streams."
+                )
+                emit_downloader = False
+            else:
+                item_merged = session.merge(item)
+                try:
+                    success = downloader.start_manual_download(
+                        item=item_merged,
+                        stream=stream,
+                        service=downloader.service,
+                        file_ids=None,
+                    )
+                except Exception as e:
+                    logger.exception("activate_item_stream: start_manual_download failed")
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Failed to activate stream: {e}",
+                    ) from e
+
+                if not success:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=(
+                            "Failed to activate stream (not cached on debrid or no matching "
+                            "files for this item)"
+                        ),
+                    )
+                session.commit()
+        else:
+            _owner, streams, blacklisted = _streams_source_for_item(session, item)
+            stream = next((s for s in streams if s.id == stream_id), None)
+            if stream is None:
+                if any(s.id == stream_id for s in blacklisted):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot activate a blacklisted stream",
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Stream not found",
+                )
+
+            item_merged = session.merge(item)
+
+            try:
+                success = downloader.start_manual_download(
+                    item=item_merged,
+                    stream=stream,
+                    service=downloader.service,
+                    file_ids=None,
+                )
+            except Exception as e:
+                logger.exception("activate_item_stream: start_manual_download failed")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Failed to activate stream: {e}",
+                ) from e
+
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=(
+                        "Failed to activate stream (not cached on debrid or no matching files "
+                        "for this item)"
+                    ),
+                )
+
+            session.commit()
+
+    if emit_downloader:
         try:
-            success = downloader.start_manual_download(
-                item=item_merged,
-                stream=stream,
-                service=downloader.service,
-                file_ids=None,
+            program.em.add_event(Event("Downloader", item_id))
+        except Exception:
+            logger.warning(
+                "activate_item_stream: could not emit Downloader event for {}", item_id
             )
-        except Exception as e:
-            logger.exception("activate_item_stream: start_manual_download failed")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to activate stream: {e}",
-            ) from e
 
-        if not success:
+    return MessageResponse(message=activate_message)
+
+
+@router.post(
+    "/{item_id}/streams/clear-blacklist",
+    summary="Clear all blacklisted streams for a media item",
+    description=(
+        "Move every blacklisted stream back to the available list without clearing "
+        "active_stream or non-blacklisted streams."
+    ),
+    operation_id="clear_item_stream_blacklist",
+    response_model=MessageResponse,
+)
+async def clear_item_stream_blacklist(
+    item_id: Annotated[
+        int,
+        Path(description="The ID of the media item", ge=1),
+    ],
+) -> MessageResponse:
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
+        )
+
+        if not item:
             raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(
-                    "Failed to activate stream (not cached on debrid or no matching files "
-                    "for this item)"
-                ),
+                status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+            )
+
+        cleared = 0
+
+        if isinstance(item, Episode):
+            season = _episode_season(session, item)
+            episode_merged = session.merge(item)
+
+            def episode_mutation(i: MediaItem, s: Session):
+                nonlocal cleared
+                for stream in list(i.blacklisted_streams):
+                    i.unblacklist_stream(stream)
+                    cleared += 1
+
+            apply_item_mutation(
+                di[Program],
+                session,
+                episode_merged,
+                episode_mutation,
+                bubble_parents=True,
+            )
+
+            if season is not None:
+                season_merged = session.merge(season)
+
+                def season_mutation(i: MediaItem, s: Session):
+                    nonlocal cleared
+                    for stream in list(i.blacklisted_streams):
+                        i.unblacklist_stream(stream)
+                        cleared += 1
+
+                apply_item_mutation(
+                    di[Program],
+                    session,
+                    season_merged,
+                    season_mutation,
+                    bubble_parents=True,
+                )
+        else:
+            stream_owner, _, _ = _streams_source_for_item(session, item)
+            owner_merged = session.merge(stream_owner)
+
+            def owner_mutation(i: MediaItem, s: Session):
+                nonlocal cleared
+                for stream in list(i.blacklisted_streams):
+                    i.unblacklist_stream(stream)
+                    cleared += 1
+
+            apply_item_mutation(
+                di[Program],
+                session,
+                owner_merged,
+                owner_mutation,
+                bubble_parents=True,
             )
 
         session.commit()
 
-    try:
-        program.em.add_event(Event("Downloader", item_id))
-    except Exception:
-        logger.warning("activate_item_stream: could not emit Downloader event for {}", item_id)
-
-    return MessageResponse(
-        message=f"Activated stream {stream_id} for item {item_id}",
-    )
+    if cleared == 0:
+        return MessageResponse(message="No blacklisted streams")
+    return MessageResponse(message=f"Unblacklisted {cleared} stream(s)")
 
 
 @router.post(
@@ -1645,9 +2060,12 @@ async def get_item_aliases(
 @router.get(
     "/{item_id}/metadata",
     summary="Get Media Item Metadata",
-    description="Get metadata for a media item using item ID",
+    description=(
+        "Get ffprobe/parsed file metadata for a media item. Returns null when the item "
+        "has no filesystem media entry (e.g. show, season, or not yet downloaded)."
+    ),
     operation_id="get_item_metadata",
-    response_model=MediaMetadata,
+    response_model=MediaMetadata | None,
 )
 async def get_item_metadata(
     item_id: Annotated[
@@ -1657,8 +2075,8 @@ async def get_item_metadata(
             ge=1,
         ),
     ],
-) -> MediaMetadata:
-    """Get all metadata for a media item using item ID"""
+) -> MediaMetadata | None:
+    """Get file-level metadata from the item's MediaEntry, if any."""
 
     with db_session() as session:
         item = (
@@ -1675,9 +2093,6 @@ async def get_item_metadata(
         media_entry = item.media_entry
 
         if not media_entry or not media_entry.media_metadata:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No metadata available for this item",
-            )
+            return None
 
         return media_entry.media_metadata

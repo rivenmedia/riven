@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from kink import di
 from sqlalchemy import select
 
@@ -432,6 +432,17 @@ async def tmdb_tv_similar(tv_id: str) -> dict[str, Any]:
 
 
 @router.get(
+    "/tmdb/tv/{tv_id}/season/{season_number}",
+    summary="TMDB season details",
+)
+async def tmdb_tv_season_details(tv_id: str, season_number: int) -> dict[str, Any]:
+    return _tmdb_request(
+        f"tv/{tv_id}/season/{season_number}",
+        params={"append_to_response": "credits"},
+    )
+
+
+@router.get(
     "/tmdb/tv/{tv_id}/season/{season_number}/episode/{episode_number}",
     summary="TMDB episode details",
 )
@@ -545,6 +556,43 @@ async def tvdb_series_details(series_id: str) -> dict[str, Any]:
     if not series:
         raise HTTPException(status_code=404, detail="Series not found")
     return series.model_dump()
+
+
+@router.get("/tvdb/season/{tvdb_season_id}", summary="TVDB season extended by season id")
+async def tvdb_season_details(tvdb_season_id: str) -> dict[str, Any]:
+    try:
+        sid = int(tvdb_season_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid TVDB season id",
+        ) from e
+    tvdb = _get_tvdb()
+    season = tvdb.get_season(sid)
+    if not season:
+        raise HTTPException(status_code=404, detail="Season not found")
+    return season.model_dump()
+
+
+@router.get(
+    "/tvdb/series/{series_id}/season/{season_number}",
+    summary="TVDB season extended by series id and season number",
+)
+async def tvdb_series_season_details(series_id: str, season_number: int) -> dict[str, Any]:
+    tvdb = _get_tvdb()
+    series = tvdb.get_series(series_id)
+    if not series or not series.seasons:
+        raise HTTPException(status_code=404, detail="Series or seasons not found")
+    season_match = next(
+        (s for s in series.seasons if s.number is not None and s.number == season_number),
+        None,
+    )
+    if not season_match or season_match.id is None:
+        raise HTTPException(status_code=404, detail="Season not found")
+    season = tvdb.get_season(season_match.id)
+    if not season:
+        raise HTTPException(status_code=404, detail="Season details not found")
+    return season.model_dump()
 
 
 @router.get(

@@ -1,4 +1,5 @@
 import type { AppRoute, RouteName } from "../../app/routeTypes";
+import { readLibraryReturnRoute } from "./libraryReturnRoute";
 
 interface SidebarProps {
   currentRoute: RouteName;
@@ -24,6 +25,16 @@ interface NavSection {
 }
 
 const NAV_SECTIONS: NavSection[] = [
+  {
+    title: "Dashboard",
+    links: [
+      { hash: "#/dashboard", label: "Overview", route: "dashboard" },
+      { hash: "#/dashboard-services", label: "Services", route: "dashboard-services" },
+      { hash: "#/dashboard-states", label: "State Distribution", route: "dashboard-states" },
+      { hash: "#/dashboard-releases", label: "Releases by Year", route: "dashboard-releases" },
+      { hash: "#/calendar", label: "Calendar", route: "calendar" },
+    ],
+  },
   {
     title: "Library",
     links: [
@@ -68,16 +79,6 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: "Dashboard",
-    links: [
-      { hash: "#/dashboard", label: "Overview", route: "dashboard" },
-      { hash: "#/dashboard-services", label: "Services", route: "dashboard-services" },
-      { hash: "#/dashboard-states", label: "State Distribution", route: "dashboard-states" },
-      { hash: "#/dashboard-releases", label: "Releases by Year", route: "dashboard-releases" },
-      { hash: "#/calendar", label: "Calendar", route: "calendar" },
-    ],
-  },
-  {
     title: "VFS",
     links: [
       { hash: "#/vfs-stats", label: "Stats", route: "vfs-stats" },
@@ -93,6 +94,19 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+function effectiveHighlightRouteForLink(link: NavLink, currentRoute: RouteName): RouteName {
+  if (
+    currentRoute === "item" &&
+    (link.route === "library" ||
+      link.route === "movies" ||
+      link.route === "shows" ||
+      link.route === "episodes")
+  ) {
+    return readLibraryReturnRoute() ?? "library";
+  }
+  return currentRoute;
+}
+
 function isLinkActive(link: NavLink, currentRoute: RouteName, route: AppRoute | null): boolean {
   // Treat the Explore "search" mode as equivalent to the Search page so the nav highlight
   // remains correct if the user is on #/explore without ?mode=discover.
@@ -100,7 +114,8 @@ function isLinkActive(link: NavLink, currentRoute: RouteName, route: AppRoute | 
     const mode = route?.query?.mode;
     return mode !== "discover";
   }
-  if (currentRoute !== link.route) return false;
+  const effectiveRoute = effectiveHighlightRouteForLink(link, currentRoute);
+  if (effectiveRoute !== link.route) return false;
   if (link.isActive && route?.query) return link.isActive(route.query);
   return true;
 }
@@ -120,7 +135,7 @@ export default function Sidebar({
       id="app-sidebar-nav"
     >
       <div className="sidebar-brand">
-        <a className="sidebar-logo" href="#/library" onClick={onNavigate}>
+        <a className="sidebar-logo" href="#/dashboard" onClick={onNavigate}>
           Riven
         </a>
         <p className="sidebar-subtitle">Media Control Center</p>

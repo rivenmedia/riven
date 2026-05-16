@@ -48,7 +48,7 @@ Generate a new API key, save it to settings, and return it.
 
 ## GET `/api/v1/services`
 
-**Response:** `{ "<service_key>": true|false, ... }` — e.g. `indexer`, `scraping`, `downloader`, `prowlarr`, `torrentio`, etc.
+**Response:** `{ "services": { "<service_key>": true|false, ... }, "mock_vfs": bool, "console_updater": bool }` — per-integration status plus flags when the in-memory VFS or console-only updater is active. Older clients may still receive a flat map only (no `services` wrapper); the UI accepts both shapes.
 
 ---
 

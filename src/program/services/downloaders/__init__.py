@@ -36,6 +36,7 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
+from .torbox import TorBoxDownloader
 
 
 class Downloader(Runner[None, DownloaderBase]):
@@ -47,6 +48,7 @@ class Downloader(Runner[None, DownloaderBase]):
             RealDebridDownloader: RealDebridDownloader(),
             DebridLinkDownloader: DebridLinkDownloader(),
             AllDebridDownloader: AllDebridDownloader(),
+            TorBoxDownloader: TorBoxDownloader(),
         }
 
         # Get all initialized services instead of just the first one
@@ -334,6 +336,8 @@ class Downloader(Runner[None, DownloaderBase]):
         item: MediaItem,
         download_result: DownloadedTorrent,
         service: DownloaderBase | None = None,
+        *,
+        replace_existing: bool = False,
     ) -> bool:
         """Update the item attributes with the downloaded files and active stream."""
 
@@ -396,6 +400,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     episode_cap,
                     processed_episode_ids,
                     service,
+                    replace_existing=replace_existing,
                 ):
                     found = True
 
@@ -414,6 +419,8 @@ class Downloader(Runner[None, DownloaderBase]):
         episode_cap: int | None = None,
         processed_episode_ids: set[str] | None = None,
         service: DownloaderBase | None = None,
+        *,
+        replace_existing: bool = False,
     ) -> bool:
         """
         Determine whether a parsed file corresponds to the given media item (movie, show, season, or episode) and update the item's attributes when matches are found.
@@ -478,45 +485,56 @@ class Downloader(Runner[None, DownloaderBase]):
 
                     continue
 
-                if episode.filesystem_entry:
+                if isinstance(item, Season) and season_number is not None:
+                    if season_number != item.number:
+                        continue
+
+                if isinstance(item, Episode) and episode.id != item.id:
+                    continue
+
+                if episode.filesystem_entry and not replace_existing:
                     logger.debug(
                         f"Episode {episode.log_string} already has filesystem_entry; skipping"
                     )
 
                     continue
 
-                if episode.state not in [
+                can_update = replace_existing or episode.state not in [
                     States.Completed,
                     States.Symlinked,
                     States.Downloaded,
-                ]:
-                    # Skip if we've already processed this episode in this container
-                    if (
-                        processed_episode_ids is not None
-                        and str(episode.id) in processed_episode_ids
-                    ):
-                        continue
+                ]
 
-                    logger.debug(
-                        f"match_file_to_item: updating episode {episode.id} from file '{file.filename}'"
-                    )
+                if not can_update:
+                    continue
 
-                    self._update_attributes(
-                        episode,
-                        file,
-                        download_result,
-                        service,
-                        file_data,
-                    )
+                # Skip if we've already processed this episode in this container
+                if (
+                    processed_episode_ids is not None
+                    and str(episode.id) in processed_episode_ids
+                ):
+                    continue
 
-                    if processed_episode_ids is not None:
-                        processed_episode_ids.add(str(episode.id))
+                logger.debug(
+                    f"match_file_to_item: updating episode {episode.id} from file '{file.filename}'"
+                )
 
-                    logger.debug(
-                        f"Matched episode {episode.log_string} to file {file.filename}"
-                    )
+                self._update_attributes(
+                    episode,
+                    file,
+                    download_result,
+                    service,
+                    file_data,
+                )
 
-                    found = True
+                if processed_episode_ids is not None:
+                    processed_episode_ids.add(str(episode.id))
+
+                logger.debug(
+                    f"Matched episode {episode.log_string} to file {file.filename}"
+                )
+
+                found = True
 
         if found and isinstance(item, (Show, Season)):
             item.active_stream = ActiveStream(
@@ -765,7 +783,7 @@ class Downloader(Runner[None, DownloaderBase]):
             return False
         
         # 4. Update item attributes (same as standard flow)
-        if self.update_item_attributes(item, result, service):
+        if self.update_item_attributes(item, result, service, replace_existing=True):
             # Store state - Manual download completes the 'Downloader' phase, so we are now Downloaded
             item.store_state(States.Downloaded)
             logger.info(f"START_MANUAL_DOWNLOAD: Successfully downloaded {item.log_string} from '{stream.raw_title}'")

@@ -44,7 +44,11 @@ class AsyncClient(httpx.AsyncClient):
     async def raise_on_4xx_5xx(self, response: httpx.Response) -> None:
         """Raise an error if the response status code indicates an error."""
 
-        response.raise_for_status()
+        # Do not use raise_for_status() as-is: it treats 3xx as errors. Response
+        # hooks run on redirect responses before httpx follows them; e.g. TorBox
+        # requestdl URLs return 307 to a CDN and would abort the redirect chain.
+        if response.is_error:
+            response.raise_for_status()
 
     async def log_request(self, request: httpx.Request) -> None:
         """Log the HTTP request details.

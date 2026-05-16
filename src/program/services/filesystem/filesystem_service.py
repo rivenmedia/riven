@@ -7,6 +7,7 @@ using the RivenVFS implementation.
 from typing import TYPE_CHECKING
 from loguru import logger
 
+from program.services.filesystem.fuse_available import is_fuse_available
 from program.services.filesystem.common_utils import get_items_to_update
 from program.services.downloaders import Downloader
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
@@ -34,8 +35,47 @@ class FilesystemService(Runner[FilesystemModel]):
     def get_key(cls) -> str:
         return "filesystem"
 
+    @property
+    def uses_mock_vfs(self) -> bool:
+        """True when pyfuse3 is unavailable and the in-memory inventory backend is active."""
+
+        if self.riven_vfs is None:
+            return False
+        from program.services.filesystem.vfs.mock_rivenvfs import MockRivenVFS
+
+        return isinstance(self.riven_vfs, MockRivenVFS)
+
+    @property
+    def enabled(self) -> bool:
+        if not is_fuse_available():
+            return False
+        return super().enabled
+
+    @property
+    def initialized(self) -> bool:
+        if not is_fuse_available():
+            return True
+        return self.validate()
+
+    @initialized.setter
+    def initialized(self, value: bool) -> None:
+        pass
+
     def _initialize_rivenvfs(self, downloader: Downloader):
         """Initialize or synchronize RivenVFS"""
+        if not is_fuse_available():
+            logger.info(
+                "pyfuse3 is not installed; VFS (FUSE) is disabled. "
+                "Using in-memory mount inventory only (install the `fuse` extra for FUSE).",
+            )
+            from .vfs.mock_rivenvfs import MockRivenVFS
+
+            self.riven_vfs = MockRivenVFS(
+                mountpoint=str(self.settings.mount_path),
+                downloader=downloader,
+            )
+            return
+
         try:
             from .vfs import RivenVFS
 
@@ -61,7 +101,10 @@ class FilesystemService(Runner[FilesystemModel]):
 
     def run(self, item: "MediaItem") -> MediaItemGenerator:
         if not self.riven_vfs:
-            logger.error("RivenVFS not initialized")
+            logger.warning(
+                "RivenVFS not initialized (FUSE unavailable and mock VFS failed to attach); "
+                "skipping filesystem step for this item.",
+            )
             yield RunnerResult(media_items=[item])
             return
 
@@ -125,13 +168,3 @@ class FilesystemService(Runner[FilesystemModel]):
             return False
 
         return True
-
-    @property
-    def initialized(self) -> bool:
-        """Check if the filesystem service is properly initialized"""
-        return self.validate()
-
-    @initialized.setter
-    def initialized(self, value: bool) -> None:
-        # Setting initialized is a no-op
-        pass

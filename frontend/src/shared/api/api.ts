@@ -2,6 +2,8 @@
  * API client - fetch wrapper with x-api-key and 401 handling.
  */
 
+import { getKey, suppressDevViteKeyAfter401 } from '../../features/auth/auth';
+
 const API_BASE = '/api/v1';
 
 type QueryValue = string | number | boolean | null | undefined;
@@ -14,16 +16,11 @@ export interface ApiResult<T = any> {
   error: string | null;
 }
 
-function getApiKey(): string | null {
-  const fromSession = sessionStorage.getItem('riven_api_key');
-  if (fromSession) return fromSession;
-
-  // Optional dev convenience: allow setting a default key via Vite env
-  const fromEnv = (import.meta as any)?.env?.VITE_API_KEY;
-  return typeof fromEnv === 'string' && fromEnv.length > 0 ? fromEnv : null;
-}
+let clearAuthRedirectPending = false;
 
 function clearAuth(): void {
+  if (clearAuthRedirectPending) return;
+  clearAuthRedirectPending = true;
   sessionStorage.removeItem('riven_api_key');
   window.location.href = '/';
 }
@@ -89,7 +86,7 @@ export async function apiFetch<T = any>(
   path: string,
   options: RequestInit = {},
 ): Promise<ApiResult<T>> {
-  const key = getApiKey();
+  const key = getKey();
   if (!key) {
     return {
       ok: false,
@@ -119,6 +116,7 @@ export async function apiFetch<T = any>(
   try {
     const response = await fetch(url, { ...options, headers });
     if (response.status === 401) {
+      suppressDevViteKeyAfter401();
       clearAuth();
       return {
         ok: false,
@@ -175,6 +173,6 @@ export async function apiDelete<T = any>(
 }
 
 export function getStreamUrl(itemId: string | number): string {
-  const key = getApiKey();
+  const key = getKey();
   return `${API_BASE}/stream/file/${itemId}?api_key=${encodeURIComponent(key || '')}`;
 }

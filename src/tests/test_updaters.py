@@ -7,6 +7,7 @@ import pytest
 
 from program.media.item import Episode, Movie, Season, Show
 from program.services.updaters import Updater
+from program.services.updaters.console import ConsoleUpdater
 from program.services.updaters.emby import EmbyUpdater
 from program.services.updaters.jellyfin import JellyfinUpdater
 from program.services.updaters.plex import PlexUpdater
@@ -20,6 +21,11 @@ def mock_movie():
     movie.type = "movie"
     movie.filesystem_entry = Mock()
     movie.filesystem_entry.path = "/movies/Test Movie (2020)/Test Movie (2020).mkv"
+    media_entry = Mock()
+    media_entry.get_all_vfs_paths = Mock(
+        return_value=["/movies/Test Movie (2020)/Test Movie (2020).mkv"]
+    )
+    movie.media_entry = media_entry
     movie.updated = False
     movie.log_string = "Test Movie (2020)"
     return movie
@@ -32,6 +38,11 @@ def mock_episode():
     episode.type = "episode"
     episode.filesystem_entry = Mock()
     episode.filesystem_entry.path = "/shows/Test Show/Season 01/Test Show S01E01.mkv"
+    media_entry = Mock()
+    media_entry.get_all_vfs_paths = Mock(
+        return_value=["/shows/Test Show/Season 01/Test Show S01E01.mkv"]
+    )
+    episode.media_entry = media_entry
     episode.updated = False
     episode.log_string = "Test Show S01E01"
     return episode
@@ -44,6 +55,16 @@ def mock_show():
     show.type = "show"
     show.filesystem_entry = Mock()
     show.filesystem_entry.path = "/shows/Test Show/Season 01/Test Show S01E01.mkv"
+    ep = Mock()
+    ep.available_in_vfs = True
+    ep.log_string = "Test Show S01E01"
+    ep.media_entry = Mock()
+    ep.media_entry.get_all_vfs_paths = Mock(
+        return_value=["/shows/Test Show/Season 01/Test Show S01E01.mkv"]
+    )
+    season = Mock()
+    season.episodes = [ep]
+    show.seasons = [season]
     show.updated = False
     show.log_string = "Test Show"
     return show
@@ -96,7 +117,7 @@ class TestPlexUpdater:
         """Test that PlexUpdater doesn't initialize when disabled"""
         updater = PlexUpdater()
         assert not updater.initialized
-        assert updater.service_name == "Plex"
+        assert updater.key == "plexupdater"
 
     def test_initialization_enabled(self, mock_settings):
         """Test that PlexUpdater initializes when enabled and configured"""
@@ -164,7 +185,7 @@ class TestEmbyUpdater:
         """Test that EmbyUpdater doesn't initialize when disabled"""
         updater = EmbyUpdater()
         assert not updater.initialized
-        assert updater.service_name == "Emby"
+        assert updater.key == "emby"
 
     def test_initialization_enabled(self, mock_settings):
         """Test that EmbyUpdater initializes when enabled"""
@@ -221,7 +242,7 @@ class TestJellyfinUpdater:
         """Test that JellyfinUpdater doesn't initialize when disabled"""
         updater = JellyfinUpdater()
         assert not updater.initialized
-        assert updater.service_name == "Jellyfin"
+        assert updater.key == "jellyfin"
 
     def test_initialization_enabled(self, mock_settings):
         """Test that JellyfinUpdater initializes when enabled"""
@@ -277,12 +298,13 @@ class TestUpdater:
         assert PlexUpdater in updater.services
         assert EmbyUpdater in updater.services
         assert JellyfinUpdater in updater.services
+        assert ConsoleUpdater in updater.services
 
     def test_validate_no_services(self, mock_settings):
-        """Test validation when no services are initialized"""
+        """Test validation falls back to console when no media server updater is initialized"""
         updater = Updater()
-        # All services disabled by default in mock_settings
-        assert not updater.initialized
+        assert ConsoleUpdater in updater.services
+        assert updater.initialized
 
     def test_validate_with_services(self, mock_settings):
         """Test validation when at least one service is initialized"""
@@ -308,7 +330,7 @@ class TestUpdater:
                 assert mock_movie.updated is True
 
     def test_run_episode_extracts_correct_path(self, mock_settings, mock_episode):
-        """Test that run() extracts correct path for episodes (parent's parent directory)"""
+        """Test that run() refreshes the parent directory of the episode file (season folder)"""
         mock_settings["emby"].settings.updaters.emby.enabled = True
 
         with patch.object(EmbyUpdater, "validate", return_value=True):
@@ -317,15 +339,14 @@ class TestUpdater:
             with patch.object(updater, "refresh_path") as mock_refresh:
                 list(updater.run(mock_episode))
 
-                # For episodes, should refresh parent's parent (show folder, not season)
-                expected_path = "/mnt/library/shows/Test Show"
+                expected_path = "/mnt/library/shows/Test Show/Season 01"
                 mock_refresh.assert_called_once_with(expected_path)
                 assert mock_episode.updated is True
 
     def test_run_no_filesystem_entry(self, mock_settings, mock_movie):
         """Test run() when item has no filesystem entry"""
         mock_settings["emby"].settings.updaters.emby.enabled = True
-        mock_movie.filesystem_entry = None
+        mock_movie.media_entry = None
 
         with patch.object(EmbyUpdater, "validate", return_value=True):
             updater = Updater()
@@ -338,11 +359,13 @@ class TestUpdater:
 
     def test_run_not_initialized(self, mock_settings, mock_movie):
         """Test run() when updater is not initialized"""
-        updater = Updater()
+        with patch.object(ConsoleUpdater, "validate", return_value=False):
+            updater = Updater()
         assert not updater.initialized
 
-        with patch.object(updater, "refresh_path") as mock_refresh:
-            list(updater.run(mock_movie))
+        with patch.object(updater, "get_items_to_update", return_value=[]):
+            with patch.object(updater, "refresh_path") as mock_refresh:
+                list(updater.run(mock_movie))
 
             # Should not call refresh_path
             mock_refresh.assert_not_called()
@@ -428,7 +451,7 @@ class TestUpdaterIntegration:
 
                 # Verify item was returned and updated
                 assert len(result) == 1
-                assert result[0] == mock_movie
+                assert result[0].media_items[0] is mock_movie
                 assert mock_movie.updated is True
 
                 # Verify Emby was called with correct path
@@ -456,15 +479,15 @@ class TestUpdaterIntegration:
                 # Run the updater
                 result = list(updater.run(mock_show))
 
-                # Verify show was returned and updated
+                # Verify show was returned; episode child was updated in-place
                 assert len(result) == 1
-                assert result[0] == mock_show
-                assert mock_show.updated is True
+                assert result[0].media_items[0] is mock_show
+                assert mock_show.seasons[0].episodes[0].updated is True
 
-                # Verify Emby was called with show folder (not season folder)
+                # Verify Emby was called with season folder (parent of episode file)
                 mock_post.assert_called_once()
                 call_args = mock_post.call_args
                 assert (
                     call_args[1]["json"]["Updates"][0]["Path"]
-                    == "/mnt/library/shows/Test Show"
+                    == "/mnt/library/shows/Test Show/Season 01"
                 )

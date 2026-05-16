@@ -6,9 +6,10 @@ from typing import Any, Literal, TYPE_CHECKING, Self, TypeVar
 from kink import di
 import sqlalchemy
 from loguru import logger
-from sqlalchemy import Dialect, Index, TypeDecorator
+from sqlalchemy import Dialect, Index, TypeDecorator, func, select
 from sqlalchemy.orm import (
     Mapped,
+    Session,
     mapped_column,
     object_session,
     relationship,
@@ -25,7 +26,7 @@ from program.media.media_entry import MediaEntry
 from program.apis.tvdb_api import SeriesRelease
 from program.media.models import ActiveStream
 
-from .stream import Stream
+from .stream import Stream, StreamBlacklistRelation, StreamRelation
 
 if TYPE_CHECKING:
     from program.media.filesystem_entry import FilesystemEntry
@@ -419,6 +420,75 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
 
         return False
 
+    def streams_source_for_api(
+        self,
+        session: Session | None = None,
+    ) -> tuple["MediaItem", list[Stream], list[Stream]]:
+        """Resolve (owner, streams, blacklisted) for API: matches GET .../streams semantics."""
+
+        sess = session if session is not None else object_session(self)
+
+        streams = list(self.streams)
+        blacklisted = list(self.blacklisted_streams)
+        owner: MediaItem = self
+
+        if isinstance(self, Episode) and not streams:
+            season = self.parent
+            if season is None and sess is not None and self.parent_id:
+                season = sess.get(Season, self.parent_id)
+            if season is not None:
+                owner = season
+                streams = list(season.streams)
+                blacklisted = list(season.blacklisted_streams)
+
+        return owner, streams, blacklisted
+
+    @staticmethod
+    def _relation_stream_row_counts(session: Session, media_item_id: int) -> tuple[int, int]:
+        """Count StreamRelation / StreamBlacklistRelation rows for a MediaItem id."""
+
+        n_streams = session.execute(
+            select(func.count())
+            .select_from(StreamRelation)
+            .where(StreamRelation.parent_id == media_item_id)
+        ).scalar_one()
+
+        n_blacklisted = session.execute(
+            select(func.count())
+            .select_from(StreamBlacklistRelation)
+            .where(StreamBlacklistRelation.media_item_id == media_item_id)
+        ).scalar_one()
+
+        return int(n_streams), int(n_blacklisted)
+
+    @staticmethod
+    def _batch_relation_stream_row_counts(
+        session: Session, media_item_ids: set[int]
+    ) -> dict[int, tuple[int, int]]:
+        """Map media item id -> (available stream count, blacklisted count)."""
+
+        if not media_item_ids:
+            return {}
+
+        stream_rows = session.execute(
+            select(StreamRelation.parent_id, func.count())
+            .where(StreamRelation.parent_id.in_(media_item_ids))
+            .group_by(StreamRelation.parent_id)
+        ).all()
+
+        bl_rows = session.execute(
+            select(StreamBlacklistRelation.media_item_id, func.count())
+            .where(StreamBlacklistRelation.media_item_id.in_(media_item_ids))
+            .group_by(StreamBlacklistRelation.media_item_id)
+        ).all()
+
+        n_by_parent = {int(pid): int(c) for pid, c in stream_rows}
+        b_by_item = {int(mid): int(c) for mid, c in bl_rows}
+
+        return {
+            i: (n_by_parent.get(i, 0), b_by_item.get(i, 0)) for i in media_item_ids
+        }
+
     def to_dict(self) -> dict[str, Any]:
         """Convert item to dictionary (API response)"""
 
@@ -474,12 +544,17 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
             data["parent_ids"] = parent_ids
         elif isinstance(self, Episode):
             data["show_id"] = self.parent.parent.id
+            data["season_id"] = str(self.parent_id)
+
+        if isinstance(self, Season):
+            data["show_id"] = str(self.parent_id)
 
         return data
 
     def to_extended_dict(
         self,
         with_streams: bool = False,
+        stream_counts_map: dict[int, tuple[int, int]] | None = None,
     ) -> dict[str, Any]:
         """Convert item to extended dictionary (API response)"""
 
@@ -487,12 +562,18 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
 
         if isinstance(self, Show):
             extended_dict["seasons"] = [
-                season.to_extended_dict(with_streams=with_streams)
+                season.to_extended_dict(
+                    with_streams=with_streams,
+                    stream_counts_map=stream_counts_map,
+                )
                 for season in self.seasons
             ]
         elif isinstance(self, Season):
             extended_dict["episodes"] = [
-                episode.to_extended_dict(with_streams=with_streams)
+                episode.to_extended_dict(
+                    with_streams=with_streams,
+                    stream_counts_map=stream_counts_map,
+                )
                 for episode in self.episodes
             ]
 
@@ -506,6 +587,31 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
                 stream.to_dict() for stream in self.blacklisted_streams
             ]
             extended_dict["active_stream"] = self.active_stream
+
+        if stream_counts_map is not None:
+            if isinstance(self, Episode):
+                ep_n, ep_b = stream_counts_map.get(self.id, (0, 0))
+                if ep_n > 0 or ep_b > 0:
+                    sc, bc = ep_n, ep_b
+                elif self.parent_id:
+                    sc, bc = stream_counts_map.get(self.parent_id, (0, 0))
+                else:
+                    sc, bc = 0, 0
+            else:
+                sc, bc = stream_counts_map.get(self.id, (0, 0))
+            extended_dict["streams_count"] = sc
+            extended_dict["blacklisted_streams_count"] = bc
+        else:
+            owner, list_streams, list_bl = self.streams_source_for_api()
+            sess = object_session(self)
+            if sess is not None:
+                extended_dict["streams_count"], extended_dict[
+                    "blacklisted_streams_count"
+                ] = MediaItem._relation_stream_row_counts(sess, owner.id)
+            else:
+                extended_dict["streams_count"] = len(list_streams)
+                extended_dict["blacklisted_streams_count"] = len(list_bl)
+
         extended_dict["number"] = (
             self.number if isinstance(self, Episode | Season) else None
         )

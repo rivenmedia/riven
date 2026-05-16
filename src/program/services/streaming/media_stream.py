@@ -1,6 +1,5 @@
 import trio
 import trio_util
-import pyfuse3
 import httpx
 
 from functools import cached_property
@@ -68,7 +67,7 @@ class MediaStream:
     def __init__(
         self,
         *,
-        fh: pyfuse3.FileHandleT,
+        fh: int,
         file_size: int,
         path: str,
         original_filename: str,

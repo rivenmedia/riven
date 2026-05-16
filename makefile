@@ -1,4 +1,4 @@
-.PHONY: help install run build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update dev frontend-install frontend-build frontend-dev frontend-clean
+.PHONY: help install run backend postgres-local postgres-local-down build push push-dev push-branch tidy clean hard_reset format check sort test coverage pr-ready update dev frontend-install frontend-build frontend-dev frontend-clean
 
 # Detect operating system
 ifeq ($(OS),Windows_NT)
@@ -13,10 +13,18 @@ BRANCH_NAME := $(shell git rev-parse --abbrev-ref HEAD | sed 's/[^a-zA-Z0-9]/-/g
 COMMIT_HASH := $(shell git rev-parse --short HEAD)
 FRONTEND_DIR := frontend
 FRONTEND_OUT := src/static/ui
+PORT ?= 8080
+
+POSTGRES_LOCAL_CONTAINER ?= riven-postgres-local
+POSTGRES_LOCAL_PORT ?= 5432
+POSTGRES_LOCAL_DATA_DIR ?= data/db
 
 help:
 	@echo "make install     - Install dependencies"
-	@echo "make run         - Run the application"
+	@echo "make run         - Run the application (frontend build + backend)"
+	@echo "make backend     - Run backend only (no frontend build; PORT=$(PORT))"
+	@echo "make postgres-local      - Run Postgres 17 locally (user/db/pass riven; port $(POSTGRES_LOCAL_PORT))"
+	@echo "make postgres-local-down - Stop and remove that Postgres container"
 	@echo "make build       - Build the application image"
 	@echo "make push        - Build and push the application image to Docker Hub"
 	@echo "make push-dev    - Build and push the dev image to Docker Hub"
@@ -99,7 +107,7 @@ frontend-build: frontend-install
 
 dev: frontend-install
 	@echo "Starting backend and frontend dev server..."
-	@(trap 'kill 0' EXIT; uv run python src/main.py -p 8080 & sleep 2 && npm --prefix $(FRONTEND_DIR) run dev)
+	@(trap 'kill 0' EXIT; uv run python src/main.py -p $(PORT) & sleep 2 && npm --prefix $(FRONTEND_DIR) run dev)
 
 frontend-dev: frontend-install
 	@echo "Starting frontend dev server (hot reload)..."
@@ -120,9 +128,37 @@ diff:
 	@echo "Diffing against previous commit..."
 	@git diff HEAD~1 HEAD
 
-# Run the application
+# Run the application (production-style: built UI in src/static/ui)
 run: frontend-build
-	@uv run python src/main.py
+	@uv run python src/main.py -p $(PORT)
+
+# Backend only — skips npm build; use after `make frontend-build` or without UI
+backend:
+	@echo "Starting backend on port $(PORT) (no frontend build)..."
+	@uv run python src/main.py -p $(PORT)
+
+# Local Postgres (riven / riven / riven) for dev — data under $(POSTGRES_LOCAL_DATA_DIR)/
+postgres-local:
+	@mkdir -p "$(CURDIR)/$(POSTGRES_LOCAL_DATA_DIR)"
+	@if ! docker container inspect "$(POSTGRES_LOCAL_CONTAINER)" >/dev/null 2>&1; then \
+		docker run -d --name "$(POSTGRES_LOCAL_CONTAINER)" \
+			-e POSTGRES_USER=riven \
+			-e POSTGRES_PASSWORD=riven \
+			-e POSTGRES_DB=riven \
+			-p "$(POSTGRES_LOCAL_PORT):5432" \
+			-v "$(CURDIR)/$(POSTGRES_LOCAL_DATA_DIR):/var/lib/postgresql/data" \
+			postgres:17-alpine; \
+		echo "Created container $(POSTGRES_LOCAL_CONTAINER)"; \
+	else \
+		docker start "$(POSTGRES_LOCAL_CONTAINER)" >/dev/null; \
+		echo "Started existing container $(POSTGRES_LOCAL_CONTAINER)"; \
+	fi
+	@echo "URL: postgresql+psycopg2://riven:riven@127.0.0.1:$(POSTGRES_LOCAL_PORT)/riven"
+
+postgres-local-down:
+	-docker stop "$(POSTGRES_LOCAL_CONTAINER)" 2>/dev/null
+	-docker rm "$(POSTGRES_LOCAL_CONTAINER)" 2>/dev/null
+	@echo "Postgres container $(POSTGRES_LOCAL_CONTAINER) removed (data dir $(POSTGRES_LOCAL_DATA_DIR) kept)"
 
 # Code quality commands
 format:

@@ -159,7 +159,7 @@ class Program(threading.Thread):
                 "No Downloader service initialized, you must enable at least one."
             )
 
-        if not self.services.filesystem.initialized:
+        if self.services.filesystem.enabled and not self.services.filesystem.initialized:
             logger.error(
                 "Filesystem service failed to initialize, check your settings."
             )

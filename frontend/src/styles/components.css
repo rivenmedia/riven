@@ -463,7 +463,15 @@ details[open].collapsible-panel .collapsible-panel__chevron {
 }
 
 .modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   min-width: min(720px, 92vw);
+  max-width: 92vw;
+  max-height: min(85vh, 720px);
+  margin: 0;
+  padding: 0;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
   background: rgba(9, 14, 28, 0.98);
@@ -472,6 +480,11 @@ details[open].collapsible-panel .collapsible-panel__chevron {
 
 .modal::backdrop {
   background: rgba(3, 8, 16, 0.72);
+}
+
+.modal--session-files .modal-body {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
 }
 
 .modal header {

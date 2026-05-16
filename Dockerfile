@@ -30,7 +30,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cache/pip \
-    uv venv .venv && uv sync --no-dev --frozen
+    uv venv .venv && uv sync --no-dev --frozen --extra fuse
 
 # -----------------
 # Final Stage

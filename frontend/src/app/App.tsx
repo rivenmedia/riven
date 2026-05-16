@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { hasKey, logout, setKey, validateKey } from "../features/auth/auth";
+import { readLibraryReturnRoute } from "../shared/navigation/libraryReturnRoute";
 import { parseRoute, replaceRoute } from "../shared/routing/router";
 import LoginView from "../features/auth/LoginView";
 import ManualScrapeModalTemplate from "../shared/scraping/ManualScrapeModalTemplate";
@@ -16,7 +17,7 @@ function normalizeRoute(parsed: AppRoute): AppRoute {
   return parsed;
 }
 
-const DEFAULT_HASH = "#/library";
+const DEFAULT_HASH = "#/dashboard";
 const MOBILE_MEDIA_QUERY = "(max-width: 1080px)";
 const MOBILE_SIDEBAR_WIDTH_PX = 300;
 const MOBILE_SWIPE_EDGE_PX = 24;
@@ -63,7 +64,7 @@ function getMobileRouteTitle(route: AppRoute): string {
       return "Trending - This Week";
     }
   }
-  return ROUTE_TITLES[route.name] || ROUTE_TITLES.library;
+  return ROUTE_TITLES[route.name] || ROUTE_TITLES.dashboard;
 }
 
 function applyRouteTheme(routeName: RouteName) {
@@ -72,12 +73,20 @@ function applyRouteTheme(routeName: RouteName) {
     return;
   }
 
-  if (routeName === "movies") {
+  let themeRoute = routeName;
+  if (routeName === "item") {
+    const lib = readLibraryReturnRoute();
+    if (lib === "movies") themeRoute = "movies";
+    else if (lib === "shows" || lib === "episodes") themeRoute = "shows";
+    else themeRoute = "library";
+  }
+
+  if (themeRoute === "movies") {
     body.dataset.mediaContext = "movie";
     return;
   }
 
-  if (routeName === "shows") {
+  if (themeRoute === "shows") {
     body.dataset.mediaContext = "tv";
     return;
   }
@@ -92,7 +101,7 @@ export default function App() {
   const [error, setError] = useState<string>("");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
 
-  const routeName = useMemo<RouteName>(() => route?.name || "library", [route]);
+  const routeName = useMemo<RouteName>(() => route?.name || "dashboard", [route]);
   const mobileRouteTitle = useMemo(() => getMobileRouteTitle(route), [route]);
 
   useEffect(() => {
