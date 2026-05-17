@@ -1,5 +1,6 @@
 import platform
 import psutil
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import requests
@@ -17,6 +18,7 @@ from program.media.media_entry import MediaEntry
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.state import States
 from program.program import Program
+from program.services.rate_limit import RateLimitService, get_rate_limit_service
 from program.settings import settings_manager
 from program.utils import generate_api_key
 
@@ -61,17 +63,31 @@ class DownloaderUserInfoResponse(BaseModel):
     services: list[DownloaderUserInfo]
 
 
-class DownloaderBreakerStatus(BaseModel):
-    domain: str
-    state: str
-    failures: int
-
-
 class DownloaderServiceStatus(BaseModel):
     key: str
     available: bool
     cooldown_until: str | None = None
-    breaker: DownloaderBreakerStatus | None = None
+
+
+class LimiterSnapshotResponse(BaseModel):
+    key: str
+    label: str
+    owner: str
+    tokens: float
+    capacity: float
+    rate_per_second: float
+    utilization_pct: float
+    next_token_in_seconds: float
+    priority: str
+    warn_at_pct: float
+    breaker_state: str
+    breaker_failures: int
+    breaker_recovery_in_seconds: float
+
+
+class RateLimitsResponse(BaseModel):
+    limiters: list[LimiterSnapshotResponse]
+    by_owner: dict[str, list[str]]
 
 
 class DownloaderQueueStats(BaseModel):
@@ -81,13 +97,207 @@ class DownloaderQueueStats(BaseModel):
     next_ready_at: str | None = None
 
 
+class InFlightItemResponse(BaseModel):
+    id: int
+    title: str
+    type: str
+    parent_title: str | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
+    state: str | None = None
+
+
+class QueuedItemResponse(InFlightItemResponse):
+    run_at: str
+    queued_at: str
+    scraped_at: str | None = None
+    deferred: bool
+    wait_seconds: float
+    emitted_by: str
+
+
+class LastDownloaderJobResponse(BaseModel):
+    item: InFlightItemResponse | None = None
+    completed_at: str | None = None
+    outcome: Literal["success", "deferred", "failed", "skipped"] | None = None
+    detail: str | None = None
+    service: str | None = None
+
+
+def _item_display_rows(
+    item_ids: list[int],
+) -> dict[int, tuple[InFlightItemResponse, datetime | None]]:
+    """Build display rows for item IDs; returns (response, scraped_at) per id."""
+
+    if not item_ids:
+        return {}
+
+    unique_ids = list(dict.fromkeys(item_ids))
+
+    with db_session() as session:
+        items = list(
+            session.scalars(
+                select(MediaItem).where(MediaItem.id.in_(unique_ids))
+            ).all()
+        )
+        parent_ids: set[int] = set()
+        for item in items:
+            pid = getattr(item, "parent_id", None)
+            if pid:
+                parent_ids.add(int(pid))
+
+        parents: dict[int, MediaItem] = {}
+        if parent_ids:
+            for parent in session.scalars(
+                select(MediaItem).where(MediaItem.id.in_(parent_ids))
+            ):
+                parents[parent.id] = parent
+
+            grandparent_ids = {
+                int(getattr(parent, "parent_id"))
+                for parent in parents.values()
+                if getattr(parent, "parent_id", None)
+            } - set(parents.keys())
+            if grandparent_ids:
+                for grandparent in session.scalars(
+                    select(MediaItem).where(MediaItem.id.in_(grandparent_ids))
+                ):
+                    parents[grandparent.id] = grandparent
+
+        by_id = {item.id: item for item in items}
+        rows: dict[int, tuple[InFlightItemResponse, datetime | None]] = {}
+
+        for item_id in unique_ids:
+            item = by_id.get(item_id)
+            if not item:
+                rows[item_id] = (
+                    InFlightItemResponse(
+                        id=item_id,
+                        title=f"Item {item_id}",
+                        type="unknown",
+                    ),
+                    None,
+                )
+                continue
+
+            parent_title: str | None = None
+            season_number: int | None = None
+            episode_number: int | None = None
+
+            if item.type == "season":
+                show = parents.get(int(getattr(item, "parent_id", 0) or 0))
+                parent_title = show.title if show else None
+                season_number = getattr(item, "number", None)
+            elif item.type == "episode":
+                season = parents.get(int(getattr(item, "parent_id", 0) or 0))
+                season_number = getattr(season, "number", None) if season else None
+                show = (
+                    parents.get(int(getattr(season, "parent_id", 0) or 0))
+                    if season
+                    else None
+                )
+                parent_title = show.title if show else None
+                episode_number = getattr(item, "number", None)
+
+            rows[item_id] = (
+                InFlightItemResponse(
+                    id=item.id,
+                    title=item.title or f"Item {item.id}",
+                    type=item.type,
+                    parent_title=parent_title,
+                    season_number=season_number,
+                    episode_number=episode_number,
+                    state=item.last_state.name if item.last_state else None,
+                ),
+                item.scraped_at,
+            )
+
+        return rows
+
+
+def _in_flight_items(item_ids: list[int]) -> list[InFlightItemResponse]:
+    rows = _item_display_rows(item_ids)
+    return [rows[i][0] for i in item_ids if i in rows]
+
+
+def _queued_items(event_rows: list[dict[str, Any]]) -> list[QueuedItemResponse]:
+    if not event_rows:
+        return []
+
+    now = datetime.now()
+    item_ids = [int(r["item_id"]) for r in event_rows]
+    display = _item_display_rows(item_ids)
+    result: list[QueuedItemResponse] = []
+
+    for raw in event_rows:
+        item_id = int(raw["item_id"])
+        run_at: datetime = raw["run_at"]
+        queued_at: datetime = raw["queued_at"]
+        deferred: bool = bool(raw["deferred"])
+
+        display_row, scraped_at = display.get(
+            item_id,
+            (
+                InFlightItemResponse(
+                    id=item_id,
+                    title=f"Item {item_id}",
+                    type="unknown",
+                ),
+                None,
+            ),
+        )
+
+        if deferred:
+            wait_seconds = max(0.0, (run_at - now).total_seconds())
+        else:
+            anchor = queued_at
+            if scraped_at and scraped_at > anchor:
+                anchor = scraped_at
+            wait_seconds = max(0.0, (now - anchor).total_seconds())
+
+        result.append(
+            QueuedItemResponse(
+                **display_row.model_dump(),
+                run_at=run_at.isoformat(),
+                queued_at=queued_at.isoformat(),
+                scraped_at=scraped_at.isoformat() if scraped_at else None,
+                deferred=deferred,
+                wait_seconds=wait_seconds,
+                emitted_by=str(raw["emitted_by"]),
+            )
+        )
+
+    return result
+
+
 class DownloaderStatusResponse(BaseModel):
     paused: bool
     pause_until: str | None = None
     min_job_interval_seconds: float
     queue: DownloaderQueueStats
     services: list[DownloaderServiceStatus]
-    in_flight_item_ids: list[int]
+    in_flight_items: list[InFlightItemResponse]
+    queued_items: list[QueuedItemResponse]
+    last_job: LastDownloaderJobResponse | None = None
+
+
+def _last_job_response(raw: dict[str, Any] | None) -> LastDownloaderJobResponse | None:
+    if not raw:
+        return None
+
+    item_id = raw.get("item_id")
+    item: InFlightItemResponse | None = None
+    if item_id is not None:
+        rows = _item_display_rows([int(item_id)])
+        item = rows.get(int(item_id), (None, None))[0]
+
+    return LastDownloaderJobResponse(
+        item=item,
+        completed_at=raw.get("completed_at"),
+        outcome=raw.get("outcome"),
+        detail=raw.get("detail"),
+        service=raw.get("service"),
+    )
 
 
 @router.get(
@@ -199,27 +409,18 @@ async def downloader_status() -> DownloaderStatusResponse:
 
         operational = downloader.get_operational_status()
         queue_raw = program.em.get_downloader_queue_stats()
+        queue_event_rows = program.em.get_downloader_queued_items()
         in_flight = program.em.get_event_updates().get("Downloader", [])
+        last_job_raw = downloader.get_last_job()
 
-        service_rows = list[DownloaderServiceStatus]()
-        for row in operational["services"]:
-            breaker_raw = row.get("breaker")
-            breaker = None
-            if breaker_raw:
-                breaker = DownloaderBreakerStatus(
-                    domain=str(breaker_raw["domain"]),
-                    state=str(breaker_raw["state"]),
-                    failures=int(breaker_raw["failures"]),
-                )
-
-            service_rows.append(
-                DownloaderServiceStatus(
-                    key=str(row["key"]),
-                    available=bool(row["available"]),
-                    cooldown_until=row.get("cooldown_until"),
-                    breaker=breaker,
-                )
+        service_rows = [
+            DownloaderServiceStatus(
+                key=str(row["key"]),
+                available=bool(row["available"]),
+                cooldown_until=row.get("cooldown_until"),
             )
+            for row in operational["services"]
+        ]
 
         return DownloaderStatusResponse(
             paused=bool(operational["paused"]),
@@ -232,12 +433,72 @@ async def downloader_status() -> DownloaderStatusResponse:
                 next_ready_at=queue_raw.get("next_ready_at"),
             ),
             services=service_rows,
-            in_flight_item_ids=[int(i) for i in in_flight],
+            in_flight_items=_in_flight_items([int(i) for i in in_flight]),
+            queued_items=_queued_items(queue_event_rows),
+            last_job=_last_job_response(last_job_raw),
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error getting downloader status")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.get(
+    "/rate_limits",
+    operation_id="rate_limits",
+    response_model=RateLimitsResponse,
+)
+async def rate_limits(
+    owner: str | None = None,
+    active_within_minutes: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=24 * 60,
+            description="Only return limiters used within this many minutes",
+        ),
+    ] = 30,
+    include_inactive: Annotated[
+        bool,
+        Query(description="Include registered limiters with no recent activity"),
+    ] = False,
+) -> RateLimitsResponse:
+    """Snapshot of rate limiters and circuit breakers with recent activity."""
+
+    try:
+        rl = get_rate_limit_service()
+        active_within_seconds = (
+            None if include_inactive else float(active_within_minutes * 60)
+        )
+        snapshots = rl.snapshot_all(
+            owner=owner,
+            active_within_seconds=active_within_seconds,
+        )
+        limiters = [
+            LimiterSnapshotResponse(
+                key=s.key,
+                label=s.label,
+                owner=s.owner,
+                tokens=s.tokens,
+                capacity=s.capacity,
+                rate_per_second=s.rate_per_second,
+                utilization_pct=s.utilization_pct,
+                next_token_in_seconds=s.next_token_in_seconds,
+                priority=s.priority,
+                warn_at_pct=s.warn_at_pct,
+                breaker_state=s.breaker_state,
+                breaker_failures=s.breaker_failures,
+                breaker_recovery_in_seconds=s.breaker_recovery_in_seconds,
+            )
+            for s in snapshots
+        ]
+        by_owner: dict[str, list[str]] = {}
+        for lim in limiters:
+            by_owner.setdefault(lim.owner, []).append(lim.key)
+        return RateLimitsResponse(limiters=limiters, by_owner=by_owner)
+    except Exception as e:
+        logger.exception("Error getting rate limits")
         raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
 
 

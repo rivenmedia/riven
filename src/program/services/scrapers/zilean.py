@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from program.media.item import Episode, MediaItem, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.settings.models import ZileanConfig
 
@@ -35,17 +36,20 @@ class Zilean(ScraperService[ZileanConfig]):
         self.settings = settings_manager.settings.scraping.zilean
         self.timeout = self.settings.timeout
 
+        rate_limit_map = None
+        if self.settings.ratelimit:
+            host = get_hostname_from_url(self.settings.url)
+            register_http_limit(
+                "zilean",
+                host,
+                rate=500 / 60,
+                capacity=500,
+                label="API (500/min)",
+            )
+            rate_limit_map = http_rate_limit_map("zilean", host)
+
         self.session = SmartSession(
-            rate_limits=(
-                {
-                    get_hostname_from_url(self.settings.url): {
-                        "rate": 500 / 60,
-                        "capacity": 500,
-                    }
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limit_map=rate_limit_map,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

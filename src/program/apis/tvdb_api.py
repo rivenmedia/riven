@@ -9,6 +9,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from program.utils import data_dir_path
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
 from schemas.tvdb import (
     EpisodeExtendedRecord,
@@ -99,15 +100,16 @@ class TVDBApi:
         self.token = None
         self.last_new_release_check: datetime | None = None
 
+        register_http_limit(
+            "tvdb",
+            "api4.thetvdb.com",
+            rate=25,
+            capacity=1000,
+            label="API (25/s)",
+        )
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                # 25 requests per second
-                "api4.thetvdb.com": {
-                    "rate": 25,
-                    "capacity": 1000,
-                }
-            },
+            rate_limit_map=http_rate_limit_map("tvdb", "api4.thetvdb.com"),
             retries=2,
             backoff_factor=0.3,
         )

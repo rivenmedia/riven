@@ -7,6 +7,7 @@ from queue import Empty
 from tracemalloc import Snapshot
 
 from program.apis import bootstrap_apis
+from program.services.rate_limit import bootstrap_rate_limit_service
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.filesystem_entry import FilesystemEntry
@@ -112,6 +113,7 @@ class Program(threading.Thread):
             self.last_snapshot = None
 
     def initialize_apis(self):
+        bootstrap_rate_limit_service()
         bootstrap_apis()
 
     def initialize_services(self):
@@ -382,6 +384,8 @@ class Program(threading.Thread):
         if not self.initialized:
             return
 
+        self.initialized = False
+        self.em.shutdown(wait=False)
         self.scheduler_manager.stop()
 
         if self.services:

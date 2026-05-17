@@ -1,4 +1,4 @@
-﻿from typing import Literal, cast
+from typing import Literal, cast
 from pydantic import BaseModel, field_validator
 import regex
 from loguru import logger
@@ -9,6 +9,7 @@ from plexapi.video import Movie, Show
 from plexapi.media import Guid
 
 from program.settings import settings_manager
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
 
 TMDBID_REGEX = regex.compile(r"tmdb://(\d+)")
@@ -45,14 +46,15 @@ class PlexAPI:
         self.token = token
         self.BASE_URL = base_url
 
+        register_http_limit(
+            "plex",
+            "metadata.provider.plex.tv",
+            rate=1,
+            capacity=60,
+            label="API (60/min)",
+        )
         self.session = SmartSession(
-            rate_limits={
-                # 1 call per second, 60 calls per minute
-                "metadata.provider.plex.tv": {
-                    "rate": 1,
-                    "capacity": 60,
-                },
-            },
+            rate_limit_map=http_rate_limit_map("plex", "metadata.provider.plex.tv"),
             retries=3,
             backoff_factor=0.3,
         )

@@ -1,6 +1,7 @@
 import os
 
 from collections.abc import Callable, Sequence
+from types import SimpleNamespace
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, Optional, Self
@@ -21,6 +22,9 @@ from program.media.state import States
 from program.types import Event
 from program.program import Program
 from program.media.models import MediaMetadata
+from program.services.downloaders import Downloader
+from program.services.downloaders.models import InvalidDebridFileException
+from program.services.rate_limit import CircuitBreakerOpen
 
 from ..models.shared import IdListPayload, MessageResponse
 
@@ -1308,6 +1312,171 @@ async def get_item_streams(
     )
 
 
+class ServiceAvailabilityResult(BaseModel):
+    service: Annotated[str, Field(description="Debrid service key")]
+    available: Annotated[
+        bool,
+        Field(description="Whether the pinned stream is cached with valid files"),
+    ]
+    file_count: Annotated[int, Field(default=0, description="Matching files on the service")]
+    error: Annotated[
+        Optional[str],
+        Field(default=None, description="Error or reason when not available"),
+    ] = None
+    circuit_breaker_open: Annotated[
+        bool,
+        Field(default=False, description="True when the service circuit breaker is open"),
+    ] = False
+    retry_after_seconds: Annotated[
+        Optional[float],
+        Field(default=None, description="Seconds until the circuit breaker may retry"),
+    ] = None
+
+
+class CheckAvailabilityResponse(BaseModel):
+    infohash: Annotated[str, Field(description="Pinned torrent infohash")]
+    item_type: Annotated[str, Field(description="Media item type used for file validation")]
+    available: Annotated[
+        bool,
+        Field(description="True when at least one initialized debrid service has the stream"),
+    ]
+    primary_service: Annotated[
+        Optional[str],
+        Field(default=None, description="First service where the stream is available"),
+    ] = None
+    services: Annotated[
+        list[ServiceAvailabilityResult],
+        Field(description="Per-service availability results"),
+    ]
+
+
+def _check_active_stream_availability(
+    downloader: Downloader,
+    item: MediaItem,
+) -> CheckAvailabilityResponse:
+    if isinstance(item, Show):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Availability check is not supported for shows",
+        )
+
+    if not item.active_stream:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active stream pinned for this item",
+        )
+
+    if not downloader.initialized_services:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No downloader service configured",
+        )
+
+    infohash = item.active_stream.infohash
+    probe = SimpleNamespace(infohash=infohash)
+
+    results: list[ServiceAvailabilityResult] = []
+    for service in downloader.initialized_services:
+        try:
+            container = downloader.validate_stream_on_service(probe, item, service)
+            if container and container.files:
+                results.append(
+                    ServiceAvailabilityResult(
+                        service=service.key,
+                        available=True,
+                        file_count=len(container.files),
+                    )
+                )
+                continue
+
+            results.append(
+                ServiceAvailabilityResult(
+                    service=service.key,
+                    available=False,
+                    error="Not cached or no matching files",
+                )
+            )
+        except CircuitBreakerOpen as e:
+            results.append(
+                ServiceAvailabilityResult(
+                    service=service.key,
+                    available=False,
+                    error=str(e),
+                    circuit_breaker_open=True,
+                    retry_after_seconds=e.retry_after,
+                )
+            )
+        except InvalidDebridFileException as e:
+            results.append(
+                ServiceAvailabilityResult(
+                    service=service.key,
+                    available=False,
+                    error=str(e),
+                )
+            )
+        except Exception as e:
+            logger.debug(
+                f"Availability check failed for {infohash} on {service.key}: {e}"
+            )
+            results.append(
+                ServiceAvailabilityResult(
+                    service=service.key,
+                    available=False,
+                    error=str(e),
+                )
+            )
+
+    primary = next((r.service for r in results if r.available), None)
+    return CheckAvailabilityResponse(
+        infohash=infohash,
+        item_type=str(item.type),
+        available=primary is not None,
+        primary_service=primary,
+        services=results,
+    )
+
+
+@router.post(
+    "/{item_id}/check_availability",
+    summary="Check debrid availability for pinned stream",
+    description=(
+        "Probe instant availability on all initialized debrid services for the item's "
+        "active_stream infohash, using the same validation as the downloader."
+    ),
+    operation_id="check_item_availability",
+    response_model=CheckAvailabilityResponse,
+)
+async def check_item_availability(
+    item_id: Annotated[
+        int,
+        Path(description="The ID of the media item", ge=1),
+    ],
+) -> CheckAvailabilityResponse:
+    program = di[Program]
+    if not program.services or not program.services.downloader:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Downloader service not available",
+        )
+
+    downloader = program.services.downloader
+
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
+        )
+
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found",
+            )
+
+        return _check_active_stream_availability(downloader, item)
+
+
 @router.post(
     "/{item_id}/streams/{stream_id}/blacklist",
     summary="Blacklist Media Item Stream",
@@ -1541,8 +1710,27 @@ async def activate_item_stream(
                         service=downloader.service,
                         file_ids=None,
                     )
+                except CircuitBreakerOpen as e:
+                    logger.warning(
+                        "activate_item_stream: debrid API temporarily unavailable ({})",
+                        e.name,
+                    )
+                    retry = (
+                        f"try again in {int(e.retry_after)}s"
+                        if e.retry_after
+                        else "try again shortly"
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail=(
+                            f"Debrid service temporarily unavailable ({e.name}); "
+                            f"{retry}"
+                        ),
+                    ) from e
                 except Exception as e:
-                    logger.exception("activate_item_stream: start_manual_download failed")
+                    logger.exception(
+                        "activate_item_stream: start_manual_download failed"
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
                         detail=f"Failed to activate stream: {e}",
@@ -1580,8 +1768,27 @@ async def activate_item_stream(
                     service=downloader.service,
                     file_ids=None,
                 )
+            except CircuitBreakerOpen as e:
+                logger.warning(
+                    "activate_item_stream: debrid API temporarily unavailable ({})",
+                    e.name,
+                )
+                retry = (
+                    f"try again in {int(e.retry_after)}s"
+                    if e.retry_after
+                    else "try again shortly"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=(
+                        f"Debrid service temporarily unavailable ({e.name}); "
+                        f"{retry}"
+                    ),
+                ) from e
             except Exception as e:
-                logger.exception("activate_item_stream: start_manual_download failed")
+                logger.exception(
+                    "activate_item_stream: start_manual_download failed"
+                )
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"Failed to activate stream: {e}",

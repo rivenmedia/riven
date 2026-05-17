@@ -19,7 +19,8 @@ from program.services.downloaders.models import (
     UserInfo,
 )
 from program.settings import settings_manager
-from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.rate_limit import CircuitBreakerOpen, ResourceSpec
+from program.utils.request import SmartResponse, SmartSession
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -130,11 +131,9 @@ class TorBoxAPI:
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                "api.torbox.app": {
-                    "rate": 5.0,
-                    "capacity": 30,
-                },
+            rate_limit_map={
+                "api.torbox.app": ["torbox.api"],
+                "/torrents/createtorrent": ["torbox.createtorrent"],
             },
             proxies=proxies,
             retries=2,
@@ -156,6 +155,23 @@ class TorBoxDownloader(DownloaderBase):
 
     API_BREAKER_DOMAIN = "api.torbox.app"
     API_RATE_PER_SECOND = 5.0
+    PRIMARY_LIMIT_KEY = "torbox.api"
+    LIMIT_SPECS = {
+        "torbox.api": ResourceSpec(
+            label="General API (300/min)",
+            owner="torbox",
+            rate=5.0,
+            capacity=10,
+        ),
+        "torbox.createtorrent": ResourceSpec(
+            label="Add torrent (60/hour)",
+            owner="torbox",
+            rate=60 / 3600,
+            capacity=1,
+            priority="scarce",
+            failure_threshold=1,
+        ),
+    }
 
     _STILL_FETCHING_STATES = frozenset(
         {
@@ -184,6 +200,7 @@ class TorBoxDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
+        self.register_limits()
         proxy_url = self.PROXY_URL or None
         self.api = TorBoxAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
 
@@ -219,15 +236,7 @@ class TorBoxDownloader(DownloaderBase):
             logger.error(f"Failed to validate TorBox premium status: {e}")
             return False
 
-    def _maybe_backoff(self, response: SmartResponse) -> None:
-        code = response.status_code
-
-        if code == 429 or (500 <= code < 600):
-            raise CircuitBreakerOpen("api.torbox.app")
-
     def _get_json(self, response: SmartResponse) -> dict[str, Any]:
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise TorBoxError(response.reason or f"HTTP {response.status_code}")
 

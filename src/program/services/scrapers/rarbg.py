@@ -7,6 +7,7 @@ from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
 from program.settings.models import RarbgConfig
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
@@ -31,18 +32,21 @@ class Rarbg(ScraperService[RarbgConfig]):
         self.settings = settings_manager.settings.scraping.rarbg
         self.timeout: int = self.settings.timeout
 
+        rate_limit_map = None
+        if self.settings.ratelimit:
+            host = get_hostname_from_url(self.settings.url)
+            register_http_limit(
+                "rarbg",
+                host,
+                rate=350 / 60,
+                capacity=350,
+                label="API (350/min)",
+            )
+            rate_limit_map = http_rate_limit_map("rarbg", host)
+
         self.session = SmartSession(
             base_url=self.settings.url,
-            rate_limits=(
-                {
-                    get_hostname_from_url(self.settings.url): {
-                        "rate": 350 / 60,
-                        "capacity": 350,
-                    }  # 350 calls per minute
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limit_map=rate_limit_map,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

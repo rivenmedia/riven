@@ -1,8 +1,9 @@
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
 from loguru import logger
 from RTN import ParsedData
 
@@ -33,13 +34,22 @@ from program.services.downloaders.shared import (
     parse_filename,
 )
 from program.settings import settings_manager
-from program.utils.request import CircuitBreakerOpen
+from program.services.rate_limit import CircuitBreakerOpen, get_rate_limit_service
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
 from .torbox import TorBoxDownloader
+
+
+@dataclass
+class _LastJob:
+    item_id: int
+    completed_at: datetime
+    outcome: Literal["success", "deferred", "failed", "skipped"]
+    detail: str | None = None
+    service: str | None = None
 
 
 class _ThrottledLog:
@@ -108,6 +118,36 @@ class Downloader(Runner[None, DownloaderBase]):
         self.subtitles_enabled = (
             settings_manager.settings.post_processing.subtitle.enabled
         )
+        self._last_job: _LastJob | None = None
+
+    def _record_last_job(
+        self,
+        item: MediaItem,
+        outcome: Literal["success", "deferred", "failed", "skipped"],
+        *,
+        detail: str | None = None,
+        service: str | None = None,
+    ) -> None:
+        self._last_job = _LastJob(
+            item_id=int(item.id),
+            completed_at=datetime.now(UTC),
+            outcome=outcome,
+            detail=detail,
+            service=service,
+        )
+
+    def get_last_job(self) -> dict[str, Any] | None:
+        if self._last_job is None:
+            return None
+
+        job = self._last_job
+        return {
+            "item_id": job.item_id,
+            "completed_at": job.completed_at.isoformat(),
+            "outcome": job.outcome,
+            "detail": job.detail,
+            "service": job.service,
+        }
 
     def _compute_min_job_interval(self) -> float:
         override = settings_manager.settings.downloaders.min_job_interval_seconds
@@ -145,6 +185,33 @@ class Downloader(Runner[None, DownloaderBase]):
             return None
 
         return min(self._service_cooldowns.values())
+
+    _MIN_SERVICE_COOLDOWN_SECONDS = 5.0
+    _MAX_SERVICE_COOLDOWN_SECONDS = 600.0
+
+    def _on_circuit_breaker_open(
+        self,
+        service: DownloaderBase,
+        exc: CircuitBreakerOpen,
+        *,
+        context: str = "",
+    ) -> datetime:
+        """Apply per-service cooldown and emit a throttled warning."""
+
+        rl = get_rate_limit_service()
+        wait_sec = max(
+            exc.retry_after or 0.0,
+            rl.seconds_until_ready(service.primary_limit_key()),
+            self._MIN_SERVICE_COOLDOWN_SECONDS,
+        )
+        wait_sec = min(wait_sec, self._MAX_SERVICE_COOLDOWN_SECONDS)
+        cooldown_until = datetime.now() + timedelta(seconds=wait_sec)
+        self._service_cooldowns[service.key] = cooldown_until
+        message = f"Circuit breaker OPEN for {service.key} ({exc.name})"
+        if context:
+            message = f"{message}; {context}"
+        self._throttled_logs.warning(f"cb:{service.key}:{exc.name}", message)
+        return cooldown_until
 
     def _acquire_job_slot(self) -> None:
         """Space downloader jobs apart to stay within debrid API rate limits."""
@@ -186,7 +253,6 @@ class Downloader(Runner[None, DownloaderBase]):
                     "cooldown_until": (
                         cooldown.isoformat() if cooldown and cooldown > now else None
                     ),
-                    "breaker": service.get_breaker_status(),
                 }
             )
 
@@ -233,6 +299,11 @@ class Downloader(Runner[None, DownloaderBase]):
                 f"until {next_attempt.strftime('%m/%d/%y %H:%M:%S')}",
             )
 
+            self._record_last_job(
+                item,
+                "deferred",
+                detail=f"All services in cooldown until {next_attempt.isoformat()}",
+            )
             yield RunnerResult(media_items=[item], run_at=next_attempt)
             return
 
@@ -244,10 +315,16 @@ class Downloader(Runner[None, DownloaderBase]):
             logger.warning(
                 f"No downloader has an active subscription for {item.log_string} ({item.id}), skipping stream checks"
             )
+            self._record_last_job(
+                item,
+                "skipped",
+                detail="No active debrid subscription",
+            )
             yield RunnerResult(media_items=[item])
             return
 
         download_success = False
+        success_service: str | None = None
 
         # Track if we hit circuit breaker on any service
         hit_circuit_breaker = False
@@ -300,6 +377,7 @@ class Downloader(Runner[None, DownloaderBase]):
                             )
 
                             download_success = True
+                            success_service = service.key
                             stream_failed_on_all_services = False
 
                             break
@@ -308,13 +386,12 @@ class Downloader(Runner[None, DownloaderBase]):
                                 f"No valid files found for {item.log_string} ({item.id})"
                             )
                     except CircuitBreakerOpen as e:
-                        # This specific service hit circuit breaker, set cooldown and try next service
-                        cooldown_duration = timedelta(minutes=1)
-                        self._service_cooldowns[service.key] = (
-                            datetime.now() + cooldown_duration
-                        )
-                        logger.debug(
-                            f"Circuit breaker OPEN for {service.key}, trying next service for stream {stream.infohash}"
+                        self._on_circuit_breaker_open(
+                            service,
+                            e,
+                            context=(
+                                f"trying next service for stream {stream.infohash}"
+                            ),
                         )
                         stream_hit_circuit_breaker = True
                         hit_circuit_breaker = True
@@ -388,11 +465,27 @@ class Downloader(Runner[None, DownloaderBase]):
                     self._space_after_stream_attempt()
 
                 if tried_streams >= 3:
+                    if download_success:
+                        self._record_last_job(
+                            item, "success", service=success_service
+                        )
+                    else:
+                        self._record_last_job(
+                            item,
+                            "failed",
+                            detail="Stopped after 3 stream attempts",
+                        )
                     yield RunnerResult(media_items=[item])
+                    return
 
         except Exception as e:
             logger.error(
                 f"Unexpected error in downloader for {item.log_string} ({item.id}): {e}"
+            )
+            self._record_last_job(
+                item,
+                "failed",
+                detail=f"Unexpected error: {e!r}",
             )
 
         if not download_success:
@@ -407,6 +500,13 @@ class Downloader(Runner[None, DownloaderBase]):
                     f"deferring downloads until {next_attempt.strftime('%m/%d/%y %H:%M:%S')}",
                 )
 
+                cb_key = self.initialized_services[0].key
+                self._record_last_job(
+                    item,
+                    "deferred",
+                    detail=f"Circuit breaker open on {cb_key}",
+                    service=cb_key,
+                )
                 yield RunnerResult(media_items=[item], run_at=next_attempt)
 
                 return
@@ -414,11 +514,18 @@ class Downloader(Runner[None, DownloaderBase]):
                 logger.debug(
                     f"Failed to download any streams for {item.log_string} ({item.id})"
                 )
+                if self._last_job is None or self._last_job.item_id != item.id:
+                    self._record_last_job(
+                        item,
+                        "failed",
+                        detail="No stream could be downloaded",
+                    )
         else:
             # Clear service cooldowns on successful download
             self._service_cooldowns.clear()
             self._throttled_logs.reset()
 
+            self._record_last_job(item, "success", service=success_service)
             yield RunnerResult(media_items=[item])
 
     def validate_stream(
@@ -452,7 +559,15 @@ class Downloader(Runner[None, DownloaderBase]):
 
             return None
 
-        container = service.get_instant_availability(stream.infohash, item.type)
+        try:
+            container = service.get_instant_availability(stream.infohash, item.type)
+        except CircuitBreakerOpen as e:
+            self._on_circuit_breaker_open(
+                service,
+                e,
+                context=f"validating stream {stream.infohash}",
+            )
+            raise
 
         if not container:
             logger.debug(
@@ -890,11 +1005,11 @@ class Downloader(Runner[None, DownloaderBase]):
         
         # 2. Validate stream and get container (same as standard flow)
         container = self.validate_stream_on_service(
-            stream, 
-            item, 
-            service, 
+            stream,
+            item,
+            service,
         )
-        
+
         if not container:
             logger.warning(f"START_MANUAL_DOWNLOAD: Stream {stream.infohash} not available on {service.key}")
             return False
@@ -908,8 +1023,17 @@ class Downloader(Runner[None, DownloaderBase]):
         # 3. Download using standard method (same as standard flow)
         try:
             result = self.download_cached_stream_on_service(stream, container, service)
+        except CircuitBreakerOpen as e:
+            self._on_circuit_breaker_open(
+                service,
+                e,
+                context=f"manual download for stream {stream.infohash}",
+            )
+            raise
         except Exception as e:
-            logger.error(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service raised: {e}")
+            logger.error(
+                f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service raised: {e}"
+            )
             return False
         
         if not result:

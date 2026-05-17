@@ -178,7 +178,10 @@ class DebridCDNUrl:
             )
 
             if not url:
-                logger.error("Could not refresh CDN URL; no URL returned from refresh")
+                logger.debug(
+                    "Could not refresh CDN URL for "
+                    f"{self.filename}; refresh returned no URL"
+                )
 
                 return None
 

@@ -24,6 +24,7 @@ from program.services.scrapers.torrentio import Torrentio
 from program.services.scrapers.zilean import Zilean
 from program.settings import settings_manager
 from program.settings.models import Observable, ScraperModel
+from program.shutdown import shutting_down
 
 
 class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
@@ -122,6 +123,9 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             manual: If True, bypass content filters for manual scraping.
         """
 
+        if shutting_down():
+            return {}
+
         results = dict[str, str]()
         results_lock = threading.RLock()
 
@@ -142,15 +146,24 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             thread_name_prefix="ScraperService_",
             max_workers=max(1, len(self.initialized_services)),
         ) as executor:
-            futures = {
-                executor.submit(run_service, service, item): service.key
-                for service in self.initialized_services
-            }
+            futures: dict = {}
+            for service in self.initialized_services:
+                if shutting_down():
+                    break
+                try:
+                    futures[executor.submit(run_service, service, item)] = service.key
+                except RuntimeError:
+                    break
 
             for future in as_completed(futures):
+                if shutting_down():
+                    future.cancel()
+                    continue
                 try:
                     future.result()
                 except Exception as e:
+                    if shutting_down():
+                        continue
                     logger.error(
                         f"Exception occurred while running service {futures[future]}: {e}"
                     )
@@ -189,6 +202,9 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         Yields:
             Tuples of (service_name, parsed_streams_dict) as each service completes.
         """
+        if shutting_down():
+            return
+
         results_queue: Queue[tuple[str, dict[str, str]]] = Queue()
         all_raw_results = dict[str, str]()
         results_lock = threading.RLock()
@@ -211,10 +227,16 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
             thread_name_prefix="ScraperServiceStreaming_",
             max_workers=max(1, len(self.initialized_services)),
         ) as executor:
-            futures = {
-                executor.submit(run_service_streaming, service, item): service.key
-                for service in self.initialized_services
-            }
+            futures: dict = {}
+            for service in self.initialized_services:
+                if shutting_down():
+                    break
+                try:
+                    futures[
+                        executor.submit(run_service_streaming, service, item)
+                    ] = service.key
+                except RuntimeError:
+                    break
 
             services_completed = 0
             total_services = len(futures)

@@ -171,6 +171,25 @@ function EpisodeCastCrewList({ characters }: { characters: TvdbCharacterEntry[] 
 
 const LIBRARY_MEDIA_OVERVIEW_PANEL_ID = 'library-item-media-overview-panel';
 
+const PROCESSED_LIBRARY_STATES = new Set([
+  'Scraped',
+  'Downloaded',
+  'Symlinked',
+  'Completed',
+  'PartiallyCompleted',
+  'Failed',
+  'Paused',
+]);
+
+function hasVerifiedPinnedStream(
+  streamData: StreamsData | null | undefined,
+  itemType: string,
+): boolean {
+  if (!streamData || itemType === 'show') return false;
+  if (streamData.active_stream?.infohash) return true;
+  return Boolean(streamData.season_active_stream?.infohash);
+}
+
 const RETURN_HASH: Record<string, string> = {
   library: '#/library',
   movies: '#/movies',
@@ -279,6 +298,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const [overviewSubTab, setOverviewSubTab] = useState<MediaOverviewTabId>('details');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!itemId) return;
@@ -473,6 +493,10 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const showPause =
     state !== 'Paused' && state !== 'Completed' && state !== 'Failed';
   const showResume = state === 'Paused';
+  const showCheckAvailability =
+    !isShow &&
+    PROCESSED_LIBRARY_STATES.has(state) &&
+    hasVerifiedPinnedStream(streamData as StreamsData | null, String(item.type));
 
   const episodeStreamOverride =
     isEpisode && episodeHasStreamOverride(streamData as StreamsData | null);
@@ -502,6 +526,36 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
       return;
     }
     refresh();
+  };
+
+  const handleCheckAvailability = async () => {
+    if (!itemId || checkingAvailability) return;
+    setCheckingAvailability(true);
+    try {
+      const response = await apiPost(`/items/${itemId}/check_availability`, {});
+      const data = response.data as {
+        available?: boolean;
+        primary_service?: string | null;
+        services?: Array<{ service: string; available: boolean; error?: string | null }>;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        notify(response.error || data?.error || 'Availability check failed', 'error');
+        return;
+      }
+      if (data?.available) {
+        const svc = data.primary_service ? ` on ${data.primary_service}` : '';
+        notify(`Stream is cached${svc}`, 'success');
+      } else {
+        const detail =
+          data?.services
+            ?.map((s) => `${s.service}: ${s.available ? 'cached' : s.error || 'not cached'}`)
+            .join(' · ') || 'Not cached on any debrid service';
+        notify(detail, 'warning');
+      }
+    } finally {
+      setCheckingAvailability(false);
+    }
   };
 
   const credits = tmdbData?.credits as Record<string, unknown> | undefined;
@@ -575,6 +629,16 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                 >
                   Retry
                 </button>
+                {showCheckAvailability && (
+                  <button
+                    type="button"
+                    className="btn btn--small btn--secondary"
+                    disabled={checkingAvailability}
+                    onClick={() => void handleCheckAvailability()}
+                  >
+                    {checkingAvailability ? 'Checking…' : 'Check availability'}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn--small btn--secondary"

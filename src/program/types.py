@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
@@ -46,7 +46,8 @@ class Event:
     emitted_by: Service | Literal["StateTransition", "RetryLibrary"] | str
     item_id: int | None = None
     content_item: "MediaItem | None" = None
-    run_at: datetime = datetime.now()
+    run_at: datetime = field(default_factory=datetime.now)
+    queued_at: datetime = field(default_factory=datetime.now)
     item_state: States | None = None  # Cached state for priority sorting
     overrides: dict[str, Any] | None = None
 

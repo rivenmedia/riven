@@ -6,7 +6,12 @@ from pydantic import BaseModel, ValidationError
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
-from program.utils.request import CircuitBreakerOpen, SmartSession
+from program.services.rate_limit import (
+    CircuitBreakerOpen,
+    http_rate_limit_map,
+    register_http_limit,
+)
+from program.utils.request import SmartSession
 from program.settings.models import OrionoidConfig
 
 KEY_APP = "D3CH6HMX9KD9EMD68RXRCDUNBDJV5HRR"
@@ -121,19 +126,20 @@ class Orionoid(ScraperService[OrionoidConfig]):
         self.is_unlimited = False
         self.initialized = False
 
+        rate_limit_map = None
+        if self.settings.ratelimit:
+            register_http_limit(
+                "orionoid",
+                "api.orionoid.com",
+                rate=50 / 60,
+                capacity=50,
+                label="API (50/min)",
+            )
+            rate_limit_map = http_rate_limit_map("orionoid", "api.orionoid.com")
+
         self.session = SmartSession(
             base_url=self.base_url,
-            rate_limits=(
-                {
-                    # 50 calls per minute
-                    "api.orionoid.com": {
-                        "rate": 50 / 60,
-                        "capacity": 50,
-                    }
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limit_map=rate_limit_map,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

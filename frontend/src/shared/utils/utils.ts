@@ -49,7 +49,7 @@ export function formatYear(item) {
 }
 
 /** Parse API datetime (often UTC without Z) so we can show it in local time. */
-function parseApiDate(value: string | number | Date | null | undefined): Date | null {
+export function parseApiDate(value: string | number | Date | null | undefined): Date | null {
   if (value == null) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   const s = String(value).trim();
@@ -61,6 +61,15 @@ function parseApiDate(value: string | number | Date | null | undefined): Date | 
   }
   const date = new Date(toParse);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Seconds elapsed since an API timestamp (null if unparseable). */
+export function secondsSinceApiDate(
+  value: string | number | Date | null | undefined,
+): number | null {
+  const date = parseApiDate(value);
+  if (!date) return null;
+  return Math.max(0, (Date.now() - date.getTime()) / 1000);
 }
 
 export function formatDate(value: string | number | Date | null | undefined): string {
@@ -93,4 +102,29 @@ export function toCsv(ids = []) {
 
 export function sortByPopularity(items = []) {
   return [...items].sort((a, b) => Number(b?.popularity || 0) - Number(a?.popularity || 0));
+}
+
+/** Human-readable relative time from a duration in seconds (past or future). */
+export function formatRelativeSeconds(
+  seconds: number,
+  direction: 'past' | 'future' = 'past',
+): string {
+  const sec = Math.max(0, Math.round(seconds));
+  if (sec < 45) return direction === 'future' ? 'soon' : 'just now';
+  if (sec < 60) {
+    return direction === 'future' ? `in ${sec}s` : `${sec}s ago`;
+  }
+  const min = Math.floor(sec / 60);
+  if (min < 60) {
+    const label = min === 1 ? '1m' : `${min}m`;
+    return direction === 'future' ? `in ${label}` : `${label} ago`;
+  }
+  const hr = Math.floor(min / 60);
+  if (hr < 48) {
+    const label = hr === 1 ? '1h' : `${hr}h`;
+    return direction === 'future' ? `in ${label}` : `${label} ago`;
+  }
+  const day = Math.floor(hr / 24);
+  const label = day === 1 ? '1d' : `${day}d`;
+  return direction === 'future' ? `in ${label}` : `${label} ago`;
 }

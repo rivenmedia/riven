@@ -17,7 +17,8 @@ from program.services.downloaders.models import (
     UnrestrictedLink,
 )
 from program.settings import settings_manager
-from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.rate_limit import CircuitBreakerOpen, ResourceSpec
+from program.utils.request import SmartResponse, SmartSession
 from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left
@@ -108,14 +109,7 @@ class DebridLinkAPI:
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                # Conservative rate limiting - Debrid-Link doesn't specify exact limits
-                # Using 60 req/min as a safe default
-                "debrid-link.com": {
-                    "rate": 1,
-                    "capacity": 60,
-                },
-            },
+            rate_limit_map={"debrid-link.com": ["debridlink.api"]},
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,
@@ -136,6 +130,15 @@ class DebridLinkDownloader(DownloaderBase):
 
     API_BREAKER_DOMAIN = "debrid-link.com"
     API_RATE_PER_SECOND = 1.0
+    PRIMARY_LIMIT_KEY = "debridlink.api"
+    LIMIT_SPECS = {
+        "debridlink.api": ResourceSpec(
+            label="API (60/min)",
+            owner="debridlink",
+            rate=1.0,
+            capacity=60,
+        ),
+    }
 
     def __init__(self) -> None:
         self.key = "debridlink"
@@ -154,6 +157,7 @@ class DebridLinkDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
+        self.register_limits()
         proxy_url = self.PROXY_URL or None
         self.api = DebridLinkAPI(
             api_key=self.settings.api_key,
@@ -209,28 +213,30 @@ class DebridLinkDownloader(DownloaderBase):
 
         status = response.status_code
 
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                if payload.get("success") is False:
+                    return DebridLinkErrorResponse.model_validate(payload).error
+                nested = payload.get("data")
+                if isinstance(nested, dict) and nested.get("success") is False:
+                    return DebridLinkErrorResponse.model_validate(nested).error
+        except Exception:
+            pass
+
         if status == 400:
             return "Bad request"
-        elif status == 401:
+        if status == 401:
             return "Unauthorized - check API key"
-        elif status == 403:
+        if status == 403:
             return "Forbidden"
-        elif status == 404:
+        if status == 404:
             return "Not found"
-        elif status == 429:
+        if status == 429:
             return "Rate limit exceeded"
-        elif status >= 500:
+        if status >= 500:
             return "Debrid-Link server error"
-        else:
-            return DebridLinkErrorResponse.model_validate(response.json()).error
-
-    def _maybe_backoff(self, response: SmartResponse) -> None:
-        """
-        Check if we should back off based on response.
-        """
-
-        if response.status_code == 429:
-            logger.warning("Debrid-Link rate limit hit, backing off")
+        return f"HTTP {status}"
 
     def get_instant_availability(
         self,
@@ -288,7 +294,8 @@ class DebridLinkDownloader(DownloaderBase):
 
             raise
         except DebridLinkError as e:
-            logger.warning(f"Availability check failed [{infohash}]: {e}")
+            # Per-stream probe failure is normal (not cached, rejected magnet, etc.)
+            logger.debug(f"Availability check failed [{infohash}]: {e}")
 
             if torrent_id:
                 try:
@@ -398,8 +405,6 @@ class DebridLinkDownloader(DownloaderBase):
         # Don't set wait=True - we want the torrent to start immediately
         # The hash is only added if it's already cached on Debrid-Link servers
         response = self.api.session.post("seedbox/add", data={"url": url})
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise DebridLinkError(self._handle_error(response))
 
@@ -447,8 +452,6 @@ class DebridLinkDownloader(DownloaderBase):
         assert self.api
 
         response = self.api.session.get(f"seedbox/list")
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise DebridLinkError(self._handle_error(response))
 
@@ -523,8 +526,6 @@ class DebridLinkDownloader(DownloaderBase):
         assert self.api
 
         response = self.api.session.delete(f"seedbox/{torrent_id}/remove")
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise DebridLinkError(self._handle_error(response))
 
@@ -560,8 +561,6 @@ class DebridLinkDownloader(DownloaderBase):
             assert self.api
 
             response = self.api.session.get("account/infos")
-            self._maybe_backoff(response)
-
             if not response.ok:
                 logger.error(f"Failed to get user info: {self._handle_error(response)}")
                 return None

@@ -1,8 +1,11 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum
+from typing import ClassVar
 
 from RTN import ParsedData, parse
+
+from program.services.rate_limit import ResourceSpec, get_rate_limit_service
 
 from program.media.stream import Stream
 from program.services.downloaders.models import (
@@ -22,9 +25,22 @@ class DownloaderBase(ABC):
     PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
     API_BREAKER_DOMAIN: str | None = None
     API_RATE_PER_SECOND: float = 1.0
+    LIMIT_SPECS: ClassVar[dict[str, ResourceSpec]] = {}
+    PRIMARY_LIMIT_KEY: ClassVar[str | None] = None
 
     initialized: bool
     key: str
+
+    def register_limits(self) -> None:
+        """Register this provider's rate limits on the global RateLimitService."""
+
+        if self.LIMIT_SPECS:
+            get_rate_limit_service().register_many(self.LIMIT_SPECS)
+
+    def primary_limit_key(self) -> str:
+        if self.PRIMARY_LIMIT_KEY:
+            return self.PRIMARY_LIMIT_KEY
+        return f"{self.key}.api"
 
     @abstractmethod
     def validate(self) -> bool:
@@ -120,29 +136,6 @@ class DownloaderBase(ABC):
         """
 
         raise NotImplementedError()
-
-    def get_breaker_status(self) -> dict[str, str | int] | None:
-        """Return HTTP circuit breaker state for this provider's API domain."""
-
-        domain = self.API_BREAKER_DOMAIN
-        api = getattr(self, "api", None)
-
-        if not domain or api is None:
-            return None
-
-        session = getattr(api, "session", None)
-        if session is None:
-            return None
-
-        breaker = session.breakers.get(domain)
-        if breaker is None:
-            return None
-
-        return {
-            "domain": domain,
-            "state": breaker.state,
-            "failures": breaker.failures,
-        }
 
 
 def parse_filename(filename: str) -> ParsedData:

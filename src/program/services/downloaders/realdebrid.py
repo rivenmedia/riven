@@ -20,7 +20,8 @@ from program.services.downloaders.models import (
     UnrestrictedLink,
 )
 from program.settings import settings_manager
-from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.rate_limit import CircuitBreakerOpen, ResourceSpec
+from program.utils.request import SmartResponse, SmartSession
 from program.services.streaming.exceptions.debrid_service_exception import (
     DebridServiceLinkUnavailable,
 )
@@ -140,13 +141,7 @@ class RealDebridAPI:
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                # 250 req/min ~= 4.17 rps with capacity 250
-                "api.real-debrid.com": {
-                    "rate": 250 / 60,
-                    "capacity": 250,
-                },
-            },
+            rate_limit_map={"api.real-debrid.com": ["realdebrid.api"]},
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,
@@ -166,6 +161,15 @@ class RealDebridDownloader(DownloaderBase):
 
     API_BREAKER_DOMAIN = "api.real-debrid.com"
     API_RATE_PER_SECOND = 250 / 60
+    PRIMARY_LIMIT_KEY = "realdebrid.api"
+    LIMIT_SPECS = {
+        "realdebrid.api": ResourceSpec(
+            label="API (250/min)",
+            owner="realdebrid",
+            rate=250 / 60,
+            capacity=250,
+        ),
+    }
 
     def __init__(self) -> None:
         self.key = "realdebrid"
@@ -183,6 +187,7 @@ class RealDebridDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
+        self.register_limits()
         proxy_url = self.PROXY_URL or None
         self.api = RealDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
 
@@ -439,8 +444,6 @@ class RealDebridDownloader(DownloaderBase):
         response = self.api.session.post(
             "torrents/addMagnet", data={"magnet": magnet.lower()}
         )
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise RealDebridError(self._handle_error(response))
 
@@ -482,8 +485,6 @@ class RealDebridDownloader(DownloaderBase):
         assert self.api
 
         response = self.api.session.get(f"torrents/info/{torrent_id}")
-        self._maybe_backoff(response)
-
         if not response.ok:
             logger.debug(
                 f"Failed to get torrent info for {torrent_id}: {self._handle_error(response)}"
@@ -561,21 +562,8 @@ class RealDebridDownloader(DownloaderBase):
         assert self.api
 
         response = self.api.session.delete(f"torrents/delete/{torrent_id}")
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise RealDebridError(self._handle_error(response))
-
-    def _maybe_backoff(self, response: SmartResponse) -> None:
-        """
-        Promote Real-Debrid 429/5xx responses to a service-level backoff signal.
-        """
-
-        code = response.status_code
-
-        if code == 429 or (500 <= code < 600):
-            # Name matches the breaker key in SmartSession rate_limits/breakers
-            raise CircuitBreakerOpen("api.real-debrid.com")
 
     def _handle_error(self, response: SmartResponse) -> str:
         """
@@ -610,8 +598,6 @@ class RealDebridDownloader(DownloaderBase):
         assert self.api
 
         response = self.api.session.get(f"downloads")
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise RealDebridError(self._handle_error(response))
 
@@ -640,8 +626,6 @@ class RealDebridDownloader(DownloaderBase):
                 data={"link": link},
                 timeout=10,
             )
-
-            self._maybe_backoff(response)
 
             if not response.ok:
                 data = RealDebridErrorResponse.model_validate(response.json())
@@ -690,8 +674,6 @@ class RealDebridDownloader(DownloaderBase):
             assert self.api
 
             response = self.api.session.get("user")
-            self._maybe_backoff(response)
-
             if not response.ok:
                 logger.error(f"Failed to get user info: {self._handle_error(response)}")
                 return None

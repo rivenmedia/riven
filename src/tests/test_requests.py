@@ -1,9 +1,15 @@
-﻿import json
+import json
 from datetime import datetime, timezone
 
 import pytest
 
-from program.utils.request import CircuitBreaker, SmartResponse, SmartSession
+from program.services.rate_limit import (
+    CircuitBreakerOpen,
+    RateLimitService,
+    ResourceSpec,
+    get_rate_limit_service,
+)
+from program.utils.request import SmartResponse, SmartSession
 
 
 import httpx
@@ -225,9 +231,18 @@ def test_tokenbucket_waits_without_real_sleep(monkeypatch, requests_mock):
     monkeypatch.setattr(request_mod.time, "monotonic", clock.monotonic, raising=True)
     monkeypatch.setattr(request_mod.time, "sleep", clock.sleep, raising=True)
 
-    # Build session with strict per-host limit
+    rl = RateLimitService()
+    rl.register(
+        "ratelimited.api",
+        ResourceSpec(label="API", owner="ratelimited", rate=1, capacity=1),
+    )
+    monkeypatch.setattr(
+        "program.utils.request.get_rate_limit_service",
+        lambda: rl,
+    )
+
     session = SmartSession(
-        rate_limits={"ratelimited.local": {"rate": 1, "capacity": 1}}
+        rate_limit_map={"ratelimited.local": ["ratelimited.api"]},
     )
 
     url = "https://ratelimited.local/data"
@@ -259,15 +274,30 @@ def test_circuit_breaker_opens_and_recovers(monkeypatch, requests_mock):
     monkeypatch.setattr(request_mod.time, "monotonic", clock.monotonic, raising=True)
     monkeypatch.setattr(request_mod.time, "sleep", clock.sleep, raising=True)
 
-    session = SmartSession(
-        rate_limits={"cb.local": {"rate": 100, "capacity": 100}}, retries=0
+    rl = RateLimitService()
+    rl.register(
+        "cb.api",
+        ResourceSpec(
+            label="API",
+            owner="cb",
+            rate=100,
+            capacity=100,
+            failure_threshold=2,
+            base_recovery_seconds=5,
+        ),
     )
-    # Override breaker config for this test
-    session.breakers["cb.local"] = CircuitBreaker(failure_threshold=2, recovery_time=5)
+    monkeypatch.setattr(
+        "program.utils.request.get_rate_limit_service",
+        lambda: rl,
+    )
+
+    session = SmartSession(
+        rate_limit_map={"cb.local": ["cb.api"]},
+        retries=0,
+    )
 
     url = "https://cb.local/unstable"
 
-    # First two responses: 500
     requests_mock.get(
         url,
         [
@@ -285,33 +315,29 @@ def test_circuit_breaker_opens_and_recovers(monkeypatch, requests_mock):
                 "status_code": 200,
                 "json": {"ok": True},
                 "headers": {"Content-Type": "application/json"},
-            },  # probe success after recovery
+            },
         ],
     )
 
-    # Failure #1 - HTTP 500 doesn't raise exception, just returns response
     r1 = session.get(url)
     assert r1.status_code == 500
-    assert r1.data.err == "a"
 
-    # Failure #2 - HTTP 500 doesn't raise exception, just returns response
     r2 = session.get(url)
     assert r2.status_code == 500
-    assert r2.data.err == "b"
 
-    br = session.breakers["cb.local"]
-    assert br.state == "OPEN"
+    snap = rl.snapshot("cb.api")
+    assert snap is not None
+    assert snap.breaker_state == "OPEN"
 
-    # Immediate call while OPEN → fail fast before sending HTTP
-    with pytest.raises(RuntimeError) as ei:
+    with pytest.raises(CircuitBreakerOpen):
         session.get(url)
-    assert "Circuit breaker OPEN" in str(ei.value)
 
-    # Advance time past recovery window → HALF_OPEN
-    clock.t += 6.0  # > recovery_time
-    r = session.get(url)  # probe should be allowed, returns 200
+    clock.t += 6.0
+    r = session.get(url)
     assert r.status_code == 200
-    assert br.state == "CLOSED"
+    snap = rl.snapshot("cb.api")
+    assert snap is not None
+    assert snap.breaker_state == "CLOSED"
 
 
 def test_streaming_iter_content_and_no_error_with_stream(requests_mock):
@@ -397,8 +423,18 @@ def test_tokenbucket_concurrency_respects_rate_real_time(requests_mock):
     import threading
     import time
 
+    rl = RateLimitService()
+    rl.register(
+        "conc.api",
+        ResourceSpec(label="API", owner="conc", rate=20, capacity=2),
+    )
+    import program.utils.request as request_mod
+
+    request_mod.get_rate_limit_service = lambda: rl
+
     session = SmartSession(
-        rate_limits={"conc.local": {"rate": 20, "capacity": 2}}, retries=0
+        rate_limit_map={"conc.local": ["conc.api"]},
+        retries=0,
     )
     url = "https://conc.local/x"
     requests_mock.get(

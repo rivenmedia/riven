@@ -62,9 +62,50 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
       "breaker": { "domain": "api.torbox.app", "state": "CLOSED", "failures": 0 }
     }
   ],
-  "in_flight_item_ids": [12345]
+  "in_flight_items": [
+    {
+      "id": 12345,
+      "title": "Example Movie",
+      "type": "movie",
+      "parent_title": null,
+      "season_number": null,
+      "episode_number": null,
+      "state": "Scraped"
+    }
+  ],
+  "queued_items": [
+    {
+      "id": 99,
+      "title": "Example Show",
+      "type": "episode",
+      "parent_title": "Example Show",
+      "season_number": 1,
+      "episode_number": 4,
+      "state": "Scraped",
+      "run_at": "2026-05-16T15:30:00",
+      "queued_at": "2026-05-16T15:25:00",
+      "scraped_at": "2026-05-16T15:20:00",
+      "deferred": false,
+      "wait_seconds": 300.0,
+      "emitted_by": "StateTransition"
+    }
+  ],
+  "last_job": {
+    "item": {
+      "id": 88,
+      "title": "Previous Movie",
+      "type": "movie",
+      "state": "Downloaded"
+    },
+    "completed_at": "2026-05-16T15:28:00",
+    "outcome": "success",
+    "detail": null,
+    "service": "torbox"
+  }
 }
 ```
+
+`queued_items` lists downloader-relevant events in the event queue (Scraped state or emitted by Downloader), up to 50 rows, with wait timing. `last_job` is the most recent completed downloader run (in-memory only; cleared on restart).
 
 **Errors:** 503 if no downloader initialized.
 

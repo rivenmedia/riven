@@ -1,6 +1,7 @@
-﻿from loguru import logger
+from loguru import logger
 from typing import Literal
 from pydantic import BaseModel, StrictInt, StrictStr
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
 
 
@@ -21,15 +22,16 @@ class MdblistAPI:
     BASE_URL = "https://api.mdblist.com"
 
     def __init__(self, api_key: str):
+        register_http_limit(
+            "mdblist",
+            "api.mdblist.com",
+            rate=1,
+            capacity=60,
+            label="API (60/min)",
+        )
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                "api.mdblist.com": {
-                    # 60 calls per minute
-                    "rate": 1,
-                    "capacity": 60,
-                }
-            },
+            rate_limit_map=http_rate_limit_map("mdblist", "api.mdblist.com"),
             retries=3,
             backoff_factor=0.3,
         )

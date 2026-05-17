@@ -191,7 +191,6 @@ class Server(uvicorn.Server):
 def signal_handler(signum: int, frame: FrameType | None):
     logger.log("PROGRAM", "Exiting Gracefully.")
     di[Program].stop()
-    sys.exit(0)
 
 
 signal.signal(signal.SIGINT, signal_handler)

@@ -4,7 +4,7 @@ import { apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import { formatBytes as formatBytesUtil, formatEpisodeDisplayTitle } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
-import DownloaderDashboardView from './DownloaderDashboardView';
+import ActivityDashboardView from './ActivityDashboardView';
 import {
   CONSOLE_UPDATER_NOTICE,
   MOCK_VFS_NOTICE,
@@ -218,8 +218,8 @@ export default function DashboardView({ route }: { route: AppRoute }) {
   if (name === 'dashboard-releases') {
     return <DashboardReleases route={route} />;
   }
-  if (name === 'dashboard-downloader') {
-    return <DownloaderDashboardView route={route} />;
+  if (name === 'dashboard-activity' || name === 'dashboard-downloader') {
+    return <ActivityDashboardView route={route} />;
   }
 
   return (

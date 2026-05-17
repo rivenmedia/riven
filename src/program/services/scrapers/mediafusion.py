@@ -7,6 +7,7 @@ from program.media.item import Episode, MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
 from program.settings.models import AppModel, MediafusionConfig
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession, get_hostname_from_url
 
 
@@ -41,19 +42,21 @@ class Mediafusion(ScraperService[MediafusionConfig]):
         self.timeout = self.settings.timeout
         self.encrypted_string = None
 
+        rate_limit_map = None
+        if self.settings.ratelimit:
+            host = get_hostname_from_url(self.settings.url)
+            register_http_limit(
+                "mediafusion",
+                host,
+                rate=1000 / 60,
+                capacity=1000,
+                label="API (1000/min)",
+            )
+            rate_limit_map = http_rate_limit_map("mediafusion", host)
+
         self.session = SmartSession(
             base_url=self.settings.url.rstrip("/"),
-            rate_limits=(
-                {
-                    # 1000 calls per minute
-                    get_hostname_from_url(self.settings.url): {
-                        "rate": 1000 / 60,
-                        "capacity": 1000,
-                    }
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limit_map=rate_limit_map,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

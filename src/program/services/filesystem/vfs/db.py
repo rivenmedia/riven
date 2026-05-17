@@ -16,6 +16,7 @@ from program.media.item import MediaItem
 from program.types import Event
 from routers.secure.items import apply_item_mutation
 from program.utils.debrid_cdn_url import DebridCDNUrl
+from program.services.rate_limit import CircuitBreakerOpen
 
 if TYPE_CHECKING:
     from program.services.downloaders import Downloader
@@ -144,6 +145,12 @@ class VFSDatabase:
                         )
 
                         return entry.unrestricted_url
+            except CircuitBreakerOpen as e:
+                logger.warning(
+                    "Circuit breaker OPEN, cannot refresh CDN URL for "
+                    f"{entry.original_filename} ({e.name})"
+                )
+                return None
             except DebridServiceLinkUnavailable as e:
                 logger.warning(
                     f"Failed to unrestrict URL for {entry.original_filename}: {e}"

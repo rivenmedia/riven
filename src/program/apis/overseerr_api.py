@@ -1,4 +1,4 @@
-﻿"""Overseerr API client"""
+"""Overseerr API client"""
 
 from typing import TYPE_CHECKING, Literal
 
@@ -6,6 +6,7 @@ from loguru import logger
 from requests.exceptions import ConnectionError, RetryError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession, get_hostname_from_url
 
 if TYPE_CHECKING:
@@ -25,15 +26,17 @@ class OverseerrAPI:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
 
+        host = get_hostname_from_url(self.base_url)
+        register_http_limit(
+            "overseerr",
+            host,
+            rate=1000 / 300,
+            capacity=1000,
+            label="API (1000/5min)",
+        )
         self.session = SmartSession(
             base_url=base_url,
-            rate_limits={
-                # 1000 calls per 5 minutes, retries=3, backoff_factor=0.3
-                get_hostname_from_url(self.base_url): {
-                    "rate": 1000 / 300,
-                    "capacity": 1000,
-                }
-            },
+            rate_limit_map=http_rate_limit_map("overseerr", host),
         )
 
         self.session.headers.update(

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 
 from collections.abc import Callable
@@ -11,6 +11,7 @@ from requests import RequestException
 
 from program.settings import settings_manager
 from program.settings.models import TraktModel
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
 from schemas.trakt import GetMovies200ResponseInnerMovie, GetShows200ResponseInnerShow
 
@@ -69,15 +70,16 @@ class TraktAPI:
         self.oauth_client_secret = self.settings.oauth.oauth_client_secret
         self.oauth_redirect_uri = self.settings.oauth.oauth_redirect_uri
 
+        register_http_limit(
+            "trakt",
+            "api.trakt.tv",
+            rate=1000 / 300,
+            capacity=1000,
+            label="API (1000/5min)",
+        )
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                # 1000 calls per 5 minutes
-                "api.trakt.tv": {
-                    "rate": 1000 / 300,
-                    "capacity": 1000,
-                }
-            },
+            rate_limit_map=http_rate_limit_map("trakt", "api.trakt.tv"),
             retries=2,
             backoff_factor=0.3,
         )

@@ -8,6 +8,7 @@ from program.media.item import MediaItem
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
 from program.settings.models import TorrentioConfig
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
 
 
@@ -32,17 +33,19 @@ class Torrentio(ScraperService[TorrentioConfig]):
         self.settings = settings_manager.settings.scraping.torrentio
         self.timeout = self.settings.timeout or 15
 
+        rate_limit_map = None
+        if self.settings.ratelimit:
+            register_http_limit(
+                "torrentio",
+                "torrentio.strem.fun",
+                rate=150 / 60,
+                capacity=150,
+                label="API (150/min)",
+            )
+            rate_limit_map = http_rate_limit_map("torrentio", "torrentio.strem.fun")
+
         self.session = SmartSession(
-            rate_limits=(
-                {
-                    "torrentio.strem.fun": {
-                        "rate": 150 / 60,
-                        "capacity": 150,
-                    }  # 150 calls per minute
-                }
-                if self.settings.ratelimit
-                else None
-            ),
+            rate_limit_map=rate_limit_map,
             retries=self.settings.retries,
             backoff_factor=0.3,
         )

@@ -15,7 +15,8 @@ from program.services.downloaders.models import (
     UnrestrictedLink,
 )
 from program.settings import settings_manager
-from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.services.rate_limit import CircuitBreakerOpen, ResourceSpec
+from program.utils.request import SmartResponse, SmartSession
 from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left
@@ -158,12 +159,7 @@ class AllDebridAPI:
 
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                "api.alldebrid.com": {
-                    "rate": 10,
-                    "capacity": 600,
-                },
-            },
+            rate_limit_map={"api.alldebrid.com": ["alldebrid.api"]},
             proxies=proxies,
             retries=2,
             backoff_factor=0.5,
@@ -184,6 +180,15 @@ class AllDebridDownloader(DownloaderBase):
 
     API_BREAKER_DOMAIN = "api.alldebrid.com"
     API_RATE_PER_SECOND = 10.0
+    PRIMARY_LIMIT_KEY = "alldebrid.api"
+    LIMIT_SPECS = {
+        "alldebrid.api": ResourceSpec(
+            label="API (600/min)",
+            owner="alldebrid",
+            rate=10.0,
+            capacity=600,
+        ),
+    }
 
     def __init__(self) -> None:
         self.key = "alldebrid"
@@ -202,6 +207,7 @@ class AllDebridDownloader(DownloaderBase):
         if not self._validate_settings():
             return False
 
+        self.register_limits()
         proxy_url = self.PROXY_URL or None
 
         self.api = AllDebridAPI(api_key=self.settings.api_key, proxy_url=proxy_url)
@@ -279,14 +285,6 @@ class AllDebridDownloader(DownloaderBase):
                     return data.error.message
 
                 return f"HTTP {status}"
-
-    def _maybe_backoff(self, response: SmartResponse) -> None:
-        """
-        Check if we should back off based on response.
-        """
-
-        if response.status_code == 429:
-            logger.warning("AllDebrid rate limit hit, backing off")
 
     def get_instant_availability(
         self,
@@ -518,8 +516,6 @@ class AllDebridDownloader(DownloaderBase):
             },
         )
 
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise AllDebridError(self._handle_error(response))
 
@@ -581,8 +577,6 @@ class AllDebridDownloader(DownloaderBase):
                     "id": str(magnet_id),
                 },
             )
-
-            self._maybe_backoff(response)
 
             if not response.ok:
                 return None
@@ -660,8 +654,6 @@ class AllDebridDownloader(DownloaderBase):
             },
         )
 
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise AllDebridError(self._handle_error(response))
 
@@ -733,8 +725,6 @@ class AllDebridDownloader(DownloaderBase):
             },
         )
 
-        self._maybe_backoff(response)
-
         if not response.ok:
             raise AllDebridError(self._handle_error(response))
 
@@ -758,8 +748,6 @@ class AllDebridDownloader(DownloaderBase):
                     "link": link,
                 },
             )
-
-            self._maybe_backoff(response)
 
             if not response.ok:
                 return None
@@ -800,8 +788,6 @@ class AllDebridDownloader(DownloaderBase):
             assert self.api
 
             response = self.api.session.get("v4/user")
-
-            self._maybe_backoff(response)
 
             if not response.ok:
                 logger.error(f"Failed to get user info: {self._handle_error(response)}")

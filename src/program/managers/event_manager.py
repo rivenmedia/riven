@@ -7,7 +7,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from queue import Empty
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy.orm
 from loguru import logger
@@ -17,6 +17,7 @@ from program.db import db_functions
 from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
+from program.shutdown import request_shutdown, shutting_down
 from program.types import Event, Service
 from program.media.state import States
 
@@ -62,6 +63,29 @@ class EventManager:
         self._queued_events = list[Event]()
         self._running_events = list[Event]()
         self.mutex = Lock()
+        self._shutdown = False
+
+    def shutdown(self, *, wait: bool = False) -> None:
+        """Stop accepting work and tear down service thread pools."""
+        if self._shutdown:
+            return
+
+        self._shutdown = True
+        request_shutdown()
+
+        with self.mutex:
+            for future_with_event in list(self._futures):
+                future_with_event.cancellation_event.set()
+                if not future_with_event.future.done():
+                    future_with_event.future.cancel()
+            self._queued_events.clear()
+
+        for service_executor in self._executors:
+            service_executor.executor.shutdown(wait=wait, cancel_futures=True)
+
+        self._executors.clear()
+        self._futures.clear()
+        self._running_events.clear()
 
     def _find_or_create_executor(self, service_cls: Service) -> ThreadPoolExecutor:
         """
@@ -73,6 +97,9 @@ class EventManager:
         Returns:
             concurrent.futures.ThreadPoolExecutor: The executor for the service class.
         """
+
+        if self._shutdown or shutting_down():
+            raise RuntimeError("Event manager is shutting down")
 
         service_name = service_cls.__class__.__name__
 
@@ -154,6 +181,16 @@ class EventManager:
                         overrides=event_overrides
                     )
                 )
+        except RuntimeError as e:
+            if shutting_down() or "interpreter shutdown" in str(e).lower():
+                if future_with_event.event:
+                    self.remove_event_from_running(future_with_event.event)
+                logger.debug(
+                    f"Skipped future during shutdown for {future_with_event.event.log_message if future_with_event.event else future_with_event}"
+                )
+                return
+            logger.error(f"Error in future for {future_with_event}: {e}")
+            logger.exception(traceback.format_exc())
         except Exception as e:
             logger.error(f"Error in future for {future_with_event}: {e}")
             logger.exception(traceback.format_exc())
@@ -327,6 +364,11 @@ class EventManager:
                 )
                 return
 
+        if self._shutdown or shutting_down():
+            if event:
+                self.remove_event_from_running(event)
+            return
+
         cancellation_event = threading.Event()
 
         executor = self._find_or_create_executor(service)
@@ -335,14 +377,19 @@ class EventManager:
 
         runner = program.services[service.get_key()]
 
-        future = executor.submit(
-            db_functions.run_thread_with_db_item,
-            runner.run,
-            service,
-            program,
-            event,
-            cancellation_event,
-        )
+        try:
+            future = executor.submit(
+                db_functions.run_thread_with_db_item,
+                runner.run,
+                service,
+                program,
+                event,
+                cancellation_event,
+            )
+        except RuntimeError:
+            if event:
+                self.remove_event_from_running(event)
+            return
 
         future_with_event = FutureWithEvent(
             future=future,
@@ -668,6 +715,74 @@ class EventManager:
                 next_deferred.isoformat() if next_deferred is not None else None
             ),
         }
+
+    _DOWNLOADER_QUEUE_LIMIT = 50
+
+    def get_downloader_queued_items(self) -> list[dict[str, Any]]:
+        """
+        List downloader-relevant queued events with timing metadata.
+
+        Includes events whose cached state is Scraped or that were emitted by Downloader.
+        """
+
+        now = datetime.now()
+        state_priority = {
+            States.Completed: 0,
+            States.PartiallyCompleted: 1,
+            States.Symlinked: 2,
+            States.Downloaded: 3,
+            States.Scraped: 4,
+            States.Indexed: 5,
+        }
+
+        def sort_key(event: Event) -> tuple[int, datetime]:
+            priority = (
+                state_priority.get(event.item_state, 999)
+                if event.item_state
+                else 999
+            )
+            return (priority, event.run_at)
+
+        matched: list[Event] = []
+
+        with self.mutex:
+            for event in self._queued_events:
+                if not event.item_id:
+                    continue
+
+                emitted_by = (
+                    event.emitted_by
+                    if isinstance(event.emitted_by, str)
+                    else event.emitted_by.__class__.__name__
+                )
+                if event.item_state != States.Scraped and emitted_by != "Downloader":
+                    continue
+
+                matched.append(event)
+
+        matched.sort(key=sort_key)
+
+        rows: list[dict[str, Any]] = []
+        for event in matched[: self._DOWNLOADER_QUEUE_LIMIT]:
+            emitted_by = (
+                event.emitted_by
+                if isinstance(event.emitted_by, str)
+                else event.emitted_by.__class__.__name__
+            )
+            rows.append(
+                {
+                    "item_id": int(event.item_id),
+                    "run_at": event.run_at,
+                    "queued_at": event.queued_at,
+                    "item_state": (
+                        event.item_state.name if event.item_state else None
+                    ),
+                    "emitted_by": emitted_by,
+                    "deferred": event.run_at > now,
+                }
+            )
+
+        return rows
 
     def item_exists_in_queue(self, item: MediaItem, queue: list[Event]) -> bool:
         """

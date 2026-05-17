@@ -9,6 +9,7 @@ from requests import ReadTimeout
 from program.media.item import MediaItem, Movie
 from program.services.scrapers.base import ScraperService
 from program.settings import settings_manager
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession, get_hostname_from_url
 from program.utils.torrent import extract_infohash, normalize_infohash
 from program.settings.models import JackettConfig
@@ -54,18 +55,21 @@ class Jackett(ScraperService[JackettConfig]):
                     logger.error("Jackett timeout must be a positive integer")
                     return False
 
+                rate_limit_map = None
+                if self.settings.ratelimit:
+                    host = get_hostname_from_url(self.settings.url)
+                    register_http_limit(
+                        "jackett",
+                        host,
+                        rate=300 / 60,
+                        capacity=300,
+                        label="API (300/min)",
+                    )
+                    rate_limit_map = http_rate_limit_map("jackett", host)
+
                 self.session = SmartSession(
                     base_url=f"{self.settings.url.rstrip('/')}/api/v2.0",
-                    rate_limits=(
-                        {
-                            get_hostname_from_url(self.settings.url): {
-                                "rate": 300 / 60,
-                                "capacity": 300,
-                            }
-                        }
-                        if self.settings.ratelimit
-                        else None
-                    ),
+                    rate_limit_map=rate_limit_map,
                     retries=self.settings.retries,
                     backoff_factor=0.3,
                 )

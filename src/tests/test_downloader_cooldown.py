@@ -5,15 +5,24 @@ import pytest
 
 from program.media.item import Movie
 from program.services.downloaders import Downloader
-from program.utils.request import CircuitBreakerOpen
+from program.services.rate_limit import CircuitBreakerOpen
 
 
 @pytest.fixture
 def downloader():
     """Create a Downloader with one mocked initialized service."""
+    from program.services.rate_limit import ResourceSpec, get_rate_limit_service
+
+    rl = get_rate_limit_service()
+    rl.register(
+        "torbox.api",
+        ResourceSpec(label="API", owner="torbox", rate=5.0, capacity=10),
+        replace=True,
+    )
     d = Downloader()
     mock_service = Mock()
     mock_service.key = "torbox"
+    mock_service.primary_limit_key = lambda: "torbox.api"
     mock_service.API_RATE_PER_SECOND = 5.0
     mock_service.get_instant_availability = Mock()
     mock_service.add_torrent = Mock()
@@ -88,9 +97,27 @@ def test_successful_download_clears_cooldown(downloader, mock_item):
                 return_value=Mock(id="tid", info=Mock(), infohash="abc123", container=container),
             ):
                 with patch.object(downloader, "update_item_attributes", return_value=True):
-                    list(downloader.run(mock_item))
+                    with patch("program.services.downloaders.logger.log"):
+                        list(downloader.run(mock_item))
 
     assert downloader._service_cooldowns == {}
+
+
+def test_start_manual_download_propagates_circuit_breaker(downloader, mock_item):
+    mock_item.streams[0].infohash = "abc123"
+    downloader.service.get_instant_availability.side_effect = CircuitBreakerOpen(
+        "api.torbox.app"
+    )
+
+    with pytest.raises(CircuitBreakerOpen):
+        downloader.start_manual_download(
+            item=mock_item,
+            stream=mock_item.streams[0],
+            service=downloader.service,
+            file_ids=None,
+        )
+
+    assert "torbox" in downloader._service_cooldowns
 
 
 def test_pause_until_matches_earliest_cooldown(downloader):

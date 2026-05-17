@@ -1,5 +1,6 @@
-﻿"""Listrr API"""
+"""Listrr API"""
 
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
 
 
@@ -14,14 +15,16 @@ class ListrrAPI:
         self.BASE_URL = "https://listrr.pro/api"
         self.api_key = api_key
         self.headers = {"X-Api-Key": self.api_key}
+        register_http_limit(
+            "listrr",
+            "listrr.pro",
+            rate=10,
+            capacity=50,
+            label="API (listrr.pro)",
+        )
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                "listrr.pro": {
-                    "rate": 10,
-                    "capacity": 50,
-                },
-            },
+            rate_limit_map=http_rate_limit_map("listrr", "listrr.pro"),
             retries=3,
             backoff_factor=0.3,
         )

@@ -1,5 +1,6 @@
 """TMDB API client"""
 
+from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
 
 TMDB_READ_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlNTkxMmVmOWFhM2IxNzg2Zjk3ZTE1NWY1YmQ3ZjY1MSIsInN1YiI6IjY1M2NjNWUyZTg5NGE2MDBmZjE2N2FmYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.xrIXsMFJpI1o1j5g2QpQcFP1X3AfRjFA5FlBFO5Naw8"  # noqa: S105
@@ -15,16 +16,16 @@ class TMDBApi:
     def __init__(self):
         self.BASE_URL = "https://api.themoviedb.org/3"
 
+        register_http_limit(
+            "tmdb",
+            "api.themoviedb.org",
+            rate=40,
+            capacity=1000,
+            label="API (40/s)",
+        )
         self.session = SmartSession(
             base_url=self.BASE_URL,
-            rate_limits={
-                # 40 requests per second
-                # https://developer.themoviedb.org/docs/rate-limiting
-                "api.themoviedb.org": {
-                    "rate": 40,
-                    "capacity": 1000,
-                }
-            },
+            rate_limit_map=http_rate_limit_map("tmdb", "api.themoviedb.org"),
             retries=2,
             backoff_factor=0.3,
         )

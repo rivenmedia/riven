@@ -789,12 +789,34 @@
   background: rgba(232, 120, 80, 0.12);
 }
 
+.view-dashboard-activity .kpi-grid,
 .view-dashboard-downloader .kpi-grid {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
+.view-dashboard-activity .kpi-card h3,
 .view-dashboard-downloader .kpi-card h3 {
   white-space: nowrap;
+}
+
+.activity-rate-kpis {
+  margin-bottom: 1rem;
+}
+
+.activity-pipeline-kpis {
+  margin: 1rem 0;
+}
+
+.activity-pipeline-subpanel {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--panel-border);
+}
+
+.activity-pipeline-subpanel__title {
+  margin: 0 0 0.65rem;
+  font-size: var(--font-size-1);
+  font-weight: 600;
 }
 
 .downloader-status__hint {
@@ -815,13 +837,65 @@
   margin-bottom: 0;
 }
 
-.downloader-status__in-flight {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.downloader-in-flight-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.downloader-in-flight-row__title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--text-1, #e4e4e7);
+  text-decoration: none;
+}
+
+.downloader-in-flight-row__title:hover {
+  text-decoration: underline;
+}
+
+.downloader-in-flight-row__state {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+}
+
+.downloader-queue-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.downloader-queue-row__sub {
+  font-size: 0.8rem;
+}
+
+.downloader-last-job-row__detail {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+
+.downloader-outcome--success {
+  border-color: var(--success, #22c55e);
+  color: var(--success, #22c55e);
+}
+
+.downloader-outcome--deferred {
+  border-color: var(--warning, #e8c547);
+  color: var(--warning, #e8c547);
+}
+
+.downloader-outcome--failed {
+  border-color: var(--danger, #e85c5c);
+  color: var(--danger, #e85c5c);
+}
+
+.downloader-outcome--skipped {
+  border-color: var(--text-2, #71717a);
+  color: var(--text-2, #71717a);
 }
 
 .downloader-status__breaker--open {
@@ -836,6 +910,93 @@
 
 .downloader-status__breaker--closed {
   color: #6bc98a;
+}
+
+.rate-limits-panel__scope {
+  margin: 0 0 0.75rem;
+}
+
+.rate-limits-panel {
+  margin-bottom: 1.25rem;
+}
+
+.rate-limits-panel__warn {
+  color: #e8c547;
+}
+
+.rate-limits-panel__section {
+  margin-bottom: 1rem;
+}
+
+.rate-limits-panel__owner {
+  margin: 0 0 0.5rem;
+  font-size: var(--font-size-0);
+  text-transform: capitalize;
+  color: var(--muted);
+}
+
+.rate-limit-row {
+  margin-bottom: 0.65rem;
+}
+
+.rate-limit-row__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.rate-limit-row__label {
+  font-size: var(--font-size-0);
+}
+
+.rate-limit-row__breaker {
+  font-size: var(--font-size-0);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.rate-limit-row__breaker--open {
+  color: #e85c5c;
+}
+
+.rate-limit-row__breaker--half_open {
+  color: #e8c547;
+}
+
+.rate-limit-row__breaker--closed {
+  color: #6bc98a;
+}
+
+.rate-limit-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rate-limit-bar__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.rate-limit-bar--ok {
+  background: #6bc98a;
+}
+
+.rate-limit-bar--warn {
+  background: #e8c547;
+}
+
+.rate-limit-bar--critical {
+  background: #e85c5c;
+}
+
+.rate-limit-row__meta {
+  margin: 0.2rem 0 0;
+  font-size: var(--font-size-0);
 }
 
 .downloader-warning--expired {
