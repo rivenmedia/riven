@@ -11,6 +11,7 @@ const QUICK_ENDPOINTS = [
   '/events',
   '/vfs_stats',
   '/downloader_user_info',
+  '/downloader_status',
 ];
 
 function pretty(data: unknown): string {

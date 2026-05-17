@@ -115,6 +115,14 @@ class DownloadersModel(Observable):
         default_factory=lambda: TorboxModel(),
         description="TorBox downloader configuration",
     )
+    min_job_interval_seconds: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Minimum seconds between downloader jobs. When unset, derived from "
+            "enabled debrid providers' API rate limits."
+        ),
+    )
 
 
 # Filesystem Service

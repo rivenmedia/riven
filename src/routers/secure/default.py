@@ -61,6 +61,35 @@ class DownloaderUserInfoResponse(BaseModel):
     services: list[DownloaderUserInfo]
 
 
+class DownloaderBreakerStatus(BaseModel):
+    domain: str
+    state: str
+    failures: int
+
+
+class DownloaderServiceStatus(BaseModel):
+    key: str
+    available: bool
+    cooldown_until: str | None = None
+    breaker: DownloaderBreakerStatus | None = None
+
+
+class DownloaderQueueStats(BaseModel):
+    scraped_queued: int
+    deferred: int
+    downloader_emitted: int
+    next_ready_at: str | None = None
+
+
+class DownloaderStatusResponse(BaseModel):
+    paused: bool
+    pause_until: str | None = None
+    min_job_interval_seconds: float
+    queue: DownloaderQueueStats
+    services: list[DownloaderServiceStatus]
+    in_flight_item_ids: list[int]
+
+
 @router.get(
     "/downloader_user_info",
     operation_id="download_user_info",
@@ -140,6 +169,75 @@ async def download_user_info() -> DownloaderUserInfoResponse:
         raise
     except Exception as e:
         logger.exception("Error getting downloader user info")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.get(
+    "/downloader_status",
+    operation_id="downloader_status",
+    response_model=DownloaderStatusResponse,
+)
+async def downloader_status() -> DownloaderStatusResponse:
+    """Operational downloader status: cooldowns, circuit breakers, and queue depth."""
+
+    try:
+        program = di[Program]
+        services = program.services
+
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
+
+        downloader = services.downloader
+
+        if not downloader or not downloader.initialized:
+            raise HTTPException(
+                status_code=503, detail="No downloader service is initialized"
+            )
+
+        operational = downloader.get_operational_status()
+        queue_raw = program.em.get_downloader_queue_stats()
+        in_flight = program.em.get_event_updates().get("Downloader", [])
+
+        service_rows = list[DownloaderServiceStatus]()
+        for row in operational["services"]:
+            breaker_raw = row.get("breaker")
+            breaker = None
+            if breaker_raw:
+                breaker = DownloaderBreakerStatus(
+                    domain=str(breaker_raw["domain"]),
+                    state=str(breaker_raw["state"]),
+                    failures=int(breaker_raw["failures"]),
+                )
+
+            service_rows.append(
+                DownloaderServiceStatus(
+                    key=str(row["key"]),
+                    available=bool(row["available"]),
+                    cooldown_until=row.get("cooldown_until"),
+                    breaker=breaker,
+                )
+            )
+
+        return DownloaderStatusResponse(
+            paused=bool(operational["paused"]),
+            pause_until=operational.get("pause_until"),
+            min_job_interval_seconds=float(operational["min_job_interval_seconds"]),
+            queue=DownloaderQueueStats(
+                scraped_queued=int(queue_raw["scraped_queued"]),
+                deferred=int(queue_raw["deferred"]),
+                downloader_emitted=int(queue_raw["downloader_emitted"]),
+                next_ready_at=queue_raw.get("next_ready_at"),
+            ),
+            services=service_rows,
+            in_flight_item_ids=[int(i) for i in in_flight],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error getting downloader status")
         raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
 
 

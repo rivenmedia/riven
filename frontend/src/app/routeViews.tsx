@@ -30,6 +30,7 @@ export const ROUTE_VIEWS: Record<
   'dashboard-services': DashboardView,
   'dashboard-states': DashboardView,
   'dashboard-releases': DashboardView,
+  'dashboard-downloader': DashboardView,
   inspector: InspectorView,
   settings: SettingsView,
   'vfs-stats': VfsStatsView,

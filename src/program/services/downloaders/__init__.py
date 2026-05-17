@@ -1,5 +1,8 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+import threading
+import time
+from typing import Any
 from loguru import logger
 from RTN import ParsedData
 
@@ -39,6 +42,39 @@ from .alldebrid import AllDebridDownloader
 from .torbox import TorBoxDownloader
 
 
+class _ThrottledLog:
+    """Emit at most one WARNING per key per interval; fold duplicates into a suffix."""
+
+    def __init__(self, interval_seconds: float = 60.0) -> None:
+        self._interval = interval_seconds
+        self._last_key: str | None = None
+        self._last_at: datetime | None = None
+        self._suppressed = 0
+
+    def warning(self, key: str, message: str) -> None:
+        now = datetime.now()
+        if (
+            self._last_key == key
+            and self._last_at
+            and (now - self._last_at).total_seconds() < self._interval
+        ):
+            self._suppressed += 1
+            return
+
+        if self._suppressed:
+            message = f"{message} ({self._suppressed} similar events suppressed)"
+            self._suppressed = 0
+
+        logger.warning(message)
+        self._last_key = key
+        self._last_at = now
+
+    def reset(self) -> None:
+        self._last_key = None
+        self._last_at = None
+        self._suppressed = 0
+
+
 class Downloader(Runner[None, DownloaderBase]):
     def __init__(self):
         super().__init__()
@@ -65,9 +101,101 @@ class Downloader(Runner[None, DownloaderBase]):
 
         # Track per-service cooldowns when circuit breaker is open
         self._service_cooldowns = dict[str, datetime]()
+        self._throttled_logs = _ThrottledLog(interval_seconds=60.0)
+        self._job_slot_lock = threading.Lock()
+        self._next_job_slot_at = 0.0
+        self.min_job_interval_seconds = self._compute_min_job_interval()
         self.subtitles_enabled = (
             settings_manager.settings.post_processing.subtitle.enabled
         )
+
+    def _compute_min_job_interval(self) -> float:
+        override = settings_manager.settings.downloaders.min_job_interval_seconds
+        if override is not None:
+            return float(override)
+
+        rates = [
+            float(service.API_RATE_PER_SECOND)
+            for service in self.initialized_services
+            if service.API_RATE_PER_SECOND > 0
+        ]
+        if not rates:
+            return 0.2
+
+        return 1.0 / min(rates)
+
+    def _available_services(self, now: datetime | None = None) -> list[DownloaderBase]:
+        if now is None:
+            now = datetime.now()
+
+        return [
+            service
+            for service in self.initialized_services
+            if service.key not in self._service_cooldowns
+            or self._service_cooldowns[service.key] <= now
+        ]
+
+    def pause_until(self) -> datetime | None:
+        """When all initialized services are in cooldown, return the earliest retry time."""
+
+        if self._available_services():
+            return None
+
+        if not self._service_cooldowns:
+            return None
+
+        return min(self._service_cooldowns.values())
+
+    def _acquire_job_slot(self) -> None:
+        """Space downloader jobs apart to stay within debrid API rate limits."""
+
+        interval = self.min_job_interval_seconds
+        if interval <= 0:
+            return
+
+        with self._job_slot_lock:
+            now = time.monotonic()
+            wait = self._next_job_slot_at - now
+            if wait > 0:
+                time.sleep(wait)
+                now = time.monotonic()
+
+            self._next_job_slot_at = now + interval
+
+    def _space_after_stream_attempt(self) -> None:
+        """Light spacing between stream attempts within a single job."""
+
+        interval = self.min_job_interval_seconds
+        if interval > 0:
+            time.sleep(interval)
+
+    def get_operational_status(self) -> dict[str, Any]:
+        """Operational snapshot for API/dashboard (not account/premium info)."""
+
+        now = datetime.now()
+        pause = self.pause_until()
+        available = self._available_services(now)
+
+        services: list[dict[str, Any]] = []
+        for service in self.initialized_services:
+            cooldown = self._service_cooldowns.get(service.key)
+            services.append(
+                {
+                    "key": service.key,
+                    "available": service in available,
+                    "cooldown_until": (
+                        cooldown.isoformat() if cooldown and cooldown > now else None
+                    ),
+                    "breaker": service.get_breaker_status(),
+                }
+            )
+
+        return {
+            "paused": pause is not None and pause > now,
+            "pause_until": pause.isoformat() if pause and pause > now else None,
+            "min_job_interval_seconds": self.min_job_interval_seconds,
+            "services": services,
+        }
 
     def validate(self):
         if not self.initialized_services:
@@ -88,23 +216,21 @@ class Downloader(Runner[None, DownloaderBase]):
     ) -> MediaItemGenerator:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
+        self._acquire_job_slot()
 
         # Check if all services are in cooldown due to circuit breaker
         now = datetime.now()
 
-        available_services = [
-            service
-            for service in self.initialized_services
-            if service.key not in self._service_cooldowns
-            or self._service_cooldowns[service.key] <= now
-        ]
+        available_services = self._available_services(now)
 
         if not available_services:
             # All services are in cooldown, reschedule for the earliest available time
             next_attempt = min(self._service_cooldowns.values())
 
-            logger.warning(
-                f"All downloader services in cooldown for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
+            self._throttled_logs.warning(
+                f"all_cooldown:{next_attempt.isoformat(timespec='minutes')}",
+                "All downloader services in cooldown, deferring downloads "
+                f"until {next_attempt.strftime('%m/%d/%y %H:%M:%S')}",
             )
 
             yield RunnerResult(media_items=[item], run_at=next_attempt)
@@ -136,6 +262,7 @@ class Downloader(Runner[None, DownloaderBase]):
                 # Try each available service for this stream before blacklisting
                 stream_failed_on_all_services = True
                 stream_hit_circuit_breaker = False
+                stream_attempted_api = False
 
                 for service in available_services:
                     logger.debug(
@@ -145,6 +272,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     download_result: DownloadedTorrent | None = None
 
                     try:
+                        stream_attempted_api = True
                         # Validate stream on this specific service
                         container = self.validate_stream_on_service(
                             stream,
@@ -185,7 +313,7 @@ class Downloader(Runner[None, DownloaderBase]):
                         self._service_cooldowns[service.key] = (
                             datetime.now() + cooldown_duration
                         )
-                        logger.warning(
+                        logger.debug(
                             f"Circuit breaker OPEN for {service.key}, trying next service for stream {stream.infohash}"
                         )
                         stream_hit_circuit_breaker = True
@@ -256,6 +384,9 @@ class Downloader(Runner[None, DownloaderBase]):
 
                 tried_streams += 1
 
+                if stream_attempted_api and not download_success:
+                    self._space_after_stream_attempt()
+
                 if tried_streams >= 3:
                     yield RunnerResult(media_items=[item])
 
@@ -270,8 +401,10 @@ class Downloader(Runner[None, DownloaderBase]):
                 # Reschedule for after cooldown instead of failing
                 next_attempt = min(self._service_cooldowns.values())
 
-                logger.warning(
-                    f"Single provider hit circuit breaker for {item.log_string} ({item.id}), rescheduling for {next_attempt.strftime('%m/%d/%y %H:%M:%S')}"
+                self._throttled_logs.warning(
+                    f"single_cb:{next_attempt.isoformat(timespec='minutes')}",
+                    f"Downloader circuit breaker open ({self.initialized_services[0].key}), "
+                    f"deferring downloads until {next_attempt.strftime('%m/%d/%y %H:%M:%S')}",
                 )
 
                 yield RunnerResult(media_items=[item], run_at=next_attempt)
@@ -284,6 +417,7 @@ class Downloader(Runner[None, DownloaderBase]):
         else:
             # Clear service cooldowns on successful download
             self._service_cooldowns.clear()
+            self._throttled_logs.reset()
 
             yield RunnerResult(media_items=[item])
 

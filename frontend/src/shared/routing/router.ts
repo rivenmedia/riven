@@ -14,6 +14,7 @@ export const ROUTES = {
   'dashboard-services': 'view-dashboard-services',
   'dashboard-states': 'view-dashboard-states',
   'dashboard-releases': 'view-dashboard-releases',
+  'dashboard-downloader': 'view-dashboard-downloader',
   inspector: 'view-inspector',
   settings: 'view-settings',
   'vfs-stats': 'view-vfs-stats',

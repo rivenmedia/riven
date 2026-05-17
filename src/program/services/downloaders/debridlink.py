@@ -134,6 +134,9 @@ class DebridLinkDownloader(DownloaderBase):
     - HTTP status codes are not exceptions; we check response.ok and map to messages via _handle_error(...).
     """
 
+    API_BREAKER_DOMAIN = "debrid-link.com"
+    API_RATE_PER_SECOND = 1.0
+
     def __init__(self) -> None:
         self.key = "debridlink"
         self.settings = settings_manager.settings.downloaders.debrid_link

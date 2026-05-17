@@ -310,6 +310,23 @@ class EventManager:
 
         logger.debug(log_message)
 
+        if (
+            service.__class__.__name__ == "Downloader"
+            and event is not None
+            and program.services
+            and program.services.downloader
+        ):
+            downloader = program.services.downloader
+            pause_until = downloader.pause_until()
+            if pause_until and pause_until > datetime.now():
+                event.run_at = max(event.run_at, pause_until)
+                self.add_event_to_queue(event)
+                logger.debug(
+                    f"Downloader paused until {pause_until.isoformat()}; "
+                    f"re-queued {event.log_message}"
+                )
+                return
+
         cancellation_event = threading.Event()
 
         executor = self._find_or_create_executor(service)
@@ -607,6 +624,50 @@ class EventManager:
                 table.append(event.item_id)
 
         return updates
+
+    def get_downloader_queue_stats(self) -> dict[str, int | str | None]:
+        """
+        Count downloader-related events in the queue.
+
+        Returns:
+            scraped_queued: queued events whose cached state is Scraped
+            deferred: queued events with run_at in the future
+            downloader_emitted: queued events emitted for the Downloader service
+            next_ready_at: ISO timestamp of earliest deferred run_at, if any
+        """
+
+        now = datetime.now()
+        scraped_queued = 0
+        deferred = 0
+        downloader_emitted = 0
+        next_deferred: datetime | None = None
+
+        with self.mutex:
+            for event in self._queued_events:
+                if event.run_at > now:
+                    deferred += 1
+                    if next_deferred is None or event.run_at < next_deferred:
+                        next_deferred = event.run_at
+
+                emitted_by = (
+                    event.emitted_by
+                    if isinstance(event.emitted_by, str)
+                    else event.emitted_by.__class__.__name__
+                )
+                if emitted_by == "Downloader":
+                    downloader_emitted += 1
+
+                if event.item_state == States.Scraped:
+                    scraped_queued += 1
+
+        return {
+            "scraped_queued": scraped_queued,
+            "deferred": deferred,
+            "downloader_emitted": downloader_emitted,
+            "next_ready_at": (
+                next_deferred.isoformat() if next_deferred is not None else None
+            ),
+        }
 
     def item_exists_in_queue(self, item: MediaItem, queue: list[Event]) -> bool:
         """

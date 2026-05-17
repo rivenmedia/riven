@@ -32,6 +32,7 @@ const NAV_SECTIONS: NavSection[] = [
       { hash: "#/dashboard-services", label: "Services", route: "dashboard-services" },
       { hash: "#/dashboard-states", label: "State Distribution", route: "dashboard-states" },
       { hash: "#/dashboard-releases", label: "Releases by Year", route: "dashboard-releases" },
+      { hash: "#/dashboard-downloader", label: "Downloader", route: "dashboard-downloader" },
       { hash: "#/calendar", label: "Calendar", route: "calendar" },
     ],
   },

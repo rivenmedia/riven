@@ -20,6 +20,8 @@ class DownloaderBase(ABC):
     """The abstract base class for all Downloader implementations."""
 
     PROXY_URL: str = settings_manager.settings.downloaders.proxy_url
+    API_BREAKER_DOMAIN: str | None = None
+    API_RATE_PER_SECOND: float = 1.0
 
     initialized: bool
     key: str
@@ -118,6 +120,29 @@ class DownloaderBase(ABC):
         """
 
         raise NotImplementedError()
+
+    def get_breaker_status(self) -> dict[str, str | int] | None:
+        """Return HTTP circuit breaker state for this provider's API domain."""
+
+        domain = self.API_BREAKER_DOMAIN
+        api = getattr(self, "api", None)
+
+        if not domain or api is None:
+            return None
+
+        session = getattr(api, "session", None)
+        if session is None:
+            return None
+
+        breaker = session.breakers.get(domain)
+        if breaker is None:
+            return None
+
+        return {
+            "domain": domain,
+            "state": breaker.state,
+            "failures": breaker.failures,
+        }
 
 
 def parse_filename(filename: str) -> ParsedData:

@@ -164,6 +164,9 @@ class RealDebridDownloader(DownloaderBase):
     - HTTP status codes are not exceptions; we check response.ok and map to messages via _handle_error(...).
     """
 
+    API_BREAKER_DOMAIN = "api.real-debrid.com"
+    API_RATE_PER_SECOND = 250 / 60
+
     def __init__(self) -> None:
         self.key = "realdebrid"
         self.settings = settings_manager.settings.downloaders.real_debrid

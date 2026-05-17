@@ -38,6 +38,38 @@ User info from all initialized downloader services (Real-Debrid, AllDebrid, etc.
 
 ---
 
+## GET `/api/v1/downloader_status`
+
+Operational downloader status: circuit breakers, per-service cooldowns, event-queue depth, and in-flight jobs. Does not include account/premium fields (see `/downloader_user_info`).
+
+**Response:**
+```json
+{
+  "paused": false,
+  "pause_until": null,
+  "min_job_interval_seconds": 0.2,
+  "queue": {
+    "scraped_queued": 42,
+    "deferred": 10,
+    "downloader_emitted": 8,
+    "next_ready_at": "2026-05-16T15:27:57"
+  },
+  "services": [
+    {
+      "key": "torbox",
+      "available": true,
+      "cooldown_until": null,
+      "breaker": { "domain": "api.torbox.app", "state": "CLOSED", "failures": 0 }
+    }
+  ],
+  "in_flight_item_ids": [12345]
+}
+```
+
+**Errors:** 503 if no downloader initialized.
+
+---
+
 ## POST `/api/v1/generateapikey`
 
 Generate a new API key, save it to settings, and return it.

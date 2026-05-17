@@ -767,6 +767,77 @@
   background: rgba(232, 197, 71, 0.2);
 }
 
+.downloader-status-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  margin-bottom: 1rem;
+  border: 1px solid var(--panel-border);
+}
+
+.downloader-status-banner--ok {
+  background: rgba(80, 180, 120, 0.12);
+}
+
+.downloader-status-banner--warning {
+  background: rgba(232, 197, 71, 0.12);
+}
+
+.downloader-status-banner--paused {
+  background: rgba(232, 120, 80, 0.12);
+}
+
+.view-dashboard-downloader .kpi-grid {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.view-dashboard-downloader .kpi-card h3 {
+  white-space: nowrap;
+}
+
+.downloader-status__hint {
+  margin: 0 0 1rem;
+}
+
+.downloader-status__error {
+  color: var(--danger, #e85c5c);
+}
+
+.downloader-status-services {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.downloader-status-card {
+  margin-bottom: 0;
+}
+
+.downloader-status__in-flight {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.downloader-status__breaker--open {
+  color: #e85c5c;
+  font-weight: 600;
+}
+
+.downloader-status__breaker--half {
+  color: #e8c547;
+  font-weight: 600;
+}
+
+.downloader-status__breaker--closed {
+  color: #6bc98a;
+}
+
 .downloader-warning--expired {
   color: #ffa0a0;
   background: rgba(255, 100, 100, 0.2);

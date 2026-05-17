@@ -154,6 +154,9 @@ class TorBoxDownloader(DownloaderBase):
     File URLs are stored as ``requestdl`` permalinks (token in query) per TorBox guidance.
     """
 
+    API_BREAKER_DOMAIN = "api.torbox.app"
+    API_RATE_PER_SECOND = 5.0
+
     _STILL_FETCHING_STATES = frozenset(
         {
             "downloading",

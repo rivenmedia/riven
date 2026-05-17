@@ -12,6 +12,7 @@ export type RouteName =
   | "dashboard-services"
   | "dashboard-states"
   | "dashboard-releases"
+  | "dashboard-downloader"
   | "inspector"
   | "settings"
   | "vfs-stats"
