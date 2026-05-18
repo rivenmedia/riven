@@ -1,5 +1,8 @@
+import threading
+from concurrent.futures import Future
 from datetime import datetime, timedelta
-from program.managers.event_manager import EventManager
+
+from program.managers.event_manager import EventManager, FutureWithEvent
 from program.media.state import States
 from program.types import Event
 
@@ -51,3 +54,27 @@ def test_get_downloader_queued_items_filters_and_defers():
 
     ready_row = next(r for r in rows if r["item_id"] == 10)
     assert ready_row["deferred"] is False
+
+
+def test_get_event_updates_ignores_completed_futures():
+    em = EventManager()
+    done_future: Future[int] = Future()
+    done_future.set_result(99)
+    pending_future: Future[int] = Future()
+
+    em._futures = [
+        FutureWithEvent(
+            future=done_future,
+            event=Event(emitted_by="Downloader", item_id=1),
+            cancellation_event=threading.Event(),
+        ),
+        FutureWithEvent(
+            future=pending_future,
+            event=Event(emitted_by="Downloader", item_id=2),
+            cancellation_event=threading.Event(),
+        ),
+    ]
+
+    updates = em.get_event_updates()
+
+    assert updates["Downloader"] == [2]

@@ -62,6 +62,7 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
       "breaker": { "domain": "api.torbox.app", "state": "CLOSED", "failures": 0 }
     }
   ],
+  "in_flight_total": 3,
   "in_flight_items": [
     {
       "id": 12345,

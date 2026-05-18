@@ -106,6 +106,7 @@ type DownloaderStatus = {
     scraped_in_library?: number;
   };
   services: ServiceStatus[];
+  in_flight_total?: number;
   in_flight_items: InFlightItem[];
   queued_items: QueuedItem[];
   last_job: LastJob | null;
@@ -190,6 +191,12 @@ function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): Do
       scraped_in_library: Number(queue.scraped_in_library) || 0,
     },
     services: Array.isArray(raw.services) ? raw.services : [],
+    in_flight_total:
+      typeof raw.in_flight_total === 'number'
+        ? raw.in_flight_total
+        : Array.isArray(raw.in_flight_items)
+          ? raw.in_flight_items.length
+          : 0,
     in_flight_items: Array.isArray(raw.in_flight_items)
       ? raw.in_flight_items
       : Array.isArray((raw as { in_flight_item_ids?: number[] }).in_flight_item_ids)
@@ -317,7 +324,11 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
             label="In flight"
             description={DOWNLOADER_KPI_TIPS.inFlight}
           />
-          <p className="kpi-value">{status?.in_flight_items?.length ?? '—'}</p>
+          <p className="kpi-value">
+            {status != null
+              ? (status.in_flight_total ?? status.in_flight_items?.length ?? 0)
+              : '—'}
+          </p>
         </article>
       </section>
 
@@ -495,9 +506,14 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
           </div>
         )}
 
-        {status && (status.in_flight_items?.length ?? 0) > 0 && (
+        {status && (status.in_flight_total ?? status.in_flight_items?.length ?? 0) > 0 && (
           <div className="activity-pipeline-subpanel">
             <h3 className="activity-pipeline-subpanel__title">In flight</h3>
+            {(status.in_flight_total ?? 0) > (status.in_flight_items?.length ?? 0) && (
+              <p className="muted downloader-status__hint">
+                Showing {status.in_flight_items.length} of {status.in_flight_total} active jobs.
+              </p>
+            )}
             <div className="downloader-in-flight-list">
               {status.in_flight_items.map((item) => (
                 <div key={item.id} className="media-list__row downloader-in-flight-row">

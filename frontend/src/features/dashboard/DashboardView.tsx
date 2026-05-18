@@ -913,7 +913,7 @@ function DashboardReleases({ route: _route }: { route: AppRoute }) {
   return (
     <ViewLayout className="view-dashboard view-dashboard--releases" view="dashboard-releases">
       <ViewHeader title="Dashboard — Releases by Year" subtitle="Library content by release year." />
-      <Panel>
+      <Panel className="panel--release-years">
         <div className="section-head">
           <h2>Releases by Year</h2>
         </div>

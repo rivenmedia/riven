@@ -287,12 +287,17 @@ def _queued_items(event_rows: list[dict[str, Any]]) -> list[QueuedItemResponse]:
     return result
 
 
+# Keep payloads bounded when the event manager tracks many concurrent downloader jobs.
+DOWNLOADER_IN_FLIGHT_LIMIT = 50
+
+
 class DownloaderStatusResponse(BaseModel):
     paused: bool
     pause_until: str | None = None
     min_job_interval_seconds: float
     queue: DownloaderQueueStats
     services: list[DownloaderServiceStatus]
+    in_flight_total: int = 0
     in_flight_items: list[InFlightItemResponse]
     queued_items: list[QueuedItemResponse]
     last_job: LastDownloaderJobResponse | None = None
@@ -474,7 +479,9 @@ def _build_downloader_status() -> DownloaderStatusResponse:
         operational = downloader.get_operational_status()
         queue_raw = program.em.get_downloader_queue_stats()
         queue_event_rows = program.em.get_downloader_queued_items()
-        in_flight = program.em.get_event_updates().get("Downloader", [])
+        in_flight_ids = [int(i) for i in program.em.get_event_updates().get("Downloader", [])]
+        in_flight_total = len(in_flight_ids)
+        in_flight_sample = in_flight_ids[:DOWNLOADER_IN_FLIGHT_LIMIT]
         last_job_raw = downloader.get_last_job()
 
         service_rows = [
@@ -498,7 +505,8 @@ def _build_downloader_status() -> DownloaderStatusResponse:
                 scraped_in_library=_scraped_library_count(),
             ),
             services=service_rows,
-            in_flight_items=_in_flight_items([int(i) for i in in_flight]),
+            in_flight_total=in_flight_total,
+            in_flight_items=_in_flight_items(in_flight_sample),
             queued_items=_queued_items(queue_event_rows),
             last_job=_last_job_response(last_job_raw),
         )

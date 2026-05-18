@@ -138,7 +138,8 @@ class EventManager:
                 )
             else:
                 logger.debug(f"Future for {future_with_event} was cancelled.")
-            return  # Skip processing if the future was cancelled
+            self._drop_future_from_tracking(future_with_event)
+            return
 
         try:
             result = future_with_event.future.result()
@@ -191,12 +192,11 @@ class EventManager:
                 return
             logger.error(f"Error in future for {future_with_event}: {e}")
             logger.exception(traceback.format_exc())
+            self._drop_future_from_tracking(future_with_event)
         except Exception as e:
             logger.error(f"Error in future for {future_with_event}: {e}")
             logger.exception(traceback.format_exc())
-
-            # TODO(spoked): Here we should remove it from the running events so it can be retried, right?
-            # self.remove_event_from_queue(future.event)
+            self._drop_future_from_tracking(future_with_event)
 
         log_message = f"Service {service.__class__.__name__} executed"
 
@@ -204,6 +204,14 @@ class EventManager:
             log_message += f" with {future_with_event.event.log_message}"
 
         logger.debug(log_message)
+
+    def _drop_future_from_tracking(self, future_with_event: FutureWithEvent) -> None:
+        """Remove a finished or failed future so status endpoints do not grow without bound."""
+
+        if future_with_event in self._futures:
+            self._futures.remove(future_with_event)
+        if future_with_event.event:
+            self.remove_event_from_running(future_with_event.event)
 
     def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
@@ -648,7 +656,12 @@ class EventManager:
             dict[str, list[int]]: A dictionary with the event types as keys and a list of item IDs as values.
         """
 
-        events = [future.event for future in self._futures if future.event]
+        # Completed futures can linger until their callback runs; do not treat them as in-flight.
+        events = [
+            future.event
+            for future in self._futures
+            if future.event and not future.future.done()
+        ]
         event_types = [
             "Scraping",
             "Downloader",

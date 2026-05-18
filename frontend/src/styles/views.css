@@ -1210,6 +1210,12 @@
   font-size: var(--font-size-1);
 }
 
+/* Years chart: constrain panel width; scroll the bar row inside. */
+.view-dashboard--releases .panel--release-years {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
 .release-bars-wrap {
   overflow-x: auto;
   overflow-y: visible;
@@ -1217,9 +1223,11 @@
   max-width: 100%;
   min-width: 0;
   padding-bottom: 2px;
+  overscroll-behavior-x: contain;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: rgba(132, 150, 194, 0.45) rgba(17, 26, 48, 0.35);
+  -webkit-overflow-scrolling: touch;
 }
 
 .release-bars-wrap::-webkit-scrollbar {
