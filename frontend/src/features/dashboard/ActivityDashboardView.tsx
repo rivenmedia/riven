@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { KpiCardHeading } from '../../shared/ui/KpiInfoTip';
-import { apiGet, type ApiResult } from '../../shared/api/api';
+import { apiGet } from '../../shared/api/api';
 import {
   formatBytes as formatBytesUtil,
   formatEpisodeDisplayTitle,
@@ -14,7 +14,8 @@ import { useRateLimits } from '../../shared/rateLimits/useRateLimits';
 import { RateLimitsPanel } from '../../shared/rateLimits/RateLimitsPanel';
 import type { LimiterSnapshot } from '../../shared/rateLimits/types';
 
-const POLL_MS = 3000;
+const STATUS_POLL_MS = 3000;
+const USER_INFO_POLL_MS = 60_000;
 
 const DOWNLOADER_KEYS = ['realdebrid', 'alldebrid', 'debridlink', 'torbox'] as const;
 
@@ -102,6 +103,7 @@ type DownloaderStatus = {
     deferred: number;
     downloader_emitted: number;
     next_ready_at: string | null;
+    scraped_in_library?: number;
   };
   services: ServiceStatus[];
   in_flight_items: InFlightItem[];
@@ -185,6 +187,7 @@ function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): Do
       deferred: Number(queue.deferred) || 0,
       downloader_emitted: Number(queue.downloader_emitted) || 0,
       next_ready_at: queue.next_ready_at ?? null,
+      scraped_in_library: Number(queue.scraped_in_library) || 0,
     },
     services: Array.isArray(raw.services) ? raw.services : [],
     in_flight_items: Array.isArray(raw.in_flight_items)
@@ -210,58 +213,41 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
 
   const rateSummary = useMemo(() => summarizeRateLimits(limiters), [limiters]);
 
-  const loadPipeline = useCallback(async () => {
-    const [statusRes, userRes, statsRes] = await Promise.allSettled([
-      apiGet<DownloaderStatus>('/downloader_status'),
-      apiGet<{ services: UserInfoRow[] }>('/downloader_user_info'),
-      apiGet<Record<string, unknown>>('/stats'),
-    ]);
-
-    if (statusRes.status === 'fulfilled') {
-      const res = statusRes.value as ApiResult<DownloaderStatus>;
-      if (res.ok && res.data) {
-        setStatus(normalizeDownloaderStatus(res.data));
-        setPipelineError(null);
-      } else {
-        setStatus(null);
-        setPipelineError(res.error || 'Failed to load download pipeline');
-      }
+  const loadStatus = useCallback(async () => {
+    const res = await apiGet<DownloaderStatus>('/downloader_status');
+    if (res.ok && res.data) {
+      const normalized = normalizeDownloaderStatus(res.data);
+      setStatus(normalized);
+      setScrapedDbCount(normalized?.queue.scraped_in_library ?? null);
+      setPipelineError(null);
     } else {
-      const msg =
-        statusRes.reason instanceof Error
-          ? statusRes.reason.message
-          : 'Failed to load download pipeline';
       setStatus(null);
-      setPipelineError(msg);
-    }
-
-    if (userRes.status === 'fulfilled') {
-      const res = userRes.value as ApiResult<{ services: UserInfoRow[] }>;
-      const map: Record<string, UserInfoRow> = {};
-      if (res.ok && res.data?.services) {
-        for (const row of res.data.services) {
-          if (row.service) map[row.service] = row;
-        }
-      }
-      setUserByService(map);
-    }
-
-    if (statsRes.status === 'fulfilled') {
-      const res = statsRes.value as ApiResult<Record<string, unknown>>;
-      if (res.ok && res.data) {
-        const states = res.data.states as Record<string, unknown> | undefined;
-        const scraped = states?.Scraped;
-        const n = typeof scraped === 'number' ? scraped : Number(scraped ?? 0);
-        setScrapedDbCount(Number.isFinite(n) ? n : null);
-      }
+      setPipelineError(res.error || 'Failed to load download pipeline');
     }
   }, []);
 
+  const loadUserInfo = useCallback(async () => {
+    const res = await apiGet<{ services: UserInfoRow[] }>('/downloader_user_info');
+    if (!res.ok || !res.data?.services) return;
+
+    const map: Record<string, UserInfoRow> = {};
+    for (const row of res.data.services) {
+      if (row.service) map[row.service] = row;
+    }
+    setUserByService(map);
+  }, []);
+
   useEffect(() => {
-    void loadPipeline();
-    const id = window.setInterval(() => void loadPipeline(), POLL_MS);
+    void loadStatus();
+    const id = window.setInterval(() => void loadStatus(), STATUS_POLL_MS);
     return () => window.clearInterval(id);
-  }, [loadPipeline]);
+  }, [loadStatus]);
+
+  useEffect(() => {
+    void loadUserInfo();
+    const id = window.setInterval(() => void loadUserInfo(), USER_INFO_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [loadUserInfo]);
 
   const pipelineBanner = useMemo(() => {
     if (!status) return null;

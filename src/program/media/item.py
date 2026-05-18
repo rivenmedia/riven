@@ -155,6 +155,7 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         Index("ix_mediaitem_rating", "rating"),
         Index("ix_mediaitem_content_rating", "content_rating"),
         Index("ix_mediaitem_overseerr_id", "overseerr_id"),
+        Index("ix_mediaitem_last_state", "last_state"),
         Index("ix_mediaitem_type_aired_at", "type", "aired_at"),  # Composite index
     )
 

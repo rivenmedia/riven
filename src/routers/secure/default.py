@@ -1,10 +1,13 @@
 import platform
 import psutil
+import threading
+import time
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
 import requests
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from kink import di
 from kink.errors.service_error import ServiceError
 from loguru import logger
@@ -63,6 +66,16 @@ class DownloaderUserInfoResponse(BaseModel):
     services: list[DownloaderUserInfo]
 
 
+USER_INFO_CACHE_TTL_SECONDS = 60.0
+SCRAPED_COUNT_CACHE_TTL_SECONDS = 5.0
+
+_user_info_cache_lock = threading.Lock()
+_user_info_cache: tuple[float, DownloaderUserInfoResponse] | None = None
+
+_scraped_count_cache_lock = threading.Lock()
+_scraped_count_cache: tuple[float, int] | None = None
+
+
 class DownloaderServiceStatus(BaseModel):
     key: str
     available: bool
@@ -95,6 +108,10 @@ class DownloaderQueueStats(BaseModel):
     deferred: int
     downloader_emitted: int
     next_ready_at: str | None = None
+    scraped_in_library: int = Field(
+        default=0,
+        description="Library items (all types) currently in the Scraped state",
+    )
 
 
 class InFlightItemResponse(BaseModel):
@@ -300,14 +317,9 @@ def _last_job_response(raw: dict[str, Any] | None) -> LastDownloaderJobResponse 
     )
 
 
-@router.get(
-    "/downloader_user_info",
-    operation_id="download_user_info",
-    response_model=DownloaderUserInfoResponse,
-)
-async def download_user_info() -> DownloaderUserInfoResponse:
+def _fetch_download_user_info() -> DownloaderUserInfoResponse:
     """
-    Get normalized user information from all initialized downloader services.
+    Fetch normalized user information from all initialized downloader services.
 
     Returns user info including premium status, expiration, and service-specific details
     for all active downloader services (Real-Debrid, Debrid-Link, AllDebrid, etc.)
@@ -382,12 +394,64 @@ async def download_user_info() -> DownloaderUserInfoResponse:
         raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
 
 
+def _download_user_info_sync(*, refresh: bool = False) -> DownloaderUserInfoResponse:
+    global _user_info_cache
+
+    if not refresh:
+        with _user_info_cache_lock:
+            if _user_info_cache is not None:
+                cached_at, cached = _user_info_cache
+                if time.monotonic() - cached_at < USER_INFO_CACHE_TTL_SECONDS:
+                    return cached
+
+    result = _fetch_download_user_info()
+
+    with _user_info_cache_lock:
+        _user_info_cache = (time.monotonic(), result)
+
+    return result
+
+
 @router.get(
-    "/downloader_status",
-    operation_id="downloader_status",
-    response_model=DownloaderStatusResponse,
+    "/downloader_user_info",
+    operation_id="download_user_info",
+    response_model=DownloaderUserInfoResponse,
 )
-async def downloader_status() -> DownloaderStatusResponse:
+async def download_user_info(
+    refresh: Annotated[
+        bool,
+        Query(
+            description="Bypass the in-memory cache and fetch fresh data from debrid APIs",
+        ),
+    ] = False,
+) -> DownloaderUserInfoResponse:
+    return await run_in_threadpool(_download_user_info_sync, refresh=refresh)
+
+
+def _scraped_library_count() -> int:
+    global _scraped_count_cache
+
+    now = time.monotonic()
+    with _scraped_count_cache_lock:
+        if _scraped_count_cache is not None:
+            cached_at, cached_count = _scraped_count_cache
+            if now - cached_at < SCRAPED_COUNT_CACHE_TTL_SECONDS:
+                return cached_count
+
+    with db_session() as session:
+        count = session.execute(
+            select(func.count(MediaItem.id)).where(
+                MediaItem.last_state == States.Scraped
+            )
+        ).scalar_one()
+
+    with _scraped_count_cache_lock:
+        _scraped_count_cache = (now, int(count))
+
+    return int(count)
+
+
+def _build_downloader_status() -> DownloaderStatusResponse:
     """Operational downloader status: cooldowns, circuit breakers, and queue depth."""
 
     try:
@@ -431,6 +495,7 @@ async def downloader_status() -> DownloaderStatusResponse:
                 deferred=int(queue_raw["deferred"]),
                 downloader_emitted=int(queue_raw["downloader_emitted"]),
                 next_ready_at=queue_raw.get("next_ready_at"),
+                scraped_in_library=_scraped_library_count(),
             ),
             services=service_rows,
             in_flight_items=_in_flight_items([int(i) for i in in_flight]),
@@ -442,6 +507,15 @@ async def downloader_status() -> DownloaderStatusResponse:
     except Exception as e:
         logger.exception("Error getting downloader status")
         raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.get(
+    "/downloader_status",
+    operation_id="downloader_status",
+    response_model=DownloaderStatusResponse,
+)
+async def downloader_status() -> DownloaderStatusResponse:
+    return await run_in_threadpool(_build_downloader_status)
 
 
 @router.get(
@@ -638,24 +712,30 @@ class StatsResponse(BaseModel):
     ]
 
 
-@router.get(
-    "/stats",
-    operation_id="stats",
-    response_model=StatsResponse,
-)
-async def get_stats() -> StatsResponse:
+def _counts_by_state(
+    conn,
+    model: type[MediaItem] | type[Movie] | type[Episode],
+) -> dict[States, int]:
+    counts: dict[States, int] = {state: 0 for state in States}
+    rows = conn.execute(
+        select(model.last_state, func.count(model.id)).group_by(model.last_state)
+    )
+    for state_val, count in rows:
+        if state_val is not None:
+            counts[state_val] = int(count)
+    return counts
+
+
+def _compute_stats() -> StatsResponse:
     """
     Produce aggregated statistics for the media library and its items.
 
-    The response includes total counts for media items, movies, shows, seasons, and episodes; symlink totals; global state counts (`states`); counts for movies (`states_movies`); counts for TV episodes (`states_episodes`, one row per episode); incomplete item counts; activity by request date; and release-year aggregates.
-
-    Returns:
-        StatsResponse: Aggregated statistics including `states`, `states_movies`, `states_episodes`, and library totals.
+    Runs synchronously; call via run_in_threadpool from the HTTP handler so large
+    libraries do not block the API event loop.
     """
 
     with db_session() as session:
-        # Ensure the connection is open for the entire duration of the session
-        with session.connection().execution_options(stream_results=True) as conn:
+        with session.connection() as conn:
             from sqlalchemy import exists
 
             from program.media.filesystem_entry import FilesystemEntry
@@ -679,6 +759,12 @@ async def get_stats() -> StatsResponse:
             total_seasons = conn.execute(select(func.count(Season.id))).scalar_one()
             total_episodes = conn.execute(select(func.count(Episode.id))).scalar_one()
             total_items = conn.execute(select(func.count(MediaItem.id))).scalar_one()
+
+            incomplete_items = conn.execute(
+                select(func.count(MediaItem.id)).where(
+                    MediaItem.last_state != States.Completed
+                )
+            ).scalar_one()
 
             activity = dict[str, int]()
 
@@ -706,41 +792,9 @@ async def get_stats() -> StatsResponse:
             for year, count in media_year_result:
                 media_year_releases.append({"year": year, "count": count})
 
-            # Use a server-side cursor for batch processing
-            batch_size = 1000
-            incomplete_retries = dict[int, int]()
-
-            result = conn.execute(
-                select(MediaItem.id, MediaItem.scraped_times).where(
-                    MediaItem.last_state != States.Completed
-                )
-            )
-
-            while True:
-                batch = result.fetchmany(batch_size)
-
-                if not batch:
-                    break
-
-                for media_item_id, scraped_times in batch:
-                    incomplete_retries[media_item_id] = scraped_times
-
-            states = dict[States, int]()
-            states_movies = dict[States, int]()
-            states_episodes = dict[States, int]()
-
-            for state in States:
-                states[state] = conn.execute(
-                    select(func.count(MediaItem.id)).where(
-                        MediaItem.last_state == state
-                    )
-                ).scalar_one()
-                states_movies[state] = conn.execute(
-                    select(func.count(Movie.id)).where(Movie.last_state == state)
-                ).scalar_one()
-                states_episodes[state] = conn.execute(
-                    select(func.count(Episode.id)).where(Episode.last_state == state)
-                ).scalar_one()
+            states = _counts_by_state(conn, MediaItem)
+            states_movies = _counts_by_state(conn, Movie)
+            states_episodes = _counts_by_state(conn, Episode)
 
     return StatsResponse(
         total_items=total_items,
@@ -749,13 +803,22 @@ async def get_stats() -> StatsResponse:
         total_seasons=total_seasons,
         total_episodes=total_episodes,
         total_symlinks=total_symlinks,
-        incomplete_items=len(incomplete_retries),
+        incomplete_items=incomplete_items,
         states=states,
         states_movies=states_movies,
         states_episodes=states_episodes,
         activity=activity,
         media_year_releases=media_year_releases,
     )
+
+
+@router.get(
+    "/stats",
+    operation_id="stats",
+    response_model=StatsResponse,
+)
+async def get_stats() -> StatsResponse:
+    return await run_in_threadpool(_compute_stats)
 
 
 class LogsResponse(BaseModel):
@@ -830,8 +893,6 @@ class MountResponse(BaseModel):
 )
 async def get_mount_files() -> MountResponse:
     """Get all files in the Riven VFS mount."""
-    from fastapi.concurrency import run_in_threadpool
-
     services = di[Program].services
     assert services
 
