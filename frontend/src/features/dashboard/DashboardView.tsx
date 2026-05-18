@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
@@ -879,6 +879,7 @@ function DashboardReleases({ route: _route }: { route: AppRoute }) {
   const [yearTotal, setYearTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
+  const releaseBarsWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     apiGet('/stats').then((res) => {
@@ -910,6 +911,13 @@ function DashboardReleases({ route: _route }: { route: AppRoute }) {
   const gridMinWidthPx =
     Math.max(1, barCount) * RELEASE_BAR_MIN_COL_PX + Math.max(0, barCount - 1) * RELEASE_BARS_GAP_PX;
 
+  useLayoutEffect(() => {
+    if (loading) return;
+    const el = releaseBarsWrapRef.current;
+    if (!el) return;
+    el.scrollLeft = el.scrollWidth - el.clientWidth;
+  }, [loading, barCount, gridMinWidthPx]);
+
   return (
     <ViewLayout className="view-dashboard view-dashboard--releases" view="dashboard-releases">
       <ViewHeader title="Dashboard — Releases by Year" subtitle="Library content by release year." />
@@ -920,7 +928,7 @@ function DashboardReleases({ route: _route }: { route: AppRoute }) {
         {loading ? (
           <p className="muted">Loading…</p>
         ) : (
-          <div className="release-bars-wrap">
+          <div ref={releaseBarsWrapRef} className="release-bars-wrap">
             <div
               className="release-bars"
               style={{
