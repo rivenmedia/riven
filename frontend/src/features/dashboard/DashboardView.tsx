@@ -5,6 +5,7 @@ import { notify } from '../../shared/notifications/notify';
 import { formatBytes as formatBytesUtil, formatEpisodeDisplayTitle } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
 import ActivityDashboardView from './ActivityDashboardView';
+import RateLimitsDashboardView from './RateLimitsDashboardView';
 import {
   CONSOLE_UPDATER_NOTICE,
   MOCK_VFS_NOTICE,
@@ -217,6 +218,9 @@ export default function DashboardView({ route }: { route: AppRoute }) {
   }
   if (name === 'dashboard-releases') {
     return <DashboardReleases route={route} />;
+  }
+  if (name === 'dashboard-rate-limits') {
+    return <RateLimitsDashboardView route={route} />;
   }
   if (name === 'dashboard-activity' || name === 'dashboard-downloader') {
     return <ActivityDashboardView route={route} />;

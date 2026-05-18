@@ -10,10 +10,8 @@ import {
 } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
 import { humanizeServiceKey } from './serviceSetupMessages';
-import { useRateLimits } from '../../shared/rateLimits/useRateLimits';
-import { RateLimitsPanel } from '../../shared/rateLimits/RateLimitsPanel';
-import type { LimiterSnapshot } from '../../shared/rateLimits/types';
 
+/** /downloader_status only — do not poll /stats or /rate_limits here (see 24b0bb67, 8e28cd26). */
 const STATUS_POLL_MS = 3000;
 const USER_INFO_POLL_MS = 60_000;
 
@@ -42,23 +40,6 @@ function getDownloaderExpiryWarning(service: {
   const text =
     days <= 0 ? 'Subscription expired' : `Expires in ${days} day${days === 1 ? '' : 's'}`;
   return { text, modifier: 'soon' };
-}
-
-function summarizeRateLimits(limiters: LimiterSnapshot[]) {
-  let openBreakers = 0;
-  let stressed = 0;
-  for (const l of limiters) {
-    if (l.breaker_state === 'OPEN' || l.breaker_state === 'HALF_OPEN') {
-      openBreakers += 1;
-    }
-    if (
-      l.utilization_pct >= l.warn_at_pct ||
-      (l.priority === 'scarce' && l.next_token_in_seconds > 30)
-    ) {
-      stressed += 1;
-    }
-  }
-  return { total: limiters.length, openBreakers, stressed };
 }
 
 type ServiceStatus = {
@@ -212,13 +193,10 @@ function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): Do
 }
 
 export default function ActivityDashboardView(_props: { route: AppRoute }) {
-  const { limiters, error: rateLimitError } = useRateLimits();
   const [status, setStatus] = useState<DownloaderStatus | null>(null);
   const [userByService, setUserByService] = useState<Record<string, UserInfoRow>>({});
   const [scrapedDbCount, setScrapedDbCount] = useState<number | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
-
-  const rateSummary = useMemo(() => summarizeRateLimits(limiters), [limiters]);
 
   const loadStatus = useCallback(async () => {
     const res = await apiGet<DownloaderStatus>('/downloader_status');
@@ -265,79 +243,25 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
         detail: `All providers cooling down — resumes in ${formatCountdown(status.pause_until)}`,
       };
     }
-    const anyOpen = limiters.some(
-      (l) => l.breaker_state === 'OPEN' || l.breaker_state === 'HALF_OPEN',
-    );
-    if (anyOpen) {
-      return {
-        modifier: 'warning',
-        title: 'Circuit breaker open',
-        detail: 'Some API calls are failing fast; jobs may defer until recovery.',
-      };
-    }
     return {
       modifier: 'ok',
       title: 'Downloader active',
       detail: `Job spacing: ${(status.min_job_interval_seconds ?? 0).toFixed(2)}s between runs`,
     };
-  }, [status, limiters]);
-
-  const loadError = rateLimitError || pipelineError;
+  }, [status]);
 
   return (
     <ViewLayout className="view-dashboard view-dashboard-activity" view="dashboard-activity">
       <ViewHeader
         title="Activity"
-        subtitle="Rate limits, circuit breakers, and download pipeline"
+        subtitle="Download pipeline and queue status"
       />
 
-      {loadError && (
+      {pipelineError && (
         <Panel>
-          <p className="downloader-status__error">{loadError}</p>
+          <p className="downloader-status__error">{pipelineError}</p>
         </Panel>
       )}
-
-      <section className="kpi-grid activity-rate-kpis">
-        <article className="kpi-card">
-          <KpiCardHeading
-            label="Rate limiters"
-            description="Registered token buckets and circuit breakers across downloaders, scrapers, and APIs."
-          />
-          <p className="kpi-value">{rateSummary.total || '—'}</p>
-        </article>
-        <article className="kpi-card">
-          <KpiCardHeading
-            label="Open breakers"
-            description="Limits where the circuit breaker is open or half-open after repeated failures."
-          />
-          <p className="kpi-value">{rateSummary.openBreakers}</p>
-        </article>
-        <article className="kpi-card">
-          <KpiCardHeading
-            label="Stressed limits"
-            description="Limits near capacity, scarce tokens, or elevated utilization."
-          />
-          <p className="kpi-value">{rateSummary.stressed}</p>
-        </article>
-        <article className="kpi-card">
-          <KpiCardHeading
-            label="In flight"
-            description={DOWNLOADER_KPI_TIPS.inFlight}
-          />
-          <p className="kpi-value">
-            {status != null
-              ? (status.in_flight_total ?? status.in_flight_items?.length ?? 0)
-              : '—'}
-          </p>
-        </article>
-      </section>
-
-      <Panel title="Rate limits">
-        <p className="muted downloader-status__hint rate-limits-panel__scope">
-          Limiters with token or circuit-breaker activity in the last 30 minutes.
-        </p>
-        <RateLimitsPanel limiters={limiters} />
-      </Panel>
 
       <Panel title="Download pipeline">
         {pipelineBanner && status && (
@@ -415,6 +339,17 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
         </div>
 
         <section className="kpi-grid activity-pipeline-kpis">
+          <article className="kpi-card">
+            <KpiCardHeading
+              label="In flight"
+              description={DOWNLOADER_KPI_TIPS.inFlight}
+            />
+            <p className="kpi-value">
+              {status != null
+                ? (status.in_flight_total ?? status.in_flight_items?.length ?? 0)
+                : '—'}
+            </p>
+          </article>
           <article className="kpi-card">
             <KpiCardHeading
               label="Scraped in queue"

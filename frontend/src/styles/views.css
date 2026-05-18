@@ -790,16 +790,18 @@
 }
 
 .view-dashboard-activity .kpi-grid,
-.view-dashboard-downloader .kpi-grid {
+.view-dashboard-downloader .kpi-grid,
+.view-dashboard-rate-limits .kpi-grid {
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
 .view-dashboard-activity .kpi-card h3,
-.view-dashboard-downloader .kpi-card h3 {
+.view-dashboard-downloader .kpi-card h3,
+.view-dashboard-rate-limits .kpi-card h3 {
   white-space: nowrap;
 }
 
-.activity-rate-kpis {
+.rate-limits-kpis {
   margin-bottom: 1rem;
 }
 

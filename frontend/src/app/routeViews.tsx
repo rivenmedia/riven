@@ -31,6 +31,7 @@ export const ROUTE_VIEWS: Record<
   'dashboard-states': DashboardView,
   'dashboard-releases': DashboardView,
   'dashboard-activity': DashboardView,
+  'dashboard-rate-limits': DashboardView,
   'dashboard-downloader': DashboardView,
   inspector: InspectorView,
   settings: SettingsView,

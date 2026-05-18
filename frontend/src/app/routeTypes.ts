@@ -13,6 +13,7 @@ export type RouteName =
   | "dashboard-states"
   | "dashboard-releases"
   | "dashboard-activity"
+  | "dashboard-rate-limits"
   | "dashboard-downloader"
   | "inspector"
   | "settings"
