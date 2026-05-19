@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 import threading
 import time
@@ -50,6 +50,85 @@ class _LastJob:
     outcome: Literal["success", "deferred", "failed", "skipped"]
     detail: str | None = None
     service: str | None = None
+
+
+_DETAIL_MAX_LEN = 480
+
+
+@dataclass
+class _DownloadRunDiagnostics:
+    streams_total: int = 0
+    streams_tried: int = 0
+    not_cached: int = 0
+    no_matching_files: int = 0
+    api_errors: int = 0
+    circuit_breaker: int = 0
+    last_error: str | None = None
+    services_tried: set[str] = field(default_factory=set)
+
+    def note_not_cached(self, service: str, infohash: str) -> None:
+        self.not_cached += 1
+        self.services_tried.add(service)
+
+    def note_no_matching_files(self, service: str, infohash: str) -> None:
+        self.no_matching_files += 1
+        self.services_tried.add(service)
+
+    def note_api_error(self, service: str, infohash: str, exc: BaseException) -> None:
+        self.api_errors += 1
+        self.services_tried.add(service)
+        self.last_error = f"{type(exc).__name__}: {exc}"[:120]
+
+    def note_circuit_breaker(self, service: str) -> None:
+        self.circuit_breaker += 1
+        self.services_tried.add(service)
+
+    def note_stream_tried(self) -> None:
+        self.streams_tried += 1
+
+    def build_detail(self, *, prefix: str | None = None) -> str:
+        if self.streams_total == 0:
+            detail = "0 streams on item"
+        else:
+            parts: list[str] = []
+            if self.not_cached:
+                parts.append(f"{self.not_cached} not cached on debrid")
+            if self.no_matching_files:
+                parts.append(f"{self.no_matching_files} no matching files in torrent")
+            if self.api_errors:
+                parts.append(f"{self.api_errors} API error(s)")
+            if self.circuit_breaker:
+                parts.append(f"{self.circuit_breaker} circuit breaker hit(s)")
+
+            tried = self.streams_tried or self.streams_total
+            services = (
+                ", ".join(sorted(self.services_tried))
+                if self.services_tried
+                else "—"
+            )
+
+            if parts:
+                summary = ", ".join(parts)
+                if self.last_error and self.api_errors:
+                    detail = (
+                        f"Tried {tried} stream(s) on {services}: {summary} "
+                        f"(last: {self.last_error})"
+                    )
+                else:
+                    detail = f"Tried {tried} stream(s) on {services}: {summary}"
+            else:
+                detail = (
+                    f"Tried {tried} stream(s) on {services}: "
+                    "no stream could be downloaded"
+                )
+
+        if prefix:
+            detail = f"{prefix}: {detail}"
+
+        if len(detail) > _DETAIL_MAX_LEN:
+            detail = detail[: _DETAIL_MAX_LEN - 3] + "..."
+
+        return detail
 
 
 class _ThrottledLog:
@@ -120,6 +199,28 @@ class Downloader(Runner[None, DownloaderBase]):
         )
         self._last_job: _LastJob | None = None
 
+    def _log_job_completion(
+        self,
+        item: MediaItem,
+        outcome: Literal["success", "deferred", "failed", "skipped"],
+        detail: str | None,
+        service: str | None,
+    ) -> None:
+        msg = f"Downloader {outcome} for {item.log_string} ({item.id})"
+        if detail:
+            msg += f": {detail}"
+        if service:
+            msg += f" [{service}]"
+
+        if outcome == "success":
+            logger.info(msg)
+        elif outcome == "failed":
+            logger.warning(msg)
+        elif outcome == "deferred":
+            logger.warning(msg)
+        else:
+            logger.info(msg)
+
     def _record_last_job(
         self,
         item: MediaItem,
@@ -135,6 +236,7 @@ class Downloader(Runner[None, DownloaderBase]):
             detail=detail,
             service=service,
         )
+        self._log_job_completion(item, outcome, detail, service)
 
     def get_last_job(self) -> dict[str, Any] | None:
         if self._last_job is None:
@@ -312,9 +414,6 @@ class Downloader(Runner[None, DownloaderBase]):
         # bail out early without blacklisting any streams so they remain available
         # for when the subscription is renewed.
         if not self._any_service_subscription_active(available_services):
-            logger.warning(
-                f"No downloader has an active subscription for {item.log_string} ({item.id}), skipping stream checks"
-            )
             self._record_last_job(
                 item,
                 "skipped",
@@ -328,10 +427,12 @@ class Downloader(Runner[None, DownloaderBase]):
 
         # Track if we hit circuit breaker on any service
         hit_circuit_breaker = False
+        diag: _DownloadRunDiagnostics | None = None
 
         try:
             # Sort streams by resolution and rank (highest first) using simple, fast sorting
             sorted_streams = sort_streams_by_quality(item.streams)
+            diag = _DownloadRunDiagnostics(streams_total=len(sorted_streams))
 
             tried_streams = 0
 
@@ -358,6 +459,8 @@ class Downloader(Runner[None, DownloaderBase]):
                         )
 
                         if not container:
+                            if diag:
+                                diag.note_not_cached(service.key, stream.infohash)
                             logger.debug(
                                 f"Stream {stream.infohash} not available on {service.key}"
                             )
@@ -386,6 +489,8 @@ class Downloader(Runner[None, DownloaderBase]):
                                 f"No valid files found for {item.log_string} ({item.id})"
                             )
                     except CircuitBreakerOpen as e:
+                        if diag:
+                            diag.note_circuit_breaker(service.key)
                         self._on_circuit_breaker_open(
                             service,
                             e,
@@ -402,8 +507,54 @@ class Downloader(Runner[None, DownloaderBase]):
                             stream_failed_on_all_services = False
                         continue
 
-                    except Exception as e:
+                    except NoMatchingFilesException as e:
+                        if diag:
+                            diag.note_no_matching_files(
+                                service.key, stream.infohash
+                            )
                         logger.debug(
+                            f"Stream {stream.infohash} failed on {service.key}: {e}"
+                        )
+
+                        if download_result and download_result.id:
+                            try:
+                                service.delete_torrent(download_result.id)
+
+                                logger.debug(
+                                    f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on {service.key}."
+                                )
+                            except Exception as del_e:
+                                logger.debug(
+                                    f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on {service.key}: {del_e}"
+                                )
+                        continue
+
+                    except NotCachedException as e:
+                        if diag:
+                            diag.note_not_cached(service.key, stream.infohash)
+                        logger.debug(
+                            f"Stream {stream.infohash} failed on {service.key}: {e}"
+                        )
+
+                        if download_result and download_result.id:
+                            try:
+                                service.delete_torrent(download_result.id)
+
+                                logger.debug(
+                                    f"Deleted failed torrent {stream.infohash} for {item.log_string} ({item.id}) on {service.key}."
+                                )
+                            except Exception as del_e:
+                                logger.debug(
+                                    f"Failed to delete torrent {stream.infohash} for {item.log_string} ({item.id}) on {service.key}: {del_e}"
+                                )
+                        continue
+
+                    except Exception as e:
+                        if diag:
+                            diag.note_api_error(
+                                service.key, stream.infohash, e
+                            )
+                        logger.opt(exception=True).debug(
                             f"Stream {stream.infohash} failed on {service.key}: {e}"
                         )
 
@@ -460,6 +611,8 @@ class Downloader(Runner[None, DownloaderBase]):
                         item.blacklist_stream(stream)
 
                 tried_streams += 1
+                if diag:
+                    diag.note_stream_tried()
 
                 if stream_attempted_api and not download_success:
                     self._space_after_stream_attempt()
@@ -470,10 +623,17 @@ class Downloader(Runner[None, DownloaderBase]):
                             item, "success", service=success_service
                         )
                     else:
+                        fail_detail = (
+                            diag.build_detail(
+                                prefix="Stopped after 3 stream attempts"
+                            )
+                            if diag
+                            else "Stopped after 3 stream attempts"
+                        )
                         self._record_last_job(
                             item,
                             "failed",
-                            detail="Stopped after 3 stream attempts",
+                            detail=fail_detail,
                         )
                     yield RunnerResult(media_items=[item])
                     return
@@ -511,14 +671,16 @@ class Downloader(Runner[None, DownloaderBase]):
 
                 return
             else:
-                logger.debug(
-                    f"Failed to download any streams for {item.log_string} ({item.id})"
-                )
                 if self._last_job is None or self._last_job.item_id != item.id:
+                    fail_detail = (
+                        diag.build_detail()
+                        if diag
+                        else "No stream could be downloaded"
+                    )
                     self._record_last_job(
                         item,
                         "failed",
-                        detail="No stream could be downloaded",
+                        detail=fail_detail,
                     )
         else:
             # Clear service cooldowns on successful download
