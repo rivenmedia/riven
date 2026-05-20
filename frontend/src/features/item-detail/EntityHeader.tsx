@@ -23,6 +23,7 @@ export type EntityHeaderLibraryDetails = {
   itemId?: string | number;
   requestedAt?: string | number | Date | null;
   scrapedAt?: string | number | Date | null;
+  debridProvider?: string | null;
   refs?: {
     imdb_id?: string | null;
     tvdb_id?: string | null;
@@ -188,6 +189,9 @@ export function EntityHeader({ data }: { data: EntityHeaderData }) {
     }
     if (library.scrapedAt != null) {
       metaEntries.push({ key: 'scraped', label: 'Scraped', value: formatDate(library.scrapedAt) });
+    }
+    if (library.debridProvider) {
+      metaEntries.push({ key: 'debrid', label: 'Debrid', value: library.debridProvider });
     }
   }
   if (!hasTmdb && meta?.year) {

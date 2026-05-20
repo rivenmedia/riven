@@ -67,6 +67,14 @@
   gap: 0.5rem;
 }
 
+.show-episode-row {
+  align-items: flex-start;
+}
+
+.show-episode-row .media-list__poster {
+  margin-top: 0.1rem;
+}
+
 .show-episode-row .episode-file-indicator {
   flex-shrink: 0;
   display: inline-flex;
@@ -87,10 +95,11 @@
 .show-episode-row .show-episode-stream-counts {
   flex-shrink: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  flex-wrap: nowrap;
   gap: 0.35rem;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: flex-end;
+  justify-content: flex-start;
   margin-left: auto;
 }
 
@@ -157,6 +166,32 @@
 
 .media-list__meta .legend-chip {
   font-size: 0.7rem;
+}
+
+.episode-meta-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, max-content));
+  gap: 0.35rem 1.25rem;
+  margin-top: 0.15rem;
+  align-items: start;
+}
+
+.episode-meta-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-start;
+}
+
+.episode-meta-column .legend-chip {
+  font-size: 0.7rem;
+}
+
+.episode-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
 }
 
 .media-list__actions {

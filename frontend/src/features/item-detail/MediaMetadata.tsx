@@ -16,6 +16,7 @@ const MEDIA_METADATA_IS_TAGS: [key: string, string][] = [
 
 export interface MediaMetadataProps {
   metadata: Record<string, unknown> | null;
+  providerLabel?: string | null;
 }
 
 function Chip({
@@ -28,13 +29,25 @@ function Chip({
   return <span className={`legend-chip ${className}`.trim()}>{text}</span>;
 }
 
-export function MediaMetadata({ metadata }: MediaMetadataProps) {
+export function MediaMetadata({ metadata, providerLabel }: MediaMetadataProps) {
   const [showRaw, setShowRaw] = useState(false);
 
   if (!metadata) {
+    if (!providerLabel) {
+      return (
+        <div className="panel item-media-metadata">
+          <p className="muted">No media metadata available.</p>
+        </div>
+      );
+    }
     return (
       <div className="panel item-media-metadata">
-        <p className="muted">No media metadata available.</p>
+        <div className="section-head">
+          <h3>Media Metadata</h3>
+        </div>
+        <div className="media-metadata-chips">
+          <Chip text={providerLabel} className="legend-chip--neutral" />
+        </div>
       </div>
     );
   }
@@ -78,6 +91,9 @@ export function MediaMetadata({ metadata }: MediaMetadataProps) {
           )}
           {resolutionChip && (
             <Chip text={resolutionChip} className="legend-chip--resolution" />
+          )}
+          {providerLabel && (
+            <Chip text={providerLabel} className="legend-chip--neutral" />
           )}
         </div>
       </div>

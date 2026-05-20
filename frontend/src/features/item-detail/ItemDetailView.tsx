@@ -26,6 +26,7 @@ import { notify } from '../../shared/notifications/notify';
 import { formatEpisodeDisplayTitle } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
 import { buildHash } from '../../shared/routing/router';
+import { getDebridProviderLabel } from './debridProvider';
 
 function buildEntityHeaderData(
   item: Record<string, unknown>,
@@ -79,6 +80,9 @@ function buildEntityHeaderData(
       itemId: item.id as string | number | undefined,
       requestedAt: item.requested_at as string | number | Date | null | undefined,
       scrapedAt: item.scraped_at as string | number | Date | null | undefined,
+      debridProvider: getDebridProviderLabel(
+        item.filesystem_entry as { provider?: string | null } | null | undefined,
+      ),
       refs: item.imdb_id || item.tvdb_id || item.tmdb_id
         ? {
             imdb_id: item.imdb_id as string,
@@ -489,6 +493,10 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
     typeof (item.filesystem_entry as { file_size?: number }).file_size === 'number' &&
     (item.filesystem_entry as { file_size?: number }).file_size! > 0;
 
+  const debridProviderLabel = getDebridProviderLabel(
+    item.filesystem_entry as { provider?: string | null } | null | undefined,
+  );
+
   const state = (item.state || '').toString();
   const showPause =
     state !== 'Paused' && state !== 'Completed' && state !== 'Failed';
@@ -811,7 +819,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
 
           {activeTab === 'streams' && !isShow && (
             <div className="item-detail-panel item-detail-panel--streams" role="tabpanel">
-              <MediaMetadata metadata={metadata} />
+              <MediaMetadata metadata={metadata} providerLabel={debridProviderLabel} />
               {episodeStreamOverride ? (
                 <div className="item-detail-stream-override-warning" role="status">
                   <strong>Episode stream override</strong>

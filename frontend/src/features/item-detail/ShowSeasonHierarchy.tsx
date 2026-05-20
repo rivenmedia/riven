@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import {
@@ -6,6 +6,7 @@ import {
   formatEpisodeDisplayTitle,
   formatShortDate,
 } from '../../shared/utils/utils';
+import { getDebridProviderLabel } from './debridProvider';
 
 export type EpisodeLike = {
   id?: string;
@@ -25,7 +26,7 @@ export type EpisodeLike = {
     video?: { resolution_width?: number; resolution_height?: number };
     quality_source?: string | null;
   } | null;
-  filesystem_entry?: { file_size?: number | null } | null;
+  filesystem_entry?: { file_size?: number | null; provider?: string | null } | null;
 };
 
 export type SeasonLike = {
@@ -57,6 +58,85 @@ function episodeQualityLabel(ep: EpisodeLike): string {
   if (v?.resolution_height) parts.push(`${v.resolution_height}p`);
   if (meta.quality_source) parts.push(meta.quality_source);
   return parts.join(' ');
+}
+
+function EpisodeMetaChip({
+  children,
+  className = '',
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <span className={`legend-chip ${className}`.trim()}>{children}</span>;
+}
+
+function EpisodeStatusChips({ inLib, state }: { inLib: boolean; state: string }) {
+  return (
+    <div className="episode-meta-row">
+      <EpisodeMetaChip className="legend-chip--tv">TV</EpisodeMetaChip>
+      <EpisodeMetaChip className={inLib ? 'legend-chip--in-library' : 'legend-chip--missing'}>
+        {inLib ? 'In library' : state || 'Missing'}
+      </EpisodeMetaChip>
+    </div>
+  );
+}
+
+function EpisodeDetailMetaChips({
+  ep,
+  inLib,
+  state,
+}: {
+  ep: EpisodeLike;
+  inLib: boolean;
+  state: string;
+}) {
+  const debridLabel = getDebridProviderLabel(ep.filesystem_entry);
+  const aired = formatShortDate(ep.aired_at);
+  const quality = episodeQualityLabel(ep);
+  const fileSize =
+    ep.filesystem_entry?.file_size != null && ep.filesystem_entry.file_size > 0
+      ? formatBytes(ep.filesystem_entry.file_size)
+      : null;
+
+  return (
+    <div className="episode-meta-columns">
+      <div className="episode-meta-column">
+        {aired && <EpisodeMetaChip>Aired: {aired}</EpisodeMetaChip>}
+        {fileSize && <EpisodeMetaChip>Size: {fileSize}</EpisodeMetaChip>}
+      </div>
+      <div className="episode-meta-column">
+        {ep.content_rating && <EpisodeMetaChip>Rating: {ep.content_rating}</EpisodeMetaChip>}
+        {debridLabel && <EpisodeMetaChip>Debrid: {debridLabel}</EpisodeMetaChip>}
+      </div>
+      <div className="episode-meta-column">
+        {quality && <EpisodeMetaChip>Quality: {quality}</EpisodeMetaChip>}
+        <EpisodeStatusChips inLib={inLib} state={state} />
+      </div>
+    </div>
+  );
+}
+
+function EpisodeMainContent({
+  ep,
+  inLib,
+  state,
+  titleHref,
+  title,
+}: {
+  ep: EpisodeLike;
+  inLib: boolean;
+  state: string;
+  titleHref: string;
+  title: string;
+}) {
+  return (
+    <div className="media-list__main">
+      <a className="media-list__title" href={titleHref}>
+        {title}
+      </a>
+      <EpisodeDetailMetaChips ep={ep} inLib={inLib} state={state} />
+    </div>
+  );
 }
 
 function EpisodeStreamCountPills({
@@ -184,32 +264,13 @@ export function ShowSeasonHierarchy({ item, refresh }: { item: ShowLike; refresh
                               loading="lazy"
                             />
                           </div>
-                          <div className="media-list__main">
-                            <a className="media-list__title" href={`#/item/${ep.id}`}>
-                              {formatEpisodeDisplayTitle(epForDisplay as any)}
-                            </a>
-                            <div className="media-list__meta">
-                              <span className="legend-chip legend-chip--tv">TV</span>
-                              <span
-                                className={`legend-chip ${inLib ? 'legend-chip--in-library' : 'legend-chip--missing'}`}
-                              >
-                                {inLib ? 'In library' : state || 'Missing'}
-                              </span>
-                              {formatShortDate(ep.aired_at) && (
-                                <span className="legend-chip">Aired: {formatShortDate(ep.aired_at)}</span>
-                              )}
-                              {ep.network && <span className="legend-chip">Network: {ep.network}</span>}
-                              {ep.content_rating && (
-                                <span className="legend-chip">Rating: {ep.content_rating}</span>
-                              )}
-                              {episodeQualityLabel(ep) && (
-                                <span className="legend-chip">Quality: {episodeQualityLabel(ep)}</span>
-                              )}
-                              {ep.filesystem_entry?.file_size != null && ep.filesystem_entry.file_size > 0 && (
-                                <span className="legend-chip">Size: {formatBytes(ep.filesystem_entry.file_size)}</span>
-                              )}
-                            </div>
-                          </div>
+                          <EpisodeMainContent
+                            ep={ep}
+                            inLib={inLib}
+                            state={state}
+                            titleHref={`#/item/${ep.id}`}
+                            title={formatEpisodeDisplayTitle(epForDisplay as any)}
+                          />
                           <EpisodeStreamCountPills
                             streamsCount={ep.streams_count}
                             blacklistedCount={ep.blacklisted_streams_count}
@@ -302,30 +363,13 @@ export function SeasonEpisodeRows({
                 loading="lazy"
               />
             </div>
-            <div className="media-list__main">
-              <a className="media-list__title" href={`#/item/${ep.id}`}>
-                {formatEpisodeDisplayTitle(epForDisplay as any)}
-              </a>
-              <div className="media-list__meta">
-                <span className="legend-chip legend-chip--tv">TV</span>
-                <span
-                  className={`legend-chip ${inLib ? 'legend-chip--in-library' : 'legend-chip--missing'}`}
-                >
-                  {inLib ? 'In library' : state || 'Missing'}
-                </span>
-                {formatShortDate(ep.aired_at) && (
-                  <span className="legend-chip">Aired: {formatShortDate(ep.aired_at)}</span>
-                )}
-                {ep.network && <span className="legend-chip">Network: {ep.network}</span>}
-                {ep.content_rating && <span className="legend-chip">Rating: {ep.content_rating}</span>}
-                {episodeQualityLabel(ep) && (
-                  <span className="legend-chip">Quality: {episodeQualityLabel(ep)}</span>
-                )}
-                {ep.filesystem_entry?.file_size != null && ep.filesystem_entry.file_size > 0 && (
-                  <span className="legend-chip">Size: {formatBytes(ep.filesystem_entry.file_size)}</span>
-                )}
-              </div>
-            </div>
+            <EpisodeMainContent
+              ep={ep}
+              inLib={inLib}
+              state={state}
+              titleHref={`#/item/${ep.id}`}
+              title={formatEpisodeDisplayTitle(epForDisplay as any)}
+            />
             <EpisodeStreamCountPills
               streamsCount={ep.streams_count}
               blacklistedCount={ep.blacklisted_streams_count}
