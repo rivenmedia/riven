@@ -26,6 +26,7 @@ from program.services.scrapers import Scraping
 from program.services.updaters import Updater
 from program.settings import settings_manager
 from program.settings.models import get_version
+from program.shutdown import request_shutdown, shutting_down
 from program.utils import data_dir_path
 from program.utils.logging import logger
 from program.scheduling import ProgramScheduler
@@ -230,6 +231,14 @@ class Program(threading.Thread):
 
         self.initialize_services()
 
+        if self.services and self.services.downloader.initialized:
+            hydrated = self.em.hydrate_scraped_backlog(self)
+            if hydrated:
+                logger.log(
+                    "PROGRAM",
+                    f"Re-queued {hydrated} scraped items into the download pipeline",
+                )
+
         with db_session() as session:
             from sqlalchemy import exists
 
@@ -267,7 +276,6 @@ class Program(threading.Thread):
 
         self.scheduler_manager.start()
 
-        super().start()
         logger.success("Riven is running!")
         self.initialized = True
 
@@ -321,7 +329,7 @@ class Program(threading.Thread):
             self.display_top_allocators(snapshot)
 
     def run(self):
-        while self.initialized:
+        while self.initialized and not shutting_down():
             if not self.is_valid:
                 time.sleep(1)
                 continue
@@ -335,6 +343,9 @@ class Program(threading.Thread):
                 if self.enable_trace:
                     self.dump_tracemalloc()
 
+                if not self.initialized:
+                    break
+
                 time.sleep(0.1)
                 continue
 
@@ -343,6 +354,9 @@ class Program(threading.Thread):
             else:
                 existing_item = None
 
+            if shutting_down():
+                break
+
             processed_event = process_event(
                 event.emitted_by,
                 existing_item,
@@ -350,13 +364,16 @@ class Program(threading.Thread):
                 event.overrides,
             )
 
+            if shutting_down():
+                break
+
             next_service = processed_event.service
             items_to_submit = processed_event.related_media_items
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
                     if not next_service:
-                        self.em.add_event_to_queue(
+                        self.em.add_event(
                             Event(
                                 emitted_by="StateTransition", item_id=item_to_submit.id
                             )
@@ -384,12 +401,16 @@ class Program(threading.Thread):
         if not self.initialized:
             return
 
+        request_shutdown()
         self.initialized = False
-        self.em.shutdown(wait=False)
+        self.em.shutdown(wait=True, timeout=3.0)
         self.scheduler_manager.stop()
 
         if self.services:
             self.services.filesystem.close()
+
+        if self.is_alive() and threading.current_thread() is not self:
+            self.join(timeout=30)
 
         logger.log("PROGRAM", "Riven has been stopped.")
 

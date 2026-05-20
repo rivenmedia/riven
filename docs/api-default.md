@@ -50,9 +50,19 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
   "min_job_interval_seconds": 0.2,
   "queue": {
     "scraped_queued": 42,
+    "scraped_ready": 32,
     "deferred": 10,
+    "total_queued": 45,
     "downloader_emitted": 8,
-    "next_ready_at": "2026-05-16T15:27:57"
+    "queue_by_source": {
+      "StateTransition": 30,
+      "RetryLibrary": 12,
+      "Downloader": 8,
+      "Scheduler": 2
+    },
+    "next_ready_at": "2026-05-16T15:27:57.000Z",
+    "queue_truncated": false,
+    "scraped_in_library": 120
   },
   "services": [
     {
@@ -62,7 +72,7 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
       "breaker": { "domain": "api.torbox.app", "state": "CLOSED", "failures": 0 }
     }
   ],
-  "in_flight_total": 3,
+  "in_flight_total": 1,
   "in_flight_items": [
     {
       "id": 12345,
@@ -91,22 +101,24 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
       "emitted_by": "StateTransition"
     }
   ],
-  "last_job": {
-    "item": {
-      "id": 88,
-      "title": "Previous Movie",
-      "type": "movie",
-      "state": "Downloaded"
-    },
-    "completed_at": "2026-05-16T15:28:00",
-    "outcome": "success",
-    "detail": null,
-    "service": "torbox"
-  }
+  "recent_jobs": [
+    {
+      "item": {
+        "id": 88,
+        "title": "Previous Movie",
+        "type": "movie",
+        "state": "Downloaded"
+      },
+      "completed_at": "2026-05-16T15:28:00",
+      "outcome": "success",
+      "detail": null,
+      "service": "torbox"
+    }
+  ]
 }
 ```
 
-`queued_items` lists downloader-relevant events in the event queue (Scraped state or emitted by Downloader), up to 50 rows, with wait timing. `last_job` is the most recent completed downloader run (in-memory only; cleared on restart).
+`queued_items` lists downloader-relevant events in the event queue (Scraped state or emitted by Downloader), up to 50 rows, with wait timing. `recent_jobs` holds up to 5 completed downloader runs from the last 2 minutes, newest first (in-memory only; cleared on restart). Jobs are recorded when the worker finishes, not while still in flight; entries older than 2 minutes are evicted automatically.
 
 **Errors:** 503 if no downloader initialized.
 

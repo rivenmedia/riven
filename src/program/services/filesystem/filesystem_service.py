@@ -144,6 +144,10 @@ class FilesystemService(Runner[FilesystemModel]):
         finally:
             self.riven_vfs = None
 
+        from program.utils.streaming_http import close_streaming_http_sync
+
+        close_streaming_http_sync()
+
     def validate(self) -> bool:
         """Validate service state and configuration.
         Checks that:

@@ -126,3 +126,27 @@ class AsyncClient(httpx.AsyncClient):
             )
         finally:
             sniffio.current_async_library_cvar.reset(token)
+
+    async def aclose(self) -> None:
+        """Close the client using the backend that matches the running loop.
+
+        The shared DI client is used from both uvicorn (asyncio) and RivenVFS
+        (trio). Lifespan shutdown runs on asyncio; without forcing sniffio here,
+        httpx may try to close trio sockets from the wrong async context.
+        """
+        if not _should_force_asyncio_sniffio():
+            await super().aclose()
+            return
+
+        token = sniffio.current_async_library_cvar.set("asyncio")
+        try:
+            await super().aclose()
+        except RuntimeError as exc:
+            if "async context" not in str(exc):
+                raise
+            logger.warning(
+                "Skipping AsyncClient graceful close: Trio-backed connections "
+                "cannot be torn down from the asyncio lifespan"
+            )
+        finally:
+            sniffio.current_async_library_cvar.reset(token)

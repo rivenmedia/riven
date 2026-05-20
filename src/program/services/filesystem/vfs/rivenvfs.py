@@ -735,12 +735,29 @@ class RivenVFS(pyfuse3.Operations):
         async def _request_unmount():
             logger.log("VFS", f"Unmounting RivenVFS from {self._mountpoint}")
 
+            for stream in list(self._active_streams.values()):
+                stream.is_killed.value = True
+            self._active_streams.clear()
+
+            from program.utils.streaming_http import close_streaming_http_clients
+
+            await close_streaming_http_clients()
+
             self._unmount_requested.value = True
 
-        trio.from_thread.run(
-            _request_unmount,
-            trio_token=pyfuse3.trio_token,
-        )
+        def _close_from_thread() -> None:
+            trio.from_thread.run(
+                _request_unmount,
+                trio_token=pyfuse3.trio_token,
+            )
+
+        closer = threading.Thread(target=_close_from_thread, name="RivenVFS-close")
+        closer.start()
+        closer.join(timeout=3)
+        if closer.is_alive():
+            logger.warning(
+                f"RivenVFS unmount did not complete within 3s ({self._mountpoint})"
+            )
 
     # Helper methods
 
@@ -1948,6 +1965,11 @@ class RivenVFS(pyfuse3.Operations):
         """
 
         try:
+            from program.shutdown import shutting_down
+
+            if shutting_down():
+                raise pyfuse3.FUSEError(errno.ESHUTDOWN)
+
             # Log cache stats asynchronously (don't block on trim/I/O)
             try:
                 await di[Cache].maybe_log_stats()
@@ -2277,6 +2299,11 @@ class RivenVFS(pyfuse3.Operations):
         Returns:
             The MediaStream for the specified path and file handle.
         """
+
+        from program.shutdown import shutting_down
+
+        if shutting_down():
+            raise pyfuse3.FUSEError(errno.ESHUTDOWN)
 
         stream_key = self._stream_key(path, fh)
 

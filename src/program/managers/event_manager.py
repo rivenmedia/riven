@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from enum import Enum
+import heapq
 import json
 import threading
+import time
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from queue import Empty
 from threading import Lock
 from typing import TYPE_CHECKING, Any
@@ -20,6 +22,7 @@ from program.media.item import MediaItem
 from program.shutdown import request_shutdown, shutting_down
 from program.types import Event, Service
 from program.media.state import States
+from program.utils import format_api_datetime
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -57,6 +60,9 @@ class EventManager:
     Manages the execution of services and the handling of events.
     """
 
+    _DOWNLOADER_QUEUE_LIMIT = 50
+    _HYDRATE_SCRAPED_LIMIT = 500
+
     def __init__(self):
         self._executors = list[ServiceExecutor]()
         self._futures = list[FutureWithEvent]()
@@ -64,8 +70,10 @@ class EventManager:
         self._running_events = list[Event]()
         self.mutex = Lock()
         self._shutdown = False
+        self._downloader_dispatch_lock = threading.Lock()
+        self._next_downloader_dispatch_at = 0.0
 
-    def shutdown(self, *, wait: bool = False) -> None:
+    def shutdown(self, *, wait: bool = False, timeout: float = 3.0) -> None:
         """Stop accepting work and tear down service thread pools."""
         if self._shutdown:
             return
@@ -80,8 +88,27 @@ class EventManager:
                     future_with_event.future.cancel()
             self._queued_events.clear()
 
+        if wait:
+            import concurrent.futures
+
+            pending = [
+                future_with_event.future
+                for future_with_event in list(self._futures)
+                if not future_with_event.future.done()
+            ]
+            if pending:
+                _, not_done = concurrent.futures.wait(
+                    pending,
+                    timeout=timeout,
+                    return_when=concurrent.futures.ALL_COMPLETED,
+                )
+                if not_done:
+                    logger.warning(
+                        f"{len(not_done)} background job(s) still running after {timeout}s"
+                    )
+
         for service_executor in self._executors:
-            service_executor.executor.shutdown(wait=wait, cancel_futures=True)
+            service_executor.executor.shutdown(wait=False, cancel_futures=True)
 
         self._executors.clear()
         self._futures.clear()
@@ -213,6 +240,104 @@ class EventManager:
         if future_with_event.event:
             self.remove_event_from_running(future_with_event.event)
 
+    @staticmethod
+    def _emitted_by_name(emitted_by: Service | str) -> str:
+        if isinstance(emitted_by, str):
+            return emitted_by
+        if isinstance(emitted_by, type):
+            return emitted_by.__name__
+        return emitted_by.__class__.__name__
+
+    @staticmethod
+    def _service_class_name(service: Service) -> str:
+        if isinstance(service, type):
+            return service.__name__
+        return service.__class__.__name__
+
+    def _has_active_downloader_future(self) -> bool:
+        for future_with_event in self._futures:
+            if not future_with_event.event or future_with_event.future.done():
+                continue
+            if self._emitted_by_name(future_with_event.event.emitted_by) == "Downloader":
+                return True
+        return False
+
+    def _downloader_dispatch_interval(self, program: "Program | None") -> float:
+        if (
+            program
+            and program.services
+            and program.services.downloader
+            and program.services.downloader.initialized
+        ):
+            return float(program.services.downloader.min_job_interval_seconds)
+        return 0.2
+
+    def _reserve_downloader_dispatch_time(self, program: "Program | None") -> datetime:
+        """Reserve the next downloader dispatch slot (wall-clock run_at)."""
+
+        interval = self._downloader_dispatch_interval(program)
+        with self._downloader_dispatch_lock:
+            now_mono = time.monotonic()
+            slot_mono = max(now_mono, self._next_downloader_dispatch_at)
+            self._next_downloader_dispatch_at = slot_mono + interval
+            delay = max(0.0, slot_mono - now_mono)
+
+        return datetime.now() + timedelta(seconds=delay)
+
+    def _maybe_stagger_scraped_run_at(self, event: Event, program: "Program | None") -> None:
+        """Space new Scraped queue entries when downloader work is already pending."""
+
+        if event.item_state != States.Scraped:
+            return
+
+        has_other_scraped = any(
+            e is not event and e.item_state == States.Scraped for e in self._queued_events
+        )
+        if not self._has_active_downloader_future() and not has_other_scraped:
+            return
+
+        event.run_at = max(event.run_at, self._reserve_downloader_dispatch_time(program))
+
+    def _is_downloader_relevant_queued_event(self, event: Event) -> bool:
+        if not event.item_id:
+            return False
+        emitted_by = self._emitted_by_name(event.emitted_by)
+        return event.item_state == States.Scraped or emitted_by == "Downloader"
+
+    @staticmethod
+    def _queue_event_rank(event: Event, now: datetime) -> tuple[int, datetime]:
+        """Lower rank = closer to downloading (due before deferred)."""
+        is_deferred = 1 if event.run_at > now else 0
+        return (is_deferred, event.run_at)
+
+    def _dedupe_queue_events_by_item_id(
+        self, events: list[Event], now: datetime
+    ) -> list[Event]:
+        best: dict[int, Event] = {}
+        for event in events:
+            if not event.item_id:
+                continue
+            item_id = int(event.item_id)
+            current = best.get(item_id)
+            if current is None or self._queue_event_rank(
+                event, now
+            ) < self._queue_event_rank(current, now):
+                best[item_id] = event
+        return list(best.values())
+
+    def _compact_queued_item_duplicates(self, now: datetime) -> int:
+        """Collapse duplicate item_id rows in the live queue (in-place)."""
+
+        with self.mutex:
+            without_id = [e for e in self._queued_events if not e.item_id]
+            with_id = [e for e in self._queued_events if e.item_id]
+            deduped = self._dedupe_queue_events_by_item_id(with_id, now)
+            removed = len(with_id) - len(deduped)
+            if removed <= 0:
+                return 0
+            self._queued_events = without_id + deduped
+            return removed
+
     def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
         Adds an event to the queue.
@@ -254,6 +379,29 @@ class EventManager:
                         # Cache the item state in the event for efficient priority sorting
                         if item.last_state:
                             event.item_state = item.last_state
+
+            program: Program | None = None
+            try:
+                from kink import di
+
+                from program.program import Program
+
+                program = di[Program]
+            except Exception:
+                program = None
+
+            self._maybe_stagger_scraped_run_at(event, program)
+
+            if event.item_id:
+                for existing in self._queued_events:
+                    if existing.item_id == event.item_id:
+                        existing.run_at = max(existing.run_at, event.run_at)
+                        if log_message:
+                            logger.debug(
+                                f"Updated queued {event.log_message} "
+                                f"(run_at {existing.run_at.isoformat()})"
+                            )
+                        return
 
             self._queued_events.append(event)
 
@@ -347,7 +495,9 @@ class EventManager:
             item (Event, optional): The event item to process. Defaults to None.
         """
 
-        log_message = f"Submitting service {service.__class__.__name__} to be executed"
+        log_message = (
+            f"Submitting service {self._service_class_name(service)} to be executed"
+        )
 
         # Content services dont provide an event.
         if event:
@@ -356,7 +506,7 @@ class EventManager:
         logger.debug(log_message)
 
         if (
-            service.__class__.__name__ == "Downloader"
+            self._service_class_name(service) == "Downloader"
             and event is not None
             and program.services
             and program.services.downloader
@@ -369,6 +519,17 @@ class EventManager:
                 logger.debug(
                     f"Downloader paused until {pause_until.isoformat()}; "
                     f"re-queued {event.log_message}"
+                )
+                return
+
+            if self._has_active_downloader_future():
+                event.run_at = max(
+                    event.run_at, self._reserve_downloader_dispatch_time(program)
+                )
+                self.add_event_to_queue(event, log_message=False)
+                logger.debug(
+                    f"Downloader busy; re-queued {event.log_message} for "
+                    f"{event.run_at.isoformat()}"
                 )
                 return
 
@@ -406,6 +567,9 @@ class EventManager:
         )
 
         self._futures.append(future_with_event)
+
+        if event:
+            self.add_event_to_running(event)
 
         sse_manager.publish_event(
             "event_update",
@@ -619,6 +783,66 @@ class EventManager:
 
         return True
 
+    def _item_id_in_pipeline(self, item_id: int) -> bool:
+        if self._id_in_queue(item_id) or self._id_in_running_events(item_id):
+            return True
+
+        for future_with_event in self._futures:
+            if (
+                future_with_event.event
+                and future_with_event.event.item_id == item_id
+                and not future_with_event.future.done()
+            ):
+                return True
+
+        return False
+
+    def hydrate_scraped_backlog(
+        self,
+        program: "Program",
+        *,
+        limit: int | None = None,
+    ) -> int:
+        """
+        Re-queue scraped leaf items from the database after restart (bounded).
+
+        Uses staggered run_at so the downloader dispatch gate is not overwhelmed.
+        """
+
+        from sqlalchemy import select
+
+        cap = limit if limit is not None else self._HYDRATE_SCRAPED_LIMIT
+        hydrated = 0
+
+        with db_session() as session:
+            rows = session.execute(
+                select(MediaItem.id)
+                .where(MediaItem.last_state == States.Scraped)
+                .where(MediaItem.type.in_(["movie", "episode"]))
+                .order_by(MediaItem.requested_at.desc().nullslast(), MediaItem.id.desc())
+            ).scalars()
+
+            for item_id in rows:
+                if hydrated >= cap:
+                    break
+
+                item_id = int(item_id)
+                if self._item_id_in_pipeline(item_id):
+                    continue
+
+                run_at = self._reserve_downloader_dispatch_time(program)
+                if self.add_event(
+                    Event(
+                        emitted_by="StateTransition",
+                        item_id=item_id,
+                        run_at=run_at,
+                        item_state=States.Scraped,
+                    )
+                ):
+                    hydrated += 1
+
+        return hydrated
+
     def add_item(
         self,
         item: MediaItem,
@@ -685,103 +909,61 @@ class EventManager:
 
         return updates
 
-    def get_downloader_queue_stats(self) -> dict[str, int | str | None]:
+    def get_downloader_queue_snapshot(
+        self,
+    ) -> tuple[dict[str, int | str | None | bool], list[dict[str, Any]]]:
         """
-        Count downloader-related events in the queue.
+        Single pass over the queue: aggregate stats plus top-N rows for the API.
 
-        Returns:
-            scraped_queued: queued events whose cached state is Scraped
-            deferred: queued events with run_at in the future
-            downloader_emitted: queued events emitted for the Downloader service
-            next_ready_at: ISO timestamp of earliest deferred run_at, if any
+        Avoids scanning/sorting the full queue twice per /downloader_status poll.
         """
 
         now = datetime.now()
         scraped_queued = 0
+        scraped_ready = 0
         deferred = 0
-        downloader_emitted = 0
+        total_queued = 0
+        queue_by_source: dict[str, int] = {}
         next_deferred: datetime | None = None
 
-        with self.mutex:
-            for event in self._queued_events:
-                if event.run_at > now:
-                    deferred += 1
-                    if next_deferred is None or event.run_at < next_deferred:
-                        next_deferred = event.run_at
-
-                emitted_by = (
-                    event.emitted_by
-                    if isinstance(event.emitted_by, str)
-                    else event.emitted_by.__class__.__name__
-                )
-                if emitted_by == "Downloader":
-                    downloader_emitted += 1
-
-                if event.item_state == States.Scraped:
-                    scraped_queued += 1
-
-        return {
-            "scraped_queued": scraped_queued,
-            "deferred": deferred,
-            "downloader_emitted": downloader_emitted,
-            "next_ready_at": (
-                next_deferred.isoformat() if next_deferred is not None else None
-            ),
-        }
-
-    _DOWNLOADER_QUEUE_LIMIT = 50
-
-    def get_downloader_queued_items(self) -> list[dict[str, Any]]:
-        """
-        List downloader-relevant queued events with timing metadata.
-
-        Includes events whose cached state is Scraped or that were emitted by Downloader.
-        """
-
-        now = datetime.now()
-        state_priority = {
-            States.Completed: 0,
-            States.PartiallyCompleted: 1,
-            States.Symlinked: 2,
-            States.Downloaded: 3,
-            States.Scraped: 4,
-            States.Indexed: 5,
-        }
-
         def sort_key(event: Event) -> tuple[int, datetime]:
-            priority = (
-                state_priority.get(event.item_state, 999)
-                if event.item_state
-                else 999
-            )
-            return (priority, event.run_at)
+            # Due (ready) before deferred; soonest run_at first within each band.
+            is_deferred = 1 if event.run_at > now else 0
+            return (is_deferred, event.run_at)
 
-        matched: list[Event] = []
+        self._compact_queued_item_duplicates(now)
+
+        raw_matched: list[Event] = []
 
         with self.mutex:
             for event in self._queued_events:
-                if not event.item_id:
-                    continue
+                if self._is_downloader_relevant_queued_event(event):
+                    raw_matched.append(event)
 
-                emitted_by = (
-                    event.emitted_by
-                    if isinstance(event.emitted_by, str)
-                    else event.emitted_by.__class__.__name__
-                )
-                if event.item_state != States.Scraped and emitted_by != "Downloader":
-                    continue
+        matched = self._dedupe_queue_events_by_item_id(raw_matched, now)
 
-                matched.append(event)
+        for event in matched:
+            total_queued += 1
 
-        matched.sort(key=sort_key)
+            if event.run_at > now:
+                deferred += 1
+                if next_deferred is None or event.run_at < next_deferred:
+                    next_deferred = event.run_at
+
+            source = self._emitted_by_name(event.emitted_by)
+            queue_by_source[source] = queue_by_source.get(source, 0) + 1
+
+            if event.item_state == States.Scraped:
+                scraped_queued += 1
+                if event.run_at <= now:
+                    scraped_ready += 1
+
+        top_events = heapq.nsmallest(
+            self._DOWNLOADER_QUEUE_LIMIT, matched, key=sort_key
+        )
 
         rows: list[dict[str, Any]] = []
-        for event in matched[: self._DOWNLOADER_QUEUE_LIMIT]:
-            emitted_by = (
-                event.emitted_by
-                if isinstance(event.emitted_by, str)
-                else event.emitted_by.__class__.__name__
-            )
+        for event in top_events:
             rows.append(
                 {
                     "item_id": int(event.item_id),
@@ -790,11 +972,31 @@ class EventManager:
                     "item_state": (
                         event.item_state.name if event.item_state else None
                     ),
-                    "emitted_by": emitted_by,
+                    "emitted_by": self._emitted_by_name(event.emitted_by),
                     "deferred": event.run_at > now,
                 }
             )
 
+        stats = {
+            "scraped_queued": scraped_queued,
+            "scraped_ready": scraped_ready,
+            "deferred": deferred,
+            "total_queued": total_queued,
+            "downloader_emitted": queue_by_source.get("Downloader", 0),
+            "queue_by_source": queue_by_source,
+            "next_ready_at": format_api_datetime(next_deferred),
+            "queue_truncated": total_queued > self._DOWNLOADER_QUEUE_LIMIT,
+        }
+        return stats, rows
+
+    def get_downloader_queue_stats(self) -> dict[str, int | str | None | bool]:
+        """Count downloader-related events in the queue."""
+        stats, _ = self.get_downloader_queue_snapshot()
+        return stats
+
+    def get_downloader_queued_items(self) -> list[dict[str, Any]]:
+        """List downloader-relevant queued events with timing metadata."""
+        _, rows = self.get_downloader_queue_snapshot()
         return rows
 
     def item_exists_in_queue(self, item: MediaItem, queue: list[Event]) -> bool:

@@ -49,6 +49,22 @@ export function humanizeServiceKey(serviceKey: string): string {
     .replace(/\b([a-z])/g, (m) => m.toUpperCase());
 }
 
+/** Labels for EventManager queue `emitted_by` on the Activity downloader pipeline. */
+const QUEUE_SOURCE_LABELS: Record<string, string> = {
+  statetransition: 'Pipeline',
+  retrylibrary: 'Library retry',
+  scheduler: 'Scheduled',
+  downloader: 'Downloader re-queue',
+  retryitem: 'Retry',
+  manual: 'Manual',
+};
+
+export function humanizeQueueSource(source: string): string {
+  const k = normalizeKey(source);
+  if (QUEUE_SOURCE_LABELS[k]) return QUEUE_SOURCE_LABELS[k];
+  return humanizeServiceKey(source);
+}
+
 export type ParsedServicesResponse = {
   services: Record<string, boolean>;
   mockVfs: boolean;

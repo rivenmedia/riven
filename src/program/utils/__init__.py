@@ -5,6 +5,7 @@ import string
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from time import time
 from loguru import logger
 from pathlib import Path
@@ -25,6 +26,25 @@ def get_version() -> str:
     else:
         raise ValueError("Could not find version in pyproject.toml")
     return version
+
+
+def format_api_datetime(dt: datetime | None) -> str | None:
+    """
+    Serialize a datetime for API/JSON consumers.
+
+    Naive datetimes are treated as UTC (Riven runs on UTC wall clock). Always
+    emits a trailing Z so browsers parse consistently.
+    """
+
+    if dt is None:
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def generate_api_key():

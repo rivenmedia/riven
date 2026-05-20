@@ -1,7 +1,6 @@
 from collections.abc import Awaitable, Callable
 import contextlib
 import signal
-import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -30,6 +29,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from program.program import Program, riven
+from program.shutdown import schedule_force_exit
 from program.settings.models import get_version
 from program.settings import settings_manager
 from program.utils.cli import handle_args
@@ -105,10 +105,16 @@ async def lifespan(_: FastAPI):
 
     yield
 
-    await di[AsyncClient].aclose()
+    try:
+        await di[AsyncClient].aclose()
+    except Exception:
+        logger.exception("Error closing AsyncClient during shutdown")
 
     if ProxyClient in di:
-        await di[ProxyClient].aclose()
+        try:
+            await di[ProxyClient].aclose()
+        except Exception:
+            logger.exception("Error closing ProxyClient during shutdown")
 
 
 app = FastAPI(
@@ -185,12 +191,16 @@ class Server(uvicorn.Server):
             raise
         finally:
             self.should_exit = True
-            sys.exit(0)
+            thread.join(timeout=5)
+            if thread.is_alive():
+                logger.warning("Uvicorn thread did not exit within 5s")
 
 
 def signal_handler(signum: int, frame: FrameType | None):
     logger.log("PROGRAM", "Exiting Gracefully.")
+    schedule_force_exit()
     di[Program].stop()
+    server.should_exit = True
 
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -207,5 +217,5 @@ with server.run_in_thread():
     except Exception:
         logger.exception("Error in main thread")
     finally:
+        server.should_exit = True
         logger.critical("Server has been stopped")
-        sys.exit(0)

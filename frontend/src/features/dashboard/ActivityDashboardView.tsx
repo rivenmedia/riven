@@ -1,45 +1,145 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { KpiCardHeading } from '../../shared/ui/KpiInfoTip';
 import { apiGet } from '../../shared/api/api';
 import {
-  formatBytes as formatBytesUtil,
   formatEpisodeDisplayTitle,
   formatRelativeSeconds,
+  getMediaKind,
+  mediaLabel,
+  parseApiDate,
   secondsSinceApiDate,
 } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
-import { humanizeServiceKey } from './serviceSetupMessages';
+import { humanizeQueueSource, humanizeServiceKey } from './serviceSetupMessages';
 
 /** /downloader_status only — do not poll /stats or /rate_limits here (see 24b0bb67, 8e28cd26). */
 const STATUS_POLL_MS = 3000;
-const USER_INFO_POLL_MS = 60_000;
+/** Match backend _RECENT_JOBS_MAX_AGE — hide stale rows between polls. */
+const RECENT_JOB_MAX_AGE_SEC = 120;
+/** DB-vs-queue backlog hint is for post-restart context; hide after this long on the page. */
+const DB_BACKLOG_HINT_VISIBLE_MS = 60_000;
 
 const DOWNLOADER_KEYS = ['realdebrid', 'alldebrid', 'debridlink', 'torbox'] as const;
 
+const QUEUE_SOURCE_CHART_COLORS = [
+  'hsl(220 70% 58%)',
+  'hsl(152 42% 42%)',
+  'hsl(38 82% 52%)',
+  'hsl(0 62% 55%)',
+  'hsl(270 55% 62%)',
+  'hsl(190 55% 48%)',
+];
+
 const DOWNLOADER_KPI_TIPS = {
-  scrapedQueued:
-    'Items in the Scraped state sitting in the event queue, ready for the downloader to pick up when a debrid slot is free.',
-  deferred:
-    'Queued jobs whose run time is still in the future—often waiting on downloader cooldown, rate limits, or scheduled spacing between runs.',
+  queueSources:
+    'Why items are in the downloader queue (deduped by item): pipeline scrape, downloader re-queue, library retry, etc.',
   scrapedDb:
-    'Total library items (movies and episodes) currently in the Scraped state in the database—scraped and waiting to download.',
-  inFlight:
-    'Items the downloader service is actively working on right now (add to debrid, poll status, etc.).',
+    'Scraped in the database but not necessarily in the live download queue yet. A Riven restart or Retry Active Library re-queues them over time.',
+  deferred:
+    'In the event queue with a future run time—waiting on downloader spacing, provider cooldown, or pause.',
+  queuedDue:
+    'In the event queue and due now—next in line when the downloader slot is free (can be many).',
+  downloading:
+    'Actively running on the downloader worker (usually 0 or 1).',
+  downloaderEmitted:
+    'Queued events emitted by the downloader service (often re-queues after deferral).',
 } as const;
 
-function getDownloaderExpiryWarning(service: {
-  premium_status?: string;
-  premium_days_left?: number | null;
-}): { text: string; modifier: 'expired' | 'soon' } | null {
-  if (service.premium_status === 'free') {
-    return { text: 'Premium expired', modifier: 'expired' };
-  }
-  const days = service.premium_days_left;
-  if (days == null || days >= 30) return null;
-  const text =
-    days <= 0 ? 'Subscription expired' : `Expires in ${days} day${days === 1 ? '' : 's'}`;
-  return { text, modifier: 'soon' };
+/** 0° = top, clockwise positive */
+function polar(cx: number, cy: number, r: number, angleDeg: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function pieSlicePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
+  if (endDeg - startDeg <= 0.01) return '';
+  const start = polar(cx, cy, r, endDeg);
+  const end = polar(cx, cy, r, startDeg);
+  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
+}
+
+function QueueSourcesPieChart({ entries }: { entries: [string, number][] }) {
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  if (total <= 0) return <p className="muted queue-sources-pie__empty">—</p>;
+
+  const cx = 50;
+  const cy = 50;
+  const r = 42;
+  let angle = -90;
+
+  const slices = entries.map(([source, count], index) => {
+    const sweep = (count / total) * 360;
+    const start = angle;
+    const end = angle + sweep;
+    angle = end;
+    const fullCircle = entries.length === 1 || sweep >= 359.995;
+    return {
+      source,
+      count,
+      fullCircle,
+      path: fullCircle ? null : pieSlicePath(cx, cy, r, start, end),
+      color: QUEUE_SOURCE_CHART_COLORS[index % QUEUE_SOURCE_CHART_COLORS.length],
+      label: humanizeQueueSource(source),
+      pct: Math.round((count / total) * 100),
+    };
+  });
+
+  const ariaLabel = slices.map((s) => `${s.label} ${s.count}`).join(', ');
+
+  return (
+    <div className="queue-sources-pie">
+      <svg
+        className="queue-sources-pie__chart"
+        viewBox="0 0 100 100"
+        role="img"
+        aria-label={`Queue sources: ${ariaLabel}`}
+      >
+        {slices.map((slice) =>
+          slice.fullCircle ? (
+            <circle
+              key={slice.source}
+              cx={cx}
+              cy={cy}
+              r={r}
+              fill={slice.color}
+              stroke="var(--panel, #18181b)"
+              strokeWidth={0.6}
+            >
+              <title>
+                {slice.label}: {slice.count.toLocaleString()} ({slice.pct}%)
+              </title>
+            </circle>
+          ) : slice.path ? (
+            <path
+              key={slice.source}
+              d={slice.path}
+              fill={slice.color}
+              stroke="var(--panel, #18181b)"
+              strokeWidth={0.6}
+            >
+              <title>
+                {slice.label}: {slice.count.toLocaleString()} ({slice.pct}%)
+              </title>
+            </path>
+          ) : null,
+        )}
+      </svg>
+      <ul className="queue-sources-pie__legend">
+        {slices.map((slice) => (
+          <li key={slice.source} className="queue-sources-pie__legend-item">
+            <span className="queue-sources-pie__swatch" style={{ background: slice.color }} />
+            <span className="queue-sources-pie__label">{slice.label}</span>
+            <span className="queue-sources-pie__meta muted">
+              {slice.count.toLocaleString()}
+              <span className="queue-sources-pie__pct"> ({slice.pct}%)</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 type ServiceStatus = {
@@ -81,24 +181,20 @@ type DownloaderStatus = {
   min_job_interval_seconds: number;
   queue: {
     scraped_queued: number;
+    scraped_ready?: number;
     deferred: number;
+    total_queued?: number;
     downloader_emitted: number;
+    queue_by_source?: Record<string, number>;
     next_ready_at: string | null;
+    queue_truncated?: boolean;
     scraped_in_library?: number;
   };
   services: ServiceStatus[];
   in_flight_total?: number;
   in_flight_items: InFlightItem[];
   queued_items: QueuedItem[];
-  last_job: LastJob | null;
-};
-
-type UserInfoRow = {
-  service: string;
-  premium_status?: string;
-  premium_days_left?: number | null;
-  username?: string | null;
-  total_downloaded_bytes?: number | null;
+  recent_jobs: LastJob[];
 };
 
 function inFlightDisplayTitle(item: InFlightItem): string {
@@ -111,10 +207,20 @@ function inFlightDisplayTitle(item: InFlightItem): string {
   return item.title || `Item ${item.id}`;
 }
 
-function inFlightTypeClass(type: string): string {
-  if (type === 'movie') return 'pill--movie';
-  if (type === 'episode' || type === 'season' || type === 'show') return 'pill--tv';
-  return '';
+function mediaTypeTagClass(item: InFlightItem): string {
+  const kind = getMediaKind(item);
+  if (kind === 'movie' || kind === 'tv') return `media-tag media-tag--${kind}`;
+  return 'media-tag media-tag--neutral';
+}
+
+function mediaTypeTagLabel(item: InFlightItem): string {
+  const kind = getMediaKind(item);
+  if (kind === 'movie' || kind === 'tv') return mediaLabel(item);
+  return item.type;
+}
+
+function outcomePillClass(outcome: LastJob['outcome']): string {
+  return `pill downloader-outcome downloader-outcome--${outcome ?? 'unknown'}`;
 }
 
 function queueWaitLabel(item: QueuedItem): string {
@@ -122,6 +228,93 @@ function queueWaitLabel(item: QueuedItem): string {
     return `Starts ${formatRelativeSeconds(item.wait_seconds, 'future')}`;
   }
   return `Waiting ${formatRelativeSeconds(item.wait_seconds, 'past')}`;
+}
+
+type PipelineQueuePhase = 'downloading' | 'due' | 'deferred';
+
+type PipelineQueueEntry =
+  | { phase: 'downloading'; item: InFlightItem }
+  | { phase: 'queued'; item: QueuedItem };
+
+function pipelinePhase(item: QueuedItem): PipelineQueuePhase {
+  return item.deferred ? 'deferred' : 'due';
+}
+
+function pipelineStatusPillClass(phase: PipelineQueuePhase): string {
+  return `pill downloader-queue-status downloader-queue-status--${phase}`;
+}
+
+function pipelineStatusLabel(phase: PipelineQueuePhase): string {
+  switch (phase) {
+    case 'downloading':
+      return 'Downloading';
+    case 'deferred':
+      return 'Deferred';
+    default:
+      return 'Due';
+  }
+}
+
+function compareQueuedItems(a: QueuedItem, b: QueuedItem): number {
+  const phaseOrder = (item: QueuedItem) => (item.deferred ? 1 : 0);
+  const phaseDiff = phaseOrder(a) - phaseOrder(b);
+  if (phaseDiff !== 0) return phaseDiff;
+  const aAt = parseApiDate(a.run_at)?.getTime() ?? 0;
+  const bAt = parseApiDate(b.run_at)?.getTime() ?? 0;
+  return aAt - bAt;
+}
+
+function PipelineQueueRow({ entry }: { entry: PipelineQueueEntry }) {
+  if (entry.phase === 'downloading') {
+    const item = entry.item;
+    return (
+      <div className="media-list__row downloader-in-flight-row downloader-queue-row">
+        <span className={mediaTypeTagClass(item)}>{mediaTypeTagLabel(item)}</span>
+        <span className={pipelineStatusPillClass('downloading')}>
+          {pipelineStatusLabel('downloading')}
+        </span>
+        <div className="downloader-queue-row__main">
+          <a className="downloader-in-flight-row__title" href={`#/item/${item.id}`}>
+            {inFlightDisplayTitle(item)}
+          </a>
+        </div>
+        {item.state && (
+          <span className="downloader-in-flight-row__state muted">{item.state}</span>
+        )}
+      </div>
+    );
+  }
+
+  return <QueueRow item={entry.item} />;
+}
+
+function QueueRow({ item }: { item: QueuedItem }) {
+  return (
+    <div className="media-list__row downloader-in-flight-row downloader-queue-row">
+      <span className={mediaTypeTagClass(item)}>{mediaTypeTagLabel(item)}</span>
+      <span className={pipelineStatusPillClass(pipelinePhase(item))}>
+        {pipelineStatusLabel(pipelinePhase(item))}
+      </span>
+      <div className="downloader-queue-row__main">
+        <a className="downloader-in-flight-row__title" href={`#/item/${item.id}`}>
+          {inFlightDisplayTitle(item)}
+        </a>
+        {item.scraped_at && (
+          <span className="muted downloader-queue-row__sub">
+            Scraped{' '}
+            {formatRelativeSeconds(secondsSinceApiDate(item.scraped_at) ?? 0, 'past')}
+          </span>
+        )}
+      </div>
+      <span className="downloader-in-flight-row__state muted">
+        <span className="pill pill--muted downloader-queue-emitted">
+          {humanizeQueueSource(item.emitted_by)}
+        </span>
+        {' · '}
+        {queueWaitLabel(item)}
+      </span>
+    </div>
+  );
 }
 
 function outcomeLabel(outcome: LastJob['outcome']): string {
@@ -141,13 +334,64 @@ function outcomeLabel(outcome: LastJob['outcome']): string {
 
 function formatCountdown(iso: string | null): string {
   if (!iso) return '—';
-  const target = new Date(iso).getTime();
-  if (!Number.isFinite(target)) return '—';
+  const target = parseApiDate(iso)?.getTime();
+  if (target == null || !Number.isFinite(target)) return '—';
   const sec = Math.max(0, Math.round((target - Date.now()) / 1000));
   if (sec < 60) return `${sec}s`;
   const min = Math.floor(sec / 60);
   const rem = sec % 60;
-  return `${min}m ${rem}s`;
+  if (min < 60) return `${min}m ${rem}s`;
+  const hr = Math.floor(min / 60);
+  const minRem = min % 60;
+  return `${hr}h ${minRem}m`;
+}
+
+function formatElapsedSeconds(seconds: number): string {
+  const sec = Math.max(0, Math.round(seconds));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  if (min < 60) return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const minRem = min % 60;
+  return minRem > 0 ? `${hr}h ${minRem}m` : `${hr}h`;
+}
+
+function LiveCountdown({ iso }: { iso: string }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [iso]);
+
+  return <strong className="downloader-live-countdown">{formatCountdown(iso)}</strong>;
+}
+
+function LiveElapsed({ iso }: { iso: string }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [iso]);
+
+  const age = secondsSinceApiDate(iso);
+  if (age == null) return <>—</>;
+  return <span className="downloader-live-elapsed">{formatElapsedSeconds(age)}</span>;
+}
+
+function dedupeQueuedItems(items: QueuedItem[]): QueuedItem[] {
+  const byId = new Map<number, QueuedItem>();
+  for (const item of items) {
+    const prev = byId.get(item.id);
+    if (!prev) {
+      byId.set(item.id, item);
+      continue;
+    }
+    byId.set(item.id, compareQueuedItems(item, prev) <= 0 ? item : prev);
+  }
+  return [...byId.values()];
 }
 
 function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): DownloaderStatus | null {
@@ -155,9 +399,12 @@ function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): Do
 
   const queue = raw.queue ?? {
     scraped_queued: 0,
+    scraped_ready: 0,
     deferred: 0,
+    total_queued: 0,
     downloader_emitted: 0,
     next_ready_at: null,
+    queue_truncated: false,
   };
 
   return {
@@ -166,9 +413,16 @@ function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): Do
     min_job_interval_seconds: Number(raw.min_job_interval_seconds) || 0,
     queue: {
       scraped_queued: Number(queue.scraped_queued) || 0,
+      scraped_ready: Number(queue.scraped_ready) || 0,
       deferred: Number(queue.deferred) || 0,
+      total_queued: Number(queue.total_queued) || 0,
       downloader_emitted: Number(queue.downloader_emitted) || 0,
+      queue_by_source:
+        queue.queue_by_source && typeof queue.queue_by_source === 'object'
+          ? queue.queue_by_source
+          : {},
       next_ready_at: queue.next_ready_at ?? null,
+      queue_truncated: Boolean(queue.queue_truncated),
       scraped_in_library: Number(queue.scraped_in_library) || 0,
     },
     services: Array.isArray(raw.services) ? raw.services : [],
@@ -188,15 +442,27 @@ function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): Do
           }))
         : [],
     queued_items: Array.isArray(raw.queued_items) ? raw.queued_items : [],
-    last_job: raw.last_job ?? null,
+    recent_jobs: Array.isArray(raw.recent_jobs) ? raw.recent_jobs : [],
   };
 }
 
 export default function ActivityDashboardView(_props: { route: AppRoute }) {
   const [status, setStatus] = useState<DownloaderStatus | null>(null);
-  const [userByService, setUserByService] = useState<Record<string, UserInfoRow>>({});
   const [scrapedDbCount, setScrapedDbCount] = useState<number | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const pageOpenedAtRef = useRef(Date.now());
+  const [showDbBacklogHint, setShowDbBacklogHint] = useState(true);
+
+  useEffect(() => {
+    const elapsed = Date.now() - pageOpenedAtRef.current;
+    const remaining = DB_BACKLOG_HINT_VISIBLE_MS - elapsed;
+    if (remaining <= 0) {
+      setShowDbBacklogHint(false);
+      return undefined;
+    }
+    const id = window.setTimeout(() => setShowDbBacklogHint(false), remaining);
+    return () => window.clearTimeout(id);
+  }, []);
 
   const loadStatus = useCallback(async () => {
     const res = await apiGet<DownloaderStatus>('/downloader_status');
@@ -211,31 +477,26 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
     }
   }, []);
 
-  const loadUserInfo = useCallback(async () => {
-    const res = await apiGet<{ services: UserInfoRow[] }>('/downloader_user_info');
-    if (!res.ok || !res.data?.services) return;
-
-    const map: Record<string, UserInfoRow> = {};
-    for (const row of res.data.services) {
-      if (row.service) map[row.service] = row;
-    }
-    setUserByService(map);
-  }, []);
-
   useEffect(() => {
     void loadStatus();
     const id = window.setInterval(() => void loadStatus(), STATUS_POLL_MS);
     return () => window.clearInterval(id);
   }, [loadStatus]);
 
+  const [clockTick, setClockTick] = useState(0);
+
   useEffect(() => {
-    void loadUserInfo();
-    const id = window.setInterval(() => void loadUserInfo(), USER_INFO_POLL_MS);
+    const needsLiveClock =
+      Boolean(status?.queue?.next_ready_at) ||
+      (status?.paused && Boolean(status.pause_until));
+    if (!needsLiveClock) return undefined;
+    const id = window.setInterval(() => setClockTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
-  }, [loadUserInfo]);
+  }, [status?.queue?.next_ready_at, status?.paused, status?.pause_until]);
 
   const pipelineBanner = useMemo(() => {
     if (!status) return null;
+    void clockTick;
     if (status.paused) {
       return {
         modifier: 'paused',
@@ -248,7 +509,56 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
       title: 'Downloader active',
       detail: `Job spacing: ${(status.min_job_interval_seconds ?? 0).toFixed(2)}s between runs`,
     };
+  }, [status, clockTick]);
+
+  /** Downloading first, then due, then deferred (soonest run_at within each band). */
+  const pipelineQueueEntries = useMemo((): PipelineQueueEntry[] => {
+    if (!status) return [];
+
+    const seenInFlight = new Set<number>();
+    const entries: PipelineQueueEntry[] = [];
+    for (const item of status.in_flight_items ?? []) {
+      if (seenInFlight.has(item.id)) continue;
+      seenInFlight.add(item.id);
+      entries.push({ phase: 'downloading', item });
+    }
+
+    const queued = dedupeQueuedItems(status.queued_items ?? []).sort(compareQueuedItems);
+    for (const item of queued) {
+      entries.push({ phase: 'queued', item });
+    }
+
+    return entries;
   }, [status]);
+
+  const dbBacklogHint = useMemo(() => {
+    if (!showDbBacklogHint || !status?.queue) return null;
+    const inDb = status.queue.scraped_in_library ?? 0;
+    const inQueue = status.queue.total_queued ?? 0;
+    if (inDb > inQueue + 50) {
+      return `${inDb.toLocaleString()} scraped items are in the database but not in the live download queue (common after a restart). Restart Riven to re-queue up to 500, or use Retry Active Library on the Overview dashboard.`;
+    }
+    return null;
+  }, [showDbBacklogHint, status?.queue]);
+
+  const queueSourceEntries = useMemo(() => {
+    const raw = status?.queue?.queue_by_source;
+    if (!raw || typeof raw !== 'object') return [];
+    return Object.entries(raw)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1]);
+  }, [status?.queue?.queue_by_source]);
+
+  const recentJobsForDisplay = useMemo(() => {
+    const inFlightIds = new Set((status?.in_flight_items ?? []).map((item) => item.id));
+    const filtered = (status?.recent_jobs ?? []).filter((job) => {
+      if (!job.item || !job.completed_at || inFlightIds.has(job.item.id)) return false;
+      const age = secondsSinceApiDate(job.completed_at);
+      return age != null && age <= RECENT_JOB_MAX_AGE_SEC;
+    });
+    // API is newest-first; show oldest at top so new completions appear at the bottom.
+    return filtered.slice().reverse();
+  }, [status?.recent_jobs, status?.in_flight_items]);
 
   return (
     <ViewLayout className="view-dashboard view-dashboard-activity" view="dashboard-activity">
@@ -269,16 +579,14 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
             className={`downloader-status-banner downloader-status-banner--${pipelineBanner.modifier}`}
           >
             <strong>{pipelineBanner.title}</strong>
-            <span>{pipelineBanner.detail}</span>
+            <span className="downloader-status-banner__detail">{pipelineBanner.detail}</span>
           </div>
         )}
 
         <div className="downloader-status-services">
           {DOWNLOADER_KEYS.map((key) => {
             const svc = status?.services.find((s) => s.key === key);
-            const user = userByService[key];
             const enabled = svc != null;
-            const expiry = user ? getDownloaderExpiryWarning(user) : null;
 
             return (
               <article key={key} className="downloader-card downloader-status-card">
@@ -296,53 +604,53 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
                     {!enabled ? 'Off' : svc?.available ? 'Available' : 'Cooldown'}
                   </span>
                 </div>
-
-                {enabled && svc && (
-                  <dl className="downloader-card__meta">
-                    {user?.username && (
-                      <>
-                        <dt>Account</dt>
-                        <dd>{user.username}</dd>
-                      </>
-                    )}
-                    {user?.premium_status && (
-                      <>
-                        <dt>Premium</dt>
-                        <dd>{user.premium_status}</dd>
-                      </>
-                    )}
-                    {expiry && (
-                      <>
-                        <dt>Subscription</dt>
-                        <dd className={`downloader-expiry--${expiry.modifier}`}>{expiry.text}</dd>
-                      </>
-                    )}
-                    {user?.total_downloaded_bytes != null && (
-                      <>
-                        <dt>Downloaded</dt>
-                        <dd>{formatBytesUtil(user.total_downloaded_bytes) || '—'}</dd>
-                      </>
-                    )}
-                    {svc.cooldown_until && (
-                      <>
-                        <dt>Cooldown until</dt>
-                        <dd>{new Date(svc.cooldown_until).toLocaleString()}</dd>
-                      </>
-                    )}
-                  </dl>
-                )}
-
-                {!enabled && <p className="muted">Not initialized</p>}
               </article>
             );
           })}
         </div>
 
-        <section className="kpi-grid activity-pipeline-kpis">
+        <section
+          className="kpi-grid activity-pipeline-kpis"
+          aria-label="Downloader pipeline"
+        >
+          <article className="kpi-card kpi-card--queue-sources">
+            <KpiCardHeading
+              label="Queue sources"
+              description={DOWNLOADER_KPI_TIPS.queueSources}
+            />
+            <QueueSourcesPieChart entries={queueSourceEntries} />
+          </article>
           <article className="kpi-card">
             <KpiCardHeading
-              label="In flight"
-              description={DOWNLOADER_KPI_TIPS.inFlight}
+              label="In library (DB)"
+              description={DOWNLOADER_KPI_TIPS.scrapedDb}
+            />
+            <p className="kpi-value">{scrapedDbCount ?? '—'}</p>
+          </article>
+          <article className="kpi-card">
+            <KpiCardHeading
+              label="Deferred"
+              description={DOWNLOADER_KPI_TIPS.deferred}
+            />
+            <p className="kpi-value">{status?.queue?.deferred ?? '—'}</p>
+            {status?.queue?.next_ready_at && (
+              <p className="kpi-sub">
+                Next deferred → queued (due) in{' '}
+                <LiveCountdown iso={status.queue.next_ready_at} />
+              </p>
+            )}
+          </article>
+          <article className="kpi-card">
+            <KpiCardHeading
+              label="Queued (due)"
+              description={DOWNLOADER_KPI_TIPS.queuedDue}
+            />
+            <p className="kpi-value">{status?.queue?.scraped_ready ?? '—'}</p>
+          </article>
+          <article className="kpi-card">
+            <KpiCardHeading
+              label="Downloading"
+              description={DOWNLOADER_KPI_TIPS.downloading}
             />
             <p className="kpi-value">
               {status != null
@@ -350,120 +658,73 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
                 : '—'}
             </p>
           </article>
-          <article className="kpi-card">
-            <KpiCardHeading
-              label="Scraped in queue"
-              description={DOWNLOADER_KPI_TIPS.scrapedQueued}
-            />
-            <p className="kpi-value">{status?.queue?.scraped_queued ?? '—'}</p>
-          </article>
-          <article className="kpi-card">
-            <KpiCardHeading
-              label="Deferred jobs"
-              description={DOWNLOADER_KPI_TIPS.deferred}
-            />
-            <p className="kpi-value">{status?.queue?.deferred ?? '—'}</p>
-          </article>
-          <article className="kpi-card">
-            <KpiCardHeading
-              label="Scraped in library (DB)"
-              description={DOWNLOADER_KPI_TIPS.scrapedDb}
-            />
-            <p className="kpi-value">{scrapedDbCount ?? '—'}</p>
-          </article>
         </section>
 
-        {status?.queue?.next_ready_at && (
-          <p className="muted downloader-status__hint">
-            Next deferred job ready: {new Date(status.queue.next_ready_at).toLocaleString()}
+        {dbBacklogHint && (
+          <p className="muted downloader-status__hint downloader-status__hint--warn">
+            {dbBacklogHint}
           </p>
         )}
 
-        {status?.last_job?.item && status.last_job.completed_at && (
+        {recentJobsForDisplay.length > 0 && (
           <div className="activity-pipeline-subpanel">
-            <h3 className="activity-pipeline-subpanel__title">Last processed</h3>
-            <div className="media-list__row downloader-last-job-row">
-              <span
-                className={`pill downloader-outcome--${status.last_job.outcome ?? 'unknown'}`}
-              >
-                {outcomeLabel(status.last_job.outcome)}
-              </span>
-              <a
-                className="downloader-in-flight-row__title"
-                href={`#/item/${status.last_job.item.id}`}
-              >
-                {inFlightDisplayTitle(status.last_job.item)}
-              </a>
-              <span className="downloader-in-flight-row__state muted">
-                {(() => {
-                  const age = secondsSinceApiDate(status.last_job.completed_at);
-                  const label = age != null ? formatRelativeSeconds(age, 'past') : '—';
-                  return label;
-                })()}
-                {status.last_job.service
-                  ? ` · ${humanizeServiceKey(status.last_job.service)}`
-                  : ''}
-              </span>
-            </div>
-            {status.last_job.detail && (
-              <p className="muted downloader-last-job-row__detail">{status.last_job.detail}</p>
-            )}
-          </div>
-        )}
-
-        {status && (status.queued_items?.length ?? 0) > 0 && (
-          <div className="activity-pipeline-subpanel">
-            <h3 className="activity-pipeline-subpanel__title">Queue</h3>
-            <div className="downloader-in-flight-list">
-              {status.queued_items.map((item) => (
-                <div key={item.id} className="media-list__row downloader-in-flight-row">
-                  <span className={`pill ${inFlightTypeClass(item.type)}`}>{item.type}</span>
-                  <div className="downloader-queue-row__main">
-                    <a className="downloader-in-flight-row__title" href={`#/item/${item.id}`}>
-                      {inFlightDisplayTitle(item)}
-                    </a>
-                    {item.scraped_at && (
-                      <span className="muted downloader-queue-row__sub">
-                        Scraped{' '}
-                        {formatRelativeSeconds(
-                          secondsSinceApiDate(item.scraped_at) ?? 0,
-                          'past',
-                        )}
-                      </span>
-                    )}
+            <h3 className="activity-pipeline-subpanel__title">Recently processed</h3>
+            <div className="downloader-recent-jobs-list">
+              {recentJobsForDisplay.map((job) => (
+                <div key={`${job.item!.id}-${job.completed_at}`} className="downloader-recent-job">
+                  <div className="media-list__row downloader-in-flight-row downloader-queue-row downloader-last-job-row">
+                    <span className={outcomePillClass(job.outcome)}>
+                      {outcomeLabel(job.outcome)}
+                    </span>
+                    <div className="downloader-queue-row__main">
+                      <a
+                        className="downloader-in-flight-row__title"
+                        href={`#/item/${job.item!.id}`}
+                      >
+                        {inFlightDisplayTitle(job.item!)}
+                      </a>
+                      {job.detail && (
+                        <span className="muted downloader-queue-row__sub">{job.detail}</span>
+                      )}
+                    </div>
+                    <span className="downloader-in-flight-row__state muted">
+                      <LiveElapsed iso={job.completed_at!} />
+                      {job.service ? ` · ${humanizeServiceKey(job.service)}` : ''}
+                    </span>
                   </div>
-                  <span className="downloader-in-flight-row__state muted">
-                    {queueWaitLabel(item)}
-                  </span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {status && (status.in_flight_total ?? status.in_flight_items?.length ?? 0) > 0 && (
+        {pipelineQueueEntries.length > 0 && (
           <div className="activity-pipeline-subpanel">
-            <h3 className="activity-pipeline-subpanel__title">In flight</h3>
-            {(status.in_flight_total ?? 0) > (status.in_flight_items?.length ?? 0) && (
+            <h3 className="activity-pipeline-subpanel__title">Queue</h3>
+            {status?.queue?.queue_truncated && (
               <p className="muted downloader-status__hint">
-                Showing {status.in_flight_items.length} of {status.in_flight_total} active jobs.
+                Showing {status.queued_items.length} of{' '}
+                {(status.queue.total_queued ?? status.queued_items.length).toLocaleString()}{' '}
+                queued jobs (downloading always shown).
+              </p>
+            )}
+            {(status?.in_flight_total ?? 0) > (status?.in_flight_items?.length ?? 0) && (
+              <p className="muted downloader-status__hint">
+                Downloading: showing {status.in_flight_items.length} of{' '}
+                {status.in_flight_total}.
               </p>
             )}
             <div className="downloader-in-flight-list">
-              {status.in_flight_items.map((item) => (
-                <div key={item.id} className="media-list__row downloader-in-flight-row">
-                  <span className={`pill ${inFlightTypeClass(item.type)}`}>{item.type}</span>
-                  <a className="downloader-in-flight-row__title" href={`#/item/${item.id}`}>
-                    {inFlightDisplayTitle(item)}
-                  </a>
-                  {item.state && (
-                    <span className="downloader-in-flight-row__state muted">{item.state}</span>
-                  )}
-                </div>
+              {pipelineQueueEntries.map((entry) => (
+                <PipelineQueueRow
+                  key={`${entry.phase}-${entry.item.id}`}
+                  entry={entry}
+                />
               ))}
             </div>
           </div>
         )}
+
       </Panel>
     </ViewLayout>
   );

@@ -13,6 +13,7 @@ from kink.errors.service_error import ServiceError
 from loguru import logger
 from pydantic import BaseModel, Field, HttpUrl
 from sqlalchemy import Date, cast, func, select
+from sqlalchemy.orm import noload
 
 from program.apis import TraktAPI
 from program.db import db_functions
@@ -23,7 +24,7 @@ from program.media.state import States
 from program.program import Program
 from program.services.rate_limit import RateLimitService, get_rate_limit_service
 from program.settings import settings_manager
-from program.utils import generate_api_key
+from program.utils import format_api_datetime, generate_api_key
 
 from ..models.shared import MessageResponse
 
@@ -67,7 +68,7 @@ class DownloaderUserInfoResponse(BaseModel):
 
 
 USER_INFO_CACHE_TTL_SECONDS = 60.0
-SCRAPED_COUNT_CACHE_TTL_SECONDS = 5.0
+SCRAPED_COUNT_CACHE_TTL_SECONDS = 30.0
 
 _user_info_cache_lock = threading.Lock()
 _user_info_cache: tuple[float, DownloaderUserInfoResponse] | None = None
@@ -105,9 +106,19 @@ class RateLimitsResponse(BaseModel):
 
 class DownloaderQueueStats(BaseModel):
     scraped_queued: int
+    scraped_ready: int = 0
     deferred: int
-    downloader_emitted: int
+    total_queued: int = 0
+    downloader_emitted: int = Field(
+        default=0,
+        description="Queued items emitted by Downloader (re-queue); same as queue_by_source.Downloader",
+    )
+    queue_by_source: dict[str, int] = Field(
+        default_factory=dict,
+        description="Deduped downloader-relevant queue counts by emitted_by source",
+    )
     next_ready_at: str | None = None
+    queue_truncated: bool = False
     scraped_in_library: int = Field(
         default=0,
         description="Library items (all types) currently in the Scraped state",
@@ -141,6 +152,15 @@ class LastDownloaderJobResponse(BaseModel):
     service: str | None = None
 
 
+# Status endpoint only needs titles/metadata — avoid selectin-loading streams/subtitles.
+_MEDIA_ITEM_STATUS_LOAD_OPTIONS = (
+    noload(MediaItem.streams),
+    noload(MediaItem.blacklisted_streams),
+    noload(MediaItem.filesystem_entries),
+    noload(MediaItem.subtitles),
+)
+
+
 def _item_display_rows(
     item_ids: list[int],
 ) -> dict[int, tuple[InFlightItemResponse, datetime | None]]:
@@ -154,7 +174,9 @@ def _item_display_rows(
     with db_session() as session:
         items = list(
             session.scalars(
-                select(MediaItem).where(MediaItem.id.in_(unique_ids))
+                select(MediaItem)
+                .where(MediaItem.id.in_(unique_ids))
+                .options(*_MEDIA_ITEM_STATUS_LOAD_OPTIONS)
             ).all()
         )
         parent_ids: set[int] = set()
@@ -166,7 +188,9 @@ def _item_display_rows(
         parents: dict[int, MediaItem] = {}
         if parent_ids:
             for parent in session.scalars(
-                select(MediaItem).where(MediaItem.id.in_(parent_ids))
+                select(MediaItem)
+                .where(MediaItem.id.in_(parent_ids))
+                .options(*_MEDIA_ITEM_STATUS_LOAD_OPTIONS)
             ):
                 parents[parent.id] = parent
 
@@ -177,7 +201,9 @@ def _item_display_rows(
             } - set(parents.keys())
             if grandparent_ids:
                 for grandparent in session.scalars(
-                    select(MediaItem).where(MediaItem.id.in_(grandparent_ids))
+                    select(MediaItem)
+                    .where(MediaItem.id.in_(grandparent_ids))
+                    .options(*_MEDIA_ITEM_STATUS_LOAD_OPTIONS)
                 ):
                     parents[grandparent.id] = grandparent
 
@@ -232,18 +258,24 @@ def _item_display_rows(
         return rows
 
 
-def _in_flight_items(item_ids: list[int]) -> list[InFlightItemResponse]:
-    rows = _item_display_rows(item_ids)
+def _in_flight_items(
+    item_ids: list[int],
+    display: dict[int, tuple[InFlightItemResponse, datetime | None]] | None = None,
+) -> list[InFlightItemResponse]:
+    rows = display if display is not None else _item_display_rows(item_ids)
     return [rows[i][0] for i in item_ids if i in rows]
 
 
-def _queued_items(event_rows: list[dict[str, Any]]) -> list[QueuedItemResponse]:
+def _queued_items(
+    event_rows: list[dict[str, Any]],
+    display: dict[int, tuple[InFlightItemResponse, datetime | None]] | None = None,
+) -> list[QueuedItemResponse]:
     if not event_rows:
         return []
 
     now = datetime.now()
     item_ids = [int(r["item_id"]) for r in event_rows]
-    display = _item_display_rows(item_ids)
+    display_rows = display if display is not None else _item_display_rows(item_ids)
     result: list[QueuedItemResponse] = []
 
     for raw in event_rows:
@@ -252,7 +284,7 @@ def _queued_items(event_rows: list[dict[str, Any]]) -> list[QueuedItemResponse]:
         queued_at: datetime = raw["queued_at"]
         deferred: bool = bool(raw["deferred"])
 
-        display_row, scraped_at = display.get(
+        display_row, scraped_at = display_rows.get(
             item_id,
             (
                 InFlightItemResponse(
@@ -275,9 +307,9 @@ def _queued_items(event_rows: list[dict[str, Any]]) -> list[QueuedItemResponse]:
         result.append(
             QueuedItemResponse(
                 **display_row.model_dump(),
-                run_at=run_at.isoformat(),
-                queued_at=queued_at.isoformat(),
-                scraped_at=scraped_at.isoformat() if scraped_at else None,
+                run_at=format_api_datetime(run_at),
+                queued_at=format_api_datetime(queued_at),
+                scraped_at=format_api_datetime(scraped_at),
                 deferred=deferred,
                 wait_seconds=wait_seconds,
                 emitted_by=str(raw["emitted_by"]),
@@ -300,26 +332,36 @@ class DownloaderStatusResponse(BaseModel):
     in_flight_total: int = 0
     in_flight_items: list[InFlightItemResponse]
     queued_items: list[QueuedItemResponse]
-    last_job: LastDownloaderJobResponse | None = None
+    recent_jobs: list[LastDownloaderJobResponse] = []
 
 
-def _last_job_response(raw: dict[str, Any] | None) -> LastDownloaderJobResponse | None:
-    if not raw:
-        return None
+def _recent_jobs_response(
+    raw_jobs: list[dict[str, Any]],
+    display: dict[int, tuple[InFlightItemResponse, datetime | None]] | None = None,
+) -> list[LastDownloaderJobResponse]:
+    if not raw_jobs:
+        return []
 
-    item_id = raw.get("item_id")
-    item: InFlightItemResponse | None = None
-    if item_id is not None:
-        rows = _item_display_rows([int(item_id)])
-        item = rows.get(int(item_id), (None, None))[0]
+    result: list[LastDownloaderJobResponse] = []
+    for raw in raw_jobs:
+        item_id = raw.get("item_id")
+        item: InFlightItemResponse | None = None
+        if item_id is not None:
+            item_id_int = int(item_id)
+            rows = display if display is not None else _item_display_rows([item_id_int])
+            item = rows.get(item_id_int, (None, None))[0]
 
-    return LastDownloaderJobResponse(
-        item=item,
-        completed_at=raw.get("completed_at"),
-        outcome=raw.get("outcome"),
-        detail=raw.get("detail"),
-        service=raw.get("service"),
-    )
+        result.append(
+            LastDownloaderJobResponse(
+                item=item,
+                completed_at=raw.get("completed_at"),
+                outcome=raw.get("outcome"),
+                detail=raw.get("detail"),
+                service=raw.get("service"),
+            )
+        )
+
+    return result
 
 
 def _fetch_download_user_info() -> DownloaderUserInfoResponse:
@@ -477,12 +519,24 @@ def _build_downloader_status() -> DownloaderStatusResponse:
             )
 
         operational = downloader.get_operational_status()
-        queue_raw = program.em.get_downloader_queue_stats()
-        queue_event_rows = program.em.get_downloader_queued_items()
+        queue_raw, queue_event_rows = program.em.get_downloader_queue_snapshot()
         in_flight_ids = [int(i) for i in program.em.get_event_updates().get("Downloader", [])]
         in_flight_total = len(in_flight_ids)
         in_flight_sample = in_flight_ids[:DOWNLOADER_IN_FLIGHT_LIMIT]
-        last_job_raw = downloader.get_last_job()
+        recent_jobs_raw = downloader.get_recent_jobs()
+
+        display_ids: list[int] = list(in_flight_sample)
+        display_ids.extend(int(r["item_id"]) for r in queue_event_rows)
+        display_ids.extend(
+            int(job["item_id"])
+            for job in recent_jobs_raw
+            if job.get("item_id") is not None
+        )
+        item_display = (
+            _item_display_rows(list(dict.fromkeys(display_ids)))
+            if display_ids
+            else {}
+        )
 
         service_rows = [
             DownloaderServiceStatus(
@@ -499,16 +553,20 @@ def _build_downloader_status() -> DownloaderStatusResponse:
             min_job_interval_seconds=float(operational["min_job_interval_seconds"]),
             queue=DownloaderQueueStats(
                 scraped_queued=int(queue_raw["scraped_queued"]),
+                scraped_ready=int(queue_raw.get("scraped_ready", 0)),
                 deferred=int(queue_raw["deferred"]),
-                downloader_emitted=int(queue_raw["downloader_emitted"]),
+                total_queued=int(queue_raw.get("total_queued", 0)),
+                downloader_emitted=int(queue_raw.get("downloader_emitted", 0)),
+                queue_by_source=dict(queue_raw.get("queue_by_source") or {}),
                 next_ready_at=queue_raw.get("next_ready_at"),
+                queue_truncated=bool(queue_raw.get("queue_truncated", False)),
                 scraped_in_library=_scraped_library_count(),
             ),
             services=service_rows,
             in_flight_total=in_flight_total,
-            in_flight_items=_in_flight_items(in_flight_sample),
-            queued_items=_queued_items(queue_event_rows),
-            last_job=_last_job_response(last_job_raw),
+            in_flight_items=_in_flight_items(in_flight_sample, item_display),
+            queued_items=_queued_items(queue_event_rows, item_display),
+            recent_jobs=_recent_jobs_response(recent_jobs_raw, item_display),
         )
     except HTTPException:
         raise

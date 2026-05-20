@@ -7,14 +7,17 @@ from contextlib import asynccontextmanager
 from loguru import logger
 from typing import Any, Literal
 from http import HTTPStatus
-from kink import di
 from collections.abc import AsyncGenerator, AsyncIterator
 from ordered_set import OrderedSet
+from kink import di
 
 from program.settings import settings_manager
 from program.utils import benchmark
-from program.utils.async_client import AsyncClient
-from program.utils.proxy_client import ProxyClient
+from program.shutdown import shutting_down
+from program.utils.streaming_http import (
+    get_streaming_async_client,
+    get_streaming_proxy_client,
+)
 from .vfs_io_metrics import NOOP_VFS_IO_METRICS, VfsIoMetrics
 
 from .chunker import Chunk, ChunkCacheNotifier, ChunkRange, Chunker
@@ -143,9 +146,9 @@ class MediaStream:
             provider in PROXY_REQUIRED_PROVIDERS
             and settings_manager.settings.downloaders.proxy_url
         ):
-            self.async_client = di[ProxyClient]
+            self.async_client = get_streaming_proxy_client()
         else:
-            self.async_client = di[AsyncClient]
+            self.async_client = get_streaming_async_client()
 
     def __repr__(self) -> str:
         return (
@@ -773,6 +776,9 @@ class MediaStream:
         end: int | None = None,
     ) -> AsyncGenerator[httpx.Response]:
         """Establish a streaming connection starting at the given byte offset."""
+
+        if shutting_down() or self.is_killed.value:
+            raise MediaStreamKilledException
 
         if settings_manager.settings.enable_network_tracing:
 

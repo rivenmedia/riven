@@ -252,7 +252,7 @@ def retry_library(session: Session | None = None) -> Sequence[int]:
                         ]
                     )
                 )
-                .where(MediaItem.type.in_(["movie", "show"]))
+                .where(MediaItem.type.in_(["movie", "show", "episode"]))
                 .order_by(MediaItem.requested_at.desc())
             )
             .scalars()
@@ -346,10 +346,14 @@ def run_thread_with_db_item(
     """
 
     from program.media.item import Episode, Season
+    from program.shutdown import shutting_down
 
     if event:
         with db_session() as session:
             if event.item_id:
+                if cancellation_event.is_set() or shutting_down():
+                    return None
+
                 input_item = get_item_by_id(event.item_id, session=session)
 
                 if input_item:
@@ -360,7 +364,11 @@ def run_thread_with_db_item(
                     # Execute service within the settings context if overrides exist
                     overrides = event.overrides or {}
                     with settings_manager.override(**overrides):
-                        runner_result = next(fn(input_item), None)
+                        gen = fn(input_item)
+                        try:
+                            runner_result = next(gen, None)
+                        finally:
+                            gen.close()
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:

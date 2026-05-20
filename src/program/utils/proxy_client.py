@@ -2,6 +2,7 @@ import httpx
 import sniffio
 from httpx._client import UseClientDefault
 from httpx._types import AuthTypes
+from loguru import logger
 
 from program.utils.async_client import _should_force_asyncio_sniffio
 
@@ -61,6 +62,24 @@ class ProxyClient(httpx.AsyncClient):
                 stream=stream,
                 auth=auth,
                 follow_redirects=follow_redirects,
+            )
+        finally:
+            sniffio.current_async_library_cvar.reset(token)
+
+    async def aclose(self) -> None:
+        if not _should_force_asyncio_sniffio():
+            await super().aclose()
+            return
+
+        token = sniffio.current_async_library_cvar.set("asyncio")
+        try:
+            await super().aclose()
+        except RuntimeError as exc:
+            if "async context" not in str(exc):
+                raise
+            logger.warning(
+                "Skipping ProxyClient graceful close: Trio-backed connections "
+                "cannot be torn down from the asyncio lifespan"
             )
         finally:
             sniffio.current_async_library_cvar.reset(token)

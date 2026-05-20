@@ -1,3 +1,12 @@
+"""
+State machine for pipeline services.
+
+Scrape fan-out: show/season pack jobs enqueue child season/episode scrape events after
+the pack completes (emitted_by == Scraping). Download does not fan-out: a Scraped
+season/movie/episode is one downloader job; season packs match multiple episodes in
+Downloader.match_file_to_item.
+"""
+
 from typing import Any, Literal
 from kink import di
 from loguru import logger

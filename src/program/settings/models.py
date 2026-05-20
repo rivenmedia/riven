@@ -123,6 +123,14 @@ class DownloadersModel(Observable):
             "enabled debrid providers' API rate limits."
         ),
     )
+    max_streams_per_job: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Maximum number of ranked streams to probe per downloader job. "
+            "Additional streams on the item are tried in later jobs."
+        ),
+    )
 
 
 # Filesystem Service
