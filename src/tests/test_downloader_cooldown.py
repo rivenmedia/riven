@@ -5,7 +5,7 @@ import pytest
 
 from program.media.item import Movie
 from program.services.downloaders import Downloader
-from program.services.rate_limit import CircuitBreakerOpen
+from program.services.rate_limit import CircuitBreakerOpen, report_provider_rate_limited
 
 
 @pytest.fixture
@@ -118,6 +118,19 @@ def test_start_manual_download_propagates_circuit_breaker(downloader, mock_item)
         )
 
     assert "torbox" in downloader._service_cooldowns
+
+
+def test_report_provider_rate_limited_sets_downloader_cooldown(downloader, monkeypatch):
+    from kink import di
+
+    from program.services.downloaders import Downloader as DownloaderCls
+
+    di[DownloaderCls] = downloader
+
+    report_provider_rate_limited("torbox", retry_after=60.0)
+
+    assert "torbox" in downloader._service_cooldowns
+    assert downloader._service_cooldowns["torbox"] > datetime.now()
 
 
 def test_pause_until_matches_earliest_cooldown(downloader):

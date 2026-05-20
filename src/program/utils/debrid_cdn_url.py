@@ -8,6 +8,7 @@ from http import HTTPStatus
 from kink import di
 
 from program.settings import settings_manager
+from program.services.rate_limit import parse_retry_after, report_provider_rate_limited
 from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
 from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
@@ -130,7 +131,13 @@ class DebridCDNUrl:
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code
 
-                if (
+                if status_code == HTTPStatus.TOO_MANY_REQUESTS:
+                    if attempt >= self.max_validation_attempts:
+                        report_provider_rate_limited(
+                            self.provider,
+                            retry_after=parse_retry_after(e.response),
+                        )
+                elif (
                     status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE)
                     and attempt == 1
                 ):

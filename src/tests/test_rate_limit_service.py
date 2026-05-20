@@ -1,12 +1,17 @@
 import time
 from unittest.mock import patch
 
+import httpx
 import pytest
 
 from program.services.rate_limit import (
     CircuitBreakerOpen,
     RateLimitService,
     ResourceSpec,
+    is_circuit_open,
+    parse_retry_after,
+    provider_limit_key,
+    report_provider_rate_limited,
 )
 
 
@@ -108,3 +113,37 @@ def test_snapshot_all_by_owner(rl):
     torbox_only = rl.snapshot_all(owner="torbox")
     assert len(torbox_only) == 2
     assert torbox_only[0].utilization_pct >= 0
+
+
+def test_provider_limit_key():
+    assert provider_limit_key("torbox") == "torbox.api"
+
+
+def test_parse_retry_after_seconds():
+    response = httpx.Response(429, headers={"Retry-After": "42"})
+    assert parse_retry_after(response, fallback=1.0) == 42.0
+
+
+def test_report_provider_rate_limited_trips_breaker(monkeypatch):
+    rl = RateLimitService()
+    monkeypatch.setattr("program.services.rate_limit._service", rl)
+    rl.register(
+        "torbox.api",
+        ResourceSpec(label="API", owner="torbox", rate=5.0, capacity=10),
+    )
+
+    report_provider_rate_limited("torbox", retry_after=30.0)
+
+    snap = rl.snapshot("torbox.api")
+    assert snap is not None
+    assert snap.breaker_state == "OPEN"
+    assert is_circuit_open("torbox")
+
+
+def test_report_provider_rate_limited_unknown_provider(monkeypatch):
+    rl = RateLimitService()
+    monkeypatch.setattr("program.services.rate_limit._service", rl)
+
+    report_provider_rate_limited("unknown_provider", retry_after=10.0)
+
+    assert rl.snapshot("unknown_provider.api") is None

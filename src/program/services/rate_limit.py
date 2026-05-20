@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Generator
+from email.utils import parsedate_to_datetime
+from typing import TYPE_CHECKING, Generator
 import threading
 import time
 
+import httpx
 from loguru import logger
+
+if TYPE_CHECKING:
+    from program.services.downloaders.shared import DownloaderBase
 
 
 class CircuitBreakerOpen(RuntimeError):
@@ -443,3 +448,106 @@ def http_rate_limit_map(owner: str, domain: str) -> dict[str, list[str]]:
     """Build a SmartSession rate_limit_map entry for a host."""
 
     return {domain: [f"{owner}.api"]}
+
+
+def provider_limit_key(provider: str) -> str:
+    """Rate-limit / circuit-breaker key for a debrid provider (e.g. ``torbox`` → ``torbox.api``)."""
+
+    return f"{provider}.api"
+
+
+def parse_retry_after(
+    response: httpx.Response,
+    *,
+    fallback: float = 1.0,
+) -> float:
+    """Parse ``Retry-After`` from an HTTP response (seconds or HTTP-date)."""
+
+    try:
+        ra = response.headers.get("Retry-After")
+    except Exception:
+        ra = None
+
+    if ra:
+        try:
+            return max(0.0, float(int(ra)))
+        except Exception:
+            try:
+                dt = parsedate_to_datetime(ra)
+                return max(0.0, float(int(round(dt.timestamp() - time.time()))))
+            except Exception:
+                pass
+
+    return fallback
+
+
+def is_circuit_open(provider: str) -> bool:
+    """Return True when the provider's circuit breaker is OPEN."""
+
+    key = provider_limit_key(provider)
+    try:
+        snap = get_rate_limit_service().snapshot(key)
+    except KeyError:
+        return False
+    return snap is not None and snap.breaker_state == "OPEN"
+
+
+def report_provider_rate_limited(
+    provider: str,
+    *,
+    retry_after: float | None = None,
+) -> None:
+    """
+    Trip the provider circuit breaker and apply downloader cooldown when available.
+
+    Used for CDN/VFS paths that do not go through SmartSession.
+    """
+
+    key = provider_limit_key(provider)
+    rl = get_rate_limit_service()
+
+    try:
+        rl.record_failure(key, retry_after=retry_after)
+    except KeyError:
+        logger.debug(f"No rate limit registered for provider {provider!r}")
+        return
+
+    _notify_downloader_rate_limited(provider, key, rl, retry_after)
+
+
+def _notify_downloader_rate_limited(
+    provider: str,
+    limit_key: str,
+    rl: RateLimitService,
+    retry_after: float | None,
+) -> None:
+    try:
+        from kink import di
+
+        from program.services.downloaders import Downloader
+    except Exception:
+        return
+
+    try:
+        downloader = di[Downloader]
+    except Exception:
+        return
+
+    service: DownloaderBase | None = next(
+        (s for s in downloader.initialized_services if s.key == provider),
+        None,
+    )
+    if service is None:
+        return
+
+    remaining = (
+        retry_after
+        if retry_after is not None
+        else rl.seconds_until_ready(limit_key)
+    )
+    exc = CircuitBreakerOpen(limit_key, retry_after=remaining)
+    downloader._on_circuit_breaker_open(
+        service,
+        exc,
+        context="CDN/VFS rate limited",
+    )
