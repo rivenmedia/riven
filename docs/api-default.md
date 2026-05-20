@@ -81,7 +81,8 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
       "parent_title": null,
       "season_number": null,
       "episode_number": null,
-      "state": "Scraped"
+      "state": "Scraped",
+      "activity": "Stream 2/5 · downloading on torbox"
     }
   ],
   "queued_items": [
@@ -118,7 +119,7 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
 }
 ```
 
-`queued_items` lists downloader-relevant events in the event queue (Scraped state or emitted by Downloader), up to 50 rows, with wait timing. `recent_jobs` holds up to 5 completed downloader runs from the last 2 minutes, newest first (in-memory only; cleared on restart). Jobs are recorded when the worker finishes, not while still in flight; entries older than 2 minutes are evicted automatically.
+`in_flight_items[].activity` is the live downloader step (stream try, service, media analysis, etc.) while the job runs; cleared when the job finishes. `queued_items` lists downloader-relevant events in the event queue (Scraped state or emitted by Downloader), up to 50 rows, with wait timing. `recent_jobs` holds up to 5 completed downloader runs from the last 2 minutes, newest first (in-memory only; cleared on restart). Jobs are recorded when the worker finishes, not while still in flight; entries older than 2 minutes are evicted automatically.
 
 **Errors:** 503 if no downloader initialized.
 

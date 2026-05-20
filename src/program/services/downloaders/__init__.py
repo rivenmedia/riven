@@ -66,6 +66,12 @@ class _LastJob:
 
 
 _DETAIL_MAX_LEN = 480
+_ACTIVITY_MAX_LEN = 200
+
+
+@dataclass
+class _ActiveJobActivity:
+    detail: str
 
 
 @dataclass
@@ -209,6 +215,25 @@ class Downloader(Runner[None, DownloaderBase]):
             settings_manager.settings.post_processing.subtitle.enabled
         )
         self._recent_jobs: deque[_LastJob] = deque(maxlen=_RECENT_JOBS_MAX)
+        self._active_jobs: dict[int, _ActiveJobActivity] = {}
+        self._active_jobs_lock = threading.Lock()
+
+    def _set_active_job_activity(self, item_id: int, detail: str) -> None:
+        trimmed = detail.strip()
+        if not trimmed:
+            return
+        if len(trimmed) > _ACTIVITY_MAX_LEN:
+            trimmed = trimmed[: _ACTIVITY_MAX_LEN - 3] + "..."
+        with self._active_jobs_lock:
+            self._active_jobs[item_id] = _ActiveJobActivity(detail=trimmed)
+
+    def _clear_active_job_activity(self, item_id: int) -> None:
+        with self._active_jobs_lock:
+            self._active_jobs.pop(item_id, None)
+
+    def get_active_job_activities(self) -> dict[int, str]:
+        with self._active_jobs_lock:
+            return {item_id: row.detail for item_id, row in self._active_jobs.items()}
 
     def _log_job_completion(
         self,
@@ -409,6 +434,9 @@ class Downloader(Runner[None, DownloaderBase]):
     ) -> MediaItemGenerator:
         logger.debug(f"Starting download process for {item.log_string} ({item.id})")
 
+        item_id = int(item.id)
+        self._set_active_job_activity(item_id, "Starting download")
+
         self.max_streams_per_job = (
             settings_manager.settings.downloaders.max_streams_per_job
         )
@@ -419,9 +447,13 @@ class Downloader(Runner[None, DownloaderBase]):
             # Check if all services are in cooldown due to circuit breaker
             now = datetime.now()
 
+            self._set_active_job_activity(item_id, "Checking services")
             available_services = self._available_services(now)
 
             if not available_services:
+                self._set_active_job_activity(
+                    item_id, "Waiting — all services in cooldown"
+                )
                 # All services are in cooldown, reschedule for the earliest available time
                 next_attempt = min(self._service_cooldowns.values())
 
@@ -443,6 +475,9 @@ class Downloader(Runner[None, DownloaderBase]):
             # bail out early without blacklisting any streams so they remain available
             # for when the subscription is renewed.
             if not self._any_service_subscription_active(available_services):
+                self._set_active_job_activity(
+                    item_id, "Skipped — no active debrid subscription"
+                )
                 completion = _JobCompletion(
                     "skipped",
                     detail="No active debrid subscription",
@@ -461,10 +496,19 @@ class Downloader(Runner[None, DownloaderBase]):
                 # Sort streams by resolution and rank (highest first) using simple, fast sorting
                 sorted_streams = sort_streams_by_quality(item.streams)
                 diag = _DownloadRunDiagnostics(streams_total=len(sorted_streams))
+                streams_total = len(sorted_streams)
 
                 tried_streams = 0
 
                 for stream in sorted_streams:
+                    stream_index = tried_streams + 1
+                    stream_label = (
+                        f"Stream {stream_index}/{streams_total}"
+                        if streams_total > 1
+                        else "Stream 1/1"
+                    )
+                    self._set_active_job_activity(item_id, stream_label)
+
                     # Try each available service for this stream before blacklisting
                     stream_failed_on_all_services = True
                     stream_hit_circuit_breaker = False
@@ -479,6 +523,10 @@ class Downloader(Runner[None, DownloaderBase]):
 
                         try:
                             stream_attempted_api = True
+                            self._set_active_job_activity(
+                                item_id,
+                                f"{stream_label} · checking {service.key}",
+                            )
                             # Validate stream on this specific service
                             container = self.validate_stream_on_service(
                                 stream,
@@ -494,6 +542,10 @@ class Downloader(Runner[None, DownloaderBase]):
                                 )
                                 continue
 
+                            self._set_active_job_activity(
+                                item_id,
+                                f"{stream_label} · downloading on {service.key}",
+                            )
                             # Try to download using this service
                             download_result = self.download_cached_stream_on_service(
                                 stream,
@@ -608,6 +660,9 @@ class Downloader(Runner[None, DownloaderBase]):
                             )
 
                             if media_analysis_service.should_submit(item):
+                                self._set_active_job_activity(
+                                    item_id, "Analyzing media"
+                                )
                                 success = media_analysis_service.run(item)
 
                                 if success:
@@ -675,6 +730,10 @@ class Downloader(Runner[None, DownloaderBase]):
                 if hit_circuit_breaker and len(self.initialized_services) == 1:
                     # Reschedule for after cooldown instead of failing
                     next_attempt = min(self._service_cooldowns.values())
+                    cb_key = self.initialized_services[0].key
+                    self._set_active_job_activity(
+                        item_id, f"Deferred — circuit breaker on {cb_key}"
+                    )
 
                     self._throttled_logs.warning(
                         f"single_cb:{next_attempt.isoformat(timespec='minutes')}",
@@ -682,7 +741,6 @@ class Downloader(Runner[None, DownloaderBase]):
                         f"deferring downloads until {next_attempt.strftime('%m/%d/%y %H:%M:%S')}",
                     )
 
-                    cb_key = self.initialized_services[0].key
                     completion = _JobCompletion(
                         "deferred",
                         detail=f"Circuit breaker open on {cb_key}",
@@ -702,9 +760,11 @@ class Downloader(Runner[None, DownloaderBase]):
                 self._service_cooldowns.clear()
                 self._throttled_logs.reset()
 
+                self._set_active_job_activity(item_id, "Finishing download")
                 completion = _JobCompletion("success", service=success_service)
                 yield RunnerResult(media_items=[item])
         finally:
+            self._clear_active_job_activity(item_id)
             if completion is not None:
                 self._append_completed_job(item, completion)
 

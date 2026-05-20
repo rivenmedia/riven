@@ -156,6 +156,8 @@ type InFlightItem = {
   season_number?: number | null;
   episode_number?: number | null;
   state?: string | null;
+  /** Live downloader step while the job is in flight. */
+  activity?: string | null;
 };
 
 type QueuedItem = InFlightItem & {
@@ -244,6 +246,24 @@ function pipelineStatusPillClass(phase: PipelineQueuePhase): string {
   return `pill downloader-queue-status downloader-queue-status--${phase}`;
 }
 
+function inFlightRowSubtext(item: InFlightItem): string | null {
+  if (item.activity?.trim()) {
+    return humanizeInFlightActivity(item.activity);
+  }
+  if (item.state?.trim()) {
+    return item.state;
+  }
+  return null;
+}
+
+/** Turn backend activity strings into readable subtext (service keys, etc.). */
+function humanizeInFlightActivity(activity: string): string {
+  return activity.replace(
+    /\b(realdebrid|alldebrid|debridlink|torbox)\b/gi,
+    (key) => humanizeServiceKey(key.toLowerCase()),
+  );
+}
+
 function pipelineStatusLabel(phase: PipelineQueuePhase): string {
   switch (phase) {
     case 'downloading':
@@ -267,6 +287,7 @@ function compareQueuedItems(a: QueuedItem, b: QueuedItem): number {
 function PipelineQueueRow({ entry }: { entry: PipelineQueueEntry }) {
   if (entry.phase === 'downloading') {
     const item = entry.item;
+    const subtext = inFlightRowSubtext(item);
     return (
       <div className="media-list__row downloader-in-flight-row downloader-queue-row">
         <span className={mediaTypeTagClass(item)}>{mediaTypeTagLabel(item)}</span>
@@ -277,10 +298,10 @@ function PipelineQueueRow({ entry }: { entry: PipelineQueueEntry }) {
           <a className="downloader-in-flight-row__title" href={`#/item/${item.id}`}>
             {inFlightDisplayTitle(item)}
           </a>
+          {subtext && (
+            <span className="muted downloader-queue-row__sub">{subtext}</span>
+          )}
         </div>
-        {item.state && (
-          <span className="downloader-in-flight-row__state muted">{item.state}</span>
-        )}
       </div>
     );
   }

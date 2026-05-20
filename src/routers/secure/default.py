@@ -133,6 +133,10 @@ class InFlightItemResponse(BaseModel):
     season_number: int | None = None
     episode_number: int | None = None
     state: str | None = None
+    activity: str | None = Field(
+        default=None,
+        description="Live downloader step while this job is in flight",
+    )
 
 
 class QueuedItemResponse(InFlightItemResponse):
@@ -261,9 +265,19 @@ def _item_display_rows(
 def _in_flight_items(
     item_ids: list[int],
     display: dict[int, tuple[InFlightItemResponse, datetime | None]] | None = None,
+    activities: dict[int, str] | None = None,
 ) -> list[InFlightItemResponse]:
     rows = display if display is not None else _item_display_rows(item_ids)
-    return [rows[i][0] for i in item_ids if i in rows]
+    result: list[InFlightItemResponse] = []
+    for item_id in item_ids:
+        if item_id not in rows:
+            continue
+        row = rows[item_id][0]
+        activity = (activities or {}).get(item_id)
+        if activity:
+            row = row.model_copy(update={"activity": activity})
+        result.append(row)
+    return result
 
 
 def _queued_items(
@@ -524,6 +538,7 @@ def _build_downloader_status() -> DownloaderStatusResponse:
         in_flight_total = len(in_flight_ids)
         in_flight_sample = in_flight_ids[:DOWNLOADER_IN_FLIGHT_LIMIT]
         recent_jobs_raw = downloader.get_recent_jobs()
+        active_activities = downloader.get_active_job_activities()
 
         display_ids: list[int] = list(in_flight_sample)
         display_ids.extend(int(r["item_id"]) for r in queue_event_rows)
@@ -564,7 +579,9 @@ def _build_downloader_status() -> DownloaderStatusResponse:
             ),
             services=service_rows,
             in_flight_total=in_flight_total,
-            in_flight_items=_in_flight_items(in_flight_sample, item_display),
+            in_flight_items=_in_flight_items(
+                in_flight_sample, item_display, active_activities
+            ),
             queued_items=_queued_items(queue_event_rows, item_display),
             recent_jobs=_recent_jobs_response(recent_jobs_raw, item_display),
         )
