@@ -176,3 +176,25 @@ export function getStreamUrl(itemId: string | number): string {
   const key = getKey();
   return `${API_BASE}/stream/file/${itemId}?api_key=${encodeURIComponent(key || '')}`;
 }
+
+export function getBackupDownloadUrl(filename: string): string {
+  const key = getKey();
+  return `${API_BASE}/database/export/download/${encodeURIComponent(filename)}?api_key=${encodeURIComponent(key || '')}`;
+}
+
+export async function downloadBackupFile(filename: string): Promise<void> {
+  const url = getBackupDownloadUrl(filename);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Download failed (${response.status})`);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}

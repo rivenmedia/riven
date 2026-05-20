@@ -19,6 +19,7 @@ export const ROUTES = {
   'dashboard-downloader': 'view-dashboard-activity',
   inspector: 'view-inspector',
   settings: 'view-settings',
+  backup: 'view-backup',
   'vfs-stats': 'view-vfs-stats',
   calendar: 'view-calendar',
   mount: 'view-mount',

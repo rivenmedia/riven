@@ -1,11 +1,20 @@
 import shutil
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from program.backup.bundle import (
+    BACKUPS_DIR,
+    ExportBundleOptions,
+    ImportBundleOptions,
+    bundle_download_path,
+    clean_bundle_exports,
+    export_bundle,
+    import_bundle,
+)
 from program.utils import data_dir_path
 from program.utils.cli import (
     clean_snapshots,
@@ -240,4 +249,203 @@ async def clean_snapshots_endpoint(
         logger.error(f"Error cleaning snapshots via API: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to clean snapshots: {str(e)}"
+        )
+
+
+class ExportBundleResponse(BaseModel):
+    success: bool
+    message: str
+    filename: str | None = None
+    manifest: dict[str, Any] | None = None
+
+
+class ImportBundleResponse(BaseModel):
+    success: bool
+    message: str
+    added_movies: int = 0
+    added_shows: int = 0
+    skipped_titles: int = 0
+    pins_restored: int = 0
+    pins_failed: int = 0
+    errors: list[str] = []
+
+
+class CleanBundlesResponse(BaseModel):
+    success: bool
+    message: str
+    deleted_files: list[str]
+
+
+@router.post(
+    "/export/bundle",
+    operation_id="export_backup_bundle",
+    response_model=ExportBundleResponse,
+)
+async def export_backup_bundle(
+    include_settings: Annotated[bool, Query()] = True,
+    redact_secrets: Annotated[bool, Query()] = False,
+) -> ExportBundleResponse:
+    """Create a CSV library backup ZIP on disk and return the download filename."""
+    logger.info(
+        "[backup] API export requested (include_settings={}, redact_secrets={})",
+        include_settings,
+        redact_secrets,
+    )
+    try:
+        result = export_bundle(
+            ExportBundleOptions(
+                include_settings=include_settings,
+                redact_secrets=redact_secrets,
+            )
+        )
+        if not result.success:
+            raise HTTPException(status_code=500, detail=result.message)
+        logger.info(f"Backup bundle created via API: {result.filename}")
+        return ExportBundleResponse(
+            success=True,
+            message=result.message,
+            filename=result.filename,
+            manifest=result.manifest,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating backup bundle via API: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create backup bundle: {str(e)}"
+        )
+
+
+@router.get(
+    "/export/download/{filename}",
+    operation_id="download_backup_bundle",
+    response_class=FileResponse,
+)
+async def download_backup_bundle(filename: str) -> FileResponse:
+    """Download a backup bundle ZIP by filename."""
+    try:
+        backup_path = bundle_download_path(filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not backup_path.exists():
+        raise HTTPException(
+            status_code=404, detail=f"Backup file not found: {filename}"
+        )
+
+    size_mb = backup_path.stat().st_size / (1024 * 1024)
+    logger.info("[backup] API download: {} ({:.2f} MB)", filename, size_mb)
+
+    return FileResponse(
+        path=backup_path,
+        filename=filename,
+        media_type="application/zip",
+    )
+
+
+@router.post(
+    "/import/bundle",
+    operation_id="import_backup_bundle",
+    response_model=ImportBundleResponse,
+)
+async def import_backup_bundle(
+    file: Annotated[
+        UploadFile,
+        File(description="Backup bundle ZIP to import"),
+    ],
+    restore_settings: Annotated[bool, Form()] = False,
+    skip_existing_titles: Annotated[bool, Form()] = True,
+    restore_pins: Annotated[bool, Form()] = True,
+) -> ImportBundleResponse:
+    """Import library titles and pinned streams from a backup bundle ZIP."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    if "/" in file.filename or "\\" in file.filename or ".." in file.filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    upload_path = BACKUPS_DIR / f"_uploaded_{file.filename}"
+
+    logger.info(
+        "[backup] API import requested: {} (restore_settings={}, "
+        "skip_existing={}, restore_pins={})",
+        file.filename,
+        restore_settings,
+        skip_existing_titles,
+        restore_pins,
+    )
+
+    try:
+        with open(upload_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        result = import_bundle(
+            upload_path,
+            ImportBundleOptions(
+                restore_settings=restore_settings,
+                skip_existing_titles=skip_existing_titles,
+                restore_pins=restore_pins,
+            ),
+        )
+
+        if not result.success:
+            raise HTTPException(status_code=500, detail=result.message)
+
+        logger.info(f"Backup bundle imported via API: {result.message}")
+        return ImportBundleResponse(
+            success=True,
+            message=result.message,
+            added_movies=result.added_movies,
+            added_shows=result.added_shows,
+            skipped_titles=result.skipped_titles,
+            pins_restored=result.pins_restored,
+            pins_failed=result.pins_failed,
+            errors=result.errors[:50],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        if upload_path.exists():
+            upload_path.unlink()
+        logger.error(f"Error importing backup bundle via API: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to import backup bundle: {str(e)}"
+        )
+
+
+@router.delete(
+    "/export/clean",
+    operation_id="clean_backup_bundles",
+    response_model=CleanBundlesResponse,
+)
+async def clean_backup_bundles_endpoint(
+    filename: str | None = None,
+) -> CleanBundlesResponse:
+    """Delete backup bundle ZIP file(s) from data/backups/."""
+    try:
+        if filename:
+            if "/" in filename or "\\" in filename or ".." in filename:
+                raise HTTPException(status_code=400, detail="Invalid filename")
+
+        success, deleted_files = clean_bundle_exports(filename)
+
+        if success:
+            if filename:
+                message = f"Deleted backup bundle: {filename}"
+            else:
+                message = f"Deleted {len(deleted_files)} backup bundle(s)"
+            logger.info("[backup] {}", message)
+            return CleanBundlesResponse(
+                success=True,
+                message=message,
+                deleted_files=deleted_files,
+            )
+        raise HTTPException(status_code=500, detail="Failed to clean backup bundles")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cleaning backup bundles via API: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to clean backup bundles: {str(e)}"
         )

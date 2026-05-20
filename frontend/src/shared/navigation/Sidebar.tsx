@@ -92,6 +92,7 @@ const NAV_SECTIONS: NavSection[] = [
     links: [
       { hash: "#/inspector", label: "Inspector & Logs", route: "inspector" },
       { hash: "#/settings", label: "Settings", route: "settings" },
+      { hash: "#/backup", label: "Backup & Restore", route: "backup" },
     ],
   },
 ];

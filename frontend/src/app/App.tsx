@@ -38,6 +38,7 @@ const ROUTE_TITLES: Record<RouteName, string> = {
   "dashboard-releases": "Releases by Year",
   inspector: "Inspector",
   settings: "Settings",
+  backup: "Backup & Restore",
   "vfs-stats": "VFS Stats",
   item: "Item Details",
   calendar: "Calendar",

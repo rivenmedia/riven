@@ -17,6 +17,7 @@ export type RouteName =
   | "dashboard-downloader"
   | "inspector"
   | "settings"
+  | "backup"
   | "vfs-stats"
   | "item"
   | "calendar"
