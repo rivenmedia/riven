@@ -61,6 +61,7 @@ Operational downloader status: circuit breakers, per-service cooldowns, event-qu
       "Scheduler": 2
     },
     "next_ready_at": "2026-05-16T15:27:57.000Z",
+    "next_ready_in_seconds": 312.5,
     "queue_truncated": false,
     "scraped_in_library": 120
   },

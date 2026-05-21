@@ -118,6 +118,10 @@ class DownloaderQueueStats(BaseModel):
         description="Deduped downloader-relevant queue counts by emitted_by source",
     )
     next_ready_at: str | None = None
+    next_ready_in_seconds: float | None = Field(
+        default=None,
+        description="Seconds until the soonest deferred item becomes due (server clock)",
+    )
     queue_truncated: bool = False
     scraped_in_library: int = Field(
         default=0,
@@ -574,6 +578,7 @@ def _build_downloader_status() -> DownloaderStatusResponse:
                 downloader_emitted=int(queue_raw.get("downloader_emitted", 0)),
                 queue_by_source=dict(queue_raw.get("queue_by_source") or {}),
                 next_ready_at=queue_raw.get("next_ready_at"),
+                next_ready_in_seconds=queue_raw.get("next_ready_in_seconds"),
                 queue_truncated=bool(queue_raw.get("queue_truncated", False)),
                 scraped_in_library=_scraped_library_count(),
             ),

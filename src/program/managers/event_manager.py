@@ -977,6 +977,10 @@ class EventManager:
                 }
             )
 
+        next_ready_in_seconds: float | None = None
+        if next_deferred is not None:
+            next_ready_in_seconds = max(0.0, (next_deferred - now).total_seconds())
+
         stats = {
             "scraped_queued": scraped_queued,
             "scraped_ready": scraped_ready,
@@ -985,6 +989,7 @@ class EventManager:
             "downloader_emitted": queue_by_source.get("Downloader", 0),
             "queue_by_source": queue_by_source,
             "next_ready_at": format_api_datetime(next_deferred),
+            "next_ready_in_seconds": next_ready_in_seconds,
             "queue_truncated": total_queued > self._DOWNLOADER_QUEUE_LIMIT,
         }
         return stats, rows

@@ -189,6 +189,7 @@ type DownloaderStatus = {
     downloader_emitted: number;
     queue_by_source?: Record<string, number>;
     next_ready_at: string | null;
+    next_ready_in_seconds?: number | null;
     queue_truncated?: boolean;
     scraped_in_library?: number;
   };
@@ -367,6 +368,30 @@ function formatCountdown(iso: string | null): string {
   return `${hr}h ${minRem}m`;
 }
 
+/** Count down from a server-reported remaining duration (avoids TZ skew on ISO timestamps). */
+function LiveServerCountdown({ initialSeconds }: { initialSeconds: number }) {
+  const anchorRef = useRef({ polledAt: Date.now(), seconds: initialSeconds });
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    anchorRef.current = { polledAt: Date.now(), seconds: initialSeconds };
+  }, [initialSeconds]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [initialSeconds]);
+
+  const elapsed = (Date.now() - anchorRef.current.polledAt) / 1000;
+  const remaining = Math.max(0, anchorRef.current.seconds - elapsed);
+
+  return (
+    <strong className="downloader-live-countdown">
+      {formatRelativeSeconds(remaining, 'future')}
+    </strong>
+  );
+}
+
 function formatElapsedSeconds(seconds: number): string {
   const sec = Math.max(0, Math.round(seconds));
   if (sec < 60) return `${sec}s`;
@@ -376,17 +401,6 @@ function formatElapsedSeconds(seconds: number): string {
   const hr = Math.floor(min / 60);
   const minRem = min % 60;
   return minRem > 0 ? `${hr}h ${minRem}m` : `${hr}h`;
-}
-
-function LiveCountdown({ iso }: { iso: string }) {
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [iso]);
-
-  return <strong className="downloader-live-countdown">{formatCountdown(iso)}</strong>;
 }
 
 function LiveElapsed({ iso }: { iso: string }) {
@@ -443,6 +457,10 @@ function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): Do
           ? queue.queue_by_source
           : {},
       next_ready_at: queue.next_ready_at ?? null,
+      next_ready_in_seconds:
+        queue.next_ready_in_seconds != null && Number.isFinite(Number(queue.next_ready_in_seconds))
+          ? Number(queue.next_ready_in_seconds)
+          : null,
       queue_truncated: Boolean(queue.queue_truncated),
       scraped_in_library: Number(queue.scraped_in_library) || 0,
     },
@@ -508,12 +526,17 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
 
   useEffect(() => {
     const needsLiveClock =
-      Boolean(status?.queue?.next_ready_at) ||
+      (status?.queue?.next_ready_in_seconds != null && (status.queue.deferred ?? 0) > 0) ||
       (status?.paused && Boolean(status.pause_until));
     if (!needsLiveClock) return undefined;
     const id = window.setInterval(() => setClockTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
-  }, [status?.queue?.next_ready_at, status?.paused, status?.pause_until]);
+  }, [
+    status?.queue?.next_ready_in_seconds,
+    status?.queue?.deferred,
+    status?.paused,
+    status?.pause_until,
+  ]);
 
   const pipelineBanner = useMemo(() => {
     if (!status) return null;
@@ -654,10 +677,10 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
               description={DOWNLOADER_KPI_TIPS.deferred}
             />
             <p className="kpi-value">{status?.queue?.deferred ?? '—'}</p>
-            {status?.queue?.next_ready_at && (
+            {status?.queue?.next_ready_in_seconds != null && status.queue.deferred > 0 && (
               <p className="kpi-sub">
-                Next deferred → queued (due) in{' '}
-                <LiveCountdown iso={status.queue.next_ready_at} />
+                Next deferred → queued (due){' '}
+                <LiveServerCountdown initialSeconds={status.queue.next_ready_in_seconds} />
               </p>
             )}
           </article>

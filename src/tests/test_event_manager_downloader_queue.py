@@ -229,6 +229,8 @@ def test_get_downloader_queue_stats_ready_and_total():
     assert stats["scraped_ready"] == 1
     assert stats["deferred"] == 1
     assert stats["total_queued"] == 2
+    assert stats["next_ready_in_seconds"] is not None
+    assert 4 * 60 <= stats["next_ready_in_seconds"] <= 5 * 60 + 1
 
 
 def test_submit_job_requeues_when_downloader_busy():
