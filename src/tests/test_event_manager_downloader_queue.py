@@ -275,3 +275,81 @@ def test_add_event_skips_when_item_running():
 
     assert em.add_event(Event(emitted_by="StateTransition", item_id=7)) is False
     assert not em._queued_events
+
+
+def _three_due_scraped_events(now: datetime) -> list[Event]:
+    return [
+        Event(
+            emitted_by="StateTransition",
+            item_id=1,
+            item_state=States.Scraped,
+            run_at=now - timedelta(minutes=3),
+        ),
+        Event(
+            emitted_by="StateTransition",
+            item_id=2,
+            item_state=States.Scraped,
+            run_at=now - timedelta(minutes=2),
+        ),
+        Event(
+            emitted_by="StateTransition",
+            item_id=3,
+            item_state=States.Scraped,
+            run_at=now - timedelta(minutes=1),
+        ),
+    ]
+
+
+def test_prioritize_downloader_queue_item_moves_to_front():
+    em = EventManager()
+    now = datetime.now()
+    em._queued_events = _three_due_scraped_events(now)
+
+    assert em.prioritize_downloader_queue_item(3) is True
+    assert [r["item_id"] for r in em.get_downloader_queued_items()] == [3, 1, 2]
+
+
+def test_deprioritize_downloader_queue_item_moves_to_back():
+    em = EventManager()
+    now = datetime.now()
+    em._queued_events = _three_due_scraped_events(now)
+
+    assert em.deprioritize_downloader_queue_item(1) is True
+    assert [r["item_id"] for r in em.get_downloader_queued_items()] == [2, 3, 1]
+
+
+def test_prioritize_deferred_only_queue_makes_item_due_and_first():
+    em = EventManager()
+    now = datetime.now()
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=10,
+            item_state=States.Scraped,
+            run_at=now + timedelta(minutes=10),
+        ),
+        Event(
+            emitted_by="StateTransition",
+            item_id=11,
+            item_state=States.Scraped,
+            run_at=now + timedelta(minutes=20),
+        ),
+    ]
+
+    assert em.prioritize_downloader_queue_item(11) is True
+    rows = em.get_downloader_queued_items()
+    assert rows[0]["item_id"] == 11
+    assert rows[0]["deferred"] is False
+
+
+def test_reorder_returns_false_for_unknown_or_running():
+    em = EventManager()
+    now = datetime.now()
+    em._queued_events = _three_due_scraped_events(now)
+
+    assert em.prioritize_downloader_queue_item(99) is False
+    assert em.deprioritize_downloader_queue_item(99) is False
+
+    em._running_events = [Event(emitted_by=Downloader, item_id=2)]
+    assert em.prioritize_downloader_queue_item(2) is False
+    assert em.deprioritize_downloader_queue_item(2) is False

@@ -606,6 +606,79 @@ async def downloader_status() -> DownloaderStatusResponse:
     return await run_in_threadpool(_build_downloader_status)
 
 
+class DownloaderQueueReorderRequest(BaseModel):
+    item_id: int = Field(description="Media item id to reorder in the downloader queue")
+
+
+def _downloader_queue_reorder_sync(item_id: int, *, prioritize: bool) -> MessageResponse:
+    try:
+        program = di[Program]
+        services = program.services
+
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
+
+        downloader = services.downloader
+        if not downloader or not downloader.initialized:
+            raise HTTPException(
+                status_code=503, detail="No downloader service is initialized"
+            )
+
+        if prioritize:
+            ok = program.em.prioritize_downloader_queue_item(item_id)
+            action = "prioritize"
+        else:
+            ok = program.em.deprioritize_downloader_queue_item(item_id)
+            action = "deprioritize"
+
+        if not ok:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Item {item_id} is not in the downloader queue or is already downloading",
+            )
+
+        return MessageResponse(message=f"Downloader queue {action} applied for item {item_id}")
+    except HTTPException:
+        raise
+    except ServiceError:
+        raise HTTPException(
+            status_code=503,
+            detail="Program services are not ready yet; try again in a few seconds.",
+        )
+    except Exception as e:
+        logger.exception("Error reordering downloader queue item %s", item_id)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.post(
+    "/downloader_queue/prioritize",
+    operation_id="downloader_queue_prioritize",
+    response_model=MessageResponse,
+)
+async def downloader_queue_prioritize(
+    body: DownloaderQueueReorderRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(
+        _downloader_queue_reorder_sync, body.item_id, prioritize=True
+    )
+
+
+@router.post(
+    "/downloader_queue/deprioritize",
+    operation_id="downloader_queue_deprioritize",
+    response_model=MessageResponse,
+)
+async def downloader_queue_deprioritize(
+    body: DownloaderQueueReorderRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(
+        _downloader_queue_reorder_sync, body.item_id, prioritize=False
+    )
+
+
 @router.get(
     "/rate_limits",
     operation_id="rate_limits",

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { KpiCardHeading } from '../../shared/ui/KpiInfoTip';
-import { apiGet } from '../../shared/api/api';
+import { apiGet, apiPost } from '../../shared/api/api';
+import { notify } from '../../shared/notifications/notify';
 import {
   formatEpisodeDisplayTitle,
   formatRelativeSeconds,
@@ -285,7 +286,81 @@ function compareQueuedItems(a: QueuedItem, b: QueuedItem): number {
   return aAt - bAt;
 }
 
-function PipelineQueueRow({ entry }: { entry: PipelineQueueEntry }) {
+function DoubleChevronUpIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M7 15l5-5 5 5M7 9l5-5 5 5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function DoubleChevronDownIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M7 9l5 5 5-5M7 15l5 5 5-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function QueueReorderButtons({
+  itemId,
+  reorderingId,
+  onReorder,
+}: {
+  itemId: number;
+  reorderingId: number | null;
+  onReorder: (itemId: number, action: 'prioritize' | 'deprioritize') => void;
+}) {
+  const busy = reorderingId === itemId;
+  return (
+    <>
+      <button
+        type="button"
+        className="downloader-queue-reorder-btn"
+        title="Move to front of queue"
+        aria-label="Move to front of queue"
+        disabled={busy}
+        onClick={() => onReorder(itemId, 'prioritize')}
+      >
+        <DoubleChevronUpIcon />
+      </button>
+      <button
+        type="button"
+        className="downloader-queue-reorder-btn"
+        title="Move to back of queue"
+        aria-label="Move to back of queue"
+        disabled={busy}
+        onClick={() => onReorder(itemId, 'deprioritize')}
+      >
+        <DoubleChevronDownIcon />
+      </button>
+    </>
+  );
+}
+
+function PipelineQueueRow({
+  entry,
+  reorderingId,
+  onReorder,
+}: {
+  entry: PipelineQueueEntry;
+  reorderingId: number | null;
+  onReorder: (itemId: number, action: 'prioritize' | 'deprioritize') => void;
+}) {
   if (entry.phase === 'downloading') {
     const item = entry.item;
     const subtext = inFlightRowSubtext(item);
@@ -307,10 +382,24 @@ function PipelineQueueRow({ entry }: { entry: PipelineQueueEntry }) {
     );
   }
 
-  return <QueueRow item={entry.item} />;
+  return (
+    <QueueRow
+      item={entry.item}
+      reorderingId={reorderingId}
+      onReorder={onReorder}
+    />
+  );
 }
 
-function QueueRow({ item }: { item: QueuedItem }) {
+function QueueRow({
+  item,
+  reorderingId,
+  onReorder,
+}: {
+  item: QueuedItem;
+  reorderingId: number | null;
+  onReorder: (itemId: number, action: 'prioritize' | 'deprioritize') => void;
+}) {
   return (
     <div className="media-list__row downloader-in-flight-row downloader-queue-row">
       <span className={mediaTypeTagClass(item)}>{mediaTypeTagLabel(item)}</span>
@@ -329,6 +418,11 @@ function QueueRow({ item }: { item: QueuedItem }) {
         )}
       </div>
       <span className="downloader-in-flight-row__state muted">
+        <QueueReorderButtons
+          itemId={item.id}
+          reorderingId={reorderingId}
+          onReorder={onReorder}
+        />
         <span className="pill pill--muted downloader-queue-emitted">
           {humanizeQueueSource(item.emitted_by)}
         </span>
@@ -489,6 +583,7 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
   const [status, setStatus] = useState<DownloaderStatus | null>(null);
   const [scrapedDbCount, setScrapedDbCount] = useState<number | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+  const [reorderingId, setReorderingId] = useState<number | null>(null);
   const pageOpenedAtRef = useRef(Date.now());
   const [showDbBacklogHint, setShowDbBacklogHint] = useState(true);
 
@@ -521,6 +616,33 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
     const id = window.setInterval(() => void loadStatus(), STATUS_POLL_MS);
     return () => window.clearInterval(id);
   }, [loadStatus]);
+
+  const reorderQueue = useCallback(
+    async (itemId: number, action: 'prioritize' | 'deprioritize') => {
+      setReorderingId(itemId);
+      try {
+        const path =
+          action === 'prioritize'
+            ? '/downloader_queue/prioritize'
+            : '/downloader_queue/deprioritize';
+        const res = await apiPost(path, { item_id: itemId });
+        if (!res.ok) {
+          notify(res.error || 'Could not reorder queue item', 'error');
+          return;
+        }
+        notify(
+          action === 'prioritize'
+            ? 'Moved to front of queue'
+            : 'Moved to back of queue',
+          'success',
+        );
+        await loadStatus();
+      } finally {
+        setReorderingId(null);
+      }
+    },
+    [loadStatus],
+  );
 
   const [clockTick, setClockTick] = useState(0);
 
@@ -763,6 +885,8 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
                 <PipelineQueueRow
                   key={`${entry.phase}-${entry.item.id}`}
                   entry={entry}
+                  reorderingId={reorderingId}
+                  onReorder={reorderQueue}
                 />
               ))}
             </div>

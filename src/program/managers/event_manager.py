@@ -338,6 +338,97 @@ class EventManager:
             self._queued_events = without_id + deduped
             return removed
 
+    def _downloader_relevant_queued_events_locked(self) -> list[Event]:
+        return [
+            e
+            for e in self._queued_events
+            if self._is_downloader_relevant_queued_event(e)
+        ]
+
+    def _downloader_queue_events_for_item_locked(self, item_id: int) -> list[Event]:
+        return [
+            e
+            for e in self._queued_events
+            if e.item_id == item_id and self._is_downloader_relevant_queued_event(e)
+        ]
+
+    def _set_downloader_queue_run_at_locked(
+        self, item_id: int, new_run_at: datetime
+    ) -> list[Event]:
+        targets = self._downloader_queue_events_for_item_locked(item_id)
+        for event in targets:
+            event.run_at = new_run_at
+        return targets
+
+    def _program_for_queue_reorder(self) -> "Program | None":
+        try:
+            from kink import di
+
+            from program.program import Program
+
+            return di[Program]
+        except Exception:
+            return None
+
+    def prioritize_downloader_queue_item(self, item_id: int) -> bool:
+        """Move a queued downloader item toward the front by lowering run_at."""
+
+        program = self._program_for_queue_reorder()
+        interval = timedelta(seconds=self._downloader_dispatch_interval(program))
+
+        with self.mutex:
+            targets = self._downloader_queue_events_for_item_locked(item_id)
+            if not targets or self._id_in_running_events(item_id):
+                return False
+
+            now = datetime.now()
+            all_relevant = self._downloader_relevant_queued_events_locked()
+            due_peers = [e for e in all_relevant if e.run_at <= now]
+            if due_peers:
+                new_run_at = min(e.run_at for e in due_peers) - interval
+            else:
+                new_run_at = now
+
+            current_min = min(e.run_at for e in targets)
+            while new_run_at >= current_min:
+                new_run_at -= interval
+
+            self._set_downloader_queue_run_at_locked(item_id, new_run_at)
+            logger.debug(
+                f"Prioritized item {item_id} in downloader queue "
+                f"(run_at {new_run_at.isoformat()})"
+            )
+            return True
+
+    def deprioritize_downloader_queue_item(self, item_id: int) -> bool:
+        """Move a queued downloader item toward the back by raising run_at."""
+
+        program = self._program_for_queue_reorder()
+        interval = timedelta(seconds=self._downloader_dispatch_interval(program))
+
+        with self.mutex:
+            targets = self._downloader_queue_events_for_item_locked(item_id)
+            if not targets or self._id_in_running_events(item_id):
+                return False
+
+            now = datetime.now()
+            all_relevant = self._downloader_relevant_queued_events_locked()
+            max_run_at = (
+                max(e.run_at for e in all_relevant) if all_relevant else now
+            )
+            new_run_at = max_run_at + interval
+
+            current_max = max(e.run_at for e in targets)
+            while new_run_at <= current_max:
+                new_run_at += interval
+
+            self._set_downloader_queue_run_at_locked(item_id, new_run_at)
+            logger.debug(
+                f"Deprioritized item {item_id} in downloader queue "
+                f"(run_at {new_run_at.isoformat()})"
+            )
+            return True
+
     def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
         Adds an event to the queue.

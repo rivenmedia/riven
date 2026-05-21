@@ -303,6 +303,7 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [queueNextBusy, setQueueNextBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!itemId) return;
@@ -566,6 +567,27 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
     }
   };
 
+  const handleQueueNext = async () => {
+    if (!itemId || queueNextBusy) return;
+    setQueueNextBusy(true);
+    try {
+      const response = await apiPost('/downloader_queue/prioritize', {
+        item_id: Number(itemId),
+      });
+      if (!response.ok) {
+        const message =
+          response.status === 404
+            ? 'Item is not in the download queue'
+            : response.error || 'Could not prioritize download';
+        notify(message, 'error');
+        return;
+      }
+      notify('Moved to front of download queue', 'success');
+    } finally {
+      setQueueNextBusy(false);
+    }
+  };
+
   const credits = tmdbData?.credits as Record<string, unknown> | undefined;
   const episodeCharacters = (tvdbData?.characters as TvdbCharacterEntry[] | undefined) ?? [];
 
@@ -636,6 +658,14 @@ export default function ItemDetailView({ route }: { route: AppRoute }) {
                   onClick={() => handleAction('retry')}
                 >
                   Retry
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--small btn--secondary"
+                  disabled={queueNextBusy}
+                  onClick={() => void handleQueueNext()}
+                >
+                  {queueNextBusy ? 'Queue next…' : 'Queue next'}
                 </button>
                 {showCheckAvailability && (
                   <button
