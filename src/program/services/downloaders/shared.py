@@ -34,13 +34,27 @@ class DownloaderBase(ABC):
     def register_limits(self) -> None:
         """Register this provider's rate limits on the global RateLimitService."""
 
-        if self.LIMIT_SPECS:
-            get_rate_limit_service().register_many(self.LIMIT_SPECS)
+        specs = dict(self.LIMIT_SPECS)
+        stream_key = self.stream_limit_key()
+        if stream_key not in specs:
+            specs[stream_key] = ResourceSpec(
+                label=f"Media stream ({self.key})",
+                owner=self.key,
+                breaker_enabled=True,
+                failure_threshold=1,
+                base_recovery_seconds=60.0,
+                max_recovery_seconds=600.0,
+            )
+        if specs:
+            get_rate_limit_service().register_many(specs)
 
     def primary_limit_key(self) -> str:
         if self.PRIMARY_LIMIT_KEY:
             return self.PRIMARY_LIMIT_KEY
         return f"{self.key}.api"
+
+    def stream_limit_key(self) -> str:
+        return f"{self.key}.stream"
 
     @abstractmethod
     def validate(self) -> bool:

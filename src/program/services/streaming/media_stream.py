@@ -12,7 +12,10 @@ from ordered_set import OrderedSet
 from kink import di
 
 from program.settings import settings_manager
-from program.services.rate_limit import parse_retry_after, report_provider_rate_limited
+from program.services.rate_limit import (
+    parse_retry_after,
+    report_provider_stream_rate_limited,
+)
 from program.utils import benchmark
 from program.shutdown import shutting_down
 from program.utils.streaming_http import (
@@ -944,7 +947,7 @@ class MediaStream:
                     ):
                         continue
 
-                    report_provider_rate_limited(
+                    report_provider_stream_rate_limited(
                         self.provider,
                         retry_after=parse_retry_after(
                             e.response,

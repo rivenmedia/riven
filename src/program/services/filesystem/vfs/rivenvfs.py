@@ -77,7 +77,10 @@ from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
     MediaStreamKilledException,
 )
-from program.services.rate_limit import is_circuit_open, report_provider_rate_limited
+from program.services.rate_limit import (
+    is_stream_circuit_open,
+    report_provider_stream_rate_limited,
+)
 from program.utils.debrid_cdn_url import DebridCDNUrl
 from program.db.db import db_session
 
@@ -2069,7 +2072,7 @@ class RivenVFS(pyfuse3.Operations):
                 original_filename=original_filename,
             )
 
-            if is_circuit_open(stream.provider):
+            if is_stream_circuit_open(stream.provider):
                 raise pyfuse3.FUSEError(errno.EAGAIN)
 
             try:
@@ -2133,7 +2136,7 @@ class RivenVFS(pyfuse3.Operations):
                     logger.error(
                         stream.build_log_message(f"{exc.__class__.__name__}: {exc}")
                     )
-                    report_provider_rate_limited(exc.provider)
+                    report_provider_stream_rate_limited(exc.provider)
 
                 raise pyfuse3.FUSEError(errno.EAGAIN) from e
             except* (
@@ -2324,7 +2327,7 @@ class RivenVFS(pyfuse3.Operations):
                 if not entry_info or not entry_info.url or not entry_info.provider:
                     raise pyfuse3.FUSEError(errno.ENOENT)
 
-                if is_circuit_open(entry_info.provider):
+                if is_stream_circuit_open(entry_info.provider):
                     raise pyfuse3.FUSEError(errno.EAGAIN)
 
                 self._active_streams[stream_key] = MediaStream(

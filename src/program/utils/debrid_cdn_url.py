@@ -8,7 +8,10 @@ from http import HTTPStatus
 from kink import di
 
 from program.settings import settings_manager
-from program.services.rate_limit import parse_retry_after, report_provider_rate_limited
+from program.services.rate_limit import (
+    parse_retry_after,
+    report_provider_stream_rate_limited,
+)
 from program.services.streaming.media_stream import PROXY_REQUIRED_PROVIDERS
 from program.services.streaming.exceptions import (
     DebridServiceLinkUnavailable,
@@ -133,7 +136,7 @@ class DebridCDNUrl:
 
                 if status_code == HTTPStatus.TOO_MANY_REQUESTS:
                     if attempt >= self.max_validation_attempts:
-                        report_provider_rate_limited(
+                        report_provider_stream_rate_limited(
                             self.provider,
                             retry_after=parse_retry_after(e.response),
                         )

@@ -451,9 +451,15 @@ def http_rate_limit_map(owner: str, domain: str) -> dict[str, list[str]]:
 
 
 def provider_limit_key(provider: str) -> str:
-    """Rate-limit / circuit-breaker key for a debrid provider (e.g. ``torbox`` → ``torbox.api``)."""
+    """Rate-limit / circuit-breaker key for a debrid provider API (e.g. ``torbox`` → ``torbox.api``)."""
 
     return f"{provider}.api"
+
+
+def provider_stream_limit_key(provider: str) -> str:
+    """Circuit-breaker key for CDN/VFS media streaming (e.g. ``torbox`` → ``torbox.stream``)."""
+
+    return f"{provider}.stream"
 
 
 def parse_retry_after(
@@ -481,15 +487,57 @@ def parse_retry_after(
     return fallback
 
 
-def is_circuit_open(provider: str) -> bool:
-    """Return True when the provider's circuit breaker is OPEN."""
-
-    key = provider_limit_key(provider)
+def _is_circuit_open_for_key(key: str) -> bool:
     try:
         snap = get_rate_limit_service().snapshot(key)
     except KeyError:
         return False
     return snap is not None and snap.breaker_state == "OPEN"
+
+
+def is_circuit_open(provider: str) -> bool:
+    """Return True when the provider API circuit breaker is OPEN."""
+
+    return _is_circuit_open_for_key(provider_limit_key(provider))
+
+
+def is_stream_circuit_open(provider: str) -> bool:
+    """Return True when the provider media-stream circuit breaker is OPEN."""
+
+    return _is_circuit_open_for_key(provider_stream_limit_key(provider))
+
+
+def _record_limit_failure(
+    key: str,
+    provider: str,
+    *,
+    retry_after: float | None = None,
+) -> RateLimitService | None:
+    rl = get_rate_limit_service()
+    try:
+        rl.record_failure(key, retry_after=retry_after)
+    except KeyError:
+        logger.debug(f"No rate limit registered for provider {provider!r} key {key}")
+        return None
+    return rl
+
+
+def report_provider_stream_rate_limited(
+    provider: str,
+    *,
+    retry_after: float | None = None,
+) -> None:
+    """
+    Trip the media-stream circuit breaker for a provider.
+
+    Does not affect the API limiter or downloader job cooldown.
+    """
+
+    _record_limit_failure(
+        provider_stream_limit_key(provider),
+        provider,
+        retry_after=retry_after,
+    )
 
 
 def report_provider_rate_limited(
@@ -498,18 +546,14 @@ def report_provider_rate_limited(
     retry_after: float | None = None,
 ) -> None:
     """
-    Trip the provider circuit breaker and apply downloader cooldown when available.
+    Trip the provider API circuit breaker and apply downloader cooldown when available.
 
-    Used for CDN/VFS paths that do not go through SmartSession.
+    Used for debrid API paths that do not go through SmartSession.
     """
 
     key = provider_limit_key(provider)
-    rl = get_rate_limit_service()
-
-    try:
-        rl.record_failure(key, retry_after=retry_after)
-    except KeyError:
-        logger.debug(f"No rate limit registered for provider {provider!r}")
+    rl = _record_limit_failure(key, provider, retry_after=retry_after)
+    if rl is None:
         return
 
     _notify_downloader_rate_limited(provider, key, rl, retry_after)

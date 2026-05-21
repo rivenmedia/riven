@@ -9,9 +9,12 @@ from program.services.rate_limit import (
     RateLimitService,
     ResourceSpec,
     is_circuit_open,
+    is_stream_circuit_open,
     parse_retry_after,
     provider_limit_key,
+    provider_stream_limit_key,
     report_provider_rate_limited,
+    report_provider_stream_rate_limited,
 )
 
 
@@ -119,24 +122,60 @@ def test_provider_limit_key():
     assert provider_limit_key("torbox") == "torbox.api"
 
 
+def test_provider_stream_limit_key():
+    assert provider_stream_limit_key("torbox") == "torbox.stream"
+
+
 def test_parse_retry_after_seconds():
     response = httpx.Response(429, headers={"Retry-After": "42"})
     assert parse_retry_after(response, fallback=1.0) == 42.0
 
 
-def test_report_provider_rate_limited_trips_breaker(monkeypatch):
+def test_report_provider_stream_rate_limited_trips_stream_breaker(monkeypatch):
     rl = RateLimitService()
     monkeypatch.setattr("program.services.rate_limit._service", rl)
     rl.register(
         "torbox.api",
         ResourceSpec(label="API", owner="torbox", rate=5.0, capacity=10),
     )
+    rl.register(
+        "torbox.stream",
+        ResourceSpec(
+            label="Media stream",
+            owner="torbox",
+            failure_threshold=1,
+            base_recovery_seconds=60.0,
+        ),
+    )
+
+    report_provider_stream_rate_limited("torbox", retry_after=30.0)
+
+    api_snap = rl.snapshot("torbox.api")
+    stream_snap = rl.snapshot("torbox.stream")
+    assert api_snap is not None
+    assert api_snap.breaker_state == "CLOSED"
+    assert stream_snap is not None
+    assert stream_snap.breaker_state == "OPEN"
+    assert is_stream_circuit_open("torbox")
+    assert not is_circuit_open("torbox")
+
+
+def test_report_provider_rate_limited_trips_api_breaker(monkeypatch):
+    rl = RateLimitService()
+    monkeypatch.setattr("program.services.rate_limit._service", rl)
+    rl.register(
+        "torbox.api",
+        ResourceSpec(label="API", owner="torbox", rate=5.0, capacity=10),
+    )
+    rl.register(
+        "torbox.stream",
+        ResourceSpec(label="Media stream", owner="torbox", failure_threshold=1),
+    )
 
     report_provider_rate_limited("torbox", retry_after=30.0)
 
-    snap = rl.snapshot("torbox.api")
-    assert snap is not None
-    assert snap.breaker_state == "OPEN"
+    assert rl.snapshot("torbox.api").breaker_state == "OPEN"
+    assert rl.snapshot("torbox.stream").breaker_state == "CLOSED"
     assert is_circuit_open("torbox")
 
 

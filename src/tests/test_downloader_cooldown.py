@@ -133,6 +133,30 @@ def test_report_provider_rate_limited_sets_downloader_cooldown(downloader, monke
     assert downloader._service_cooldowns["torbox"] > datetime.now()
 
 
+def test_report_provider_stream_rate_limited_skips_downloader_cooldown(
+    downloader, monkeypatch
+):
+    from kink import di
+
+    from program.services.downloaders import Downloader as DownloaderCls
+    from program.services.rate_limit import (
+        ResourceSpec,
+        get_rate_limit_service,
+        report_provider_stream_rate_limited,
+    )
+
+    get_rate_limit_service().register(
+        "torbox.stream",
+        ResourceSpec(label="Media stream", owner="torbox", failure_threshold=1),
+        replace=True,
+    )
+    di[DownloaderCls] = downloader
+
+    report_provider_stream_rate_limited("torbox", retry_after=60.0)
+
+    assert downloader._service_cooldowns == {}
+
+
 def test_pause_until_matches_earliest_cooldown(downloader):
     s1 = Mock(key="a", API_RATE_PER_SECOND=1.0)
     s2 = Mock(key="b", API_RATE_PER_SECOND=1.0)
