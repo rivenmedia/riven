@@ -382,13 +382,6 @@ class PipelineQueueSummary(BaseModel):
     next_ready_at: str | None = None
     next_ready_in_seconds: float | None = None
     queue_truncated: bool = False
-    scraped_not_in_queue: int = Field(
-        default=0,
-        description=(
-            "Movie/episode rows in actionable DB states (Indexed, Scraped, etc.) "
-            "not yet in the live event queue — not Done/post-processing work"
-        ),
-    )
 
 
 class PipelineItemResponse(BaseModel):
@@ -463,7 +456,6 @@ class DownloaderStatusBlock(BaseModel):
 class ActivityStatusResponse(BaseModel):
     pipeline: PipelineStatusBlock
     downloader: DownloaderStatusBlock
-    library_backlog: LibraryBacklogCounts
 
 
 def _recent_jobs_response(
@@ -851,7 +843,6 @@ def _build_activity_status() -> ActivityStatusResponse:
 
         queue_raw, queue_rows = program.em.get_pipeline_queue_snapshot()
         queue_rows = _merge_recently_finished_pipeline_rows(queue_rows)
-        scraped_not_in_queue = program.em.count_pipeline_backlog()
         columns = _column_counts_from_stats(queue_raw)
         queue_rows, merge_truncated = limit_pipeline_rows_per_column(
             queue_rows, program.em._PIPELINE_PER_COLUMN_LIMIT
@@ -912,8 +903,6 @@ def _build_activity_status() -> ActivityStatusResponse:
                 initialized=True,
             )
 
-        backlog = _library_backlog_counts()
-
         return ActivityStatusResponse(
             pipeline=PipelineStatusBlock(
                 queue=PipelineQueueSummary(
@@ -928,18 +917,12 @@ def _build_activity_status() -> ActivityStatusResponse:
                     next_ready_in_seconds=queue_raw.get("next_ready_in_seconds"),
                     queue_truncated=bool(queue_raw.get("queue_truncated", False))
                     or merge_truncated,
-                    scraped_not_in_queue=scraped_not_in_queue,
                 ),
                 items=_pipeline_items_from_rows(
                     queue_rows, item_display, active_activities
                 ),
             ),
             downloader=downloader_block,
-            library_backlog=LibraryBacklogCounts(
-                indexed=backlog["indexed"],
-                scraped=backlog["scraped"],
-                requested=backlog["requested"],
-            ),
         )
     except HTTPException:
         raise

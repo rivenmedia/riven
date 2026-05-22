@@ -379,23 +379,7 @@ class Program(threading.Thread):
             next_service = processed_event.service
             items_to_submit = processed_event.related_media_items
 
-            if (
-                existing_item
-                and existing_item.last_state == States.Completed
-                and not next_service
-                and not items_to_submit
-            ):
-                emitted_name = (
-                    event.emitted_by.__class__.__name__
-                    if not isinstance(event.emitted_by, str)
-                    else event.emitted_by
-                )
-                self.em.record_recently_finished(
-                    int(existing_item.id),
-                    outcome="success",
-                    service_name=emitted_name,
-                )
-            elif not next_service and not items_to_submit:
+            if not next_service and not items_to_submit:
                 self.em.add_event_to_queue(event)
                 state_name = (
                     existing_item.last_state.name

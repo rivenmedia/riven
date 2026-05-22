@@ -1,6 +1,6 @@
 import threading
 from concurrent.futures import Future
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
@@ -1049,7 +1049,7 @@ def test_retry_failed_pipeline_item_downloader(monkeypatch):
 
 def test_recently_finished_rows_expire():
     em = EventManager()
-    now = datetime.now()
+    now = datetime.now(UTC)
 
     em.record_recently_finished(99, outcome="success", service_name="PostProcessing")
     rows = em.get_recently_finished_rows()
@@ -1066,3 +1066,111 @@ def test_recently_finished_rows_expire():
         service_name="PostProcessing",
     )
     assert em.get_recently_finished_rows() == []
+
+
+def test_pipeline_snapshot_syncs_only_display_subset():
+    """DB state refresh must not load every queued item on each poll."""
+
+    em = EventManager()
+    now = datetime.now()
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=i,
+            item_state=States.Indexed,
+            run_at=now + timedelta(seconds=i),
+        )
+        for i in range(1, 101)
+    ]
+
+    synced_ids: list[int] = []
+    original_sync = em._sync_queued_item_states_from_db
+
+    def spy_sync(events):
+        synced_ids.extend(int(e.item_id) for e in events if e.item_id)
+        return original_sync(events)
+
+    em._sync_queued_item_states_from_db = spy_sync  # type: ignore[method-assign]
+
+    with _patch_pipeline_db_states({i: States.Indexed for i in range(1, 101)}):
+        stats, rows = em.get_pipeline_queue_snapshot()
+
+    assert stats["column_counts"]["scrape"] == 100
+    assert len([r for r in rows if r.get("kanban_column") == "scrape"]) == 50
+    assert len(synced_ids) == 50
+    assert stats["queue_truncated"] is True
+
+
+def test_record_recently_finished_uses_utc_timestamp():
+    em = EventManager()
+    before = datetime.now(UTC)
+    em.record_recently_finished(42, outcome="success", service_name="PostProcessing")
+    entry = em._recently_finished[42]
+    assert entry.completed_at.tzinfo is not None
+    assert abs((entry.completed_at - before).total_seconds()) < 2
+
+
+def test_process_future_postprocessing_records_done(monkeypatch):
+    from program.utils import format_api_datetime
+
+    em = EventManager()
+    item = SimpleNamespace(id=7, last_state=States.Completed)
+
+    monkeypatch.setattr(
+        "program.managers.event_manager.db_functions.get_item_by_id",
+        lambda i: item if i == 7 else None,
+    )
+    monkeypatch.setattr(em, "add_event", lambda event: True)
+    monkeypatch.setattr(em, "remove_event_from_running", lambda event: None)
+    monkeypatch.setattr(em, "clear_pipeline_activity", lambda item_id: None)
+    monkeypatch.setattr(em, "_drop_future_from_tracking", lambda fwe: None)
+    monkeypatch.setattr(
+        "program.managers.event_manager.sse_manager.publish_event",
+        lambda *args, **kwargs: None,
+    )
+
+    done_future: Future[int] = Future()
+    done_future.set_result(7)
+    fwe = FutureWithEvent(
+        future=done_future,
+        event=Event(emitted_by="PostProcessing", item_id=7),
+        cancellation_event=threading.Event(),
+    )
+    em._futures = [fwe]
+
+    class PostProcessing:
+        pass
+
+    em._process_future(fwe, PostProcessing())
+
+    rows = em.get_recently_finished_rows()
+    assert len(rows) == 1
+    assert rows[0]["item_id"] == 7
+    assert rows[0]["completion_outcome"] == "success"
+    assert format_api_datetime(rows[0]["run_at"]).endswith("Z")
+
+
+def test_downloader_success_does_not_record_recently_finished(monkeypatch):
+    from collections import deque
+
+    from program.services.downloaders import _JobCompletion
+
+    em = EventManager()
+    record_mock = Mock()
+    monkeypatch.setattr(em, "record_recently_finished", record_mock)
+    monkeypatch.setattr(
+        "kink.di",
+        SimpleNamespace(__getitem__=lambda self, key: SimpleNamespace(em=em)),
+    )
+
+    item = SimpleNamespace(id=99, log_string="Test", store_state=Mock())
+    downloader = Downloader.__new__(Downloader)
+    downloader._recent_jobs = deque(maxlen=10)
+    monkeypatch.setattr(downloader, "_log_job_completion", lambda *args, **kwargs: None)
+
+    downloader._append_completed_job(
+        item,
+        _JobCompletion(outcome="success", detail="ok", service="realdebrid"),
+    )
+
+    record_mock.assert_not_called()

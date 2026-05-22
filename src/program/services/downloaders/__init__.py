@@ -333,14 +333,7 @@ class Downloader(Runner[None, DownloaderBase]):
 
             em = di[Program].em
             item_id = int(item.id)
-            if completion.outcome == "success":
-                em.record_recently_finished(
-                    item_id,
-                    outcome="success",
-                    service_name="Downloader",
-                    completion_detail=completion.detail or completion.service,
-                )
-            elif completion.outcome == "deferred" and completion.detail:
+            if completion.outcome == "deferred" and completion.detail:
                 em.set_pipeline_activity(item_id, completion.detail)
         except Exception:
             pass

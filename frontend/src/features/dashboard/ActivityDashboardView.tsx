@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { KpiCardHeading } from '../../shared/ui/KpiInfoTip';
 import {
@@ -8,7 +15,7 @@ import {
   secondsUntilRunAt,
 } from '../../shared/ui/LiveTimer';
 import { resolveKanbanSubtextKind } from './pipelineKanbanSubtext';
-import { apiGet, apiPost } from '../../shared/api/api';
+import { apiFetch, apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import {
   formatCompactPipelineTitle,
@@ -37,11 +44,10 @@ import { sortOwnerKeys } from '../../shared/rateLimits/owners';
 import type { LimiterSnapshot } from '../../shared/rateLimits/types';
 
 const STATUS_POLL_MS = 3000;
+const STATUS_POLL_SLOW_MS = 10000;
+const LARGE_QUEUE_THRESHOLD = 5000;
 
 const KPI_TIPS = {
-  indexedDb: 'Items in the library database waiting to be scraped.',
-  scrapedDb:
-    'Items with torrents found but not necessarily in the live queue (common after restart).',
   deferred: 'Queued with a future run time — downloader spacing or cooldown.',
 } as const;
 
@@ -84,7 +90,6 @@ type ActivityStatus = {
       total_items: number;
       deferred: number;
       queue_truncated: boolean;
-      scraped_not_in_queue?: number;
       next_ready_in_seconds?: number | null;
       columns: Record<KanbanColumnId, number>;
     };
@@ -98,11 +103,6 @@ type ActivityStatus = {
     scraper_services: string[];
     rate_limits: LimiterSnapshot[];
     initialized: boolean;
-  };
-  library_backlog: {
-    indexed: number;
-    scraped: number;
-    requested: number;
   };
 };
 
@@ -406,7 +406,6 @@ function normalizeActivityStatus(raw: unknown): ActivityStatus | null {
   const queue = (pipeline.queue ?? {}) as Record<string, unknown>;
   const cols = (queue.columns ?? {}) as Record<string, unknown>;
   const downloader = (o.downloader ?? {}) as Record<string, unknown>;
-  const backlog = (o.library_backlog ?? {}) as Record<string, unknown>;
 
   const backendColumns = {
     added: Number(cols.added) || 0,
@@ -459,7 +458,6 @@ function normalizeActivityStatus(raw: unknown): ActivityStatus | null {
         total_items: Number(queue.total_items) || 0,
         deferred: Number(queue.deferred) || 0,
         queue_truncated: Boolean(queue.queue_truncated),
-        scraped_not_in_queue: Number(queue.scraped_not_in_queue) || 0,
         next_ready_in_seconds:
           queue.next_ready_in_seconds != null &&
           Number.isFinite(Number(queue.next_ready_in_seconds))
@@ -484,11 +482,6 @@ function normalizeActivityStatus(raw: unknown): ActivityStatus | null {
         : [],
       initialized: Boolean(downloader.initialized),
     },
-    library_backlog: {
-      indexed: Number(backlog.indexed) || 0,
-      scraped: Number(backlog.scraped) || 0,
-      requested: Number(backlog.requested) || 0,
-    },
   };
 }
 
@@ -496,22 +489,51 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
   const [status, setStatus] = useState<ActivityStatus | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [queueActionId, setQueueActionId] = useState<number | null>(null);
+  const loadInFlightRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+
   const loadStatus = useCallback(async () => {
-    const res = await apiGet<ActivityStatus>('/activity_status');
-    if (res.ok && res.data) {
-      setStatus(normalizeActivityStatus(res.data));
-      setPipelineError(null);
-    } else {
-      setStatus(null);
-      setPipelineError(res.error || 'Failed to load pipeline status');
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const res = await apiFetch<ActivityStatus>('/activity_status', {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (res.ok && res.data) {
+        setStatus(normalizeActivityStatus(res.data));
+        setPipelineError(null);
+      } else {
+        setStatus(null);
+        setPipelineError(res.error || 'Failed to load pipeline status');
+      }
+    } finally {
+      if (abortRef.current === controller) {
+        loadInFlightRef.current = false;
+      }
     }
   }, []);
 
+  const pollIntervalMs = useMemo(() => {
+    const q = status?.pipeline.queue;
+    if (!q) return STATUS_POLL_MS;
+    if (q.queue_truncated || q.total_queued > LARGE_QUEUE_THRESHOLD) {
+      return STATUS_POLL_SLOW_MS;
+    }
+    return STATUS_POLL_MS;
+  }, [status?.pipeline.queue]);
+
   useEffect(() => {
     void loadStatus();
-    const id = window.setInterval(() => void loadStatus(), STATUS_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [loadStatus]);
+    const id = window.setInterval(() => void loadStatus(), pollIntervalMs);
+    return () => {
+      window.clearInterval(id);
+      abortRef.current?.abort();
+    };
+  }, [loadStatus, pollIntervalMs]);
 
   const runQueueAction = useCallback(
     async (itemId: number, action: QueueCardAction) => {
@@ -634,8 +656,6 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
     };
   }, [status?.downloader, clockTick]);
 
-  const scrapedNotInQueue = status?.pipeline.queue.scraped_not_in_queue ?? 0;
-
   return (
     <ViewLayout className="view-dashboard view-dashboard-activity" view="dashboard-activity">
       <ViewHeader title="Activity" subtitle="Pipeline and queue status" />
@@ -657,14 +677,6 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
         )}
 
         <section className="activity-kpi-strip kpi-grid" aria-label="Pipeline and services">
-          <article className="kpi-card">
-            <KpiCardHeading label="Indexed (DB)" description={KPI_TIPS.indexedDb} />
-            <p className="kpi-value">{status?.library_backlog.indexed ?? '—'}</p>
-          </article>
-          <article className="kpi-card">
-            <KpiCardHeading label="Scraped (DB)" description={KPI_TIPS.scrapedDb} />
-            <p className="kpi-value">{status?.library_backlog.scraped ?? '—'}</p>
-          </article>
           <article className="kpi-card">
             <KpiCardHeading label="Deferred" description={KPI_TIPS.deferred} />
             <p className="kpi-value">{status?.pipeline.queue.deferred ?? '—'}</p>
@@ -725,21 +737,7 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
                     <span className="activity-kanban__count">{count}</span>
                   </header>
                   <div className="activity-kanban__body">
-                    {col === 'prepare' && scrapedNotInQueue > 0 && (
-                      <p
-                        className="activity-kanban__scraped-backlog"
-                        title="Library items (Indexed, Scraped, Downloaded, etc.) not in the live pipeline yet. Startup should re-queue them into Prepare/Download/Library — not the Done column. If this stays high, use Retry Active Library on Overview."
-                      >
-                        <span className="activity-kanban__scraped-backlog-value">
-                          +{scrapedNotInQueue.toLocaleString()}
-                        </span>
-                        <span className="activity-kanban__scraped-backlog-label">
-                          not in live queue
-                        </span>
-                      </p>
-                    )}
-                    {cards.length === 0 &&
-                    !(col === 'prepare' && scrapedNotInQueue > 0) ? (
+                    {cards.length === 0 ? (
                       <p className="muted activity-kanban__empty">—</p>
                     ) : (
                       cards.map((item) => (

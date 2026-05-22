@@ -6,7 +6,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from queue import Empty
 from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal
@@ -383,7 +383,7 @@ class EventManager:
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
-                item_id, timestamp = result, datetime.now()
+                item_id, timestamp = result, datetime.now(UTC)
 
             event_item_id: int | None = None
             if future_with_event.event and future_with_event.event.item_id:
@@ -430,6 +430,12 @@ class EventManager:
                     overrides=event_overrides,
                 )
             )
+            service_name = (
+                service.__class__.__name__
+                if not isinstance(service, str)
+                else service
+            )
+            self._record_terminal_outcome_if_applicable(int(item_id), service_name)
         except RuntimeError as e:
             if shutting_down() or "interpreter shutdown" in str(e).lower():
                 if future_with_event.event:
@@ -1451,9 +1457,38 @@ class EventManager:
 
                 return False
 
+        if event.item_id:
+            self.pop_recently_finished(int(event.item_id))
+
         self.add_event_to_queue(event)
 
         return True
+
+    def _record_terminal_outcome_if_applicable(
+        self, item_id: int, service_name: str
+    ) -> None:
+        """Done column: failures and post-processing success only."""
+
+        item = db_functions.get_item_by_id(item_id)
+        if not item or not item.last_state:
+            self.pop_recently_finished(item_id)
+            return
+
+        if item.last_state == States.Failed:
+            self.record_recently_finished(
+                item_id,
+                outcome="failed",
+                service_name=service_name,
+                failure_service=service_name,
+            )
+        elif service_name == "PostProcessing":
+            self.record_recently_finished(
+                item_id,
+                outcome="success",
+                service_name="PostProcessing",
+            )
+        else:
+            self.pop_recently_finished(item_id)
 
     def _item_id_in_pipeline(self, item_id: int) -> bool:
         if self._id_in_queue(item_id) or self._id_in_running_events(item_id):
@@ -1779,7 +1814,7 @@ class EventManager:
     ) -> None:
         """Remember a completed pipeline item for the Activity Done column (in-memory only)."""
 
-        now = datetime.now()
+        now = datetime.now(UTC)
         with self._recently_finished_lock:
             self._prune_recently_finished_locked(now)
             self._recently_finished[int(item_id)] = _RecentlyFinishedEntry(
@@ -1796,7 +1831,7 @@ class EventManager:
             self._recently_finished.pop(int(item_id), None)
 
     def _prune_recently_finished_locked(self, now: datetime | None = None) -> None:
-        cutoff = (now or datetime.now()) - _RECENTLY_FINISHED_TTL
+        cutoff = (now or datetime.now(UTC)) - _RECENTLY_FINISHED_TTL
         stale = [
             item_id
             for item_id, entry in self._recently_finished.items()
@@ -1836,7 +1871,7 @@ class EventManager:
     def get_recently_finished_rows(self) -> list[dict[str, Any]]:
         """Display rows for /activity_status Done column; does not touch the live queue."""
 
-        now = datetime.now()
+        now = datetime.now(UTC)
         with self._recently_finished_lock:
             self._prune_recently_finished_locked(now)
             entries = sorted(
@@ -1848,16 +1883,19 @@ class EventManager:
         rows: list[dict[str, Any]] = []
         for entry in entries:
             failure_svc = entry.failure_service or entry.service_name
+            item = db_functions.get_item_by_id(entry.item_id)
+            if entry.outcome == "failed":
+                state_name = States.Failed.name
+            elif item and item.last_state:
+                state_name = item.last_state.name
+            else:
+                state_name = States.Completed.name
             rows.append(
                 {
                     "item_id": entry.item_id,
                     "run_at": entry.completed_at,
                     "queued_at": entry.completed_at,
-                    "item_state": (
-                        States.Failed.name
-                        if entry.outcome == "failed"
-                        else States.Completed.name
-                    ),
+                    "item_state": state_name,
                     "emitted_by": entry.service_name or "Pipeline",
                     "deferred": False,
                     "in_flight": False,
@@ -1956,13 +1994,46 @@ class EventManager:
                 if state is not None:
                     event.item_state = state
 
+    def _queued_event_row_dict(
+        self,
+        event: Event,
+        *,
+        now: datetime,
+        in_flight: bool = False,
+        in_flight_service: str | None = None,
+        actively_running: bool = False,
+    ) -> dict[str, Any]:
+        deferred_flag = event.run_at > now if not in_flight else False
+        phase = resolve_pipeline_phase(
+            item_state=event.item_state if not in_flight else None,
+            deferred=deferred_flag,
+            in_flight_service=in_flight_service,
+        )
+        kanban = pipeline_phase_to_kanban(phase)
+        source = self._emitted_by_name(event.emitted_by)
+        row: dict[str, Any] = {
+            "item_id": int(event.item_id) if event.item_id else None,
+            "run_at": now if in_flight else event.run_at,
+            "queued_at": now if in_flight else event.queued_at,
+            "item_state": (
+                event.item_state.name if event.item_state and not in_flight else None
+            ),
+            "emitted_by": in_flight_service or source,
+            "deferred": deferred_flag,
+            "in_flight": in_flight,
+            "pipeline_phase": phase,
+            "kanban_column": kanban,
+        }
+        if in_flight:
+            row["actively_running"] = actively_running
+        return row
+
     def get_pipeline_queue_snapshot(
         self,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """
-        Full pipeline queue: all item_id events plus content-only rows.
-
-        Returns aggregate stats and sorted row dicts for /activity_status.
+        Pipeline queue stats over the full deduped queue; display rows only for
+        per-column top-K (plus all in-flight and content-only rows).
         """
 
         now = datetime.now()
@@ -1972,17 +2043,16 @@ class EventManager:
         phase_counts: dict[str, int] = {}
         column_counts: dict[str, int] = {col: 0 for col in KANBAN_COLUMN_ORDER}
         next_deferred: datetime | None = None
+        buckets: dict[str, list[Event]] = {col: [] for col in KANBAN_COLUMN_ORDER}
 
         self._compact_queued_item_duplicates(now)
 
         with self.mutex:
             in_flight_meta = self._in_flight_rows_metadata()
-            content_only = [e for e in self._queued_events if not e.item_id and e.content_item]
+            content_only = [
+                e for e in self._queued_events if not e.item_id and e.content_item
+            ]
             matched = self._deduped_queued_item_events_locked(now)
-
-        self._sync_queued_item_states_from_db(matched)
-
-        rows: list[dict[str, Any]] = []
 
         for event in matched:
             item_id = int(event.item_id)
@@ -2002,27 +2072,12 @@ class EventManager:
             phase_counts[phase] = phase_counts.get(phase, 0) + 1
             column_counts[kanban] = column_counts.get(kanban, 0) + 1
             queue_by_source[source] = queue_by_source.get(source, 0) + 1
+            buckets[kanban].append(event)
 
             if deferred_flag:
                 deferred += 1
                 if next_deferred is None or event.run_at < next_deferred:
                     next_deferred = event.run_at
-
-            rows.append(
-                {
-                    "item_id": item_id,
-                    "run_at": event.run_at,
-                    "queued_at": event.queued_at,
-                    "item_state": (
-                        event.item_state.name if event.item_state else None
-                    ),
-                    "emitted_by": source,
-                    "deferred": deferred_flag,
-                    "in_flight": False,
-                    "pipeline_phase": phase,
-                    "kanban_column": kanban,
-                }
-            )
 
         for event in content_only:
             phase = "queued_index"
@@ -2033,6 +2088,34 @@ class EventManager:
             column_counts[kanban] = column_counts.get(kanban, 0) + 1
             queue_by_source[source] = queue_by_source.get(source, 0) + 1
 
+        display_queued: list[Event] = []
+        queue_truncated = False
+        per_limit = self._PIPELINE_PER_COLUMN_LIMIT
+
+        for col in KANBAN_COLUMN_ORDER:
+            col_events = buckets.get(col, [])
+            col_events.sort(
+                key=lambda e: pipeline_within_column_sort_key(
+                    in_flight=False,
+                    deferred=e.run_at > now,
+                    run_at=e.run_at,
+                )
+            )
+            if len(col_events) > per_limit:
+                queue_truncated = True
+                col_events = col_events[:per_limit]
+            display_queued.extend(col_events)
+
+        self._sync_queued_item_states_from_db(display_queued)
+
+        rows: list[dict[str, Any]] = []
+        for event in display_queued:
+            rows.append(self._queued_event_row_dict(event, now=now))
+
+        for event in content_only:
+            phase = "queued_index"
+            kanban = pipeline_phase_to_kanban(phase)
+            source = self._emitted_by_name(event.emitted_by)
             content = event.content_item
             rows.append(
                 {
@@ -2074,11 +2157,7 @@ class EventManager:
                 }
             )
 
-        total_items = len(rows)
-        rows, display_truncated = limit_pipeline_rows_per_column(
-            rows, self._PIPELINE_PER_COLUMN_LIMIT
-        )
-        queue_truncated = display_truncated
+        total_items = total_queued + len(in_flight_meta)
 
         next_ready_in_seconds: float | None = None
         if next_deferred is not None:
