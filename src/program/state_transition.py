@@ -40,7 +40,10 @@ def process_event(
     if existing_item and existing_item.last_state in [States.Paused, States.Failed]:
         return no_further_processing
 
-    if content_item or (existing_item and existing_item.last_state == States.Requested):
+    if content_item or (
+        existing_item
+        and existing_item.last_state in (States.Requested, States.Unknown)
+    ):
         log_string = None
 
         if existing_item:

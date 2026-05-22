@@ -389,6 +389,21 @@ class Program(threading.Thread):
                     outcome="success",
                     service_name=emitted_name,
                 )
+            elif not next_service and not items_to_submit:
+                self.em.add_event_to_queue(event)
+                state_name = (
+                    existing_item.last_state.name
+                    if existing_item and existing_item.last_state
+                    else (
+                        event.item_state.name
+                        if event.item_state
+                        else "none"
+                    )
+                )
+                logger.info(
+                    f"Pipeline event had no transition; re-queued "
+                    f"{event.log_message} (state={state_name})"
+                )
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:

@@ -212,6 +212,7 @@ class EventManager:
     )
 
     _RESTORE_STATES: tuple[States, ...] = (
+        States.Completed,
         States.Symlinked,
         States.Downloaded,
         States.Scraped,
@@ -581,6 +582,13 @@ class EventManager:
                 States.Paused,
                 States.Failed,
             ):
+                with self.mutex:
+                    if event in self._queued_events:
+                        self._queued_events.remove(event)
+                logger.info(
+                    f"Removed queued pipeline event for {existing_item.log_string}: "
+                    f"item is {existing_item.last_state.name}"
+                )
                 continue
 
             processed = process_event(
@@ -1103,7 +1111,7 @@ class EventManager:
                     service_name=service_name,
                     log_message=False,
                 )
-                logger.debug(
+                logger.info(
                     f"{service_name} at capacity; re-queued {event.log_message} for "
                     f"{event.run_at.isoformat()}"
                 )
@@ -1343,21 +1351,22 @@ class EventManager:
         if item_id:
             if self._id_in_queue(item_id):
                 self._merge_followup_into_queued_item(item_id, event)
-                logger.debug(
+                logger.info(
                     f"Item ID {item_id} is already in the queue; merged follow-up."
                 )
                 return False
 
             if self._id_in_running_events(item_id):
-                logger.debug(f"Item ID {item_id} is already running, skipping.")
+                logger.info(f"Item ID {item_id} is already running, skipping.")
                 return False
 
             for related_id in related_ids:
                 if self._id_in_queue(related_id) or self._id_in_running_events(
                     related_id
                 ):
-                    logger.debug(
-                        f"Child of Item ID {item_id} is already in the queue or running, skipping."
+                    logger.info(
+                        f"Related item ID {related_id} already in pipeline; "
+                        f"skipping enqueue for item ID {item_id}."
                     )
 
                     return False
@@ -1375,8 +1384,8 @@ class EventManager:
                 content_item,
                 self._running_events,
             ):
-                logger.debug(
-                    f"Content Item with {content_item.log_string} is already queued or running, skipping."
+                logger.info(
+                    f"Content item {content_item.log_string} is already queued or running, skipping."
                 )
 
                 return False
@@ -1418,6 +1427,12 @@ class EventManager:
             return services.scraping if services.scraping.initialized else None
         if state in (States.Requested, States.Unknown):
             return services.indexer if services.indexer.initialized else None
+        if state in (States.Completed, States.PartiallyCompleted):
+            return (
+                services.post_processing
+                if services.post_processing.initialized
+                else None
+            )
         return None
 
     def restore_pipeline_from_db(
@@ -1442,11 +1457,12 @@ class EventManager:
         restored_ids: list[int] = []
 
         state_order = case(
-            (MediaItem.last_state == States.Symlinked, 0),
-            (MediaItem.last_state == States.Downloaded, 1),
-            (MediaItem.last_state == States.Scraped, 2),
-            (MediaItem.last_state == States.Indexed, 3),
-            else_=4,
+            (MediaItem.last_state == States.Completed, 0),
+            (MediaItem.last_state == States.Symlinked, 1),
+            (MediaItem.last_state == States.Downloaded, 2),
+            (MediaItem.last_state == States.Scraped, 3),
+            (MediaItem.last_state == States.Indexed, 4),
+            else_=5,
         )
 
         # Nested exists avoids joining Season+Show (both map to MediaItem → SAWarning)

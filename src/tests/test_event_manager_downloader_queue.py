@@ -256,6 +256,7 @@ def test_submit_job_requeues_when_downloader_busy():
     event = Event(emitted_by=downloader, item_id=42)
 
     with (
+        patch.object(EventManager, "_pipeline_max_workers", return_value=1),
         patch.object(em, "add_event_to_queue") as mock_queue,
         patch.object(downloader, "pause_until", return_value=None),
         patch.object(em, "_find_or_create_executor"),
@@ -397,6 +398,115 @@ def test_submit_job_requeues_when_scraping_at_capacity():
 
     mock_queue.assert_called_once()
     assert event.item_id == 42
+
+
+def test_dispatch_due_jobs_dispatches_unknown_state_to_indexer():
+    em = EventManager()
+    now = datetime.now()
+    indexer = Mock()
+    indexer.initialized = True
+    indexer.__class__.__name__ = "IndexerService"
+
+    em._queued_events = [
+        Event(
+            emitted_by="IndexerService",
+            item_id=24182,
+            item_state=States.Unknown,
+            run_at=now,
+        ),
+    ]
+
+    program = Mock()
+    program.services = Mock()
+    program.services.indexer = indexer
+    program.services.scraping = Mock()
+    program.services.scraping.initialized = True
+    program.services.downloader = Mock()
+    program.services.downloader.initialized = True
+    program.services.downloader.pause_until = Mock(return_value=None)
+    program.services.filesystem = Mock()
+    program.services.filesystem.initialized = True
+    program.services.updater = Mock()
+    program.services.updater.initialized = True
+    program.services.post_processing = Mock()
+    program.services.post_processing.initialized = True
+
+    unknown_item = Mock()
+    unknown_item.id = 24182
+    unknown_item.last_state = States.Unknown
+    unknown_item.log_string = "BEEF"
+
+    submitted: list[Event | None] = []
+
+    def fake_submit(_service, _program, event):
+        submitted.append(event)
+        pending = Future()
+        em._futures.append(
+            FutureWithEvent(
+                future=pending,
+                event=event,
+                cancellation_event=threading.Event(),
+            )
+        )
+
+    with (
+        patch(
+            "program.managers.event_manager.db_functions.get_item_by_id",
+            return_value=unknown_item,
+        ),
+        patch("program.state_transition.di") as mock_di,
+        patch.object(em, "submit_job", side_effect=fake_submit),
+    ):
+        mock_di.__getitem__.return_value = program
+        dispatched = em.dispatch_due_jobs(program)
+
+    assert dispatched == 1
+    assert len(submitted) == 1
+    assert submitted[0] is not None
+    assert submitted[0].item_id == 24182
+    assert len(em._queued_events) == 0
+
+
+def test_dispatch_due_jobs_removes_paused_items_from_queue():
+    em = EventManager()
+    now = datetime.now()
+
+    em._queued_events = [
+        Event(
+            emitted_by="IndexerService",
+            item_id=99,
+            item_state=States.Unknown,
+            run_at=now,
+        ),
+    ]
+
+    program = Mock()
+    program.services = Mock()
+    program.services.indexer = Mock()
+    program.services.indexer.initialized = True
+    program.services.scraping = Mock()
+    program.services.scraping.initialized = False
+    program.services.downloader = Mock()
+    program.services.downloader.initialized = False
+    program.services.filesystem = Mock()
+    program.services.filesystem.initialized = False
+    program.services.updater = Mock()
+    program.services.updater.initialized = False
+    program.services.post_processing = Mock()
+    program.services.post_processing.initialized = False
+
+    paused_item = Mock()
+    paused_item.last_state = States.Paused
+    paused_item.log_string = "Paused Show"
+
+    with patch(
+        "program.managers.event_manager.db_functions.get_item_by_id",
+        return_value=paused_item,
+    ):
+        dispatched = em.dispatch_due_jobs(program)
+
+    assert dispatched == 0
+    assert len(em._queued_events) == 0
 
 
 def test_dispatch_due_jobs_respects_scraping_capacity():
@@ -752,13 +862,14 @@ def test_pipeline_snapshot_column_counts_before_display_limit():
             item_state=States.Indexed,
             run_at=now + timedelta(seconds=i),
         )
-        for i in range(60)
+        for i in range(1, 61)
     ]
 
-    stats, rows = em.get_pipeline_queue_snapshot()
+    with _patch_pipeline_db_states({i: States.Indexed for i in range(1, 61)}):
+        stats, rows = em.get_pipeline_queue_snapshot()
 
-    assert stats["column_counts"]["added"] == 60
-    assert len([r for r in rows if r["kanban_column"] == "added"]) == 50
+    assert stats["column_counts"]["scrape"] == 60
+    assert len([r for r in rows if r["kanban_column"] == "scrape"]) == 50
     assert stats["total_items"] == 60
 
 
