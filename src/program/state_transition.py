@@ -12,6 +12,7 @@ from kink import di
 from loguru import logger
 
 from program.media import MediaItem, States
+from program.pipeline.restore_targets import scrape_queue_target
 from program.types import ProcessedEvent, Service
 from program.media.item import Episode, Season, Show
 
@@ -138,8 +139,11 @@ def process_event(
                     )
                 ]
         elif isinstance(existing_item, Episode):
-            if overrides is not None or services.scraping.should_submit(existing_item):
-                items_to_submit = [existing_item]
+            target = scrape_queue_target(
+                existing_item, services.scraping, overrides=overrides
+            )
+            if target is not None:
+                items_to_submit = [target]
         elif emitted_by != services.scraping and (
             overrides is not None
             or services.scraping.should_submit(existing_item)

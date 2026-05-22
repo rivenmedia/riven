@@ -1636,11 +1636,15 @@ class EventManager:
             )
         )
 
+        from program.pipeline.restore_targets import scrape_restore_target_id
+
+        scraping = program.services.scraping
         now = datetime.now()
+        seen_targets: set[int] = set()
 
         with db_session() as session:
             rows = session.execute(
-                select(MediaItem.id, MediaItem.last_state)
+                select(MediaItem.id, MediaItem.last_state, MediaItem.type)
                 .where(MediaItem.last_state.in_(self._RESTORE_STATES))
                 .where(
                     or_(
@@ -1655,7 +1659,7 @@ class EventManager:
                 )
             ).all()
 
-            for item_id, last_state in rows:
+            for item_id, last_state, item_type in rows:
                 item_id = int(item_id)
                 if (
                     last_state is None
@@ -1664,7 +1668,31 @@ class EventManager:
                 ):
                     continue
 
-                _item_id, related_ids = db_functions.get_item_ids(session, item_id)
+                enqueue_id = item_id
+                enqueue_state = last_state
+
+                if (
+                    last_state == States.Indexed
+                    and item_type == "episode"
+                    and scraping.initialized
+                ):
+                    coalesced_id = scrape_restore_target_id(
+                        session, item_id, scraping
+                    )
+                    if coalesced_id is None:
+                        continue
+                    enqueue_id = coalesced_id
+                    if enqueue_id != item_id:
+                        target_item = db_functions.get_item_by_id(
+                            enqueue_id, session=session
+                        )
+                        if target_item is not None and target_item.last_state is not None:
+                            enqueue_state = target_item.last_state
+
+                if enqueue_id in seen_targets:
+                    continue
+
+                _item_id, related_ids = db_functions.get_item_ids(session, enqueue_id)
                 skip = False
                 for related_id in related_ids:
                     if self._queue.contains_item(related_id) or self._id_in_running_events(
@@ -1675,16 +1703,17 @@ class EventManager:
                 if skip:
                     continue
 
-                self.pop_recently_finished(item_id)
+                self.pop_recently_finished(enqueue_id)
                 entry = QueueEntry(
-                    item_id=item_id,
-                    item_state=last_state,
+                    item_id=enqueue_id,
+                    item_state=enqueue_state,
                     run_at=now,
                     queued_at=now,
                     emitted_by="StateTransition",
                 )
                 if self._queue.enqueue(entry) == EnqueueResult.added:
-                    restored_ids.append(item_id)
+                    seen_targets.add(enqueue_id)
+                    restored_ids.append(enqueue_id)
 
         if restored_ids:
             count = len(restored_ids)

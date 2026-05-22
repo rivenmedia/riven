@@ -652,7 +652,7 @@ def test_restore_pipeline_from_db_enqueues_actionable_items():
 
     session = MagicMock()
     query_result = MagicMock()
-    query_result.all.return_value = [(42, States.Indexed)]
+    query_result.all.return_value = [(42, States.Indexed, "movie")]
     session.execute.return_value = query_result
 
     with (
@@ -787,7 +787,7 @@ def test_restore_pipeline_queues_via_state_transition_when_service_down():
 
     session = MagicMock()
     query_result = MagicMock()
-    query_result.all.return_value = [(7, States.Indexed)]
+    query_result.all.return_value = [(7, States.Indexed, "movie")]
     session.execute.return_value = query_result
 
     with (

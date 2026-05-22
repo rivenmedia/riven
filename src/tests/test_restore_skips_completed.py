@@ -24,7 +24,7 @@ def test_restore_skips_completed_library_items():
     session = MagicMock()
     query_result = MagicMock()
     # DB query filters to _RESTORE_STATES; Completed rows are not returned.
-    query_result.all.return_value = [(101, States.Scraped)]
+    query_result.all.return_value = [(101, States.Scraped, "movie")]
     session.execute.return_value = query_result
 
     with (
@@ -57,7 +57,7 @@ def test_restore_loop_skips_completed_if_row_present():
 
     session = MagicMock()
     query_result = MagicMock()
-    query_result.all.return_value = [(100, States.Completed)]
+    query_result.all.return_value = [(100, States.Completed, "movie")]
     session.execute.return_value = query_result
 
     with (

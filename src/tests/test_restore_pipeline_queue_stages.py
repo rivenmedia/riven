@@ -19,9 +19,9 @@ def test_restore_places_items_in_correct_stage_heaps():
     program.services.post_processing.initialized = False
 
     rows = [
-        (1, States.Scraped),
-        (2, States.Symlinked),
-        (3, States.Indexed),
+        (1, States.Scraped, "movie"),
+        (2, States.Symlinked, "movie"),
+        (3, States.Indexed, "movie"),
     ]
     session = MagicMock()
     query_result = MagicMock()
