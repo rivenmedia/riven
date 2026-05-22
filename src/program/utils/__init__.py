@@ -28,6 +28,14 @@ def get_version() -> str:
     return version
 
 
+def as_utc_datetime(dt: datetime) -> datetime:
+    """Normalize a timestamp for API serialization and UTC elapsed math."""
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def naive_local_datetime(dt: datetime | None) -> datetime | None:
     """
     Coerce aware datetimes to naive local wall time for use with datetime.now().

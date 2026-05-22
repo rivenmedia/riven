@@ -1150,6 +1150,16 @@ def test_process_future_postprocessing_records_done(monkeypatch):
     assert format_api_datetime(rows[0]["run_at"]).endswith("Z")
 
 
+def test_pipeline_snapshot_finish_count_includes_recently_finished():
+    em = EventManager()
+    em.record_recently_finished(10, outcome="success", service_name="PostProcessing")
+    em.record_recently_finished(11, outcome="failed", service_name="Downloader")
+
+    stats, _ = em.get_pipeline_queue_snapshot()
+
+    assert stats["column_counts"]["finish"] == 2
+
+
 def test_dispatch_due_jobs_handles_utc_aware_run_at():
     """Post-processing used to enqueue UTC-aware run_at and crash dispatch."""
 

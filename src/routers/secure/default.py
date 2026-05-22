@@ -2,7 +2,7 @@ import platform
 import psutil
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import requests
@@ -24,7 +24,12 @@ from program.media.state import States
 from program.program import Program
 from program.services.rate_limit import RateLimitService, get_rate_limit_service
 from program.settings import settings_manager
-from program.utils import format_api_datetime, generate_api_key, naive_local_datetime
+from program.utils import (
+    as_utc_datetime,
+    format_api_datetime,
+    generate_api_key,
+    naive_local_datetime,
+)
 
 from ..models.shared import MessageResponse
 
@@ -654,12 +659,25 @@ def _pipeline_items_from_rows(
     now = datetime.now()
     result: list[PipelineItemResponse] = []
 
+    now_utc = datetime.now(UTC)
+
     for rank, raw in enumerate(event_rows):
         item_id = raw.get("item_id")
         in_flight = bool(raw.get("in_flight"))
         deferred = bool(raw.get("deferred"))
-        run_at = naive_local_datetime(raw["run_at"])
-        queued_at = naive_local_datetime(raw["queued_at"])
+        phase = str(raw["pipeline_phase"])
+        is_recently_finished = phase == "recently_finished"
+
+        if is_recently_finished:
+            run_at_utc = as_utc_datetime(raw["run_at"])
+            queued_at_utc = as_utc_datetime(raw["queued_at"])
+            run_at = naive_local_datetime(raw["run_at"])
+            queued_at = naive_local_datetime(raw["queued_at"])
+        else:
+            run_at = naive_local_datetime(raw["run_at"])
+            queued_at = naive_local_datetime(raw["queued_at"])
+            run_at_utc = None
+            queued_at_utc = None
 
         if item_id is not None:
             item_id_int = int(item_id)
@@ -689,9 +707,9 @@ def _pipeline_items_from_rows(
                     anchor = scraped_local
                 wait_seconds = max(0.0, (now - anchor).total_seconds())
 
-            phase = str(raw["pipeline_phase"])
-            if phase == "recently_finished":
-                wait_seconds = max(0.0, (now - run_at).total_seconds())
+            if is_recently_finished:
+                assert run_at_utc is not None
+                wait_seconds = max(0.0, (now_utc - run_at_utc).total_seconds())
 
             row_state = display_row.state
             raw_state = raw.get("item_state")
@@ -714,8 +732,12 @@ def _pipeline_items_from_rows(
                     actively_running=bool(raw.get("actively_running")),
                     deferred=deferred,
                     reorderable=not in_flight and phase != "recently_finished",
-                    run_at=format_api_datetime(run_at),
-                    queued_at=format_api_datetime(queued_at),
+                    run_at=format_api_datetime(
+                        run_at_utc if is_recently_finished else run_at
+                    ),
+                    queued_at=format_api_datetime(
+                        queued_at_utc if is_recently_finished else queued_at
+                    ),
                     scraped_at=format_api_datetime(scraped_at),
                     wait_seconds=wait_seconds,
                     emitted_by=str(raw.get("emitted_by") or ""),

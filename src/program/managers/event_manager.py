@@ -24,6 +24,8 @@ from program.types import Event, Service
 from program.media.state import States
 from program.utils import format_api_datetime, naive_local_datetime
 
+_SYNC_CHUNK_SIZE = 500
+
 if TYPE_CHECKING:
     from program.program import Program
 
@@ -1935,16 +1937,34 @@ class EventManager:
                 reverse=True,
             )
 
+        item_ids = [int(entry.item_id) for entry in entries]
+        states_by_id: dict[int, States] = {}
+        if item_ids:
+            from sqlalchemy import select
+
+            from program.media.item import MediaItem
+
+            with db_session() as session:
+                for offset in range(0, len(item_ids), _SYNC_CHUNK_SIZE):
+                    chunk = item_ids[offset : offset + _SYNC_CHUNK_SIZE]
+                    for item_id, last_state in session.execute(
+                        select(MediaItem.id, MediaItem.last_state).where(
+                            MediaItem.id.in_(chunk)
+                        )
+                    ):
+                        if last_state is not None:
+                            states_by_id[int(item_id)] = last_state
+
         rows: list[dict[str, Any]] = []
         for entry in entries:
             failure_svc = entry.failure_service or entry.service_name
-            item = db_functions.get_item_by_id(entry.item_id)
             if entry.outcome == "failed":
                 state_name = States.Failed.name
-            elif item and item.last_state:
-                state_name = item.last_state.name
             else:
-                state_name = States.Completed.name
+                last_state = states_by_id.get(int(entry.item_id))
+                state_name = (
+                    last_state.name if last_state else States.Completed.name
+                )
             rows.append(
                 {
                     "item_id": entry.item_id,
@@ -2035,13 +2055,15 @@ class EventManager:
         states_by_id: dict[int, States] = {}
 
         with db_session() as session:
-            for item_id, last_state in session.execute(
-                select(MediaItem.id, MediaItem.last_state).where(
-                    MediaItem.id.in_(unique_ids)
-                )
-            ):
-                if last_state is not None:
-                    states_by_id[int(item_id)] = last_state
+            for offset in range(0, len(unique_ids), _SYNC_CHUNK_SIZE):
+                chunk = unique_ids[offset : offset + _SYNC_CHUNK_SIZE]
+                for item_id, last_state in session.execute(
+                    select(MediaItem.id, MediaItem.last_state).where(
+                        MediaItem.id.in_(chunk)
+                    )
+                ):
+                    if last_state is not None:
+                        states_by_id[int(item_id)] = last_state
 
         for event in events:
             if event.item_id:
@@ -2102,7 +2124,7 @@ class EventManager:
         next_deferred: datetime | None = None
         buckets: dict[str, list[Event]] = {col: [] for col in KANBAN_COLUMN_ORDER}
 
-        self._compact_queued_item_duplicates(now)
+        # Dedupe runs on dispatch, not on every /activity_status poll (23k+ rows).
         self._normalize_queued_run_at_times()
 
         with self.mutex:
@@ -2151,18 +2173,20 @@ class EventManager:
         queue_truncated = False
         per_limit = self._PIPELINE_PER_COLUMN_LIMIT
 
+        def _queued_sort_key(event: Event) -> tuple[int, int, datetime]:
+            return pipeline_within_column_sort_key(
+                in_flight=False,
+                deferred=naive_local_datetime(event.run_at) > now,
+                run_at=naive_local_datetime(event.run_at),
+            )
+
         for col in KANBAN_COLUMN_ORDER:
             col_events = buckets.get(col, [])
-            col_events.sort(
-                key=lambda e: pipeline_within_column_sort_key(
-                    in_flight=False,
-                    deferred=naive_local_datetime(e.run_at) > now,
-                    run_at=naive_local_datetime(e.run_at),
-                )
-            )
             if len(col_events) > per_limit:
                 queue_truncated = True
-                col_events = col_events[:per_limit]
+            if col_events:
+                take = min(len(col_events), per_limit)
+                col_events = heapq.nsmallest(take, col_events, key=_queued_sort_key)
             display_queued.extend(col_events)
 
         self._sync_queued_item_states_from_db(display_queued)
@@ -2217,6 +2241,13 @@ class EventManager:
             )
 
         total_items = total_queued + len(in_flight_meta)
+
+        with self._recently_finished_lock:
+            recently_finished_count = len(self._recently_finished)
+        if recently_finished_count:
+            column_counts["finish"] = (
+                column_counts.get("finish", 0) + recently_finished_count
+            )
 
         next_ready_in_seconds: float | None = None
         if next_deferred is not None:
