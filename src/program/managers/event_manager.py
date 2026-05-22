@@ -177,17 +177,23 @@ def limit_pipeline_rows_per_column(
     truncated = False
     for col in KANBAN_COLUMN_ORDER:
         col_rows = by_column.get(col, [])
-        col_rows.sort(
-            key=lambda r: pipeline_within_column_sort_key(
-                in_flight=bool(r.get("in_flight")),
-                deferred=bool(r.get("deferred")),
-                run_at=r["run_at"],
-            )
+        in_flight_rows = [r for r in col_rows if r.get("in_flight")]
+        queued_rows = [r for r in col_rows if not r.get("in_flight")]
+
+        sort_key = lambda r: pipeline_within_column_sort_key(
+            in_flight=bool(r.get("in_flight")),
+            deferred=bool(r.get("deferred")),
+            run_at=r["run_at"],
         )
-        if len(col_rows) > per_column_limit:
+        in_flight_rows.sort(key=sort_key)
+        queued_rows.sort(key=sort_key)
+
+        remaining = max(0, per_column_limit - len(in_flight_rows))
+        if len(queued_rows) > remaining:
             truncated = True
-            col_rows = col_rows[:per_column_limit]
-        limited.extend(col_rows)
+            queued_rows = queued_rows[:remaining]
+
+        limited.extend(in_flight_rows + queued_rows)
 
     return limited, truncated
 
@@ -642,8 +648,10 @@ class EventManager:
                 )
                 continue
 
+            # Route from DB state, not the queue emitter (restored rows use the
+            # target service as emitted_by; Completed+PostProcessing would never match).
             processed = process_event(
-                event.emitted_by,
+                "StateTransition",
                 existing_item,
                 event.content_item,
                 event.overrides,
@@ -1563,14 +1571,9 @@ class EventManager:
                 if self._item_id_in_pipeline(item_id):
                     continue
 
-                target = self._restore_service_for_state(program, last_state)
-                # Always queue: use StateTransition when the next service is not up yet
-                # so Activity shows the item and dispatch picks it up once initialized.
-                emitter: Service | str = target if target is not None else "StateTransition"
-
                 if self.add_event(
                     Event(
-                        emitted_by=emitter,
+                        emitted_by="StateTransition",
                         item_id=item_id,
                         run_at=now,
                         item_state=last_state,
@@ -2084,6 +2087,7 @@ class EventManager:
         stats = {
             "total_queued": total_queued,
             "total_items": total_items,
+            "in_flight_total": len(in_flight_meta),
             "deferred": deferred,
             "phase_counts": phase_counts,
             "column_counts": column_counts,

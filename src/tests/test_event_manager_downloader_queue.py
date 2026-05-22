@@ -650,6 +650,100 @@ def test_restore_pipeline_from_db_enqueues_actionable_items():
     call_event = mock_add.call_args[0][0]
     assert call_event.item_id == 42
     assert call_event.item_state == States.Indexed
+    assert call_event.emitted_by == "StateTransition"
+
+
+def test_dispatch_completed_post_processing_emitter_uses_state_transition():
+    """Restored rows keep PostProcessing as emitted_by but dispatch routes by state."""
+
+    from program.services.post_processing import PostProcessing
+
+    em = EventManager()
+    now = datetime.now()
+    post_processing = Mock(spec=PostProcessing)
+    post_processing.initialized = True
+    post_processing.__class__.__name__ = "PostProcessing"
+
+    em._queued_events = [
+        Event(
+            emitted_by=post_processing,
+            item_id=9001,
+            item_state=States.Completed,
+            run_at=now,
+        ),
+    ]
+
+    program = Mock()
+    program.services = Mock()
+    program.services.post_processing = post_processing
+    program.services.indexer = Mock()
+    program.services.indexer.initialized = True
+    program.services.scraping = Mock()
+    program.services.scraping.initialized = True
+    program.services.downloader = Mock()
+    program.services.downloader.initialized = True
+    program.services.downloader.pause_until = Mock(return_value=None)
+    program.services.filesystem = Mock()
+    program.services.filesystem.initialized = True
+    program.services.updater = Mock()
+    program.services.updater.initialized = True
+
+    completed_item = Mock()
+    completed_item.id = 9001
+    completed_item.last_state = States.Completed
+    completed_item.log_string = "Done Episode"
+
+    submitted: list[Event | None] = []
+
+    def fake_submit(_service, _program, event):
+        submitted.append(event)
+
+    with (
+        patch(
+            "program.managers.event_manager.db_functions.get_item_by_id",
+            return_value=completed_item,
+        ),
+        patch("program.state_transition.di") as mock_di,
+        patch.object(em, "submit_job", side_effect=fake_submit),
+    ):
+        mock_di.__getitem__.return_value = program
+        dispatched = em.dispatch_due_jobs(program)
+
+    assert dispatched == 1
+    assert submitted and submitted[0].item_id == 9001
+    assert len(em._queued_events) == 0
+
+
+def test_limit_pipeline_rows_preserves_in_flight():
+    from program.managers.event_manager import limit_pipeline_rows_per_column
+
+    now = datetime.now()
+    rows = [
+        {
+            "kanban_column": "update",
+            "in_flight": True,
+            "deferred": False,
+            "run_at": now,
+            "item_id": 1,
+        },
+    ]
+    for i in range(60):
+        rows.append(
+            {
+                "kanban_column": "update",
+                "in_flight": False,
+                "deferred": False,
+                "run_at": now,
+                "item_id": 100 + i,
+            }
+        )
+
+    limited, truncated = limit_pipeline_rows_per_column(rows, per_column_limit=50)
+    in_flight = [r for r in limited if r.get("kanban_column") == "update" and r.get("in_flight")]
+
+    assert truncated is True
+    assert len(in_flight) == 1
+    assert in_flight[0]["item_id"] == 1
 
 
 def test_restore_pipeline_queues_via_state_transition_when_service_down():
@@ -687,6 +781,7 @@ def test_restore_pipeline_queues_via_state_transition_when_service_down():
     assert restored == [7]
     call_event = mock_add.call_args[0][0]
     assert call_event.emitted_by == "StateTransition"
+    assert call_event.item_state == States.Indexed
 
 
 def test_pipeline_activity_set_and_clear():

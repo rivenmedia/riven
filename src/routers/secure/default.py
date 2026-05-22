@@ -374,6 +374,7 @@ class PipelineColumnCounts(BaseModel):
 class PipelineQueueSummary(BaseModel):
     total_queued: int = 0
     total_items: int = 0
+    in_flight_total: int = 0
     deferred: int = 0
     phase_counts: dict[str, int] = Field(default_factory=dict)
     columns: PipelineColumnCounts
@@ -918,6 +919,7 @@ def _build_activity_status() -> ActivityStatusResponse:
                 queue=PipelineQueueSummary(
                     total_queued=int(queue_raw.get("total_queued", 0)),
                     total_items=int(queue_raw.get("total_items", len(queue_rows))),
+                    in_flight_total=int(queue_raw.get("in_flight_total", 0)),
                     deferred=int(queue_raw.get("deferred", 0)),
                     phase_counts=dict(queue_raw.get("phase_counts") or {}),
                     columns=columns,
