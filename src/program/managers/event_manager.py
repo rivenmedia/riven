@@ -20,6 +20,27 @@ from program.db.db import db_session
 from program.managers.sse_manager import sse_manager
 from program.media.item import MediaItem
 from program.shutdown import request_shutdown, shutting_down
+from program.queue.adapter import (
+    content_entry_to_event,
+    entry_to_event,
+    event_to_content_entry,
+    event_to_entry,
+)
+from program.queue.finished import RecentlyFinishedStore
+from program.queue.mapping import (
+    KANBAN_COLUMN_ORDER,
+    dispatch_priority,
+    pipeline_phase_for_entry,
+    pipeline_phase_to_kanban,
+    resolve_pipeline_phase,
+    service_to_stage,
+)
+from program.queue.pipeline_services import (
+    PIPELINE_DISPATCH_SERVICES,
+    is_pipeline_service,
+)
+from program.queue.models import EnqueueResult, PipelineStage, QueueEntry
+from program.queue.store import PipelineQueueStore
 from program.types import Event, Service
 from program.media.state import States
 from program.utils import format_api_datetime, naive_local_datetime
@@ -57,85 +78,6 @@ class EventType(Enum):
     Scraped = 4
 
 
-_IN_FLIGHT_SERVICE_TO_PHASE: dict[str, str] = {
-    "IndexerService": "indexing",
-    "Scraping": "scraping",
-    "Downloader": "downloading",
-    "FilesystemService": "symlinking",
-    "Updater": "updating",
-    "PostProcessing": "post_processing",
-}
-
-_PHASE_TO_KANBAN: dict[str, str] = {
-    "indexing": "added",
-    "queued_index": "added",
-    "scraping": "scrape",
-    "queued_scrape": "scrape",
-    "downloading": "download",
-    "queued_download": "download",
-    "queued_download_deferred": "download",
-    "symlinking": "symlink",
-    "queued_symlink": "symlink",
-    "updating": "update",
-    "queued_update": "update",
-    "post_processing": "update",
-    "queued_post_process": "update",
-    "queued_other": "finish",
-}
-
-KANBAN_COLUMN_ORDER: tuple[str, ...] = (
-    "added",
-    "scrape",
-    "download",
-    "symlink",
-    "update",
-    "finish",
-)
-
-_RECENTLY_FINISHED_TTL = timedelta(minutes=2)
-
-
-@dataclass
-class _RecentlyFinishedEntry:
-    item_id: int
-    completed_at: datetime
-    outcome: Literal["success", "failed"] = "success"
-    service_name: str | None = None
-    failure_service: str | None = None
-    completion_detail: str | None = None
-
-
-def _queued_pipeline_phase(item_state: States | None, *, deferred: bool) -> str:
-    if item_state in (States.Requested, States.Unknown, None):
-        return "queued_index"
-    if item_state == States.Indexed:
-        return "queued_scrape"
-    if item_state == States.Scraped:
-        return "queued_download_deferred" if deferred else "queued_download"
-    if item_state == States.Downloaded:
-        return "queued_symlink"
-    if item_state == States.Symlinked:
-        return "queued_update"
-    if item_state in (States.Completed, States.PartiallyCompleted):
-        return "queued_post_process"
-    return "queued_other"
-
-
-def resolve_pipeline_phase(
-    *,
-    item_state: States | None,
-    deferred: bool,
-    in_flight_service: str | None,
-) -> str:
-    if in_flight_service:
-        return _IN_FLIGHT_SERVICE_TO_PHASE.get(in_flight_service, "queued_other")
-    return _queued_pipeline_phase(item_state, deferred=deferred)
-
-
-def pipeline_phase_to_kanban(phase: str) -> str:
-    return _PHASE_TO_KANBAN.get(phase, "finish")
-
-
 def pipeline_column_sort_key(
     kanban_column: str,
     *,
@@ -145,7 +87,10 @@ def pipeline_column_sort_key(
 ) -> tuple[int, int, int, datetime]:
     """Lower = higher in column (in-flight first, then due, then deferred)."""
 
-    col_order = KANBAN_COLUMN_ORDER.index(kanban_column)
+    try:
+        col_order = KANBAN_COLUMN_ORDER.index(kanban_column)
+    except ValueError:
+        col_order = len(KANBAN_COLUMN_ORDER)
     flight_rank = 0 if in_flight else 1
     defer_rank = 1 if deferred else 0
     return (col_order, flight_rank, defer_rank, run_at)
@@ -234,8 +179,10 @@ class EventManager:
         "IndexerService": frozenset({States.Unknown, States.Requested, None}),
     }
 
+    # Actionable pipeline steps only. Completed items are terminal (post-processing
+    # already ran via store_state after updater); restoring them re-queues the whole
+    # library for subtitles.
     _RESTORE_STATES: tuple[States, ...] = (
-        States.Completed,
         States.Symlinked,
         States.Downloaded,
         States.Scraped,
@@ -247,16 +194,53 @@ class EventManager:
     def __init__(self):
         self._executors = list[ServiceExecutor]()
         self._futures = list[FutureWithEvent]()
-        self._queued_events = list[Event]()
+        self._queue = PipelineQueueStore()
         self._running_events = list[Event]()
         self.mutex = Lock()
         self._shutdown = False
         self._downloader_dispatch_lock = threading.Lock()
         self._next_downloader_dispatch_at = 0.0
-        self._recently_finished: dict[int, _RecentlyFinishedEntry] = {}
-        self._recently_finished_lock = Lock()
+        self._recently_finished = RecentlyFinishedStore()
+        self._paused_pipeline_services: set[str] = set()
+        self._paused_pipeline_services_lock = Lock()
         self._pipeline_activity: dict[int, str] = {}
         self._pipeline_activity_lock = Lock()
+
+    @property
+    def _queued_events(self) -> list[Event]:
+        """Test/back-compat view of the pipeline queue."""
+
+        events = [
+            entry_to_event(entry, entry.emitted_by)
+            for entry in self._queue.all_item_entries()
+        ]
+        events.extend(
+            content_entry_to_event(entry)
+            for entry in self._queue.content_entries()
+        )
+        return events
+
+    @_queued_events.setter
+    def _queued_events(self, events: list[Event]) -> None:
+        self._queue.clear()
+        now = datetime.now()
+        best_by_id: dict[int, Event] = {}
+        for event in events:
+            if event.item_id:
+                item_id = int(event.item_id)
+                current = best_by_id.get(item_id)
+                if current is None or self._queue_event_rank(
+                    event, now
+                ) < self._queue_event_rank(current, now):
+                    best_by_id[item_id] = event
+                continue
+            content = event_to_content_entry(event)
+            if content is not None:
+                self._queue.enqueue_content(content)
+        for event in best_by_id.values():
+            entry = event_to_entry(event)
+            if entry is not None:
+                self._queue.enqueue(entry)
 
     _PIPELINE_ACTIVITY_MAX_LEN = 120
 
@@ -290,7 +274,7 @@ class EventManager:
                 future_with_event.cancellation_event.set()
                 if not future_with_event.future.done():
                     future_with_event.future.cancel()
-            self._queued_events.clear()
+            self._queue.clear()
 
         if wait:
             import concurrent.futures
@@ -503,10 +487,21 @@ class EventManager:
         except Exception:
             return 32
 
+    @staticmethod
+    def _pipeline_post_processing_max_workers() -> int:
+        try:
+            from program.settings import settings_manager
+
+            return int(settings_manager.settings.pipeline_post_processing_max_workers)
+        except Exception:
+            return 16
+
     def _executor_max_workers(self, service_name: str) -> int:
         return self._service_capacity_limit(service_name)
 
     def _service_capacity_limit(self, service_name: str) -> int:
+        if service_name == "PostProcessing":
+            return self._pipeline_post_processing_max_workers()
         if service_name in self._LIBRARY_PIPELINE_SERVICES:
             return self._pipeline_library_max_workers()
         return self._pipeline_max_workers()
@@ -637,18 +632,44 @@ class EventManager:
         from program.state_transition import process_event
 
         now = datetime.now()
+        stage = service_to_stage(service_name)
+        if stage is None:
+            return None
 
-        with self.mutex:
-            due_events = [
-                event
-                for event in self._queued_events
-                if naive_local_datetime(event.run_at) <= now
-            ]
+        if service_name == "IndexerService":
+            content_entry = self._queue.pop_content_due(now)
+            if content_entry is not None:
+                event = content_entry_to_event(content_entry)
+                processed = process_event(
+                    "StateTransition",
+                    None,
+                    event.content_item,
+                    event.overrides,
+                )
+                if (
+                    processed.service is not None
+                    and self._service_class_name(processed.service) == service_name
+                    and processed.related_media_items
+                ):
+                    item = processed.related_media_items[0]
+                    if item.id:
+                        return Event(
+                            service,
+                            item_id=item.id,
+                            overrides=processed.overrides,
+                        )
+                    return Event(
+                        service,
+                        content_item=item,
+                        overrides=processed.overrides,
+                    )
+                self._queue.enqueue_content(content_entry)
 
-        candidates = self._due_events_for_service(due_events, service_name)
-        candidates.sort(key=self._transition_event_priority)
+        due_entries = self._queue.peek_due(stage, now, limit=500)
+        due_entries.sort(key=dispatch_priority)
 
-        for event in candidates:
+        for entry in due_entries:
+            event = entry_to_event(entry, entry.emitted_by)
             if event.item_id:
                 existing_item = db_functions.get_item_by_id(event.item_id)
             else:
@@ -658,17 +679,13 @@ class EventManager:
                 States.Paused,
                 States.Failed,
             ):
-                with self.mutex:
-                    if event in self._queued_events:
-                        self._queued_events.remove(event)
+                self._queue.dequeue(int(event.item_id))
                 logger.info(
                     f"Removed queued pipeline event for {existing_item.log_string}: "
                     f"item is {existing_item.last_state.name}"
                 )
                 continue
 
-            # Route from DB state, not the queue emitter (restored rows use the
-            # target service as emitted_by; Completed+PostProcessing would never match).
             processed = process_event(
                 "StateTransition",
                 existing_item,
@@ -682,10 +699,8 @@ class EventManager:
             if self._service_class_name(processed.service) != service_name:
                 continue
 
-            with self.mutex:
-                if event not in self._queued_events:
-                    continue
-                self._queued_events.remove(event)
+            if not self._queue.dequeue(int(event.item_id)):
+                continue
 
             items = processed.related_media_items
             if not items:
@@ -726,10 +741,36 @@ class EventManager:
 
         return None
 
+    def pause_pipeline_service(self, service_name: str) -> bool:
+        if not is_pipeline_service(service_name):
+            return False
+        with self._paused_pipeline_services_lock:
+            self._paused_pipeline_services.add(service_name)
+        logger.info(f"Paused pipeline dispatch for {service_name}")
+        return True
+
+    def resume_pipeline_service(self, service_name: str) -> bool:
+        if not is_pipeline_service(service_name):
+            return False
+        with self._paused_pipeline_services_lock:
+            self._paused_pipeline_services.discard(service_name)
+        logger.info(f"Resumed pipeline dispatch for {service_name}")
+        return True
+
+    def is_pipeline_service_paused(self, service_name: str) -> bool:
+        with self._paused_pipeline_services_lock:
+            return service_name in self._paused_pipeline_services
+
+    def get_pipeline_services_paused(self) -> dict[str, bool]:
+        with self._paused_pipeline_services_lock:
+            paused = set(self._paused_pipeline_services)
+        return {
+            name: name in paused for name in PIPELINE_DISPATCH_SERVICES
+        }
+
     def dispatch_due_jobs(self, program: "Program") -> int:
         """Start due pipeline work up to per-service capacity (no executor backlog)."""
 
-        self._compact_queued_item_duplicates(datetime.now())
         self._normalize_queued_run_at_times()
 
         if program.services is None:
@@ -737,6 +778,8 @@ class EventManager:
 
         dispatched = 0
         for service_name in self._PIPELINE_DISPATCH_SERVICE_ORDER:
+            if self.is_pipeline_service_paused(service_name):
+                continue
             service = self._pipeline_service_by_name(program, service_name)
             if service is None:
                 continue
@@ -795,7 +838,9 @@ class EventManager:
             return
 
         has_other_scraped = any(
-            e is not event and e.item_state == States.Scraped for e in self._queued_events
+            entry.item_state == States.Scraped
+            for entry in self._queue.all_item_entries()
+            if entry.item_id != event.item_id
         )
         if not self._has_active_downloader_future() and not has_other_scraped:
             return
@@ -913,12 +958,12 @@ class EventManager:
         interval = timedelta(seconds=self._downloader_dispatch_interval(program))
 
         with self.mutex:
-            targets = self._pipeline_queue_events_for_item_locked(item_id)
-            if not targets or self._id_in_running_events(item_id):
+            entry = self._queue.get(int(item_id))
+            if entry is None or self._id_in_running_events(item_id):
                 return False
 
             now = datetime.now()
-            all_peers = self._deduped_queued_item_events_locked(now)
+            all_peers = self._queue.all_item_entries()
             due_peers = [
                 e for e in all_peers if naive_local_datetime(e.run_at) <= now
             ]
@@ -929,11 +974,11 @@ class EventManager:
             else:
                 new_run_at = now
 
-            current_min = min(naive_local_datetime(e.run_at) for e in targets)
+            current_min = naive_local_datetime(entry.run_at)
             while new_run_at >= current_min:
                 new_run_at -= interval
 
-            self._set_pipeline_queue_run_at_locked(item_id, new_run_at)
+            self._queue.update_run_at(int(item_id), new_run_at)
             logger.debug(
                 f"Prioritized item {item_id} in pipeline queue "
                 f"(run_at {new_run_at.isoformat()})"
@@ -947,12 +992,12 @@ class EventManager:
         interval = timedelta(seconds=self._downloader_dispatch_interval(program))
 
         with self.mutex:
-            targets = self._pipeline_queue_events_for_item_locked(item_id)
-            if not targets or self._id_in_running_events(item_id):
+            entry = self._queue.get(int(item_id))
+            if entry is None or self._id_in_running_events(item_id):
                 return False
 
             now = datetime.now()
-            all_peers = self._deduped_queued_item_events_locked(now)
+            all_peers = self._queue.all_item_entries()
             max_run_at = (
                 max(naive_local_datetime(e.run_at) for e in all_peers)
                 if all_peers
@@ -960,11 +1005,11 @@ class EventManager:
             )
             new_run_at = max_run_at + interval
 
-            current_max = max(naive_local_datetime(e.run_at) for e in targets)
+            current_max = naive_local_datetime(entry.run_at)
             while new_run_at <= current_max:
                 new_run_at += interval
 
-            self._set_pipeline_queue_run_at_locked(item_id, new_run_at)
+            self._queue.update_run_at(int(item_id), new_run_at)
             logger.debug(
                 f"Deprioritized item {item_id} in pipeline queue "
                 f"(run_at {new_run_at.isoformat()})"
@@ -977,16 +1022,9 @@ class EventManager:
         with self.mutex:
             if self._id_in_running_events(item_id):
                 return False
-            targets = self._pipeline_queue_events_for_item_locked(item_id)
-            if not targets:
+            if not self._queue.dequeue(int(item_id)):
                 return False
-            for event in targets:
-                if event in self._queued_events:
-                    self._queued_events.remove(event)
-            logger.debug(
-                f"Dequeued item {item_id} from pipeline queue "
-                f"({len(targets)} event(s))"
-            )
+            logger.debug(f"Dequeued item {item_id} from pipeline queue")
             return True
 
     def prioritize_downloader_queue_item(self, item_id: int) -> bool:
@@ -1003,9 +1041,7 @@ class EventManager:
         """Repair aware run_at values so dispatch can compare with naive datetime.now()."""
 
         with self.mutex:
-            for event in self._queued_events:
-                if event.run_at.tzinfo is not None:
-                    event.run_at = naive_local_datetime(event.run_at)
+            self._queue.normalize_run_at()
 
     def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
@@ -1072,28 +1108,34 @@ class EventManager:
 
             self._maybe_stagger_scraped_run_at(event, program)
 
-            if event.item_id:
-                for existing in self._queued_events:
-                    if existing.item_id == event.item_id:
-                        existing.run_at = max(
-                            naive_local_datetime(existing.run_at),
-                            naive_local_datetime(event.run_at),
+            queue_entry = event_to_entry(event)
+            if queue_entry is not None:
+                if item and item.last_state:
+                    queue_entry.item_state = item.last_state
+                elif event.item_state:
+                    queue_entry.item_state = event.item_state
+                result = self._queue.enqueue(queue_entry)
+                if result == EnqueueResult.merged:
+                    if log_message:
+                        existing = self._queue.get(int(event.item_id))
+                        run_at = (
+                            existing.run_at.isoformat()
+                            if existing
+                            else queue_entry.run_at.isoformat()
                         )
-                        if item and item.last_state:
-                            existing.item_state = item.last_state
-                        elif event.item_state:
-                            existing.item_state = event.item_state
-                        if log_message:
-                            logger.debug(
-                                f"Updated queued {event.log_message} "
-                                f"(run_at {existing.run_at.isoformat()})"
-                            )
-                        return
+                        logger.debug(
+                            f"Updated queued {event.log_message} (run_at {run_at})"
+                        )
+                    return
+                if log_message:
+                    logger.debug(f"Added {event.log_message} to the queue.")
+                return
 
-            self._queued_events.append(event)
-
-            if log_message:
-                logger.debug(f"Added {event.log_message} to the queue.")
+            content_entry = event_to_content_entry(event)
+            if content_entry is not None:
+                self._queue.enqueue_content(content_entry)
+                if log_message:
+                    logger.debug(f"Added {event.log_message} to the queue.")
 
     def remove_event_from_queue(self, event: Event):
         """
@@ -1104,7 +1146,10 @@ class EventManager:
         """
 
         with self.mutex:
-            self._queued_events.remove(event)
+            if event.item_id:
+                self._queue.dequeue(int(event.item_id))
+            elif event.content_item:
+                self._queue.dequeue_content(event.content_item)
             logger.debug(f"Removed {event.log_message} from the queue.")
 
     def remove_event_from_running(self, event: Event):
@@ -1128,9 +1173,8 @@ class EventManager:
             item (MediaItem): The event item to remove from the queue.
         """
 
-        for event in self._queued_events:
-            if event.item_id == item_id:
-                self.remove_event_from_queue(event)
+        with self.mutex:
+            self._queue.dequeue(int(item_id))
 
     def add_event_to_running(self, event: Event):
         """
@@ -1337,62 +1381,26 @@ class EventManager:
         """
 
         while True:
-            if self._queued_events:
-                with self.mutex:
-                    now = datetime.now()
+            now = datetime.now()
+            ready_events: list[Event] = []
+            for stage in PipelineStage:
+                for entry in self._queue.peek_due(stage, now, limit=1000):
+                    ready_events.append(entry_to_event(entry, entry.emitted_by))
+            for content in self._queue.content_entries():
+                if naive_local_datetime(content.run_at) <= now:
+                    ready_events.append(content_entry_to_event(content))
 
-                    # Filter events that are ready to run (run_at <= now)
-                    ready_events = [
-                        event
-                        for event in self._queued_events
-                        if naive_local_datetime(event.run_at) <= now
-                    ]
+            if not ready_events:
+                raise Empty
 
-                    if not ready_events:
-                        raise Empty
-
-                    # Define state priority (lower number = higher priority)
-                    state_priority = dict[States, int](
-                        {
-                            States.Completed: 0,
-                            States.PartiallyCompleted: 1,
-                            States.Symlinked: 2,
-                            States.Downloaded: 3,
-                            States.Scraped: 4,
-                            States.Indexed: 5,
-                        }
-                    )
-
-                    def get_event_priority(event: Event) -> tuple[int, datetime, datetime]:
-                        """
-                        Returns a tuple for sorting: (state_priority, run_at, queued_at)
-                        Items with higher priority states come first, then sorted by run_at.
-                        Uses cached item_state to avoid database queries.
-                        """
-                        if event.item_state:
-                            priority = state_priority.get(event.item_state, 999)
-                            return (
-                                priority,
-                                naive_local_datetime(event.run_at),
-                                naive_local_datetime(event.queued_at),
-                            )
-
-                        # Default priority for items without state or content-only events
-                        return (
-                            0,
-                            naive_local_datetime(event.run_at),
-                            naive_local_datetime(event.queued_at),
-                        )
-
-                    # Sort by priority (state first, then run_at)
-                    ready_events.sort(key=get_event_priority)
-
-                    # Get the highest priority event
-                    event = ready_events[0]
-                    self._queued_events.remove(event)
-
-                    return event
-            raise Empty
+            ready_events.sort(key=self._transition_event_priority)
+            winner = ready_events[0]
+            entry = event_to_entry(winner)
+            if entry is not None:
+                self._queue.dequeue(int(entry.item_id))
+            elif winner.content_item:
+                self._queue.dequeue_content(winner.content_item)
+            return winner
 
     def _id_in_queue(self, _id: int) -> bool:
         """
@@ -1405,7 +1413,7 @@ class EventManager:
             bool: True if the item is in the queue, False otherwise.
         """
 
-        return any(event.item_id == _id for event in self._queued_events)
+        return self._queue.contains_item(_id)
 
     def _id_in_running_events(self, _id: int) -> bool:
         """
@@ -1436,17 +1444,11 @@ class EventManager:
                 fresh_state = last_state
 
         with self.mutex:
-            for existing in self._queued_events:
-                if existing.item_id != item_id:
-                    continue
-                if fresh_state is not None:
-                    existing.item_state = fresh_state
-                elif event.item_state:
-                    existing.item_state = event.item_state
-                existing.run_at = min(
-                    naive_local_datetime(existing.run_at),
-                    naive_local_datetime(event.run_at),
-                )
+            self._queue.merge_item(
+                int(item_id),
+                run_at=event.run_at,
+                item_state=fresh_state if fresh_state is not None else event.item_state,
+            )
 
     def add_event(self, event: Event) -> bool:
         """
@@ -1498,9 +1500,8 @@ class EventManager:
                 return False
 
             # Single-pass checks: queued and running
-            if self.item_exists_in_queue(
-                content_item,
-                self._queued_events,
+            if self._queue.contains_content(
+                content_item
             ) or self.item_exists_in_queue(
                 content_item,
                 self._running_events,
@@ -1607,12 +1608,11 @@ class EventManager:
         restored_ids: list[int] = []
 
         state_order = case(
-            (MediaItem.last_state == States.Completed, 0),
-            (MediaItem.last_state == States.Symlinked, 1),
-            (MediaItem.last_state == States.Downloaded, 2),
-            (MediaItem.last_state == States.Scraped, 3),
-            (MediaItem.last_state == States.Indexed, 4),
-            else_=5,
+            (MediaItem.last_state == States.Symlinked, 0),
+            (MediaItem.last_state == States.Downloaded, 1),
+            (MediaItem.last_state == States.Scraped, 2),
+            (MediaItem.last_state == States.Indexed, 3),
+            else_=4,
         )
 
         # Nested exists avoids joining Season+Show (both map to MediaItem → SAWarning)
@@ -1657,17 +1657,33 @@ class EventManager:
 
             for item_id, last_state in rows:
                 item_id = int(item_id)
-                if self._item_id_in_pipeline(item_id):
+                if (
+                    last_state is None
+                    or last_state not in self._RESTORE_STATES
+                    or self._item_id_in_pipeline(item_id)
+                ):
                     continue
 
-                if self.add_event(
-                    Event(
-                        emitted_by="StateTransition",
-                        item_id=item_id,
-                        run_at=now,
-                        item_state=last_state,
-                    )
-                ):
+                _item_id, related_ids = db_functions.get_item_ids(session, item_id)
+                skip = False
+                for related_id in related_ids:
+                    if self._queue.contains_item(related_id) or self._id_in_running_events(
+                        related_id
+                    ):
+                        skip = True
+                        break
+                if skip:
+                    continue
+
+                self.pop_recently_finished(item_id)
+                entry = QueueEntry(
+                    item_id=item_id,
+                    item_state=last_state,
+                    run_at=now,
+                    queued_at=now,
+                    emitted_by="StateTransition",
+                )
+                if self._queue.enqueue(entry) == EnqueueResult.added:
                     restored_ids.append(item_id)
 
         if restored_ids:
@@ -1779,57 +1795,49 @@ class EventManager:
         queue_by_source: dict[str, int] = {}
         next_deferred: datetime | None = None
 
-        def sort_key(event: Event) -> tuple[int, datetime]:
-            # Due (ready) before deferred; soonest run_at first within each band.
-            run_at = naive_local_datetime(event.run_at)
+        def sort_key(entry: QueueEntry) -> tuple[int, datetime]:
+            run_at = naive_local_datetime(entry.run_at)
             is_deferred = 1 if run_at > now else 0
             return (is_deferred, run_at)
 
-        self._compact_queued_item_duplicates(now)
         self._normalize_queued_run_at_times()
 
-        raw_matched: list[Event] = []
-
         with self.mutex:
-            for event in self._queued_events:
-                if self._is_downloader_relevant_queued_event(event):
-                    raw_matched.append(event)
+            matched = self._queue.downloader_entries(now)
 
-        matched = self._dedupe_queue_events_by_item_id(raw_matched, now)
-
-        for event in matched:
+        for entry in matched:
             total_queued += 1
-            run_at = naive_local_datetime(event.run_at)
+            run_at = naive_local_datetime(entry.run_at)
 
             if run_at > now:
                 deferred += 1
                 if next_deferred is None or run_at < next_deferred:
                     next_deferred = run_at
 
-            source = self._emitted_by_name(event.emitted_by)
+            source = entry.emitted_by
             queue_by_source[source] = queue_by_source.get(source, 0) + 1
 
-            if event.item_state == States.Scraped:
+            if entry.item_state == States.Scraped:
                 scraped_queued += 1
                 if run_at <= now:
                     scraped_ready += 1
 
-        top_events = heapq.nsmallest(
+        top_entries = heapq.nsmallest(
             self._DOWNLOADER_QUEUE_LIMIT, matched, key=sort_key
         )
 
         rows: list[dict[str, Any]] = []
-        for event in top_events:
+        for entry in top_entries:
             rows.append(
                 {
-                    "item_id": int(event.item_id),
-                    "run_at": event.run_at,
-                    "queued_at": event.queued_at,
+                    "item_id": int(entry.item_id),
+                    "run_at": entry.run_at,
+                    "queued_at": entry.queued_at,
                     "item_state": (
-                        event.item_state.name if event.item_state else None
+                        entry.item_state.name if entry.item_state else None
                     ),
-                    "emitted_by": self._emitted_by_name(event.emitted_by),
-                    "deferred": naive_local_datetime(event.run_at) > now,
+                    "emitted_by": entry.emitted_by,
+                    "deferred": naive_local_datetime(entry.run_at) > now,
                 }
             )
 
@@ -1871,31 +1879,16 @@ class EventManager:
     ) -> None:
         """Remember a completed pipeline item for the Activity Done column (in-memory only)."""
 
-        now = datetime.now(UTC)
-        with self._recently_finished_lock:
-            self._prune_recently_finished_locked(now)
-            self._recently_finished[int(item_id)] = _RecentlyFinishedEntry(
-                item_id=int(item_id),
-                completed_at=now,
-                outcome=outcome,
-                service_name=service_name,
-                failure_service=failure_service if outcome == "failed" else None,
-                completion_detail=completion_detail,
-            )
+        self._recently_finished.record(
+            item_id,
+            outcome=outcome,
+            service_name=service_name,
+            failure_service=failure_service,
+            completion_detail=completion_detail,
+        )
 
     def pop_recently_finished(self, item_id: int) -> None:
-        with self._recently_finished_lock:
-            self._recently_finished.pop(int(item_id), None)
-
-    def _prune_recently_finished_locked(self, now: datetime | None = None) -> None:
-        cutoff = (now or datetime.now(UTC)) - _RECENTLY_FINISHED_TTL
-        stale = [
-            item_id
-            for item_id, entry in self._recently_finished.items()
-            if entry.completed_at < cutoff
-        ]
-        for item_id in stale:
-            del self._recently_finished[item_id]
+        self._recently_finished.pop(item_id)
 
     def count_scraped_not_in_pipeline(self) -> int:
         """Deprecated: use count_pipeline_backlog()."""
@@ -1911,9 +1904,9 @@ class EventManager:
 
         in_pipeline: set[int] = set()
         with self.mutex:
-            for event in self._queued_events:
-                if event.item_id:
-                    in_pipeline.add(int(event.item_id))
+            in_pipeline.update(
+                int(entry.item_id) for entry in self._queue.all_item_entries()
+            )
             in_pipeline.update(self._in_flight_rows_metadata().keys())
 
         with db_session() as session:
@@ -1928,61 +1921,7 @@ class EventManager:
     def get_recently_finished_rows(self) -> list[dict[str, Any]]:
         """Display rows for /activity_status Done column; does not touch the live queue."""
 
-        now = datetime.now(UTC)
-        with self._recently_finished_lock:
-            self._prune_recently_finished_locked(now)
-            entries = sorted(
-                self._recently_finished.values(),
-                key=lambda e: e.completed_at,
-                reverse=True,
-            )
-
-        item_ids = [int(entry.item_id) for entry in entries]
-        states_by_id: dict[int, States] = {}
-        if item_ids:
-            from sqlalchemy import select
-
-            from program.media.item import MediaItem
-
-            with db_session() as session:
-                for offset in range(0, len(item_ids), _SYNC_CHUNK_SIZE):
-                    chunk = item_ids[offset : offset + _SYNC_CHUNK_SIZE]
-                    for item_id, last_state in session.execute(
-                        select(MediaItem.id, MediaItem.last_state).where(
-                            MediaItem.id.in_(chunk)
-                        )
-                    ):
-                        if last_state is not None:
-                            states_by_id[int(item_id)] = last_state
-
-        rows: list[dict[str, Any]] = []
-        for entry in entries:
-            failure_svc = entry.failure_service or entry.service_name
-            if entry.outcome == "failed":
-                state_name = States.Failed.name
-            else:
-                last_state = states_by_id.get(int(entry.item_id))
-                state_name = (
-                    last_state.name if last_state else States.Completed.name
-                )
-            rows.append(
-                {
-                    "item_id": entry.item_id,
-                    "run_at": entry.completed_at,
-                    "queued_at": entry.completed_at,
-                    "item_state": state_name,
-                    "emitted_by": entry.service_name or "Pipeline",
-                    "deferred": False,
-                    "in_flight": False,
-                    "pipeline_phase": "recently_finished",
-                    "kanban_column": "finish",
-                    "completion_outcome": entry.outcome,
-                    "failure_service": failure_svc,
-                    "completion_detail": entry.completion_detail
-                    or entry.service_name,
-                }
-            )
-        return rows
+        return self._recently_finished.display_rows()
 
     def retry_failed_pipeline_item(self, item_id: int) -> bool:
         """Re-queue a failed item at the pipeline step that failed."""
@@ -1993,12 +1932,7 @@ class EventManager:
         if item is None or item.last_state != States.Failed:
             return False
 
-        with self._recently_finished_lock:
-            entry = self._recently_finished.get(int(item_id))
-
-        failure_service = (
-            (entry.failure_service or entry.service_name) if entry else None
-        )
+        failure_service = self._recently_finished.failure_service_for(item_id)
         if not failure_service:
             failure_service = "StateTransition"
 
@@ -2116,105 +2050,22 @@ class EventManager:
         """
 
         now = datetime.now()
-        deferred = 0
-        total_queued = 0
-        queue_by_source: dict[str, int] = {}
-        phase_counts: dict[str, int] = {}
-        column_counts: dict[str, int] = {col: 0 for col in KANBAN_COLUMN_ORDER}
-        next_deferred: datetime | None = None
-        buckets: dict[str, list[Event]] = {col: [] for col in KANBAN_COLUMN_ORDER}
-
-        # Dedupe runs on dispatch, not on every /activity_status poll (23k+ rows).
         self._normalize_queued_run_at_times()
+        per_limit = self._PIPELINE_PER_COLUMN_LIMIT
 
         with self.mutex:
             in_flight_meta = self._in_flight_rows_metadata()
-            content_only = [
-                e for e in self._queued_events if not e.item_id and e.content_item
-            ]
-            matched = self._deduped_queued_item_events_locked(now)
+            qstats = self._queue.stats(now)
 
-        for event in matched:
-            item_id = int(event.item_id)
-            if item_id in in_flight_meta:
-                continue
+        total_queued = qstats.total_queued
+        deferred = qstats.deferred
+        next_deferred = qstats.next_deferred
+        phase_counts = dict(qstats.phase_counts)
+        column_counts = dict(qstats.column_counts)
+        queue_by_source = dict(qstats.queue_by_source)
+        queue_truncated = qstats.queue_truncated
 
-            run_at = naive_local_datetime(event.run_at)
-            deferred_flag = run_at > now
-            phase = resolve_pipeline_phase(
-                item_state=event.item_state,
-                deferred=deferred_flag,
-                in_flight_service=None,
-            )
-            kanban = pipeline_phase_to_kanban(phase)
-            source = self._emitted_by_name(event.emitted_by)
-
-            total_queued += 1
-            phase_counts[phase] = phase_counts.get(phase, 0) + 1
-            column_counts[kanban] = column_counts.get(kanban, 0) + 1
-            queue_by_source[source] = queue_by_source.get(source, 0) + 1
-            buckets[kanban].append(event)
-
-            if deferred_flag:
-                deferred += 1
-                if next_deferred is None or run_at < next_deferred:
-                    next_deferred = run_at
-
-        for event in content_only:
-            phase = "queued_index"
-            kanban = pipeline_phase_to_kanban(phase)
-            source = self._emitted_by_name(event.emitted_by)
-            total_queued += 1
-            phase_counts[phase] = phase_counts.get(phase, 0) + 1
-            column_counts[kanban] = column_counts.get(kanban, 0) + 1
-            queue_by_source[source] = queue_by_source.get(source, 0) + 1
-
-        display_queued: list[Event] = []
-        queue_truncated = False
-        per_limit = self._PIPELINE_PER_COLUMN_LIMIT
-
-        def _queued_sort_key(event: Event) -> tuple[int, int, datetime]:
-            return pipeline_within_column_sort_key(
-                in_flight=False,
-                deferred=naive_local_datetime(event.run_at) > now,
-                run_at=naive_local_datetime(event.run_at),
-            )
-
-        for col in KANBAN_COLUMN_ORDER:
-            col_events = buckets.get(col, [])
-            if len(col_events) > per_limit:
-                queue_truncated = True
-            if col_events:
-                take = min(len(col_events), per_limit)
-                col_events = heapq.nsmallest(take, col_events, key=_queued_sort_key)
-            display_queued.extend(col_events)
-
-        self._sync_queued_item_states_from_db(display_queued)
-
-        rows: list[dict[str, Any]] = []
-        for event in display_queued:
-            rows.append(self._queued_event_row_dict(event, now=now))
-
-        for event in content_only:
-            phase = "queued_index"
-            kanban = pipeline_phase_to_kanban(phase)
-            source = self._emitted_by_name(event.emitted_by)
-            content = event.content_item
-            rows.append(
-                {
-                    "item_id": None,
-                    "content_title": content.log_string if content else "New item",
-                    "run_at": event.run_at,
-                    "queued_at": event.queued_at,
-                    "item_state": None,
-                    "emitted_by": source,
-                    "deferred": naive_local_datetime(event.run_at) > now,
-                    "in_flight": False,
-                    "pipeline_phase": phase,
-                    "kanban_column": kanban,
-                }
-            )
-
+        in_flight_by_column: dict[str, list[tuple[int, str, bool]]] = {}
         for item_id, (service_name, actively_running) in in_flight_meta.items():
             phase = resolve_pipeline_phase(
                 item_state=None,
@@ -2224,26 +2075,105 @@ class EventManager:
             kanban = pipeline_phase_to_kanban(phase)
             phase_counts[phase] = phase_counts.get(phase, 0) + 1
             column_counts[kanban] = column_counts.get(kanban, 0) + 1
-
-            rows.append(
-                {
-                    "item_id": item_id,
-                    "run_at": now,
-                    "queued_at": now,
-                    "item_state": None,
-                    "emitted_by": service_name,
-                    "deferred": False,
-                    "in_flight": True,
-                    "actively_running": actively_running,
-                    "pipeline_phase": phase,
-                    "kanban_column": kanban,
-                }
+            in_flight_by_column.setdefault(kanban, []).append(
+                (item_id, service_name, actively_running)
             )
 
-        total_items = total_queued + len(in_flight_meta)
+        display_queued: list[Event] = []
+        for col in KANBAN_COLUMN_ORDER:
+            inflight = in_flight_by_column.get(col, [])
+            remaining = max(0, per_limit - len(inflight))
+            queued_entries, col_truncated = self._queue.peek_display_for_kanban(
+                col, now, remaining
+            )
+            if col_truncated:
+                queue_truncated = True
+            for entry in queued_entries:
+                if int(entry.item_id) in in_flight_meta:
+                    continue
+                display_queued.append(entry_to_event(entry, entry.emitted_by))
 
-        with self._recently_finished_lock:
-            recently_finished_count = len(self._recently_finished)
+        self._sync_queued_item_states_from_db(display_queued)
+
+        rows: list[dict[str, Any]] = []
+        for col in KANBAN_COLUMN_ORDER:
+            inflight = in_flight_by_column.get(col, [])
+            inflight.sort(
+                key=lambda row: pipeline_within_column_sort_key(
+                    in_flight=True,
+                    deferred=False,
+                    run_at=now,
+                )
+            )
+            for item_id, service_name, actively_running in inflight:
+                phase = resolve_pipeline_phase(
+                    item_state=None,
+                    deferred=False,
+                    in_flight_service=service_name,
+                )
+                rows.append(
+                    {
+                        "item_id": item_id,
+                        "run_at": now,
+                        "queued_at": now,
+                        "item_state": None,
+                        "emitted_by": service_name,
+                        "deferred": False,
+                        "in_flight": True,
+                        "actively_running": actively_running,
+                        "pipeline_phase": phase,
+                        "kanban_column": col,
+                    }
+                )
+
+            col_events = [
+                event
+                for event in display_queued
+                if pipeline_phase_to_kanban(
+                    resolve_pipeline_phase(
+                        item_state=event.item_state,
+                        deferred=naive_local_datetime(event.run_at) > now,
+                        in_flight_service=None,
+                    )
+                )
+                == col
+            ]
+            col_events.sort(
+                key=lambda event: pipeline_within_column_sort_key(
+                    in_flight=False,
+                    deferred=naive_local_datetime(event.run_at) > now,
+                    run_at=naive_local_datetime(event.run_at),
+                )
+            )
+            for event in col_events:
+                rows.append(self._queued_event_row_dict(event, now=now))
+
+        with self.mutex:
+            for content in self._queue.content_entries():
+                phase = "queued_index"
+                kanban = pipeline_phase_to_kanban(phase)
+                source = content.emitted_by
+                rows.append(
+                    {
+                        "item_id": None,
+                        "content_title": (
+                            content.content_item.log_string
+                            if content.content_item
+                            else "New item"
+                        ),
+                        "run_at": content.run_at,
+                        "queued_at": content.queued_at,
+                        "item_state": None,
+                        "emitted_by": source,
+                        "deferred": naive_local_datetime(content.run_at) > now,
+                        "in_flight": False,
+                        "pipeline_phase": phase,
+                        "kanban_column": kanban,
+                    }
+                )
+
+        total_items = total_queued + len(in_flight_meta)
+        recently_finished_count = self._recently_finished.count()
         if recently_finished_count:
             column_counts["finish"] = (
                 column_counts.get("finish", 0) + recently_finished_count

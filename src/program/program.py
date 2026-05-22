@@ -3,6 +3,7 @@ import linecache
 import os
 import threading
 import time
+from datetime import datetime
 from queue import Empty
 from tracemalloc import Snapshot
 
@@ -339,7 +340,7 @@ class Program(threading.Thread):
 
             # Large backlogs are admitted only via dispatch_due_jobs; next() would pop
             # rows and re-queue without submit_job, adding churn on huge queues.
-            if len(self.em._queued_events) > 1000:
+            if self.em._queue.stats(datetime.now()).total_queued > 1000:
                 time.sleep(0.01)
                 continue
 

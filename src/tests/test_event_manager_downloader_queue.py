@@ -404,13 +404,35 @@ def test_library_services_use_higher_capacity_limit():
     with (
         patch.object(EventManager, "_pipeline_max_workers", return_value=4),
         patch.object(EventManager, "_pipeline_library_max_workers", return_value=32),
+        patch.object(
+            EventManager, "_pipeline_post_processing_max_workers", return_value=16
+        ),
     ):
         em = EventManager()
         assert em._service_capacity_limit("FilesystemService") == 32
         assert em._service_capacity_limit("Updater") == 32
-        assert em._service_capacity_limit("PostProcessing") == 32
+        assert em._service_capacity_limit("PostProcessing") == 16
         assert em._service_capacity_limit("Downloader") == 4
         assert em._service_capacity_limit("IndexerService") == 4
+
+
+def test_post_processing_executor_uses_dedicated_max_workers():
+    em = EventManager()
+    post_processing = Mock()
+    post_processing.__class__.__name__ = "PostProcessing"
+    filesystem = Mock()
+    filesystem.__class__.__name__ = "FilesystemService"
+
+    with (
+        patch.object(
+            EventManager, "_pipeline_post_processing_max_workers", return_value=16
+        ),
+        patch.object(EventManager, "_pipeline_library_max_workers", return_value=32),
+    ):
+        pp_executor = em._find_or_create_executor(post_processing)
+        fs_executor = em._find_or_create_executor(filesystem)
+    assert pp_executor._max_workers == 16
+    assert fs_executor._max_workers == 32
 
 
 def test_due_events_for_service_filters_by_cached_state():
@@ -641,16 +663,18 @@ def test_restore_pipeline_from_db_enqueues_actionable_items():
             ),
         ),
         patch.object(em, "_item_id_in_pipeline", return_value=False),
-        patch.object(em, "add_event", return_value=True) as mock_add,
+        patch(
+            "program.managers.event_manager.db_functions.get_item_ids",
+            return_value=(42, []),
+        ),
     ):
         restored = em.restore_pipeline_from_db(program, source="startup")
 
     assert restored == [42]
-    mock_add.assert_called_once()
-    call_event = mock_add.call_args[0][0]
-    assert call_event.item_id == 42
-    assert call_event.item_state == States.Indexed
-    assert call_event.emitted_by == "StateTransition"
+    entry = em._queue.get(42)
+    assert entry is not None
+    assert entry.item_state == States.Indexed
+    assert entry.emitted_by == "StateTransition"
 
 
 def test_dispatch_completed_post_processing_emitter_uses_state_transition():
@@ -774,14 +798,17 @@ def test_restore_pipeline_queues_via_state_transition_when_service_down():
             ),
         ),
         patch.object(em, "_item_id_in_pipeline", return_value=False),
-        patch.object(em, "add_event", return_value=True) as mock_add,
+        patch(
+            "program.managers.event_manager.db_functions.get_item_ids",
+            return_value=(7, []),
+        ),
     ):
         restored = em.restore_pipeline_from_db(program, source="startup")
 
     assert restored == [7]
-    call_event = mock_add.call_args[0][0]
-    assert call_event.emitted_by == "StateTransition"
-    assert call_event.item_state == States.Indexed
+    entry = em._queue.get(7)
+    assert entry.emitted_by == "StateTransition"
+    assert entry.item_state == States.Indexed
 
 
 def test_pipeline_activity_set_and_clear():
@@ -997,11 +1024,11 @@ def test_pipeline_snapshot_column_counts_before_display_limit():
     assert stats["total_items"] == 60
 
 
-def test_post_process_phases_map_to_update_kanban():
-    from program.managers.event_manager import pipeline_phase_to_kanban
+def test_post_process_phases_map_to_post_process_kanban():
+    from program.queue.mapping import pipeline_phase_to_kanban
 
-    assert pipeline_phase_to_kanban("queued_post_process") == "update"
-    assert pipeline_phase_to_kanban("post_processing") == "update"
+    assert pipeline_phase_to_kanban("queued_post_process") == "post_process"
+    assert pipeline_phase_to_kanban("post_processing") == "post_process"
     assert pipeline_phase_to_kanban("symlinking") == "symlink"
 
 
@@ -1045,6 +1072,7 @@ def test_retry_failed_pipeline_item_downloader(monkeypatch):
     assert fake.last_state == States.Scraped
     assert any(e.item_id == 5 for e in em._queued_events)
     assert 5 not in em._recently_finished
+    assert em._queue.contains_item(5)
 
 
 def test_recently_finished_rows_expire():
@@ -1059,11 +1087,8 @@ def test_recently_finished_rows_expire():
     assert rows[0]["kanban_column"] == "finish"
     assert rows[0]["completion_outcome"] == "success"
 
-    em._recently_finished[99] = em._recently_finished[99].__class__(
-        item_id=99,
-        completed_at=now - timedelta(minutes=3),
-        outcome="success",
-        service_name="PostProcessing",
+    em._recently_finished.set_completed_at_for_test(
+        99, now - timedelta(minutes=3)
     )
     assert em.get_recently_finished_rows() == []
 
@@ -1105,9 +1130,10 @@ def test_record_recently_finished_uses_utc_timestamp():
     em = EventManager()
     before = datetime.now(UTC)
     em.record_recently_finished(42, outcome="success", service_name="PostProcessing")
-    entry = em._recently_finished[42]
-    assert entry.completed_at.tzinfo is not None
-    assert abs((entry.completed_at - before).total_seconds()) < 2
+    completed_at = em._recently_finished.completed_at_for(42)
+    assert completed_at is not None
+    assert completed_at.tzinfo is not None
+    assert abs((completed_at - before).total_seconds()) < 2
 
 
 def test_process_future_postprocessing_records_done(monkeypatch):

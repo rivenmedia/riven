@@ -1003,7 +1003,7 @@
 
 .activity-kanban {
   display: grid;
-  grid-template-columns: repeat(4, 18rem);
+  grid-template-columns: repeat(7, minmax(12rem, 16rem));
   grid-auto-rows: 1fr;
   align-items: stretch;
   gap: 0.65rem;
@@ -1014,12 +1014,22 @@
   box-sizing: border-box;
 }
 
+.activity-kanban__column--paused .activity-kanban__header {
+  background: rgba(234, 179, 8, 0.22);
+  border-bottom-color: rgba(234, 179, 8, 0.35);
+  color: rgba(253, 230, 138, 0.95);
+}
+
+.activity-kanban__column--paused .activity-kanban__count {
+  color: rgba(253, 230, 138, 0.85);
+}
+
 .activity-kanban__column {
   display: flex;
   flex-direction: column;
   width: 100%;
   min-width: 0;
-  max-width: 18rem;
+  max-width: 16rem;
   min-height: 100%;
   box-sizing: border-box;
   flex-shrink: 0;
@@ -1039,6 +1049,42 @@
   font-weight: 600;
   border-bottom: 1px solid var(--panel-border);
   background: rgba(255, 255, 255, 0.03);
+}
+
+.activity-kanban__header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-kanban__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.activity-kanban__pause-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.2rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.activity-kanban__pause-btn:hover:not(:disabled) {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.activity-kanban__pause-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
 }
 
 .activity-kanban__count {

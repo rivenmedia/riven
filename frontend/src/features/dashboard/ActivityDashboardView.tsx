@@ -25,18 +25,17 @@ import {
 } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
 import {
-  ACTIVITY_DISPLAY_COLUMNS,
-  DISPLAY_COLUMN_LABELS,
-  aggregateDisplayColumnCounts,
+  ACTIVITY_KANBAN_COLUMNS,
+  KANBAN_COLUMN_LABELS,
+  KANBAN_SERVICE_NAMES,
   deriveCardStatus,
   deriveCardStatusLabel,
   deriveCardStatusShort,
   deriveCardStatusTooltip,
   deriveCardSubtextPlain,
-  mapBackendKanbanColumn,
-  type ActivityDisplayColumnId,
   type KanbanColumnId,
   type PipelineCardStatus,
+  type PipelineServiceName,
 } from './serviceSetupMessages';
 import { OverflowMarquee } from '../../shared/ui/OverflowMarquee';
 import { ServiceRateLimitCard } from '../../shared/rateLimits/ServiceRateLimitCard';
@@ -92,6 +91,7 @@ type ActivityStatus = {
       queue_truncated: boolean;
       next_ready_in_seconds?: number | null;
       columns: Record<KanbanColumnId, number>;
+      services_paused: Partial<Record<PipelineServiceName, boolean>>;
     };
     items: PipelineItem[];
   };
@@ -171,6 +171,28 @@ function CancelIcon() {
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 5v14M16 5v14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M8 5v14l11-7z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -413,13 +435,27 @@ function normalizeActivityStatus(raw: unknown): ActivityStatus | null {
     download: Number(cols.download) || 0,
     symlink: Number(cols.symlink) || 0,
     update: Number(cols.update) || 0,
+    post_process: Number(cols.post_process) || 0,
     finish: Number(cols.finish) || 0,
   } as Record<KanbanColumnId, number>;
+
+  const servicesPausedRaw = (queue.services_paused ?? {}) as Record<string, unknown>;
+  const services_paused = Object.fromEntries(
+    Object.entries(servicesPausedRaw).map(([k, v]) => [k, Boolean(v)]),
+  ) as Partial<Record<PipelineServiceName, boolean>>;
 
   const items: PipelineItem[] = Array.isArray(pipeline.items)
     ? (pipeline.items as Record<string, unknown>[]).map((row, index) => {
         const backendCol = (
-          ['added', 'scrape', 'download', 'symlink', 'update', 'finish'] as const
+          [
+            'added',
+            'scrape',
+            'download',
+            'symlink',
+            'update',
+            'post_process',
+            'finish',
+          ] as const
         ).includes(row.kanban_column as KanbanColumnId)
           ? (row.kanban_column as KanbanColumnId)
           : 'finish';
@@ -464,6 +500,7 @@ function normalizeActivityStatus(raw: unknown): ActivityStatus | null {
             ? Number(queue.next_ready_in_seconds)
             : null,
         columns: backendColumns,
+        services_paused,
       },
       items,
     },
@@ -489,6 +526,9 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
   const [status, setStatus] = useState<ActivityStatus | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
   const [queueActionId, setQueueActionId] = useState<number | null>(null);
+  const [servicePauseAction, setServicePauseAction] = useState<PipelineServiceName | null>(
+    null,
+  );
   const loadInFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -575,6 +615,25 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
     [loadStatus],
   );
 
+  const togglePipelineServicePause = useCallback(
+    async (service: PipelineServiceName, paused: boolean) => {
+      setServicePauseAction(service);
+      try {
+        const path = paused ? '/pipeline_service/resume' : '/pipeline_service/pause';
+        const res = await apiPost(path, { service });
+        if (!res.ok) {
+          notify(res.error || 'Could not update pipeline service', 'error');
+          return;
+        }
+        notify(paused ? `Resumed ${service}` : `Paused ${service}`, 'success');
+        await loadStatus();
+      } finally {
+        setServicePauseAction(null);
+      }
+    },
+    [loadStatus],
+  );
+
   const limitersByOwner = useMemo(() => {
     const map: Record<string, LimiterSnapshot[]> = {};
     for (const lim of status?.downloader.rate_limits ?? []) {
@@ -614,25 +673,19 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
     status?.downloader.pause_until,
   ]);
 
-  const displayColumnCounts = useMemo(
-    () =>
-      status?.pipeline.queue.columns
-        ? aggregateDisplayColumnCounts(status.pipeline.queue.columns)
-        : null,
-    [status?.pipeline.queue.columns],
-  );
+  const columnCounts = status?.pipeline.queue.columns ?? null;
 
   const itemsByColumn = useMemo(() => {
     const grouped = Object.fromEntries(
-      ACTIVITY_DISPLAY_COLUMNS.map((col) => [col, [] as PipelineItem[]]),
-    ) as Record<ActivityDisplayColumnId, PipelineItem[]>;
+      ACTIVITY_KANBAN_COLUMNS.map((col) => [col, [] as PipelineItem[]]),
+    ) as Record<KanbanColumnId, PipelineItem[]>;
 
     for (const item of status?.pipeline.items ?? []) {
-      const col = mapBackendKanbanColumn(item.kanban_column);
-      grouped[col].push(item);
+      const col = item.kanban_column;
+      if (grouped[col]) grouped[col].push(item);
     }
 
-    for (const col of ACTIVITY_DISPLAY_COLUMNS) {
+    for (const col of ACTIVITY_KANBAN_COLUMNS) {
       grouped[col].sort((a, b) => a.sort_rank - b.sort_rank);
     }
 
@@ -721,20 +774,57 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
 
         <div className="activity-kanban-wrap">
           <div className="activity-kanban" role="list" aria-label="Pipeline board">
-            {ACTIVITY_DISPLAY_COLUMNS.map((col) => {
-              const label = DISPLAY_COLUMN_LABELS[col];
+            {ACTIVITY_KANBAN_COLUMNS.map((col) => {
+              const label = KANBAN_COLUMN_LABELS[col];
+              const serviceName = KANBAN_SERVICE_NAMES[col];
               const cards = itemsByColumn[col];
-              const count = displayColumnCounts?.[col] ?? cards.length;
+              const count = columnCounts?.[col] ?? cards.length;
+              const servicePaused =
+                serviceName != null &&
+                Boolean(status?.pipeline.queue.services_paused?.[serviceName]);
+              const pauseBusy = serviceName != null && servicePauseAction === serviceName;
               return (
                 <section
                   key={col}
-                  className="activity-kanban__column"
+                  className={`activity-kanban__column${servicePaused ? ' activity-kanban__column--paused' : ''}`}
                   role="listitem"
                   aria-label={label.tooltip}
                 >
-                  <header className="activity-kanban__header" title={label.tooltip}>
-                    <span>{label.short}</span>
-                    <span className="activity-kanban__count">{count}</span>
+                  <header
+                    className="activity-kanban__header"
+                    title={
+                      servicePaused ? `${label.tooltip} — dispatch paused` : label.tooltip
+                    }
+                  >
+                    <span className="activity-kanban__header-title">
+                      {label.short}
+                      {servicePaused ? ' (Paused)' : ''}
+                    </span>
+                    <span className="activity-kanban__header-actions">
+                      {serviceName != null && (
+                        <button
+                          type="button"
+                          className="activity-kanban__pause-btn"
+                          title={
+                            servicePaused
+                              ? `Resume ${serviceName} dispatch`
+                              : `Pause ${serviceName} dispatch`
+                          }
+                          aria-label={
+                            servicePaused
+                              ? `Resume ${serviceName}`
+                              : `Pause ${serviceName}`
+                          }
+                          disabled={pauseBusy}
+                          onClick={() =>
+                            void togglePipelineServicePause(serviceName, servicePaused)
+                          }
+                        >
+                          {servicePaused ? <PlayIcon /> : <PauseIcon />}
+                        </button>
+                      )}
+                      <span className="activity-kanban__count">{count}</span>
+                    </span>
                   </header>
                   <div className="activity-kanban__body">
                     {cards.length === 0 ? (

@@ -374,6 +374,7 @@ class PipelineColumnCounts(BaseModel):
     download: int = 0
     symlink: int = 0
     update: int = 0
+    post_process: int = 0
     finish: int = 0
 
 
@@ -388,6 +389,18 @@ class PipelineQueueSummary(BaseModel):
     next_ready_at: str | None = None
     next_ready_in_seconds: float | None = None
     queue_truncated: bool = False
+    services_paused: dict[str, bool] = Field(default_factory=dict)
+
+
+class PipelineServicePauseRequest(BaseModel):
+    service: Literal[
+        "IndexerService",
+        "Scraping",
+        "Downloader",
+        "FilesystemService",
+        "Updater",
+        "PostProcessing",
+    ]
 
 
 class PipelineItemResponse(BaseModel):
@@ -661,7 +674,11 @@ def _pipeline_items_from_rows(
 
     now_utc = datetime.now(UTC)
 
-    for rank, raw in enumerate(event_rows):
+    column_rank: dict[str, int] = {}
+    for raw in event_rows:
+        col = str(raw.get("kanban_column") or "finish")
+        rank = column_rank.get(col, 0)
+        column_rank[col] = rank + 1
         item_id = raw.get("item_id")
         in_flight = bool(raw.get("in_flight"))
         deferred = bool(raw.get("deferred"))
@@ -747,6 +764,7 @@ def _pipeline_items_from_rows(
                     sort_rank=rank,
                 )
             )
+            continue
         else:
             wait_seconds = (
                 max(0.0, (run_at - now).total_seconds())
@@ -815,6 +833,7 @@ def _column_counts_from_stats(stats: dict[str, Any]) -> PipelineColumnCounts:
         download=int(cc.get("download", 0)),
         symlink=int(cc.get("symlink", 0)),
         update=int(cc.get("update", 0)),
+        post_process=int(cc.get("post_process", 0)),
         finish=int(cc.get("finish", 0)),
     )
 
@@ -943,6 +962,7 @@ def _build_activity_status() -> ActivityStatusResponse:
                     next_ready_in_seconds=queue_raw.get("next_ready_in_seconds"),
                     queue_truncated=bool(queue_raw.get("queue_truncated", False))
                     or merge_truncated,
+                    services_paused=program.em.get_pipeline_services_paused(),
                 ),
                 items=_pipeline_items_from_rows(
                     queue_rows, item_display, active_activities
@@ -1288,6 +1308,54 @@ async def pipeline_queue_retry_failed(
     body: PipelineQueueReorderRequest,
 ) -> MessageResponse:
     return await run_in_threadpool(_pipeline_queue_retry_failed_sync, body.item_id)
+
+
+def _pipeline_service_pause_sync(body: PipelineServicePauseRequest) -> MessageResponse:
+    try:
+        program = di[Program]
+        if not program.em.pause_pipeline_service(body.service):
+            raise HTTPException(status_code=400, detail="Invalid pipeline service")
+        return MessageResponse(message=f"Paused {body.service}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error pausing pipeline service")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+def _pipeline_service_resume_sync(body: PipelineServicePauseRequest) -> MessageResponse:
+    try:
+        program = di[Program]
+        if not program.em.resume_pipeline_service(body.service):
+            raise HTTPException(status_code=400, detail="Invalid pipeline service")
+        return MessageResponse(message=f"Resumed {body.service}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error resuming pipeline service")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.post(
+    "/pipeline_service/pause",
+    operation_id="pipeline_service_pause",
+    response_model=MessageResponse,
+)
+async def pipeline_service_pause(
+    body: PipelineServicePauseRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(_pipeline_service_pause_sync, body)
+
+
+@router.post(
+    "/pipeline_service/resume",
+    operation_id="pipeline_service_resume",
+    response_model=MessageResponse,
+)
+async def pipeline_service_resume(
+    body: PipelineServicePauseRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(_pipeline_service_resume_sync, body)
 
 
 @router.get(

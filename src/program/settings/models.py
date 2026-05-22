@@ -1006,9 +1006,15 @@ class AppModel(Observable):
         le=64,
         description=(
             "Max concurrent library pipeline jobs per service (symlink/filesystem, "
-            "updater, post-processing). Higher than pipeline_max_workers so the "
-            "Library column drains quickly and does not sit behind indexer/scrape backlog."
+            "updater). Higher than pipeline_max_workers so the Library column drains "
+            "quickly and does not sit behind indexer/scrape backlog."
         ),
+    )
+    pipeline_post_processing_max_workers: int = Field(
+        default=16,
+        ge=1,
+        le=32,
+        description="Max concurrent post-processing jobs (subtitles, etc.).",
     )
     filesystem: FilesystemModel = Field(
         default_factory=lambda: FilesystemModel(),

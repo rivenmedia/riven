@@ -71,90 +71,43 @@ export const KANBAN_COLUMN_ORDER = [
   'download',
   'symlink',
   'update',
+  'post_process',
   'finish',
 ] as const;
 
 export type KanbanColumnId = (typeof KANBAN_COLUMN_ORDER)[number];
 
-/** Columns rendered on the Activity Kanban board (excludes Added). */
-export const ACTIVITY_KANBAN_COLUMNS = KANBAN_COLUMN_ORDER.filter(
-  (col): col is Exclude<KanbanColumnId, 'added'> => col !== 'added',
-);
+export type PipelineServiceName =
+  | 'IndexerService'
+  | 'Scraping'
+  | 'Downloader'
+  | 'FilesystemService'
+  | 'Updater'
+  | 'PostProcessing';
+
+/** Columns rendered on the Activity Kanban board (one per pipeline service + Done). */
+export const ACTIVITY_KANBAN_COLUMNS = KANBAN_COLUMN_ORDER;
+
+export const KANBAN_SERVICE_NAMES: Record<KanbanColumnId, PipelineServiceName | null> = {
+  added: 'IndexerService',
+  scrape: 'Scraping',
+  download: 'Downloader',
+  symlink: 'FilesystemService',
+  update: 'Updater',
+  post_process: 'PostProcessing',
+  finish: null,
+};
 
 export const KANBAN_COLUMN_LABELS: Record<KanbanColumnId, { short: string; tooltip: string }> =
   {
-    added: { short: 'Added', tooltip: 'Indexing / queued for metadata' },
-    scrape: { short: 'Scrape', tooltip: 'Finding torrents' },
-    download: { short: 'Download', tooltip: 'Debrid download' },
-    symlink: { short: 'Symlink', tooltip: 'Symlink to library' },
-    update: { short: 'Update', tooltip: 'Library metadata refresh' },
-    finish: { short: 'Done', tooltip: 'Post-processing' },
+    added: { short: 'Index', tooltip: 'IndexerService — metadata index' },
+    scrape: { short: 'Scrape', tooltip: 'Scraping — find torrents' },
+    download: { short: 'Download', tooltip: 'Downloader — debrid download' },
+    symlink: { short: 'Symlink', tooltip: 'FilesystemService — symlink to library' },
+    update: { short: 'Update', tooltip: 'Updater — library metadata refresh' },
+    post_process: { short: 'Post-process', tooltip: 'PostProcessing — subtitles and cleanup' },
+    finish: { short: 'Done', tooltip: 'Recently finished (TTL)' },
   };
-
-/** Activity board display columns (merged backend kanban columns). */
-export const ACTIVITY_DISPLAY_COLUMNS = [
-  'prepare',
-  'download',
-  'library',
-  'finish',
-] as const;
-
-export type ActivityDisplayColumnId = (typeof ACTIVITY_DISPLAY_COLUMNS)[number];
-
-export const DISPLAY_COLUMN_LABELS: Record<
-  ActivityDisplayColumnId,
-  { short: string; tooltip: string }
-> = {
-  prepare: {
-    short: 'Prepare',
-    tooltip: 'Indexing metadata and scraping torrents',
-  },
-  download: {
-    short: 'Download',
-    tooltip: 'Debrid download',
-  },
-  library: {
-    short: 'Library',
-    tooltip: 'Symlink to library and media server refresh',
-  },
-  finish: {
-    short: 'Done',
-    tooltip: 'Post-processing and recently finished',
-  },
-};
-
-export function mapBackendKanbanColumn(col: KanbanColumnId): ActivityDisplayColumnId {
-  switch (col) {
-    case 'added':
-    case 'scrape':
-      return 'prepare';
-    case 'download':
-      return 'download';
-    case 'symlink':
-    case 'update':
-      return 'library';
-    case 'finish':
-    default:
-      return 'finish';
-  }
-}
-
-export function aggregateDisplayColumnCounts(
-  backend: Partial<Record<KanbanColumnId, number>>,
-): Record<ActivityDisplayColumnId, number> {
-  const added = backend.added ?? 0;
-  const scrape = backend.scrape ?? 0;
-  const download = backend.download ?? 0;
-  const symlink = backend.symlink ?? 0;
-  const update = backend.update ?? 0;
-  const finish = backend.finish ?? 0;
-  return {
-    prepare: added + scrape,
-    download,
-    library: symlink + update,
-    finish,
-  };
-}
 
 export type PipelineCardStatus =
   | 'running'
