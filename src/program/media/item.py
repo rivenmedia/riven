@@ -85,12 +85,14 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         back_populates="parents",
         lazy="selectin",
         cascade="all",
+        passive_deletes=True,
     )
     blacklisted_streams: Mapped[list[Stream]] = relationship(
         secondary="StreamBlacklistRelation",
         back_populates="blacklisted_parents",
         lazy="selectin",
         cascade="all",
+        passive_deletes=True,
     )
 
     aliases: Mapped[dict[str, list[str]] | None] = mapped_column(
@@ -832,18 +834,41 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         return "Unknown"
 
     def is_parent_blocked(self) -> bool:
-        """Return True if self or any parent is paused using targeted lookups (no relationship refresh)."""
+        """Return True if self or any ancestor is paused (scalar lookups only)."""
 
         if self.last_state == States.Paused:
             return True
 
         session = object_session(self)
+        if not session or not session.is_active:
+            return False
 
-        if session and session.is_active and isinstance(self, (Season, Episode)):
-            session.refresh(self, ["parent"])
+        def parent_is_paused(parent_id: int | None) -> bool | None:
+            """True if paused, False if active, None if the parent row no longer exists."""
+            if not parent_id:
+                return False
+            state = session.execute(
+                select(MediaItem.last_state).where(MediaItem.id == parent_id)
+            ).scalar_one_or_none()
+            if state is None:
+                return None
+            return state == States.Paused
 
-            if self.parent:
-                return self.parent.is_parent_blocked()
+        if isinstance(self, Episode):
+            season_paused = parent_is_paused(self.parent_id)
+            if season_paused is None:
+                return False
+            if season_paused:
+                return True
+            show_id = session.execute(
+                select(Season.parent_id).where(Season.id == self.parent_id)
+            ).scalar_one_or_none()
+            show_paused = parent_is_paused(show_id)
+            return show_paused is True
+
+        if isinstance(self, Season):
+            show_paused = parent_is_paused(self.parent_id)
+            return show_paused is True
 
         return False
 

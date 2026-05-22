@@ -76,6 +76,9 @@ _user_info_cache: tuple[float, DownloaderUserInfoResponse] | None = None
 _scraped_count_cache_lock = threading.Lock()
 _scraped_count_cache: tuple[float, int] | None = None
 
+_library_backlog_cache_lock = threading.Lock()
+_library_backlog_cache: tuple[float, dict[str, int]] | None = None
+
 
 class DownloaderServiceStatus(BaseModel):
     key: str
@@ -353,6 +356,115 @@ class DownloaderStatusResponse(BaseModel):
     recent_jobs: list[LastDownloaderJobResponse] = []
 
 
+class LibraryBacklogCounts(BaseModel):
+    indexed: int = 0
+    scraped: int = 0
+    requested: int = 0
+
+
+class PipelineColumnCounts(BaseModel):
+    added: int = 0
+    scrape: int = 0
+    download: int = 0
+    symlink: int = 0
+    update: int = 0
+    finish: int = 0
+
+
+class PipelineQueueSummary(BaseModel):
+    total_queued: int = 0
+    total_items: int = 0
+    deferred: int = 0
+    phase_counts: dict[str, int] = Field(default_factory=dict)
+    columns: PipelineColumnCounts
+    queue_by_source: dict[str, int] = Field(default_factory=dict)
+    next_ready_at: str | None = None
+    next_ready_in_seconds: float | None = None
+    queue_truncated: bool = False
+    scraped_not_in_queue: int = Field(
+        default=0,
+        description=(
+            "Movie/episode rows in actionable DB states (Indexed, Scraped, etc.) "
+            "not yet in the live event queue — not Done/post-processing work"
+        ),
+    )
+
+
+class PipelineItemResponse(BaseModel):
+    id: int | None = Field(default=None, description="Media item id when known")
+    content_title: str | None = Field(
+        default=None, description="Display for content-only queue rows before indexing"
+    )
+    title: str = ""
+    type: str = "unknown"
+    parent_title: str | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
+    state: str | None = None
+    activity: str | None = None
+    kanban_column: str
+    pipeline_phase: str
+    in_flight: bool = False
+    actively_running: bool = False
+    deferred: bool = False
+    reorderable: bool = False
+    run_at: str | None = None
+    queued_at: str | None = None
+    scraped_at: str | None = None
+    wait_seconds: float | None = None
+    emitted_by: str | None = None
+    completion_detail: str | None = None
+    completion_outcome: str | None = None
+    failure_service: str | None = None
+    sort_rank: int = 0
+
+
+class PipelineStatusBlock(BaseModel):
+    queue: PipelineQueueSummary
+    items: list[PipelineItemResponse]
+
+
+DOWNLOADER_RATE_LIMIT_OWNERS = frozenset(
+    {"realdebrid", "alldebrid", "debridlink", "torbox"}
+)
+
+SCRAPER_RATE_LIMIT_OWNERS = frozenset(
+    {
+        "torrentio",
+        "comet",
+        "mediafusion",
+        "aiostreams",
+        "jackett",
+        "prowlarr",
+        "zilean",
+        "rarbg",
+        "orionoid",
+    }
+)
+
+ACTIVITY_RATE_LIMIT_OWNERS = DOWNLOADER_RATE_LIMIT_OWNERS | SCRAPER_RATE_LIMIT_OWNERS
+
+
+class DownloaderStatusBlock(BaseModel):
+    paused: bool = False
+    pause_until: str | None = None
+    min_job_interval_seconds: float = 0.0
+    services: list[DownloaderServiceStatus] = Field(default_factory=list)
+    scraper_services: list[str] = Field(
+        default_factory=list,
+        description="Initialized scraper service keys (configured in settings)",
+    )
+    recent_jobs: list[LastDownloaderJobResponse] = Field(default_factory=list)
+    rate_limits: list[LimiterSnapshotResponse] = Field(default_factory=list)
+    initialized: bool = False
+
+
+class ActivityStatusResponse(BaseModel):
+    pipeline: PipelineStatusBlock
+    downloader: DownloaderStatusBlock
+    library_backlog: LibraryBacklogCounts
+
+
 def _recent_jobs_response(
     raw_jobs: list[dict[str, Any]],
     display: dict[int, tuple[InFlightItemResponse, datetime | None]] | None = None,
@@ -494,26 +606,344 @@ async def download_user_info(
 
 
 def _scraped_library_count() -> int:
-    global _scraped_count_cache
+    return _library_backlog_counts()["scraped"]
+
+
+def _library_backlog_counts() -> dict[str, int]:
+    global _library_backlog_cache, _scraped_count_cache
 
     now = time.monotonic()
-    with _scraped_count_cache_lock:
-        if _scraped_count_cache is not None:
-            cached_at, cached_count = _scraped_count_cache
+    with _library_backlog_cache_lock:
+        if _library_backlog_cache is not None:
+            cached_at, cached = _library_backlog_cache
             if now - cached_at < SCRAPED_COUNT_CACHE_TTL_SECONDS:
-                return cached_count
+                return dict(cached)
 
     with db_session() as session:
-        count = session.execute(
+        indexed = session.execute(
+            select(func.count(MediaItem.id)).where(
+                MediaItem.last_state == States.Indexed
+            )
+        ).scalar_one()
+        scraped = session.execute(
             select(func.count(MediaItem.id)).where(
                 MediaItem.last_state == States.Scraped
             )
         ).scalar_one()
+        requested = session.execute(
+            select(func.count(MediaItem.id)).where(
+                MediaItem.last_state == States.Requested
+            )
+        ).scalar_one()
 
-    with _scraped_count_cache_lock:
-        _scraped_count_cache = (now, int(count))
+    counts = {
+        "indexed": int(indexed),
+        "scraped": int(scraped),
+        "requested": int(requested),
+    }
 
-    return int(count)
+    with _library_backlog_cache_lock:
+        _library_backlog_cache = (now, counts)
+        _scraped_count_cache = (now, counts["scraped"])
+
+    return counts
+
+
+def _pipeline_items_from_rows(
+    event_rows: list[dict[str, Any]],
+    display: dict[int, tuple[InFlightItemResponse, datetime | None]] | None,
+    activities: dict[int, str] | None,
+) -> list[PipelineItemResponse]:
+    if not event_rows:
+        return []
+
+    now = datetime.now()
+    result: list[PipelineItemResponse] = []
+
+    for rank, raw in enumerate(event_rows):
+        item_id = raw.get("item_id")
+        in_flight = bool(raw.get("in_flight"))
+        deferred = bool(raw.get("deferred"))
+        run_at: datetime = raw["run_at"]
+        queued_at: datetime = raw["queued_at"]
+
+        if item_id is not None:
+            item_id_int = int(item_id)
+            display_row, scraped_at = (display or {}).get(
+                item_id_int,
+                (
+                    InFlightItemResponse(
+                        id=item_id_int,
+                        title=f"Item {item_id_int}",
+                        type="unknown",
+                    ),
+                    None,
+                ),
+            )
+            activity = (activities or {}).get(item_id_int) if in_flight else None
+            if activity:
+                display_row = display_row.model_copy(update={"activity": activity})
+
+            if deferred:
+                wait_seconds = max(0.0, (run_at - now).total_seconds())
+            else:
+                anchor = queued_at
+                if scraped_at and scraped_at > anchor:
+                    anchor = scraped_at
+                wait_seconds = max(0.0, (now - anchor).total_seconds())
+
+            phase = str(raw["pipeline_phase"])
+            if phase == "recently_finished":
+                wait_seconds = max(0.0, (now - run_at).total_seconds())
+
+            row_state = display_row.state
+            raw_state = raw.get("item_state")
+            if phase == "recently_finished" and raw_state:
+                row_state = str(raw_state)
+
+            result.append(
+                PipelineItemResponse(
+                    id=item_id_int,
+                    title=display_row.title,
+                    type=display_row.type,
+                    parent_title=display_row.parent_title,
+                    season_number=display_row.season_number,
+                    episode_number=display_row.episode_number,
+                    state=row_state,
+                    activity=display_row.activity,
+                    kanban_column=str(raw["kanban_column"]),
+                    pipeline_phase=phase,
+                    in_flight=in_flight,
+                    actively_running=bool(raw.get("actively_running")),
+                    deferred=deferred,
+                    reorderable=not in_flight and phase != "recently_finished",
+                    run_at=format_api_datetime(run_at),
+                    queued_at=format_api_datetime(queued_at),
+                    scraped_at=format_api_datetime(scraped_at),
+                    wait_seconds=wait_seconds,
+                    emitted_by=str(raw.get("emitted_by") or ""),
+                    completion_detail=raw.get("completion_detail"),
+                    completion_outcome=raw.get("completion_outcome"),
+                    failure_service=raw.get("failure_service"),
+                    sort_rank=rank,
+                )
+            )
+        else:
+            wait_seconds = (
+                max(0.0, (run_at - now).total_seconds())
+                if deferred
+                else max(0.0, (now - queued_at).total_seconds())
+            )
+            result.append(
+                PipelineItemResponse(
+                    content_title=str(raw.get("content_title") or "New item"),
+                    title=str(raw.get("content_title") or "New item"),
+                    type="unknown",
+                    kanban_column=str(raw["kanban_column"]),
+                    pipeline_phase=str(raw["pipeline_phase"]),
+                    in_flight=False,
+                    deferred=deferred,
+                    reorderable=False,
+                    run_at=format_api_datetime(run_at),
+                    queued_at=format_api_datetime(queued_at),
+                    wait_seconds=wait_seconds,
+                    emitted_by=str(raw.get("emitted_by") or ""),
+                    sort_rank=rank,
+                )
+            )
+
+    return result
+
+
+def _merge_recently_finished_pipeline_rows(
+    queue_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Append in-memory recently finished items to snapshot rows (Activity Done column)."""
+
+    from program.managers.event_manager import pipeline_column_sort_key
+
+    program = di[Program]
+    recent_rows = program.em.get_recently_finished_rows()
+    if not recent_rows:
+        return queue_rows
+
+    merged = list(queue_rows)
+    for row in recent_rows:
+        merged.append(row)
+
+    def sort_key(raw: dict[str, Any]) -> tuple[int, int, int, datetime]:
+        kanban = str(raw.get("kanban_column", "finish"))
+        if kanban not in ("added", "scrape", "download", "symlink", "update", "finish"):
+            kanban = "finish"
+        return pipeline_column_sort_key(
+            kanban,
+            in_flight=bool(raw.get("in_flight")),
+            deferred=bool(raw.get("deferred")),
+            run_at=raw["run_at"],
+        )
+
+    merged.sort(key=sort_key)
+    return merged
+
+
+def _column_counts_from_stats(stats: dict[str, Any]) -> PipelineColumnCounts:
+    """Use pre-truncation counts from the event manager snapshot, not display rows."""
+
+    cc = stats.get("column_counts") or {}
+    return PipelineColumnCounts(
+        added=int(cc.get("added", 0)),
+        scrape=int(cc.get("scrape", 0)),
+        download=int(cc.get("download", 0)),
+        symlink=int(cc.get("symlink", 0)),
+        update=int(cc.get("update", 0)),
+        finish=int(cc.get("finish", 0)),
+    )
+
+
+def _limiter_snapshot_responses(
+    *,
+    owner: str | None = None,
+    active_within_seconds: float | None = 30.0 * 60,
+    owners: frozenset[str] | None = None,
+) -> list[LimiterSnapshotResponse]:
+    rl = get_rate_limit_service()
+    snapshots = rl.snapshot_all(
+        owner=owner,
+        active_within_seconds=active_within_seconds,
+    )
+    if owners is not None:
+        snapshots = [s for s in snapshots if s.owner in owners]
+    return [
+        LimiterSnapshotResponse(
+            key=s.key,
+            label=s.label,
+            owner=s.owner,
+            tokens=s.tokens,
+            capacity=s.capacity,
+            rate_per_second=s.rate_per_second,
+            utilization_pct=s.utilization_pct,
+            next_token_in_seconds=s.next_token_in_seconds,
+            priority=s.priority,
+            warn_at_pct=s.warn_at_pct,
+            breaker_state=s.breaker_state,
+            breaker_failures=s.breaker_failures,
+            breaker_recovery_in_seconds=s.breaker_recovery_in_seconds,
+        )
+        for s in snapshots
+    ]
+
+
+def _build_activity_status() -> ActivityStatusResponse:
+    """Full pipeline activity for the Activity dashboard."""
+
+    try:
+        program = di[Program]
+        services = program.services
+
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
+
+        from program.managers.event_manager import limit_pipeline_rows_per_column
+
+        queue_raw, queue_rows = program.em.get_pipeline_queue_snapshot()
+        queue_rows = _merge_recently_finished_pipeline_rows(queue_rows)
+        scraped_not_in_queue = program.em.count_pipeline_backlog()
+        columns = _column_counts_from_stats(queue_raw)
+        queue_rows, merge_truncated = limit_pipeline_rows_per_column(
+            queue_rows, program.em._PIPELINE_PER_COLUMN_LIMIT
+        )
+
+        display_ids = [
+            int(r["item_id"]) for r in queue_rows if r.get("item_id") is not None
+        ]
+        item_display = (
+            _item_display_rows(list(dict.fromkeys(display_ids)))
+            if display_ids
+            else {}
+        )
+
+        downloader = services.downloader
+        scraping = services.scraping
+        downloader_initialized = bool(downloader and downloader.initialized)
+        active_activities: dict[int, str] = program.em.get_pipeline_activities()
+        recent_jobs: list[LastDownloaderJobResponse] = []
+        scraper_service_keys: list[str] = []
+        if scraping and scraping.initialized:
+            scraper_service_keys = sorted(
+                s.key for s in scraping.initialized_services
+            )
+
+        activity_rate_limits = _limiter_snapshot_responses(
+            owners=ACTIVITY_RATE_LIMIT_OWNERS
+        )
+        downloader_block = DownloaderStatusBlock(
+            rate_limits=activity_rate_limits,
+            scraper_services=scraper_service_keys,
+            initialized=downloader_initialized,
+        )
+
+        if downloader_initialized:
+            assert downloader is not None
+            operational = downloader.get_operational_status()
+            recent_jobs_raw = downloader.get_recent_jobs()
+            active_activities.update(downloader.get_active_job_activities())
+            recent_jobs = _recent_jobs_response(recent_jobs_raw, item_display)
+            downloader_block = DownloaderStatusBlock(
+                paused=bool(operational["paused"]),
+                pause_until=operational.get("pause_until"),
+                min_job_interval_seconds=float(
+                    operational["min_job_interval_seconds"]
+                ),
+                services=[
+                    DownloaderServiceStatus(
+                        key=str(row["key"]),
+                        available=bool(row["available"]),
+                        cooldown_until=row.get("cooldown_until"),
+                    )
+                    for row in operational["services"]
+                ],
+                scraper_services=scraper_service_keys,
+                recent_jobs=recent_jobs,
+                rate_limits=activity_rate_limits,
+                initialized=True,
+            )
+
+        backlog = _library_backlog_counts()
+
+        return ActivityStatusResponse(
+            pipeline=PipelineStatusBlock(
+                queue=PipelineQueueSummary(
+                    total_queued=int(queue_raw.get("total_queued", 0)),
+                    total_items=int(queue_raw.get("total_items", len(queue_rows))),
+                    deferred=int(queue_raw.get("deferred", 0)),
+                    phase_counts=dict(queue_raw.get("phase_counts") or {}),
+                    columns=columns,
+                    queue_by_source=dict(queue_raw.get("queue_by_source") or {}),
+                    next_ready_at=queue_raw.get("next_ready_at"),
+                    next_ready_in_seconds=queue_raw.get("next_ready_in_seconds"),
+                    queue_truncated=bool(queue_raw.get("queue_truncated", False))
+                    or merge_truncated,
+                    scraped_not_in_queue=scraped_not_in_queue,
+                ),
+                items=_pipeline_items_from_rows(
+                    queue_rows, item_display, active_activities
+                ),
+            ),
+            downloader=downloader_block,
+            library_backlog=LibraryBacklogCounts(
+                indexed=backlog["indexed"],
+                scraped=backlog["scraped"],
+                requested=backlog["requested"],
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error getting activity status")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
 
 
 def _build_downloader_status() -> DownloaderStatusResponse:
@@ -606,6 +1036,19 @@ async def downloader_status() -> DownloaderStatusResponse:
     return await run_in_threadpool(_build_downloader_status)
 
 
+@router.get(
+    "/activity_status",
+    operation_id="activity_status",
+    response_model=ActivityStatusResponse,
+)
+async def activity_status() -> ActivityStatusResponse:
+    return await run_in_threadpool(_build_activity_status)
+
+
+class PipelineQueueReorderRequest(BaseModel):
+    item_id: int = Field(description="Media item id to reorder in the pipeline queue")
+
+
 class DownloaderQueueReorderRequest(BaseModel):
     item_id: int = Field(description="Media item id to reorder in the downloader queue")
 
@@ -679,6 +1122,163 @@ async def downloader_queue_deprioritize(
     )
 
 
+def _pipeline_queue_reorder_sync(item_id: int, *, prioritize: bool) -> MessageResponse:
+    try:
+        program = di[Program]
+        services = program.services
+
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
+
+        if prioritize:
+            ok = program.em.prioritize_pipeline_queue_item(item_id)
+            action = "prioritize"
+        else:
+            ok = program.em.deprioritize_pipeline_queue_item(item_id)
+            action = "deprioritize"
+
+        if not ok:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Item {item_id} is not in the pipeline queue or is already running"
+                ),
+            )
+
+        return MessageResponse(
+            message=f"Pipeline queue {action} applied for item {item_id}"
+        )
+    except HTTPException:
+        raise
+    except ServiceError:
+        raise HTTPException(
+            status_code=503,
+            detail="Program services are not ready yet; try again in a few seconds.",
+        )
+    except Exception as e:
+        logger.exception("Error reordering pipeline queue item %s", item_id)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.post(
+    "/pipeline_queue/prioritize",
+    operation_id="pipeline_queue_prioritize",
+    response_model=MessageResponse,
+)
+async def pipeline_queue_prioritize(
+    body: PipelineQueueReorderRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(
+        _pipeline_queue_reorder_sync, body.item_id, prioritize=True
+    )
+
+
+@router.post(
+    "/pipeline_queue/deprioritize",
+    operation_id="pipeline_queue_deprioritize",
+    response_model=MessageResponse,
+)
+async def pipeline_queue_deprioritize(
+    body: PipelineQueueReorderRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(
+        _pipeline_queue_reorder_sync, body.item_id, prioritize=False
+    )
+
+
+def _pipeline_queue_dequeue_sync(item_id: int) -> MessageResponse:
+    try:
+        program = di[Program]
+        services = program.services
+
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
+
+        ok = program.em.dequeue_pipeline_queue_item(item_id)
+        if not ok:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Item {item_id} is not in the pipeline queue or is already running"
+                ),
+            )
+
+        return MessageResponse(
+            message=f"Pipeline queue dequeue applied for item {item_id}"
+        )
+    except HTTPException:
+        raise
+    except ServiceError:
+        raise HTTPException(
+            status_code=503,
+            detail="Program services are not ready yet; try again in a few seconds.",
+        )
+    except Exception as e:
+        logger.exception("Error dequeuing pipeline queue item %s", item_id)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.post(
+    "/pipeline_queue/dequeue",
+    operation_id="pipeline_queue_dequeue",
+    response_model=MessageResponse,
+)
+async def pipeline_queue_dequeue(
+    body: PipelineQueueReorderRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(_pipeline_queue_dequeue_sync, body.item_id)
+
+
+def _pipeline_queue_retry_failed_sync(item_id: int) -> MessageResponse:
+    try:
+        program = di[Program]
+        services = program.services
+
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
+
+        ok = program.em.retry_failed_pipeline_item(item_id)
+        if not ok:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Item {item_id} is not a retryable failed pipeline item",
+            )
+
+        return MessageResponse(
+            message=f"Pipeline retry applied for failed item {item_id}"
+        )
+    except HTTPException:
+        raise
+    except ServiceError:
+        raise HTTPException(
+            status_code=503,
+            detail="Program services are not ready yet; try again in a few seconds.",
+        )
+    except Exception as e:
+        logger.exception("Error retrying failed pipeline item %s", item_id)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
+@router.post(
+    "/pipeline_queue/retry_failed",
+    operation_id="pipeline_queue_retry_failed",
+    response_model=MessageResponse,
+)
+async def pipeline_queue_retry_failed(
+    body: PipelineQueueReorderRequest,
+) -> MessageResponse:
+    return await run_in_threadpool(_pipeline_queue_retry_failed_sync, body.item_id)
+
+
 @router.get(
     "/rate_limits",
     operation_id="rate_limits",
@@ -706,28 +1306,10 @@ async def rate_limits(
         active_within_seconds = (
             None if include_inactive else float(active_within_minutes * 60)
         )
-        snapshots = rl.snapshot_all(
+        limiters = _limiter_snapshot_responses(
             owner=owner,
             active_within_seconds=active_within_seconds,
         )
-        limiters = [
-            LimiterSnapshotResponse(
-                key=s.key,
-                label=s.label,
-                owner=s.owner,
-                tokens=s.tokens,
-                capacity=s.capacity,
-                rate_per_second=s.rate_per_second,
-                utilization_pct=s.utilization_pct,
-                next_token_in_seconds=s.next_token_in_seconds,
-                priority=s.priority,
-                warn_at_pct=s.warn_at_pct,
-                breaker_state=s.breaker_state,
-                breaker_failures=s.breaker_failures,
-                breaker_recovery_in_seconds=s.breaker_recovery_in_seconds,
-            )
-            for s in snapshots
-        ]
         by_owner: dict[str, list[str]] = {}
         for lim in limiters:
             by_owner.setdefault(lim.owner, []).append(lim.key)

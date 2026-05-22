@@ -2,34 +2,7 @@ import { useMemo } from 'react';
 import type { LimiterSnapshot } from './types';
 import { RateLimitRow } from './RateLimitRow';
 import { humanizeServiceKey } from '../../features/dashboard/serviceSetupMessages';
-
-const DOWNLOADER_OWNERS = new Set(['realdebrid', 'alldebrid', 'debridlink', 'torbox']);
-
-const OWNER_SORT_PRIORITY = [
-  'realdebrid',
-  'alldebrid',
-  'debridlink',
-  'torbox',
-  'torrentio',
-  'comet',
-  'mediafusion',
-  'aiostreams',
-  'jackett',
-  'prowlarr',
-  'zilean',
-  'rarbg',
-  'orionoid',
-  'tmdb',
-  'tvdb',
-  'trakt',
-  'plex',
-  'overseerr',
-];
-
-function ownerSortKey(owner: string): [number, string] {
-  const idx = OWNER_SORT_PRIORITY.indexOf(owner);
-  return [idx === -1 ? OWNER_SORT_PRIORITY.length : idx, owner];
-}
+import { DOWNLOADER_OWNERS, ownerSortKey } from './owners';
 
 type Props = {
   limiters: LimiterSnapshot[];
@@ -111,4 +84,4 @@ export function RateLimitsPanel({
   );
 }
 
-export { DOWNLOADER_OWNERS };
+export { DOWNLOADER_OWNERS } from './owners';

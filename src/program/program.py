@@ -10,6 +10,7 @@ from program.apis import bootstrap_apis
 from program.services.rate_limit import bootstrap_rate_limit_service
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
+from program.media.state import States
 from program.media.filesystem_entry import FilesystemEntry
 from program.services.content import (
     Listrr,
@@ -231,12 +232,12 @@ class Program(threading.Thread):
 
         self.initialize_services()
 
-        if self.services and self.services.downloader.initialized:
-            hydrated = self.em.hydrate_scraped_backlog(self)
-            if hydrated:
+        if self.services:
+            restored_ids = self.em.restore_pipeline_from_db(self, source="startup")
+            if restored_ids:
                 logger.log(
                     "PROGRAM",
-                    f"Re-queued {hydrated} scraped items into the download pipeline",
+                    f"Restored {len(restored_ids)} pipeline queue entries from database",
                 )
 
         with db_session() as session:
@@ -334,6 +335,8 @@ class Program(threading.Thread):
                 time.sleep(1)
                 continue
 
+            self.em.dispatch_due_jobs(self)
+
             try:
                 event = self.em.next()
 
@@ -370,6 +373,23 @@ class Program(threading.Thread):
             next_service = processed_event.service
             items_to_submit = processed_event.related_media_items
 
+            if (
+                existing_item
+                and existing_item.last_state == States.Completed
+                and not next_service
+                and not items_to_submit
+            ):
+                emitted_name = (
+                    event.emitted_by.__class__.__name__
+                    if not isinstance(event.emitted_by, str)
+                    else event.emitted_by
+                )
+                self.em.record_recently_finished(
+                    int(existing_item.id),
+                    outcome="success",
+                    service_name=emitted_name,
+                )
+
             if items_to_submit:
                 for item_to_submit in items_to_submit:
                     if not next_service:
@@ -379,23 +399,19 @@ class Program(threading.Thread):
                             )
                         )
                     else:
-                        # We are in the database, pass on id.
                         if item_to_submit.id:
-                            event = Event(
+                            follow_up = Event(
                                 next_service,
                                 item_id=item_to_submit.id,
                                 overrides=processed_event.overrides,
                             )
-                        # We are not, lets pass the MediaItem
                         else:
-                            event = Event(
+                            follow_up = Event(
                                 next_service,
                                 content_item=item_to_submit,
                                 overrides=processed_event.overrides,
                             )
-
-                        # Event will be added to running when job actually starts in submit_job
-                        self.em.submit_job(next_service, self, event)
+                        self.em.add_event(follow_up)
 
     def stop(self):
         if not self.initialized:

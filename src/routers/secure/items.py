@@ -861,15 +861,8 @@ async def retry_items(
     response_model=RetryResponse,
 )
 async def retry_library_items() -> RetryResponse:
-    item_ids = db_functions.retry_library()
-
-    for item_id in item_ids:
-        di[Program].em.add_event(
-            Event(
-                emitted_by="RetryLibrary",
-                item_id=item_id,
-            )
-        )
+    program = di[Program]
+    item_ids = program.em.restore_pipeline_from_db(program, source="api")
 
     return RetryResponse(
         message=f"Retried {len(item_ids)} items",

@@ -360,15 +360,28 @@ def run_thread_with_db_item(
                     input_item = session.merge(input_item)
 
                     from program.settings import settings_manager
-                    
-                    # Execute service within the settings context if overrides exist
+
+                    em = program.em
+                    em.add_event_to_running(event)
+                    if event.item_id:
+                        em.set_pipeline_activity(
+                            int(event.item_id),
+                            f"Starting {service.__class__.__name__}",
+                        )
+
                     overrides = event.overrides or {}
-                    with settings_manager.override(**overrides):
-                        gen = fn(input_item)
-                        try:
-                            runner_result = next(gen, None)
-                        finally:
-                            gen.close()
+                    runner_result = None
+                    try:
+                        with settings_manager.override(**overrides):
+                            gen = fn(input_item)
+                            try:
+                                runner_result = next(gen, None)
+                            finally:
+                                gen.close()
+                    finally:
+                        if event.item_id:
+                            em.clear_pipeline_activity(int(event.item_id))
+                        em.remove_event_from_running(event)
 
                     if runner_result:
                         if len(runner_result.media_items) > 1:

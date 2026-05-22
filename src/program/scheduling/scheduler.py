@@ -159,17 +159,16 @@ class ProgramScheduler:
             )
 
     def _retry_library(self) -> None:
-        """Retry items that failed to download by emitting events into the EM."""
+        """Re-queue actionable library items via the unified pipeline restore path."""
 
-        item_ids = db_functions.retry_library()
+        restored_ids = self.program.em.restore_pipeline_from_db(
+            self.program, source="retry_library"
+        )
 
-        for item_id in item_ids:
-            self.program.em.add_event(Event(emitted_by="RetryLibrary", item_id=item_id))
-
-        if item_ids:
+        if restored_ids:
             logger.log(
                 "PROGRAM",
-                f"Successfully retried {len(item_ids)} incomplete items",
+                f"Restored {len(restored_ids)} pipeline queue entries from library retry",
             )
         else:
             logger.log("NOT_FOUND", "No items required retrying")

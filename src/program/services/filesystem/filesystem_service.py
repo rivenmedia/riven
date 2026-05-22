@@ -100,6 +100,10 @@ class FilesystemService(Runner[FilesystemModel]):
             logger.warning("RivenVFS initialization failed")
 
     def run(self, item: "MediaItem") -> MediaItemGenerator:
+        from program.managers.pipeline_activity import report_pipeline_activity_for_item
+
+        report_pipeline_activity_for_item(item, "Creating library symlinks")
+
         if not self.riven_vfs:
             logger.warning(
                 "RivenVFS not initialized (FUSE unavailable and mock VFS failed to attach); "

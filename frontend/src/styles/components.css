@@ -675,3 +675,46 @@ details[open].collapsible-panel .collapsible-panel__chevron {
   background: rgba(132, 150, 194, 0.2);
   color: var(--text-0);
 }
+
+.overflow-marquee {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.overflow-marquee__track {
+  display: inline-block;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.overflow-marquee--scroll .overflow-marquee__track {
+  max-width: none;
+  animation: overflow-marquee var(--overflow-marquee-duration, 8s) ease-in-out infinite;
+}
+
+@keyframes overflow-marquee {
+  0%,
+  16% {
+    transform: translateX(0);
+  }
+  44%,
+  56% {
+    transform: translateX(calc(-1 * var(--overflow-marquee-distance, 0px)));
+  }
+  84%,
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overflow-marquee--scroll .overflow-marquee__track {
+    animation: none;
+  }
+
+  .overflow-marquee--scroll {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

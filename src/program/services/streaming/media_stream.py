@@ -905,8 +905,13 @@ class MediaStream:
                     raise DebridServiceUnableToConnectException(
                         provider=self.provider
                     ) from e
-                elif status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE, HTTPStatus.SERVICE_UNAVAILABLE):
-                    # File can't be found at this URL; try refreshing the URL once
+                elif status_code in (
+                    HTTPStatus.NOT_FOUND,
+                    HTTPStatus.GONE,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    HTTPStatus.BAD_REQUEST,
+                ):
+                    # Stale or invalid CDN link; try refreshing the URL once
                     if attempt == 0:
                         has_fresh_url = await self._refresh_download_url()
 

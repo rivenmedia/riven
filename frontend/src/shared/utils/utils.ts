@@ -20,6 +20,35 @@ export function mediaLabel(item) {
   return 'Media';
 }
 
+/** Compact pipeline/Kanban title: movie name, show name, "Show S01", or "Show S01E02". */
+export function formatCompactPipelineTitle(item: {
+  type?: string;
+  title?: string;
+  name?: string;
+  parent_title?: string | null;
+  season_number?: number | null;
+  episode_number?: number | null;
+}): string {
+  const title = (item?.title || item?.name || '').trim();
+  if (item?.type === 'episode') {
+    const show = (item.parent_title || '').trim();
+    const s =
+      item.season_number != null ? String(item.season_number).padStart(2, '0') : '??';
+    const e =
+      item.episode_number != null ? String(item.episode_number).padStart(2, '0') : '??';
+    if (show) return `${show} S${s}E${e}`;
+    return `S${s}E${e}`;
+  }
+  if (item?.type === 'season') {
+    const show = (item.parent_title || title).trim();
+    const s =
+      item.season_number != null ? String(item.season_number).padStart(2, '0') : '??';
+    if (show) return `${show} S${s}`;
+    return title || `Season ${s}`;
+  }
+  return title || 'Unknown';
+}
+
 /** Format episode for display: "Show Name — S01E04 — Episode Title" */
 export function formatEpisodeDisplayTitle(item: {
   type?: string;

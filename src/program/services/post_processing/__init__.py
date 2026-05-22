@@ -63,22 +63,36 @@ class PostProcessing(Runner[PostProcessingModel]):
         Args:
             item: MediaItem to process (can be show, season, movie, or episode)
         """
-        # Get items to process (expand shows/seasons to episodes)
-        items_to_process = self._get_items_to_process(item)
+        from program.managers.pipeline_activity import (
+            report_pipeline_activity_for_item,
+        )
 
-        if not items_to_process:
-            logger.debug(f"No items to process for {item.log_string}")
+        item_id = getattr(item, "id", None)
+        try:
+            report_pipeline_activity_for_item(item, "Post-processing")
+            items_to_process = self._get_items_to_process(item)
+
+            if not items_to_process:
+                logger.debug(f"No items to process for {item.log_string}")
+                yield RunnerResult(media_items=[item])
+                return
+
+            for process_item in items_to_process:
+                if self.services[SubtitleService].should_submit(process_item):
+                    report_pipeline_activity_for_item(
+                        item, "Fetching subtitles"
+                    )
+                    self.services[SubtitleService].run(process_item)
+
+            logger.info(f"Post-processing complete for {item.log_string}")
             yield RunnerResult(media_items=[item])
-            return
+        finally:
+            if item_id is not None:
+                try:
+                    from kink import di
 
-        # Handle subtitles
-        for process_item in items_to_process:
-            if self.services[SubtitleService].should_submit(process_item):
-                self.services[SubtitleService].run(process_item)
+                    from program.program import Program
 
-            # Clean up streams when item is completed -- TODO: BLACKLISTING WONT WORK, WHY?
-            # if process_item.last_state == States.Completed:
-            #     process_item.streams.clear()
-
-        logger.info(f"Post-processing complete for {item.log_string}")
-        yield RunnerResult(media_items=[item])
+                    di[Program].em.clear_pipeline_activity(int(item_id))
+                except Exception:
+                    pass

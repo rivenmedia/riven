@@ -990,6 +990,16 @@ class AppModel(Observable):
     tracemalloc: bool = Field(
         default=False, description="Enable Python memory tracking (debug)"
     )
+    pipeline_max_workers: int = Field(
+        default=4,
+        ge=1,
+        le=32,
+        description=(
+            "Max concurrent pipeline jobs per service type (indexer, scrape, download, "
+            "symlink, update). Debrid spacing uses downloaders.min_job_interval_seconds; "
+            "scrapers use per-provider rate limits."
+        ),
+    )
     filesystem: FilesystemModel = Field(
         default_factory=lambda: FilesystemModel(),
         description="Filesystem configuration",

@@ -74,6 +74,9 @@ class Updater(Runner[None, BaseUpdater]):
             MediaItem: The item after processing
         """
 
+        from program.managers.pipeline_activity import report_pipeline_activity_for_item
+
+        report_pipeline_activity_for_item(item, "Refreshing media libraries")
         logger.debug(f"Starting update process for {item.log_string}")
         items = self.get_items_to_update(item)
         refreshed_paths = set[str]()  # Track refreshed paths to avoid duplicates

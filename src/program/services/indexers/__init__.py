@@ -32,6 +32,10 @@ class IndexerService(BaseIndexer):
     ) -> MediaItemGenerator:
         """Run the appropriate indexer based on item type."""
 
+        from program.managers.pipeline_activity import report_pipeline_activity_for_item
+
+        report_pipeline_activity_for_item(item, "Indexing metadata")
+
         if isinstance(item, Movie) or (item.tmdb_id and not item.tvdb_id):
             yield from self.tmdb_indexer.run(
                 item=item,

@@ -353,3 +353,481 @@ def test_reorder_returns_false_for_unknown_or_running():
     em._running_events = [Event(emitted_by=Downloader, item_id=2)]
     assert em.prioritize_downloader_queue_item(2) is False
     assert em.deprioritize_downloader_queue_item(2) is False
+
+
+def test_pipeline_executor_uses_configured_max_workers():
+    class FakeScraping:
+        pass
+
+    em = EventManager()
+    with patch.object(EventManager, "_pipeline_max_workers", return_value=6):
+        executor = em._find_or_create_executor(FakeScraping())
+    assert executor._max_workers == 6
+
+
+def test_submit_job_requeues_when_scraping_at_capacity():
+    em = EventManager()
+    pending_future: Future[int] = Future()
+    em._futures = [
+        FutureWithEvent(
+            future=pending_future,
+            event=Event(emitted_by="Scraping", item_id=1),
+            cancellation_event=threading.Event(),
+        )
+    ]
+
+    program = Mock()
+    program.services = Mock()
+    program.services.downloader = Mock()
+    program.services.downloader.initialized = True
+    program.services.downloader.pause_until = Mock(return_value=None)
+
+    scraping = Mock()
+    scraping.__class__.__name__ = "Scraping"
+    scraping.get_key = Mock(return_value="scraping")
+
+    event = Event(emitted_by=scraping, item_id=42)
+
+    with (
+        patch.object(em, "add_event_to_queue") as mock_queue,
+        patch.object(EventManager, "_pipeline_max_workers", return_value=1),
+        patch.object(em, "_find_or_create_executor"),
+    ):
+        em.submit_job(scraping, program, event)
+
+    mock_queue.assert_called_once()
+    assert event.item_id == 42
+
+
+def test_dispatch_due_jobs_respects_scraping_capacity():
+    from program.services.scrapers import Scraping
+    from program.types import ProcessedEvent
+
+    em = EventManager()
+    now = datetime.now()
+    scraping = Scraping()
+    scraping.initialized = True
+
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=10,
+            item_state=States.Indexed,
+            run_at=now,
+        ),
+        Event(
+            emitted_by="StateTransition",
+            item_id=11,
+            item_state=States.Indexed,
+            run_at=now,
+        ),
+    ]
+
+    program = Mock()
+    program.services = Mock()
+    program.services.indexer = Mock()
+    program.services.indexer.initialized = True
+    program.services.scraping = scraping
+    program.services.downloader = Mock()
+    program.services.downloader.initialized = True
+    program.services.downloader.pause_until = Mock(return_value=None)
+    program.services.filesystem = Mock()
+    program.services.filesystem.initialized = True
+    program.services.updater = Mock()
+    program.services.updater.initialized = True
+    program.services.post_processing = Mock()
+    program.services.post_processing.initialized = True
+
+    item = Mock()
+    item.id = 10
+
+    processed = ProcessedEvent(
+        service=scraping,
+        related_media_items=[item],
+        overrides=None,
+    )
+
+    def fake_submit(_service, _program, event):
+        pending = Future()
+        em._futures.append(
+            FutureWithEvent(
+                future=pending,
+                event=event,
+                cancellation_event=threading.Event(),
+            )
+        )
+
+    with (
+        patch.object(EventManager, "_pipeline_max_workers", return_value=1),
+        patch(
+            "program.state_transition.process_event",
+            return_value=processed,
+        ),
+        patch.object(em, "submit_job", side_effect=fake_submit),
+    ):
+        dispatched = em.dispatch_due_jobs(program)
+
+    assert dispatched == 1
+    assert len(em._queued_events) == 1
+
+
+def test_restore_pipeline_from_db_enqueues_actionable_items():
+    em = EventManager()
+    scraping = Mock()
+    scraping.initialized = True
+    scraping.__class__.__name__ = "Scraping"
+
+    program = Mock()
+    program.services = Mock()
+    program.services.updater = Mock()
+    program.services.updater.initialized = False
+    program.services.filesystem = Mock()
+    program.services.filesystem.initialized = False
+    program.services.downloader = Mock()
+    program.services.downloader.initialized = False
+    program.services.scraping = scraping
+    program.services.indexer = Mock()
+    program.services.indexer.initialized = False
+
+    session = MagicMock()
+    query_result = MagicMock()
+    query_result.all.return_value = [(42, States.Indexed)]
+    session.execute.return_value = query_result
+
+    with (
+        patch(
+            "program.managers.event_manager.db_session",
+            return_value=MagicMock(
+                __enter__=MagicMock(return_value=session), __exit__=MagicMock()
+            ),
+        ),
+        patch.object(em, "_item_id_in_pipeline", return_value=False),
+        patch.object(em, "add_event", return_value=True) as mock_add,
+    ):
+        restored = em.restore_pipeline_from_db(program, source="startup")
+
+    assert restored == [42]
+    mock_add.assert_called_once()
+    call_event = mock_add.call_args[0][0]
+    assert call_event.item_id == 42
+    assert call_event.item_state == States.Indexed
+
+
+def test_restore_pipeline_queues_via_state_transition_when_service_down():
+    em = EventManager()
+    program = Mock()
+    program.services = Mock()
+    program.services.updater = Mock()
+    program.services.updater.initialized = False
+    program.services.filesystem = Mock()
+    program.services.filesystem.initialized = False
+    program.services.downloader = Mock()
+    program.services.downloader.initialized = False
+    program.services.scraping = Mock()
+    program.services.scraping.initialized = False
+    program.services.indexer = Mock()
+    program.services.indexer.initialized = False
+
+    session = MagicMock()
+    query_result = MagicMock()
+    query_result.all.return_value = [(7, States.Indexed)]
+    session.execute.return_value = query_result
+
+    with (
+        patch(
+            "program.managers.event_manager.db_session",
+            return_value=MagicMock(
+                __enter__=MagicMock(return_value=session), __exit__=MagicMock()
+            ),
+        ),
+        patch.object(em, "_item_id_in_pipeline", return_value=False),
+        patch.object(em, "add_event", return_value=True) as mock_add,
+    ):
+        restored = em.restore_pipeline_from_db(program, source="startup")
+
+    assert restored == [7]
+    call_event = mock_add.call_args[0][0]
+    assert call_event.emitted_by == "StateTransition"
+
+
+def test_pipeline_activity_set_and_clear():
+    em = EventManager()
+    em.set_pipeline_activity(99, "Downloading on Real-Debrid")
+    assert em.get_pipeline_activities()[99] == "Downloading on Real-Debrid"
+    em.clear_pipeline_activity(99)
+    assert 99 not in em.get_pipeline_activities()
+
+
+def test_get_pipeline_queue_snapshot_syncs_stale_item_state_from_db():
+    """Activity columns must follow DB state, not cached state at enqueue time."""
+
+    em = EventManager()
+    now = datetime.now()
+
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=3369,
+            item_state=States.Scraped,
+            run_at=now,
+        ),
+    ]
+
+    session = MagicMock()
+    session.execute.return_value = [(3369, States.Downloaded)]
+
+    with patch(
+        "program.managers.event_manager.db_session",
+        return_value=MagicMock(__enter__=MagicMock(return_value=session), __exit__=MagicMock()),
+    ):
+        _, rows = em.get_pipeline_queue_snapshot()
+
+    row = next(r for r in rows if r["item_id"] == 3369)
+    assert row["item_state"] == "Downloaded"
+    assert row["kanban_column"] == "symlink"
+    assert row["pipeline_phase"] == "queued_symlink"
+
+
+def _patch_pipeline_db_states(states_by_id: dict[int, States]):
+    session = MagicMock()
+    session.execute.return_value = list(states_by_id.items())
+    return patch(
+        "program.managers.event_manager.db_session",
+        return_value=MagicMock(
+            __enter__=MagicMock(return_value=session), __exit__=MagicMock()
+        ),
+    )
+
+
+def test_get_pipeline_queue_snapshot_includes_indexed():
+    em = EventManager()
+    now = datetime.now()
+
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=10,
+            item_state=States.Scraped,
+            run_at=now,
+        ),
+        Event(
+            emitted_by="StateTransition",
+            item_id=12,
+            item_state=States.Indexed,
+            run_at=now,
+        ),
+    ]
+
+    with _patch_pipeline_db_states({10: States.Scraped, 12: States.Indexed}):
+        stats, rows = em.get_pipeline_queue_snapshot()
+    ids = {r["item_id"] for r in rows if r.get("item_id")}
+
+    assert 10 in ids
+    assert 12 in ids
+    assert stats["phase_counts"].get("queued_scrape") == 1
+    assert stats["column_counts"]["scrape"] == 1
+
+
+def test_get_pipeline_queue_snapshot_in_flight_indexer():
+    em = EventManager()
+    pending_future: Future[int] = Future()
+
+    em._futures = [
+        FutureWithEvent(
+            future=pending_future,
+            event=Event(emitted_by="IndexerService", item_id=5),
+            cancellation_event=threading.Event(),
+        ),
+    ]
+
+    updates = em.get_event_updates()
+    assert updates["IndexerService"] == [5]
+
+    stats, rows = em.get_pipeline_queue_snapshot()
+    in_flight = next(r for r in rows if r.get("item_id") == 5)
+    assert in_flight["in_flight"] is True
+    assert in_flight["pipeline_phase"] == "indexing"
+    assert in_flight["kanban_column"] == "added"
+    assert stats["column_counts"]["added"] == 1
+
+
+def test_dequeue_pipeline_queue_item_removes_events_without_running():
+    em = EventManager()
+    now = datetime.now()
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=42,
+            item_state=States.Indexed,
+            run_at=now,
+        ),
+        Event(
+            emitted_by="StateTransition",
+            item_id=99,
+            item_state=States.Scraped,
+            run_at=now,
+        ),
+    ]
+
+    assert em.dequeue_pipeline_queue_item(42) is True
+    assert [e.item_id for e in em._queued_events] == [99]
+
+    em._running_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=99,
+            item_state=States.Scraped,
+            run_at=now,
+        )
+    ]
+    assert em.dequeue_pipeline_queue_item(99) is False
+    assert [e.item_id for e in em._queued_events] == [99]
+
+
+def test_prioritize_pipeline_queue_item_moves_indexed_peer():
+    em = EventManager()
+    now = datetime.now()
+
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=1,
+            item_state=States.Indexed,
+            run_at=now - timedelta(minutes=3),
+        ),
+        Event(
+            emitted_by="StateTransition",
+            item_id=2,
+            item_state=States.Indexed,
+            run_at=now - timedelta(minutes=1),
+        ),
+    ]
+
+    assert em.prioritize_pipeline_queue_item(2) is True
+    with _patch_pipeline_db_states({1: States.Indexed, 2: States.Indexed}):
+        _, rows = em.get_pipeline_queue_snapshot()
+    indexed_rows = [r for r in rows if r.get("pipeline_phase") == "queued_scrape"]
+    assert [r["item_id"] for r in indexed_rows] == [2, 1]
+
+
+def test_limit_pipeline_rows_per_column_keeps_download_visible():
+    from program.managers.event_manager import limit_pipeline_rows_per_column
+
+    now = datetime.now()
+    rows = []
+    for i in range(60):
+        rows.append(
+            {
+                "kanban_column": "scrape",
+                "in_flight": False,
+                "deferred": False,
+                "run_at": now + timedelta(seconds=i),
+            }
+        )
+    rows.append(
+        {
+            "kanban_column": "download",
+            "in_flight": False,
+            "deferred": False,
+            "run_at": now,
+            "item_id": 999,
+        }
+    )
+
+    limited, truncated = limit_pipeline_rows_per_column(rows, per_column_limit=50)
+    download_rows = [r for r in limited if r["kanban_column"] == "download"]
+
+    assert truncated is True
+    assert len(download_rows) == 1
+    assert download_rows[0]["item_id"] == 999
+
+
+def test_pipeline_snapshot_column_counts_before_display_limit():
+    em = EventManager()
+    now = datetime.now()
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=i,
+            item_state=States.Indexed,
+            run_at=now + timedelta(seconds=i),
+        )
+        for i in range(60)
+    ]
+
+    stats, rows = em.get_pipeline_queue_snapshot()
+
+    assert stats["column_counts"]["added"] == 60
+    assert len([r for r in rows if r["kanban_column"] == "added"]) == 50
+    assert stats["total_items"] == 60
+
+
+def test_post_process_phases_map_to_update_kanban():
+    from program.managers.event_manager import pipeline_phase_to_kanban
+
+    assert pipeline_phase_to_kanban("queued_post_process") == "update"
+    assert pipeline_phase_to_kanban("post_processing") == "update"
+    assert pipeline_phase_to_kanban("symlinking") == "symlink"
+
+
+def test_record_recently_finished_failed_outcome():
+    em = EventManager()
+    em.record_recently_finished(
+        7,
+        outcome="failed",
+        service_name="Downloader",
+        failure_service="Downloader",
+        completion_detail="No streams",
+    )
+    rows = em.get_recently_finished_rows()
+    assert rows[0]["completion_outcome"] == "failed"
+    assert rows[0]["failure_service"] == "Downloader"
+    assert rows[0]["item_state"] == States.Failed.name
+
+
+def test_retry_failed_pipeline_item_downloader(monkeypatch):
+    from program.db import db_functions
+
+    em = EventManager()
+    em.record_recently_finished(
+        5,
+        outcome="failed",
+        failure_service="Downloader",
+        completion_detail="failed",
+    )
+
+    class FakeItem:
+        id = 5
+        last_state = States.Failed
+
+        def store_state(self, state):
+            self.last_state = state
+
+    fake = FakeItem()
+    monkeypatch.setattr(db_functions, "get_item_by_id", lambda i: fake if i == 5 else None)
+
+    assert em.retry_failed_pipeline_item(5) is True
+    assert fake.last_state == States.Scraped
+    assert any(e.item_id == 5 for e in em._queued_events)
+    assert 5 not in em._recently_finished
+
+
+def test_recently_finished_rows_expire():
+    em = EventManager()
+    now = datetime.now()
+
+    em.record_recently_finished(99, outcome="success", service_name="PostProcessing")
+    rows = em.get_recently_finished_rows()
+    assert len(rows) == 1
+    assert rows[0]["item_id"] == 99
+    assert rows[0]["pipeline_phase"] == "recently_finished"
+    assert rows[0]["kanban_column"] == "finish"
+    assert rows[0]["completion_outcome"] == "success"
+
+    em._recently_finished[99] = em._recently_finished[99].__class__(
+        item_id=99,
+        completed_at=now - timedelta(minutes=3),
+        outcome="success",
+        service_name="PostProcessing",
+    )
+    assert em.get_recently_finished_rows() == []

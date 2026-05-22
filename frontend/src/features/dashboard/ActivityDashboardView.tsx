@@ -1,147 +1,49 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
 import { KpiCardHeading } from '../../shared/ui/KpiInfoTip';
+import {
+  LiveCountdownToIso,
+  LiveElapsedIso,
+  LiveServerCountdown,
+  secondsUntilRunAt,
+} from '../../shared/ui/LiveTimer';
+import { resolveKanbanSubtextKind } from './pipelineKanbanSubtext';
 import { apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import {
-  formatEpisodeDisplayTitle,
-  formatRelativeSeconds,
+  formatCompactPipelineTitle,
   getMediaKind,
   mediaLabel,
   parseApiDate,
-  secondsSinceApiDate,
 } from '../../shared/utils/utils';
 import type { AppRoute } from '../../app/routeTypes';
-import { humanizeQueueSource, humanizeServiceKey } from './serviceSetupMessages';
+import {
+  ACTIVITY_DISPLAY_COLUMNS,
+  DISPLAY_COLUMN_LABELS,
+  aggregateDisplayColumnCounts,
+  deriveCardStatus,
+  deriveCardStatusLabel,
+  deriveCardStatusShort,
+  deriveCardStatusTooltip,
+  deriveCardSubtextPlain,
+  mapBackendKanbanColumn,
+  type ActivityDisplayColumnId,
+  type KanbanColumnId,
+  type PipelineCardStatus,
+} from './serviceSetupMessages';
+import { OverflowMarquee } from '../../shared/ui/OverflowMarquee';
+import { ServiceRateLimitCard } from '../../shared/rateLimits/ServiceRateLimitCard';
+import { sortOwnerKeys } from '../../shared/rateLimits/owners';
+import type { LimiterSnapshot } from '../../shared/rateLimits/types';
 
-/** /downloader_status only — do not poll /stats or /rate_limits here (see 24b0bb67, 8e28cd26). */
 const STATUS_POLL_MS = 3000;
-/** Match backend _RECENT_JOBS_MAX_AGE — hide stale rows between polls. */
-const RECENT_JOB_MAX_AGE_SEC = 120;
-/** DB-vs-queue backlog hint is for post-restart context; hide after this long on the page. */
-const DB_BACKLOG_HINT_VISIBLE_MS = 60_000;
 
-const DOWNLOADER_KEYS = ['realdebrid', 'alldebrid', 'debridlink', 'torbox'] as const;
-
-const QUEUE_SOURCE_CHART_COLORS = [
-  'hsl(220 70% 58%)',
-  'hsl(152 42% 42%)',
-  'hsl(38 82% 52%)',
-  'hsl(0 62% 55%)',
-  'hsl(270 55% 62%)',
-  'hsl(190 55% 48%)',
-];
-
-const DOWNLOADER_KPI_TIPS = {
-  queueSources:
-    'Why items are in the downloader queue (deduped by item): pipeline scrape, downloader re-queue, library retry, etc.',
+const KPI_TIPS = {
+  indexedDb: 'Items in the library database waiting to be scraped.',
   scrapedDb:
-    'Scraped in the database but not necessarily in the live download queue yet. A Riven restart or Retry Active Library re-queues them over time.',
-  deferred:
-    'In the event queue with a future run time—waiting on downloader spacing, provider cooldown, or pause.',
-  queuedDue:
-    'In the event queue and due now—next in line when the downloader slot is free (can be many).',
-  downloading:
-    'Actively running on the downloader worker (usually 0 or 1).',
-  downloaderEmitted:
-    'Queued events emitted by the downloader service (often re-queues after deferral).',
+    'Items with torrents found but not necessarily in the live queue (common after restart).',
+  deferred: 'Queued with a future run time — downloader spacing or cooldown.',
 } as const;
-
-/** 0° = top, clockwise positive */
-function polar(cx: number, cy: number, r: number, angleDeg: number) {
-  const rad = ((angleDeg - 90) * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
-function pieSlicePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  if (endDeg - startDeg <= 0.01) return '';
-  const start = polar(cx, cy, r, endDeg);
-  const end = polar(cx, cy, r, startDeg);
-  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
-}
-
-function QueueSourcesPieChart({ entries }: { entries: [string, number][] }) {
-  const total = entries.reduce((sum, [, count]) => sum + count, 0);
-  if (total <= 0) return <p className="muted queue-sources-pie__empty">—</p>;
-
-  const cx = 50;
-  const cy = 50;
-  const r = 42;
-  let angle = -90;
-
-  const slices = entries.map(([source, count], index) => {
-    const sweep = (count / total) * 360;
-    const start = angle;
-    const end = angle + sweep;
-    angle = end;
-    const fullCircle = entries.length === 1 || sweep >= 359.995;
-    return {
-      source,
-      count,
-      fullCircle,
-      path: fullCircle ? null : pieSlicePath(cx, cy, r, start, end),
-      color: QUEUE_SOURCE_CHART_COLORS[index % QUEUE_SOURCE_CHART_COLORS.length],
-      label: humanizeQueueSource(source),
-      pct: Math.round((count / total) * 100),
-    };
-  });
-
-  const ariaLabel = slices.map((s) => `${s.label} ${s.count}`).join(', ');
-
-  return (
-    <div className="queue-sources-pie">
-      <svg
-        className="queue-sources-pie__chart"
-        viewBox="0 0 100 100"
-        role="img"
-        aria-label={`Queue sources: ${ariaLabel}`}
-      >
-        {slices.map((slice) =>
-          slice.fullCircle ? (
-            <circle
-              key={slice.source}
-              cx={cx}
-              cy={cy}
-              r={r}
-              fill={slice.color}
-              stroke="var(--panel, #18181b)"
-              strokeWidth={0.6}
-            >
-              <title>
-                {slice.label}: {slice.count.toLocaleString()} ({slice.pct}%)
-              </title>
-            </circle>
-          ) : slice.path ? (
-            <path
-              key={slice.source}
-              d={slice.path}
-              fill={slice.color}
-              stroke="var(--panel, #18181b)"
-              strokeWidth={0.6}
-            >
-              <title>
-                {slice.label}: {slice.count.toLocaleString()} ({slice.pct}%)
-              </title>
-            </path>
-          ) : null,
-        )}
-      </svg>
-      <ul className="queue-sources-pie__legend">
-        {slices.map((slice) => (
-          <li key={slice.source} className="queue-sources-pie__legend-item">
-            <span className="queue-sources-pie__swatch" style={{ background: slice.color }} />
-            <span className="queue-sources-pie__label">{slice.label}</span>
-            <span className="queue-sources-pie__meta muted">
-              {slice.count.toLocaleString()}
-              <span className="queue-sources-pie__pct"> ({slice.pct}%)</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 type ServiceStatus = {
   key: string;
@@ -149,303 +51,71 @@ type ServiceStatus = {
   cooldown_until: string | null;
 };
 
-type InFlightItem = {
-  id: number;
+type PipelineItem = {
+  id: number | null;
+  content_title?: string | null;
   title: string;
   type: string;
   parent_title?: string | null;
   season_number?: number | null;
   episode_number?: number | null;
   state?: string | null;
-  /** Live downloader step while the job is in flight. */
   activity?: string | null;
-};
-
-type QueuedItem = InFlightItem & {
-  run_at: string;
-  queued_at: string;
-  scraped_at?: string | null;
+  kanban_column: KanbanColumnId;
+  pipeline_phase: string;
+  in_flight: boolean;
+  actively_running: boolean;
   deferred: boolean;
-  wait_seconds: number;
-  emitted_by: string;
+  reorderable: boolean;
+  run_at?: string | null;
+  queued_at?: string | null;
+  scraped_at?: string | null;
+  emitted_by?: string | null;
+  completion_detail?: string | null;
+  completion_outcome?: string | null;
+  failure_service?: string | null;
+  sort_rank: number;
 };
 
-type LastJob = {
-  item: InFlightItem | null;
-  completed_at: string | null;
-  outcome: 'success' | 'deferred' | 'failed' | 'skipped' | null;
-  detail?: string | null;
-  service?: string | null;
-};
-
-type DownloaderStatus = {
-  paused: boolean;
-  pause_until: string | null;
-  min_job_interval_seconds: number;
-  queue: {
-    scraped_queued: number;
-    scraped_ready?: number;
-    deferred: number;
-    total_queued?: number;
-    downloader_emitted: number;
-    queue_by_source?: Record<string, number>;
-    next_ready_at: string | null;
-    next_ready_in_seconds?: number | null;
-    queue_truncated?: boolean;
-    scraped_in_library?: number;
+type ActivityStatus = {
+  pipeline: {
+    queue: {
+      total_queued: number;
+      total_items: number;
+      deferred: number;
+      queue_truncated: boolean;
+      scraped_not_in_queue?: number;
+      next_ready_in_seconds?: number | null;
+      columns: Record<KanbanColumnId, number>;
+    };
+    items: PipelineItem[];
   };
-  services: ServiceStatus[];
-  in_flight_total?: number;
-  in_flight_items: InFlightItem[];
-  queued_items: QueuedItem[];
-  recent_jobs: LastJob[];
+  downloader: {
+    paused: boolean;
+    pause_until: string | null;
+    min_job_interval_seconds: number;
+    services: ServiceStatus[];
+    scraper_services: string[];
+    rate_limits: LimiterSnapshot[];
+    initialized: boolean;
+  };
+  library_backlog: {
+    indexed: number;
+    scraped: number;
+    requested: number;
+  };
 };
 
-function inFlightDisplayTitle(item: InFlightItem): string {
-  if (item.type === 'episode') {
-    return formatEpisodeDisplayTitle(item);
-  }
-  if (item.type === 'season' && item.parent_title != null && item.season_number != null) {
-    return `${item.parent_title} S${String(item.season_number).padStart(2, '0')}`;
-  }
-  return item.title || `Item ${item.id}`;
-}
-
-function mediaTypeTagClass(item: InFlightItem): string {
+function mediaTypeTagClass(item: PipelineItem): string {
   const kind = getMediaKind(item);
   if (kind === 'movie' || kind === 'tv') return `media-tag media-tag--${kind}`;
   return 'media-tag media-tag--neutral';
 }
 
-function mediaTypeTagLabel(item: InFlightItem): string {
+function mediaTypeTagLabel(item: PipelineItem): string {
   const kind = getMediaKind(item);
   if (kind === 'movie' || kind === 'tv') return mediaLabel(item);
   return item.type;
-}
-
-function outcomePillClass(outcome: LastJob['outcome']): string {
-  return `pill downloader-outcome downloader-outcome--${outcome ?? 'unknown'}`;
-}
-
-function queueWaitLabel(item: QueuedItem): string {
-  if (item.deferred) {
-    return `Starts ${formatRelativeSeconds(item.wait_seconds, 'future')}`;
-  }
-  return `Waiting ${formatRelativeSeconds(item.wait_seconds, 'past')}`;
-}
-
-type PipelineQueuePhase = 'downloading' | 'due' | 'deferred';
-
-type PipelineQueueEntry =
-  | { phase: 'downloading'; item: InFlightItem }
-  | { phase: 'queued'; item: QueuedItem };
-
-function pipelinePhase(item: QueuedItem): PipelineQueuePhase {
-  return item.deferred ? 'deferred' : 'due';
-}
-
-function pipelineStatusPillClass(phase: PipelineQueuePhase): string {
-  return `pill downloader-queue-status downloader-queue-status--${phase}`;
-}
-
-function inFlightRowSubtext(item: InFlightItem): string | null {
-  if (item.activity?.trim()) {
-    return humanizeInFlightActivity(item.activity);
-  }
-  if (item.state?.trim()) {
-    return item.state;
-  }
-  return null;
-}
-
-/** Turn backend activity strings into readable subtext (service keys, etc.). */
-function humanizeInFlightActivity(activity: string): string {
-  return activity.replace(
-    /\b(realdebrid|alldebrid|debridlink|torbox)\b/gi,
-    (key) => humanizeServiceKey(key.toLowerCase()),
-  );
-}
-
-function pipelineStatusLabel(phase: PipelineQueuePhase): string {
-  switch (phase) {
-    case 'downloading':
-      return 'Downloading';
-    case 'deferred':
-      return 'Deferred';
-    default:
-      return 'Due';
-  }
-}
-
-function compareQueuedItems(a: QueuedItem, b: QueuedItem): number {
-  const phaseOrder = (item: QueuedItem) => (item.deferred ? 1 : 0);
-  const phaseDiff = phaseOrder(a) - phaseOrder(b);
-  if (phaseDiff !== 0) return phaseDiff;
-  const aAt = parseApiDate(a.run_at)?.getTime() ?? 0;
-  const bAt = parseApiDate(b.run_at)?.getTime() ?? 0;
-  return aAt - bAt;
-}
-
-function DoubleChevronUpIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M7 15l5-5 5 5M7 9l5-5 5 5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function DoubleChevronDownIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M7 9l5 5 5-5M7 15l5 5 5-5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function QueueReorderButtons({
-  itemId,
-  reorderingId,
-  onReorder,
-}: {
-  itemId: number;
-  reorderingId: number | null;
-  onReorder: (itemId: number, action: 'prioritize' | 'deprioritize') => void;
-}) {
-  const busy = reorderingId === itemId;
-  return (
-    <>
-      <button
-        type="button"
-        className="downloader-queue-reorder-btn"
-        title="Move to front of queue"
-        aria-label="Move to front of queue"
-        disabled={busy}
-        onClick={() => onReorder(itemId, 'prioritize')}
-      >
-        <DoubleChevronUpIcon />
-      </button>
-      <button
-        type="button"
-        className="downloader-queue-reorder-btn"
-        title="Move to back of queue"
-        aria-label="Move to back of queue"
-        disabled={busy}
-        onClick={() => onReorder(itemId, 'deprioritize')}
-      >
-        <DoubleChevronDownIcon />
-      </button>
-    </>
-  );
-}
-
-function PipelineQueueRow({
-  entry,
-  reorderingId,
-  onReorder,
-}: {
-  entry: PipelineQueueEntry;
-  reorderingId: number | null;
-  onReorder: (itemId: number, action: 'prioritize' | 'deprioritize') => void;
-}) {
-  if (entry.phase === 'downloading') {
-    const item = entry.item;
-    const subtext = inFlightRowSubtext(item);
-    return (
-      <div className="media-list__row downloader-in-flight-row downloader-queue-row">
-        <span className={mediaTypeTagClass(item)}>{mediaTypeTagLabel(item)}</span>
-        <span className={pipelineStatusPillClass('downloading')}>
-          {pipelineStatusLabel('downloading')}
-        </span>
-        <div className="downloader-queue-row__main">
-          <a className="downloader-in-flight-row__title" href={`#/item/${item.id}`}>
-            {inFlightDisplayTitle(item)}
-          </a>
-          {subtext && (
-            <span className="muted downloader-queue-row__sub">{subtext}</span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <QueueRow
-      item={entry.item}
-      reorderingId={reorderingId}
-      onReorder={onReorder}
-    />
-  );
-}
-
-function QueueRow({
-  item,
-  reorderingId,
-  onReorder,
-}: {
-  item: QueuedItem;
-  reorderingId: number | null;
-  onReorder: (itemId: number, action: 'prioritize' | 'deprioritize') => void;
-}) {
-  return (
-    <div className="media-list__row downloader-in-flight-row downloader-queue-row">
-      <span className={mediaTypeTagClass(item)}>{mediaTypeTagLabel(item)}</span>
-      <span className={pipelineStatusPillClass(pipelinePhase(item))}>
-        {pipelineStatusLabel(pipelinePhase(item))}
-      </span>
-      <div className="downloader-queue-row__main">
-        <a className="downloader-in-flight-row__title" href={`#/item/${item.id}`}>
-          {inFlightDisplayTitle(item)}
-        </a>
-        {item.scraped_at && (
-          <span className="muted downloader-queue-row__sub">
-            Scraped{' '}
-            {formatRelativeSeconds(secondsSinceApiDate(item.scraped_at) ?? 0, 'past')}
-          </span>
-        )}
-      </div>
-      <span className="downloader-in-flight-row__state muted">
-        <QueueReorderButtons
-          itemId={item.id}
-          reorderingId={reorderingId}
-          onReorder={onReorder}
-        />
-        <span className="pill pill--muted downloader-queue-emitted">
-          {humanizeQueueSource(item.emitted_by)}
-        </span>
-        {' · '}
-        {queueWaitLabel(item)}
-      </span>
-    </div>
-  );
-}
-
-function outcomeLabel(outcome: LastJob['outcome']): string {
-  switch (outcome) {
-    case 'success':
-      return 'Success';
-    case 'deferred':
-      return 'Deferred';
-    case 'failed':
-      return 'Failed';
-    case 'skipped':
-      return 'Skipped';
-    default:
-      return '—';
-  }
 }
 
 function formatCountdown(iso: string | null): string {
@@ -462,152 +132,378 @@ function formatCountdown(iso: string | null): string {
   return `${hr}h ${minRem}m`;
 }
 
-/** Count down from a server-reported remaining duration (avoids TZ skew on ISO timestamps). */
-function LiveServerCountdown({ initialSeconds }: { initialSeconds: number }) {
-  const anchorRef = useRef({ polledAt: Date.now(), seconds: initialSeconds });
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    anchorRef.current = { polledAt: Date.now(), seconds: initialSeconds };
-  }, [initialSeconds]);
-
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
-    return () => window.clearInterval(id);
-  }, [initialSeconds]);
-
-  const elapsed = (Date.now() - anchorRef.current.polledAt) / 1000;
-  const remaining = Math.max(0, anchorRef.current.seconds - elapsed);
-
+function DoubleChevronUpIcon() {
   return (
-    <strong className="downloader-live-countdown">
-      {formatRelativeSeconds(remaining, 'future')}
-    </strong>
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M7 15l5-5 5 5M7 9l5-5 5 5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
-function formatElapsedSeconds(seconds: number): string {
-  const sec = Math.max(0, Math.round(seconds));
-  if (sec < 60) return `${sec}s`;
-  const min = Math.floor(sec / 60);
-  const rem = sec % 60;
-  if (min < 60) return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
-  const hr = Math.floor(min / 60);
-  const minRem = min % 60;
-  return minRem > 0 ? `${hr}h ${minRem}m` : `${hr}h`;
+function DoubleChevronDownIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M7 9l5 5 5-5M7 15l5 5 5-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
-function LiveElapsed({ iso }: { iso: string }) {
+function CancelIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function RetryIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4 4v6h6M20 20v-6h-6M5 19a9 9 0 0014-7.5M19 5a9 9 0 00-14 7.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+type QueueCardAction = 'prioritize' | 'deprioritize' | 'dequeue' | 'retry_failed';
+
+function KanbanCardActionOverlay({
+  itemId,
+  queueActionId,
+  mode,
+  onAction,
+}: {
+  itemId: number;
+  queueActionId: number | null;
+  mode: 'queue' | 'retry_failed';
+  onAction: (itemId: number, action: QueueCardAction) => void;
+}) {
+  const busy = queueActionId === itemId;
+  if (mode === 'retry_failed') {
+    return (
+      <div className="activity-kanban__card-actions" role="group" aria-label="Retry failed job">
+        <button
+          type="button"
+          className="downloader-queue-reorder-btn downloader-queue-reorder-btn--retry"
+          title="Retry from the step that failed"
+          aria-label="Retry failed job"
+          disabled={busy}
+          onClick={() => onAction(itemId, 'retry_failed')}
+        >
+          <RetryIcon />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="activity-kanban__card-actions" role="group" aria-label="Queue actions">
+      <button
+        type="button"
+        className="downloader-queue-reorder-btn"
+        title="Move up in column"
+        aria-label="Prioritize"
+        disabled={busy}
+        onClick={() => onAction(itemId, 'prioritize')}
+      >
+        <DoubleChevronUpIcon />
+      </button>
+      <button
+        type="button"
+        className="downloader-queue-reorder-btn"
+        title="Move down in column"
+        aria-label="Deprioritize"
+        disabled={busy}
+        onClick={() => onAction(itemId, 'deprioritize')}
+      >
+        <DoubleChevronDownIcon />
+      </button>
+      <button
+        type="button"
+        className="downloader-queue-reorder-btn downloader-queue-reorder-btn--cancel"
+        title="Remove from queue (item may be re-queued later)"
+        aria-label="Dequeue"
+        disabled={busy}
+        onClick={() => onAction(itemId, 'dequeue')}
+      >
+        <CancelIcon />
+      </button>
+    </div>
+  );
+}
+
+function KanbanSubtext({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title?: string;
+}) {
+  return (
+    <OverflowMarquee className="activity-kanban__subtext" title={title}>
+      {children}
+    </OverflowMarquee>
+  );
+}
+
+function KanbanPhaseSubtext({ item }: { item: PipelineItem }) {
+  const text = deriveCardSubtextPlain(item);
+  return <KanbanSubtext title={text}>{text}</KanbanSubtext>;
+}
+
+/** Ticks every second so countdown can hand off to phase subtext without a blank frame. */
+function KanbanDueCountdownSubtext({ item }: { item: PipelineItem }) {
   const [, setTick] = useState(0);
+  const runAt = item.run_at;
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
-  }, [iso]);
+  }, [runAt]);
 
-  const age = secondsSinceApiDate(iso);
-  if (age == null) return <>—</>;
-  return <span className="downloader-live-elapsed">{formatElapsedSeconds(age)}</span>;
-}
-
-function dedupeQueuedItems(items: QueuedItem[]): QueuedItem[] {
-  const byId = new Map<number, QueuedItem>();
-  for (const item of items) {
-    const prev = byId.get(item.id);
-    if (!prev) {
-      byId.set(item.id, item);
-      continue;
-    }
-    byId.set(item.id, compareQueuedItems(item, prev) <= 0 ? item : prev);
+  const until = runAt ? secondsUntilRunAt(runAt) : null;
+  if (until != null && until <= 0) {
+    return <KanbanPhaseSubtext item={item} />;
   }
-  return [...byId.values()];
+
+  const countdown = runAt ? <LiveCountdownToIso iso={runAt} /> : null;
+  if (countdown == null) {
+    return <KanbanPhaseSubtext item={item} />;
+  }
+
+  return <KanbanSubtext>{countdown}</KanbanSubtext>;
 }
 
-function normalizeDownloaderStatus(raw: DownloaderStatus | null | undefined): DownloaderStatus | null {
-  if (!raw || typeof raw !== 'object') return null;
+function KanbanCardSubtext({ item }: { item: PipelineItem }) {
+  switch (resolveKanbanSubtextKind(item)) {
+    case 'pool_wait':
+      return (
+        <KanbanSubtext title="Submitted to worker pool">Waiting for worker</KanbanSubtext>
+      );
+    case 'activity': {
+      const text = deriveCardSubtextPlain(item);
+      return <KanbanSubtext title={text}>{text}</KanbanSubtext>;
+    }
+    case 'countdown':
+      return item.run_at ? (
+        <KanbanDueCountdownSubtext item={item} />
+      ) : (
+        <KanbanPhaseSubtext item={item} />
+      );
+    case 'recently_finished':
+      return item.run_at ? (
+        <KanbanSubtext>
+          Finished <LiveElapsedIso iso={item.run_at} className="activity-kanban__subtext-timer" />{' '}
+          ago
+        </KanbanSubtext>
+      ) : (
+        <KanbanPhaseSubtext item={item} />
+      );
+    case 'next':
+      return <KanbanPhaseSubtext item={item} />;
+    case 'phase':
+    default:
+      return <KanbanPhaseSubtext item={item} />;
+  }
+}
 
-  const queue = raw.queue ?? {
-    scraped_queued: 0,
-    scraped_ready: 0,
-    deferred: 0,
-    total_queued: 0,
-    downloader_emitted: 0,
-    next_ready_at: null,
-    queue_truncated: false,
-  };
+function KanbanStatusPill({ item, status }: { item: PipelineItem; status: PipelineCardStatus }) {
+  const tip = deriveCardStatusTooltip(item);
+  return (
+    <span
+      className={`activity-kanban__status-pill activity-kanban__status-pill--${status}`}
+      title={tip}
+      aria-label={deriveCardStatusLabel(status)}
+    >
+      {deriveCardStatusShort(status)}
+    </span>
+  );
+}
+
+function KanbanCard({
+  item,
+  queueActionId,
+  onQueueAction,
+}: {
+  item: PipelineItem;
+  queueActionId: number | null;
+  onQueueAction: (itemId: number, action: QueueCardAction) => void;
+}) {
+  const title =
+    item.id != null ? formatCompactPipelineTitle(item) : item.content_title || item.title;
+  const cardStatus = deriveCardStatus(item);
+  const failedDone =
+    item.pipeline_phase === 'recently_finished' &&
+    (item.completion_outcome === 'failed' || item.state === 'Failed');
+  const queueActionable = item.reorderable && item.id != null;
+  const retryActionable = failedDone && item.id != null;
+  const overlayMode = retryActionable ? 'retry_failed' : 'queue';
+  const showOverlay = queueActionable || retryActionable;
+
+  return (
+    <article
+      className={`activity-kanban__card${item.in_flight ? ' activity-kanban__card--in-flight' : ''}${cardStatus === 'failed' ? ' activity-kanban__card--failed' : ''}${cardStatus === 'completed' ? ' activity-kanban__card--completed' : ''}${cardStatus === 'deferred' ? ' activity-kanban__card--deferred' : ''}${showOverlay ? ' activity-kanban__card--actionable' : ''}`}
+    >
+      <span className={mediaTypeTagClass(item)}>{mediaTypeTagLabel(item)}</span>
+      <div className="activity-kanban__card-main">
+        <div className="activity-kanban__card-head">
+          {item.id != null ? (
+            <a className="activity-kanban__title" href={`#/item/${item.id}`} title={title}>
+              {title}
+            </a>
+          ) : (
+            <span className="activity-kanban__title activity-kanban__title--static" title={title}>
+              {title}
+            </span>
+          )}
+        </div>
+        <KanbanCardSubtext item={item} />
+      </div>
+      <div className="activity-kanban__card-aside">
+        <KanbanStatusPill item={item} status={cardStatus} />
+      </div>
+      {showOverlay && (
+        <KanbanCardActionOverlay
+          itemId={item.id!}
+          queueActionId={queueActionId}
+          mode={overlayMode}
+          onAction={onQueueAction}
+        />
+      )}
+    </article>
+  );
+}
+
+function normalizeActivityStatus(raw: unknown): ActivityStatus | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const pipeline = (o.pipeline ?? {}) as Record<string, unknown>;
+  const queue = (pipeline.queue ?? {}) as Record<string, unknown>;
+  const cols = (queue.columns ?? {}) as Record<string, unknown>;
+  const downloader = (o.downloader ?? {}) as Record<string, unknown>;
+  const backlog = (o.library_backlog ?? {}) as Record<string, unknown>;
+
+  const backendColumns = {
+    added: Number(cols.added) || 0,
+    scrape: Number(cols.scrape) || 0,
+    download: Number(cols.download) || 0,
+    symlink: Number(cols.symlink) || 0,
+    update: Number(cols.update) || 0,
+    finish: Number(cols.finish) || 0,
+  } as Record<KanbanColumnId, number>;
+
+  const items: PipelineItem[] = Array.isArray(pipeline.items)
+    ? (pipeline.items as Record<string, unknown>[]).map((row, index) => {
+        const backendCol = (
+          ['added', 'scrape', 'download', 'symlink', 'update', 'finish'] as const
+        ).includes(row.kanban_column as KanbanColumnId)
+          ? (row.kanban_column as KanbanColumnId)
+          : 'finish';
+        return {
+          id: row.id != null ? Number(row.id) : null,
+          content_title: row.content_title as string | null | undefined,
+          title: String(row.title ?? row.content_title ?? 'Unknown'),
+          type: String(row.type ?? 'unknown'),
+          parent_title: row.parent_title as string | null | undefined,
+          season_number: row.season_number as number | null | undefined,
+          episode_number: row.episode_number as number | null | undefined,
+          state: row.state as string | null | undefined,
+          activity: row.activity as string | null | undefined,
+          kanban_column: backendCol,
+          pipeline_phase: String(row.pipeline_phase ?? 'queued_other'),
+        in_flight: Boolean(row.in_flight),
+        actively_running: Boolean(row.actively_running),
+        deferred: Boolean(row.deferred),
+          reorderable: Boolean(row.reorderable),
+          run_at: row.run_at as string | null | undefined,
+          queued_at: row.queued_at as string | null | undefined,
+          scraped_at: row.scraped_at as string | null | undefined,
+          emitted_by: row.emitted_by as string | null | undefined,
+          completion_detail: row.completion_detail as string | null | undefined,
+          completion_outcome: row.completion_outcome as string | null | undefined,
+          failure_service: row.failure_service as string | null | undefined,
+          sort_rank: Number(row.sort_rank) || index,
+        };
+      })
+    : [];
 
   return {
-    paused: Boolean(raw.paused),
-    pause_until: raw.pause_until ?? null,
-    min_job_interval_seconds: Number(raw.min_job_interval_seconds) || 0,
-    queue: {
-      scraped_queued: Number(queue.scraped_queued) || 0,
-      scraped_ready: Number(queue.scraped_ready) || 0,
-      deferred: Number(queue.deferred) || 0,
-      total_queued: Number(queue.total_queued) || 0,
-      downloader_emitted: Number(queue.downloader_emitted) || 0,
-      queue_by_source:
-        queue.queue_by_source && typeof queue.queue_by_source === 'object'
-          ? queue.queue_by_source
-          : {},
-      next_ready_at: queue.next_ready_at ?? null,
-      next_ready_in_seconds:
-        queue.next_ready_in_seconds != null && Number.isFinite(Number(queue.next_ready_in_seconds))
-          ? Number(queue.next_ready_in_seconds)
-          : null,
-      queue_truncated: Boolean(queue.queue_truncated),
-      scraped_in_library: Number(queue.scraped_in_library) || 0,
+    pipeline: {
+      queue: {
+        total_queued: Number(queue.total_queued) || 0,
+        total_items: Number(queue.total_items) || 0,
+        deferred: Number(queue.deferred) || 0,
+        queue_truncated: Boolean(queue.queue_truncated),
+        scraped_not_in_queue: Number(queue.scraped_not_in_queue) || 0,
+        next_ready_in_seconds:
+          queue.next_ready_in_seconds != null &&
+          Number.isFinite(Number(queue.next_ready_in_seconds))
+            ? Number(queue.next_ready_in_seconds)
+            : null,
+        columns: backendColumns,
+      },
+      items,
     },
-    services: Array.isArray(raw.services) ? raw.services : [],
-    in_flight_total:
-      typeof raw.in_flight_total === 'number'
-        ? raw.in_flight_total
-        : Array.isArray(raw.in_flight_items)
-          ? raw.in_flight_items.length
-          : 0,
-    in_flight_items: Array.isArray(raw.in_flight_items)
-      ? raw.in_flight_items
-      : Array.isArray((raw as { in_flight_item_ids?: number[] }).in_flight_item_ids)
-        ? (raw as { in_flight_item_ids: number[] }).in_flight_item_ids.map((id) => ({
-            id,
-            title: `Item ${id}`,
-            type: 'unknown',
-          }))
+    downloader: {
+      paused: Boolean(downloader.paused),
+      pause_until: (downloader.pause_until as string | null) ?? null,
+      min_job_interval_seconds: Number(downloader.min_job_interval_seconds) || 0,
+      services: Array.isArray(downloader.services)
+        ? (downloader.services as ServiceStatus[])
         : [],
-    queued_items: Array.isArray(raw.queued_items) ? raw.queued_items : [],
-    recent_jobs: Array.isArray(raw.recent_jobs) ? raw.recent_jobs : [],
+      scraper_services: Array.isArray(downloader.scraper_services)
+        ? (downloader.scraper_services as string[])
+        : [],
+      rate_limits: Array.isArray(downloader.rate_limits)
+        ? (downloader.rate_limits as LimiterSnapshot[])
+        : [],
+      initialized: Boolean(downloader.initialized),
+    },
+    library_backlog: {
+      indexed: Number(backlog.indexed) || 0,
+      scraped: Number(backlog.scraped) || 0,
+      requested: Number(backlog.requested) || 0,
+    },
   };
 }
 
 export default function ActivityDashboardView(_props: { route: AppRoute }) {
-  const [status, setStatus] = useState<DownloaderStatus | null>(null);
-  const [scrapedDbCount, setScrapedDbCount] = useState<number | null>(null);
+  const [status, setStatus] = useState<ActivityStatus | null>(null);
   const [pipelineError, setPipelineError] = useState<string | null>(null);
-  const [reorderingId, setReorderingId] = useState<number | null>(null);
-  const pageOpenedAtRef = useRef(Date.now());
-  const [showDbBacklogHint, setShowDbBacklogHint] = useState(true);
-
-  useEffect(() => {
-    const elapsed = Date.now() - pageOpenedAtRef.current;
-    const remaining = DB_BACKLOG_HINT_VISIBLE_MS - elapsed;
-    if (remaining <= 0) {
-      setShowDbBacklogHint(false);
-      return undefined;
-    }
-    const id = window.setTimeout(() => setShowDbBacklogHint(false), remaining);
-    return () => window.clearTimeout(id);
-  }, []);
-
+  const [queueActionId, setQueueActionId] = useState<number | null>(null);
   const loadStatus = useCallback(async () => {
-    const res = await apiGet<DownloaderStatus>('/downloader_status');
+    const res = await apiGet<ActivityStatus>('/activity_status');
     if (res.ok && res.data) {
-      const normalized = normalizeDownloaderStatus(res.data);
-      setStatus(normalized);
-      setScrapedDbCount(normalized?.queue.scraped_in_library ?? null);
+      setStatus(normalizeActivityStatus(res.data));
       setPipelineError(null);
     } else {
       setStatus(null);
-      setPipelineError(res.error || 'Failed to load download pipeline');
+      setPipelineError(res.error || 'Failed to load pipeline status');
     }
   }, []);
 
@@ -617,121 +513,132 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
     return () => window.clearInterval(id);
   }, [loadStatus]);
 
-  const reorderQueue = useCallback(
-    async (itemId: number, action: 'prioritize' | 'deprioritize') => {
-      setReorderingId(itemId);
+  const runQueueAction = useCallback(
+    async (itemId: number, action: QueueCardAction) => {
+      setQueueActionId(itemId);
       try {
         const path =
           action === 'prioritize'
-            ? '/downloader_queue/prioritize'
-            : '/downloader_queue/deprioritize';
+            ? '/pipeline_queue/prioritize'
+            : action === 'deprioritize'
+              ? '/pipeline_queue/deprioritize'
+              : action === 'dequeue'
+                ? '/pipeline_queue/dequeue'
+                : '/pipeline_queue/retry_failed';
         const res = await apiPost(path, { item_id: itemId });
         if (!res.ok) {
-          notify(res.error || 'Could not reorder queue item', 'error');
+          const fallback =
+            action === 'dequeue'
+              ? 'Could not dequeue item'
+              : action === 'retry_failed'
+                ? 'Could not retry failed item'
+                : 'Could not reorder queue item';
+          notify(res.error || fallback, 'error');
           return;
         }
-        notify(
+        const message =
           action === 'prioritize'
-            ? 'Moved to front of queue'
-            : 'Moved to back of queue',
-          'success',
-        );
+            ? 'Moved up in queue'
+            : action === 'deprioritize'
+              ? 'Moved down in queue'
+              : action === 'dequeue'
+                ? 'Removed from queue'
+                : 'Retry queued';
+        notify(message, 'success');
         await loadStatus();
       } finally {
-        setReorderingId(null);
+        setQueueActionId(null);
       }
     },
     [loadStatus],
+  );
+
+  const limitersByOwner = useMemo(() => {
+    const map: Record<string, LimiterSnapshot[]> = {};
+    for (const lim of status?.downloader.rate_limits ?? []) {
+      if (!map[lim.owner]) map[lim.owner] = [];
+      map[lim.owner].push(lim);
+    }
+    for (const rows of Object.values(map)) {
+      rows.sort((a, b) => a.label.localeCompare(b.label));
+    }
+    return map;
+  }, [status?.downloader.rate_limits]);
+
+  const enabledDownloaderServices = useMemo(
+    () => status?.downloader.services ?? [],
+    [status?.downloader.services],
+  );
+
+  const enabledScraperKeys = useMemo(
+    () => sortOwnerKeys(status?.downloader.scraper_services ?? []),
+    [status?.downloader.scraper_services],
   );
 
   const [clockTick, setClockTick] = useState(0);
 
   useEffect(() => {
     const needsLiveClock =
-      (status?.queue?.next_ready_in_seconds != null && (status.queue.deferred ?? 0) > 0) ||
-      (status?.paused && Boolean(status.pause_until));
+      (status?.pipeline.queue?.next_ready_in_seconds != null &&
+        (status.pipeline.queue.deferred ?? 0) > 0) ||
+      (status?.downloader.paused && Boolean(status.downloader.pause_until));
     if (!needsLiveClock) return undefined;
     const id = window.setInterval(() => setClockTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [
-    status?.queue?.next_ready_in_seconds,
-    status?.queue?.deferred,
-    status?.paused,
-    status?.pause_until,
+    status?.pipeline.queue?.next_ready_in_seconds,
+    status?.pipeline.queue?.deferred,
+    status?.downloader.paused,
+    status?.downloader.pause_until,
   ]);
 
+  const displayColumnCounts = useMemo(
+    () =>
+      status?.pipeline.queue.columns
+        ? aggregateDisplayColumnCounts(status.pipeline.queue.columns)
+        : null,
+    [status?.pipeline.queue.columns],
+  );
+
+  const itemsByColumn = useMemo(() => {
+    const grouped = Object.fromEntries(
+      ACTIVITY_DISPLAY_COLUMNS.map((col) => [col, [] as PipelineItem[]]),
+    ) as Record<ActivityDisplayColumnId, PipelineItem[]>;
+
+    for (const item of status?.pipeline.items ?? []) {
+      const col = mapBackendKanbanColumn(item.kanban_column);
+      grouped[col].push(item);
+    }
+
+    for (const col of ACTIVITY_DISPLAY_COLUMNS) {
+      grouped[col].sort((a, b) => a.sort_rank - b.sort_rank);
+    }
+
+    return grouped;
+  }, [status?.pipeline.items]);
+
   const pipelineBanner = useMemo(() => {
-    if (!status) return null;
+    if (!status?.downloader.initialized) return null;
     void clockTick;
-    if (status.paused) {
+    if (status.downloader.paused) {
       return {
         modifier: 'paused',
         title: 'Downloader paused',
-        detail: `All providers cooling down — resumes in ${formatCountdown(status.pause_until)}`,
+        detail: `Resumes in ${formatCountdown(status.downloader.pause_until)}`,
       };
     }
     return {
       modifier: 'ok',
       title: 'Downloader active',
-      detail: `Job spacing: ${(status.min_job_interval_seconds ?? 0).toFixed(2)}s between runs`,
+      detail: `Job spacing: ${(status.downloader.min_job_interval_seconds ?? 0).toFixed(2)}s`,
     };
-  }, [status, clockTick]);
+  }, [status?.downloader, clockTick]);
 
-  /** Downloading first, then due, then deferred (soonest run_at within each band). */
-  const pipelineQueueEntries = useMemo((): PipelineQueueEntry[] => {
-    if (!status) return [];
-
-    const seenInFlight = new Set<number>();
-    const entries: PipelineQueueEntry[] = [];
-    for (const item of status.in_flight_items ?? []) {
-      if (seenInFlight.has(item.id)) continue;
-      seenInFlight.add(item.id);
-      entries.push({ phase: 'downloading', item });
-    }
-
-    const queued = dedupeQueuedItems(status.queued_items ?? []).sort(compareQueuedItems);
-    for (const item of queued) {
-      entries.push({ phase: 'queued', item });
-    }
-
-    return entries;
-  }, [status]);
-
-  const dbBacklogHint = useMemo(() => {
-    if (!showDbBacklogHint || !status?.queue) return null;
-    const inDb = status.queue.scraped_in_library ?? 0;
-    const inQueue = status.queue.total_queued ?? 0;
-    if (inDb > inQueue + 50) {
-      return `${inDb.toLocaleString()} scraped items are in the database but not in the live download queue (common after a restart). Restart Riven to re-queue up to 500, or use Retry Active Library on the Overview dashboard.`;
-    }
-    return null;
-  }, [showDbBacklogHint, status?.queue]);
-
-  const queueSourceEntries = useMemo(() => {
-    const raw = status?.queue?.queue_by_source;
-    if (!raw || typeof raw !== 'object') return [];
-    return Object.entries(raw)
-      .filter(([, count]) => count > 0)
-      .sort((a, b) => b[1] - a[1]);
-  }, [status?.queue?.queue_by_source]);
-
-  const recentJobsForDisplay = useMemo(() => {
-    const inFlightIds = new Set((status?.in_flight_items ?? []).map((item) => item.id));
-    const filtered = (status?.recent_jobs ?? []).filter((job) => {
-      if (!job.item || !job.completed_at || inFlightIds.has(job.item.id)) return false;
-      const age = secondsSinceApiDate(job.completed_at);
-      return age != null && age <= RECENT_JOB_MAX_AGE_SEC;
-    });
-    // API is newest-first; show oldest at top so new completions appear at the bottom.
-    return filtered.slice().reverse();
-  }, [status?.recent_jobs, status?.in_flight_items]);
+  const scrapedNotInQueue = status?.pipeline.queue.scraped_not_in_queue ?? 0;
 
   return (
     <ViewLayout className="view-dashboard view-dashboard-activity" view="dashboard-activity">
-      <ViewHeader
-        title="Activity"
-        subtitle="Download pipeline and queue status"
-      />
+      <ViewHeader title="Activity" subtitle="Pipeline and queue status" />
 
       {pipelineError && (
         <Panel>
@@ -739,8 +646,8 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
         </Panel>
       )}
 
-      <Panel title="Download pipeline">
-        {pipelineBanner && status && (
+      <Panel className="panel--activity-pipeline">
+        {pipelineBanner && (
           <div
             className={`downloader-status-banner downloader-status-banner--${pipelineBanner.modifier}`}
           >
@@ -749,150 +656,111 @@ export default function ActivityDashboardView(_props: { route: AppRoute }) {
           </div>
         )}
 
-        <div className="downloader-status-services">
-          {DOWNLOADER_KEYS.map((key) => {
-            const svc = status?.services.find((s) => s.key === key);
-            const enabled = svc != null;
-
-            return (
-              <article key={key} className="downloader-card downloader-status-card">
-                <div className="downloader-card__head">
-                  <strong>{humanizeServiceKey(key)}</strong>
-                  <span
-                    className={
-                      enabled
-                        ? svc?.available
-                          ? 'service-row__status--up'
-                          : 'service-row__status--down'
-                        : 'muted'
-                    }
-                  >
-                    {!enabled ? 'Off' : svc?.available ? 'Available' : 'Cooldown'}
-                  </span>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-
-        <section
-          className="kpi-grid activity-pipeline-kpis"
-          aria-label="Downloader pipeline"
-        >
-          <article className="kpi-card kpi-card--queue-sources">
-            <KpiCardHeading
-              label="Queue sources"
-              description={DOWNLOADER_KPI_TIPS.queueSources}
-            />
-            <QueueSourcesPieChart entries={queueSourceEntries} />
+        <section className="activity-kpi-strip kpi-grid" aria-label="Pipeline and services">
+          <article className="kpi-card">
+            <KpiCardHeading label="Indexed (DB)" description={KPI_TIPS.indexedDb} />
+            <p className="kpi-value">{status?.library_backlog.indexed ?? '—'}</p>
+          </article>
+          <article className="kpi-card">
+            <KpiCardHeading label="Scraped (DB)" description={KPI_TIPS.scrapedDb} />
+            <p className="kpi-value">{status?.library_backlog.scraped ?? '—'}</p>
+          </article>
+          <article className="kpi-card">
+            <KpiCardHeading label="Deferred" description={KPI_TIPS.deferred} />
+            <p className="kpi-value">{status?.pipeline.queue.deferred ?? '—'}</p>
+            {status?.pipeline.queue.next_ready_in_seconds != null &&
+              status.pipeline.queue.deferred > 0 && (
+                <p className="kpi-sub">
+                  Next due{' '}
+                  <LiveServerCountdown
+                    initialSeconds={status.pipeline.queue.next_ready_in_seconds}
+                  />
+                </p>
+              )}
           </article>
           <article className="kpi-card">
             <KpiCardHeading
-              label="In library (DB)"
-              description={DOWNLOADER_KPI_TIPS.scrapedDb}
+              label="Live queue"
+              description="Items visible in the pipeline board (may be truncated)."
             />
-            <p className="kpi-value">{scrapedDbCount ?? '—'}</p>
+            <p className="kpi-value">{status?.pipeline.queue.total_items ?? '—'}</p>
           </article>
-          <article className="kpi-card">
-            <KpiCardHeading
-              label="Deferred"
-              description={DOWNLOADER_KPI_TIPS.deferred}
+          {enabledDownloaderServices.map((svc) => (
+            <ServiceRateLimitCard
+              key={svc.key}
+              ownerKey={svc.key}
+              limiters={limitersByOwner[svc.key] ?? []}
+              statusLabel={svc.available ? 'Available' : 'Cooldown'}
+              statusClassName={
+                svc.available ? 'service-row__status--up' : 'service-row__status--down'
+              }
             />
-            <p className="kpi-value">{status?.queue?.deferred ?? '—'}</p>
-            {status?.queue?.next_ready_in_seconds != null && status.queue.deferred > 0 && (
-              <p className="kpi-sub">
-                Next deferred → queued (due){' '}
-                <LiveServerCountdown initialSeconds={status.queue.next_ready_in_seconds} />
-              </p>
-            )}
-          </article>
-          <article className="kpi-card">
-            <KpiCardHeading
-              label="Queued (due)"
-              description={DOWNLOADER_KPI_TIPS.queuedDue}
+          ))}
+          {enabledScraperKeys.map((key) => (
+            <ServiceRateLimitCard
+              key={key}
+              ownerKey={key}
+              limiters={limitersByOwner[key] ?? []}
+              statusLabel="Active"
+              statusClassName="service-row__status--up"
             />
-            <p className="kpi-value">{status?.queue?.scraped_ready ?? '—'}</p>
-          </article>
-          <article className="kpi-card">
-            <KpiCardHeading
-              label="Downloading"
-              description={DOWNLOADER_KPI_TIPS.downloading}
-            />
-            <p className="kpi-value">
-              {status != null
-                ? (status.in_flight_total ?? status.in_flight_items?.length ?? 0)
-                : '—'}
-            </p>
-          </article>
+          ))}
         </section>
 
-        {dbBacklogHint && (
-          <p className="muted downloader-status__hint downloader-status__hint--warn">
-            {dbBacklogHint}
-          </p>
-        )}
-
-        {recentJobsForDisplay.length > 0 && (
-          <div className="activity-pipeline-subpanel">
-            <h3 className="activity-pipeline-subpanel__title">Recently processed</h3>
-            <div className="downloader-recent-jobs-list">
-              {recentJobsForDisplay.map((job) => (
-                <div key={`${job.item!.id}-${job.completed_at}`} className="downloader-recent-job">
-                  <div className="media-list__row downloader-in-flight-row downloader-queue-row downloader-last-job-row">
-                    <span className={outcomePillClass(job.outcome)}>
-                      {outcomeLabel(job.outcome)}
-                    </span>
-                    <div className="downloader-queue-row__main">
-                      <a
-                        className="downloader-in-flight-row__title"
-                        href={`#/item/${job.item!.id}`}
+        <div className="activity-kanban-wrap">
+          <div className="activity-kanban" role="list" aria-label="Pipeline board">
+            {ACTIVITY_DISPLAY_COLUMNS.map((col) => {
+              const label = DISPLAY_COLUMN_LABELS[col];
+              const cards = itemsByColumn[col];
+              const count = displayColumnCounts?.[col] ?? cards.length;
+              return (
+                <section
+                  key={col}
+                  className="activity-kanban__column"
+                  role="listitem"
+                  aria-label={label.tooltip}
+                >
+                  <header className="activity-kanban__header" title={label.tooltip}>
+                    <span>{label.short}</span>
+                    <span className="activity-kanban__count">{count}</span>
+                  </header>
+                  <div className="activity-kanban__body">
+                    {col === 'prepare' && scrapedNotInQueue > 0 && (
+                      <p
+                        className="activity-kanban__scraped-backlog"
+                        title="Library items (Indexed, Scraped, Downloaded, etc.) not in the live pipeline yet. Startup should re-queue them into Prepare/Download/Library — not the Done column. If this stays high, use Retry Active Library on Overview."
                       >
-                        {inFlightDisplayTitle(job.item!)}
-                      </a>
-                      {job.detail && (
-                        <span className="muted downloader-queue-row__sub">{job.detail}</span>
-                      )}
-                    </div>
-                    <span className="downloader-in-flight-row__state muted">
-                      <LiveElapsed iso={job.completed_at!} />
-                      {job.service ? ` · ${humanizeServiceKey(job.service)}` : ''}
-                    </span>
+                        <span className="activity-kanban__scraped-backlog-value">
+                          +{scrapedNotInQueue.toLocaleString()}
+                        </span>
+                        <span className="activity-kanban__scraped-backlog-label">
+                          not in live queue
+                        </span>
+                      </p>
+                    )}
+                    {cards.length === 0 &&
+                    !(col === 'prepare' && scrapedNotInQueue > 0) ? (
+                      <p className="muted activity-kanban__empty">—</p>
+                    ) : (
+                      cards.map((item) => (
+                        <KanbanCard
+                          key={
+                            item.id != null
+                              ? `${col}-${item.id}`
+                              : `${col}-${item.content_title}-${item.sort_rank}`
+                          }
+                          item={item}
+                          queueActionId={queueActionId}
+                          onQueueAction={runQueueAction}
+                        />
+                      ))
+                    )}
                   </div>
-                </div>
-              ))}
-            </div>
+                </section>
+              );
+            })}
           </div>
-        )}
-
-        {pipelineQueueEntries.length > 0 && (
-          <div className="activity-pipeline-subpanel">
-            <h3 className="activity-pipeline-subpanel__title">Queue</h3>
-            {status?.queue?.queue_truncated && (
-              <p className="muted downloader-status__hint">
-                Showing {status.queued_items.length} of{' '}
-                {(status.queue.total_queued ?? status.queued_items.length).toLocaleString()}{' '}
-                queued jobs (downloading always shown).
-              </p>
-            )}
-            {(status?.in_flight_total ?? 0) > (status?.in_flight_items?.length ?? 0) && (
-              <p className="muted downloader-status__hint">
-                Downloading: showing {status.in_flight_items.length} of{' '}
-                {status.in_flight_total}.
-              </p>
-            )}
-            <div className="downloader-in-flight-list">
-              {pipelineQueueEntries.map((entry) => (
-                <PipelineQueueRow
-                  key={`${entry.phase}-${entry.item.id}`}
-                  entry={entry}
-                  reorderingId={reorderingId}
-                  onReorder={reorderQueue}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
+        </div>
       </Panel>
     </ViewLayout>
   );

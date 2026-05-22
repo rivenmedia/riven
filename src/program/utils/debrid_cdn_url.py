@@ -141,7 +141,12 @@ class DebridCDNUrl:
                             retry_after=parse_retry_after(e.response),
                         )
                 elif (
-                    status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.GONE)
+                    status_code
+                    in (
+                        HTTPStatus.NOT_FOUND,
+                        HTTPStatus.GONE,
+                        HTTPStatus.BAD_REQUEST,
+                    )
                     and attempt == 1
                 ):
                     # Only attempt to refresh the URL on the first failure

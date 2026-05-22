@@ -227,9 +227,26 @@ class Downloader(Runner[None, DownloaderBase]):
         with self._active_jobs_lock:
             self._active_jobs[item_id] = _ActiveJobActivity(detail=trimmed)
 
+        try:
+            from kink import di
+
+            from program.program import Program
+
+            di[Program].em.set_pipeline_activity(item_id, trimmed)
+        except Exception:
+            pass
+
     def _clear_active_job_activity(self, item_id: int) -> None:
         with self._active_jobs_lock:
             self._active_jobs.pop(item_id, None)
+        try:
+            from kink import di
+
+            from program.program import Program
+
+            di[Program].em.clear_pipeline_activity(item_id)
+        except Exception:
+            pass
 
     def get_active_job_activities(self) -> dict[int, str]:
         with self._active_jobs_lock:
@@ -257,6 +274,38 @@ class Downloader(Runner[None, DownloaderBase]):
         else:
             logger.info(msg)
 
+    def _download_retry_run_at(self) -> datetime:
+        """Next wall-clock slot for a follow-up download job."""
+
+        try:
+            from kink import di
+
+            from program.program import Program
+
+            program = di[Program]
+            return program.em._reserve_downloader_dispatch_time(program)
+        except Exception:
+            return datetime.now()
+
+    def _fail_download(self, item: MediaItem, completion: _JobCompletion) -> None:
+        """Mark the item failed and surface it on the Activity board."""
+
+        item.store_state(States.Failed)
+        try:
+            from kink import di
+
+            from program.program import Program
+
+            di[Program].em.record_recently_finished(
+                int(item.id),
+                outcome="failed",
+                service_name="Downloader",
+                failure_service="Downloader",
+                completion_detail=completion.detail,
+            )
+        except Exception:
+            pass
+
     def _append_completed_job(
         self,
         item: MediaItem,
@@ -277,6 +326,24 @@ class Downloader(Runner[None, DownloaderBase]):
             completion.detail,
             completion.service,
         )
+        try:
+            from kink import di
+
+            from program.program import Program
+
+            em = di[Program].em
+            item_id = int(item.id)
+            if completion.outcome == "success":
+                em.record_recently_finished(
+                    item_id,
+                    outcome="success",
+                    service_name="Downloader",
+                    completion_detail=completion.detail or completion.service,
+                )
+            elif completion.outcome == "deferred" and completion.detail:
+                em.set_pipeline_activity(item_id, completion.detail)
+        except Exception:
+            pass
 
     def _prune_stale_recent_jobs(self) -> None:
         cutoff = datetime.now(UTC) - _RECENT_JOBS_MAX_AGE
@@ -705,13 +772,29 @@ class Downloader(Runner[None, DownloaderBase]):
                             completion = _JobCompletion(
                                 "success", service=success_service
                             )
-                        else:
-                            fail_detail = (
-                                diag.build_detail()
-                                if diag
-                                else f"Tried {tried_streams} streams. Download failed"
+                            yield RunnerResult(media_items=[item])
+                            return
+
+                        streams_left_in_job = len(sorted_streams) - tried_streams
+                        if streams_left_in_job > 0:
+                            logger.info(
+                                f"Downloader hit per-job limit "
+                                f"({self.max_streams_per_job}) for {item.log_string}; "
+                                f"{streams_left_in_job} stream(s) remaining, re-queuing"
                             )
-                            completion = _JobCompletion("failed", detail=fail_detail)
+                            yield RunnerResult(
+                                media_items=[item],
+                                run_at=self._download_retry_run_at(),
+                            )
+                            return
+
+                        fail_detail = (
+                            diag.build_detail()
+                            if diag
+                            else f"Tried {tried_streams} streams. Download failed"
+                        )
+                        completion = _JobCompletion("failed", detail=fail_detail)
+                        self._fail_download(item, completion)
                         yield RunnerResult(media_items=[item])
                         return
 
@@ -723,6 +806,8 @@ class Downloader(Runner[None, DownloaderBase]):
                     "failed",
                     detail=f"Unexpected error: {e!r}",
                 )
+                self._fail_download(item, completion)
+                yield RunnerResult(media_items=[item])
                 return
 
             if not download_success:
@@ -749,12 +834,26 @@ class Downloader(Runner[None, DownloaderBase]):
                     yield RunnerResult(media_items=[item], run_at=next_attempt)
                     return
 
+                if item.streams:
+                    remaining = len(item.streams)
+                    logger.info(
+                        f"Downloader re-queuing {item.log_string} "
+                        f"({remaining} stream(s) still to try)"
+                    )
+                    yield RunnerResult(
+                        media_items=[item],
+                        run_at=self._download_retry_run_at(),
+                    )
+                    return
+
                 fail_detail = (
                     diag.build_detail()
                     if diag
                     else "No stream could be downloaded"
                 )
                 completion = _JobCompletion("failed", detail=fail_detail)
+                self._fail_download(item, completion)
+                yield RunnerResult(media_items=[item])
             else:
                 # Clear service cooldowns on successful download
                 self._service_cooldowns.clear()

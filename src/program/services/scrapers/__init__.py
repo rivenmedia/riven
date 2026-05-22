@@ -68,7 +68,11 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
     ) -> MediaItemGenerator:
         """Scrape an item."""
 
+        from program.managers.pipeline_activity import report_pipeline_activity_for_item
+
+        report_pipeline_activity_for_item(item, "Searching torrents")
         sorted_streams = self.scrape(item)
+        report_pipeline_activity_for_item(item, "Matching streams")
 
         new_streams = [
             stream
