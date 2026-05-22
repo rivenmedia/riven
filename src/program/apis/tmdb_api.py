@@ -1,7 +1,21 @@
 """TMDB API client"""
 
+from schemas.tmdb.models.find_by_id200_response import FindById200Response
+from schemas.tmdb.models.movie_details200_response import MovieDetails200Response
+from schemas.tmdb.models.movie_external_ids200_response import (
+    MovieExternalIds200Response,
+)
+from schemas.tmdb.models.movie_release_dates200_response import (
+    MovieReleaseDates200Response,
+)
+
 from program.services.rate_limit import http_rate_limit_map, register_http_limit
 from program.utils.request import SmartSession
+
+
+class MovieDetailsWithExtras(MovieDetails200Response):
+    external_ids: MovieExternalIds200Response
+    release_dates: MovieReleaseDates200Response
 
 TMDB_READ_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlNTkxMmVmOWFhM2IxNzg2Zjk3ZTE1NWY1YmQ3ZjY1MSIsInN1YiI6IjY1M2NjNWUyZTg5NGE2MDBmZjE2N2FmYyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.xrIXsMFJpI1o1j5g2QpQcFP1X3AfRjFA5FlBFO5Naw8"  # noqa: S105
 
@@ -43,8 +57,6 @@ class TMDBApi:
             f"find/{external_id}?external_source={external_source}"
         )
 
-        from schemas.tmdb import FindById200Response
-
         return FindById200Response.from_dict(response.json())
 
     def get_movie_details_with_external_ids_and_release_dates(self, movie_id: str):
@@ -53,16 +65,6 @@ class TMDBApi:
         response = self.session.get(
             f"movie/{movie_id}?append_to_response=external_ids,release_dates"
         )
-
-        from schemas.tmdb import (
-            MovieDetails200Response,
-            MovieExternalIds200Response,
-            MovieReleaseDates200Response,
-        )
-
-        class MovieDetailsWithExtras(MovieDetails200Response):
-            external_ids: MovieExternalIds200Response
-            release_dates: MovieReleaseDates200Response
 
         data = response.json()
 

@@ -201,14 +201,18 @@ class EventManager:
     _PIPELINE_PER_COLUMN_LIMIT = 50
     _PIPELINE_RESTORE_WARN_THRESHOLD = 10_000
 
-    # Closest-to-done services first within each dispatch tick.
+    # Library stages first so symlink/update/post-process are not starved by prepare backlog.
     _PIPELINE_DISPATCH_SERVICE_ORDER: tuple[str, ...] = (
-        "PostProcessing",
-        "Updater",
         "FilesystemService",
+        "Updater",
+        "PostProcessing",
         "Downloader",
         "Scraping",
         "IndexerService",
+    )
+
+    _LIBRARY_PIPELINE_SERVICES: frozenset[str] = frozenset(
+        {"FilesystemService", "Updater", "PostProcessing"}
     )
 
     # Narrow dispatch scans: with tens of thousands of queued rows, linear scan +
@@ -330,7 +334,7 @@ class EventManager:
 
         _executor = ThreadPoolExecutor(
             thread_name_prefix=service_name,
-            max_workers=self._pipeline_max_workers(),
+            max_workers=self._executor_max_workers(service_name),
         )
 
         self._executors.append(
@@ -476,6 +480,23 @@ class EventManager:
         except Exception:
             return 4
 
+    @staticmethod
+    def _pipeline_library_max_workers() -> int:
+        try:
+            from program.settings import settings_manager
+
+            return int(settings_manager.settings.pipeline_library_max_workers)
+        except Exception:
+            return 32
+
+    def _executor_max_workers(self, service_name: str) -> int:
+        return self._service_capacity_limit(service_name)
+
+    def _service_capacity_limit(self, service_name: str) -> int:
+        if service_name in self._LIBRARY_PIPELINE_SERVICES:
+            return self._pipeline_library_max_workers()
+        return self._pipeline_max_workers()
+
     def _active_future_count(self, service_name: str) -> int:
         count = 0
         for future_with_event in self._futures:
@@ -488,13 +509,12 @@ class EventManager:
                 count += 1
         return count
 
-    def _service_capacity_limit(self) -> int:
-        return self._pipeline_max_workers()
-
     def _service_has_capacity(
         self, service_name: str, program: "Program | None"
     ) -> bool:
-        if self._active_future_count(service_name) >= self._service_capacity_limit():
+        if self._active_future_count(service_name) >= self._service_capacity_limit(
+            service_name
+        ):
             return False
 
         if (
@@ -549,7 +569,7 @@ class EventManager:
         return [event for event in due_events if event.item_state in target_states]
 
     @staticmethod
-    def _transition_event_priority(event: Event) -> tuple[int, datetime]:
+    def _transition_event_priority(event: Event) -> tuple[int, datetime, datetime]:
         state_priority = {
             States.Completed: 0,
             States.PartiallyCompleted: 1,
@@ -560,8 +580,8 @@ class EventManager:
         }
         if event.item_state:
             priority = state_priority.get(event.item_state, 999)
-            return (priority, event.run_at)
-        return (0, event.run_at)
+            return (priority, event.run_at, event.queued_at)
+        return (0, event.run_at, event.queued_at)
 
     def _pipeline_service_by_name(
         self, program: "Program", service_name: str
@@ -1286,18 +1306,18 @@ class EventManager:
                         }
                     )
 
-                    def get_event_priority(event: Event) -> tuple[int, datetime]:
+                    def get_event_priority(event: Event) -> tuple[int, datetime, datetime]:
                         """
-                        Returns a tuple for sorting: (state_priority, run_at)
+                        Returns a tuple for sorting: (state_priority, run_at, queued_at)
                         Items with higher priority states come first, then sorted by run_at.
                         Uses cached item_state to avoid database queries.
                         """
                         if event.item_state:
                             priority = state_priority.get(event.item_state, 999)
-                            return (priority, event.run_at)
+                            return (priority, event.run_at, event.queued_at)
 
                         # Default priority for items without state or content-only events
-                        return (0, event.run_at)
+                        return (0, event.run_at, event.queued_at)
 
                     # Sort by priority (state first, then run_at)
                     ready_events.sort(key=get_event_priority)

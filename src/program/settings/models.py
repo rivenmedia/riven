@@ -995,9 +995,19 @@ class AppModel(Observable):
         ge=1,
         le=32,
         description=(
-            "Max concurrent pipeline jobs per service type (indexer, scrape, download, "
-            "symlink, update). Debrid spacing uses downloaders.min_job_interval_seconds; "
-            "scrapers use per-provider rate limits."
+            "Max concurrent prepare/download pipeline jobs per service "
+            "(indexer, scrape, download). Debrid spacing uses "
+            "downloaders.min_job_interval_seconds; scrapers use per-provider rate limits."
+        ),
+    )
+    pipeline_library_max_workers: int = Field(
+        default=32,
+        ge=1,
+        le=64,
+        description=(
+            "Max concurrent library pipeline jobs per service (symlink/filesystem, "
+            "updater, post-processing). Higher than pipeline_max_workers so the "
+            "Library column drains quickly and does not sit behind indexer/scrape backlog."
         ),
     )
     filesystem: FilesystemModel = Field(

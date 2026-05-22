@@ -400,6 +400,19 @@ def test_submit_job_requeues_when_scraping_at_capacity():
     assert event.item_id == 42
 
 
+def test_library_services_use_higher_capacity_limit():
+    with (
+        patch.object(EventManager, "_pipeline_max_workers", return_value=4),
+        patch.object(EventManager, "_pipeline_library_max_workers", return_value=32),
+    ):
+        em = EventManager()
+        assert em._service_capacity_limit("FilesystemService") == 32
+        assert em._service_capacity_limit("Updater") == 32
+        assert em._service_capacity_limit("PostProcessing") == 32
+        assert em._service_capacity_limit("Downloader") == 4
+        assert em._service_capacity_limit("IndexerService") == 4
+
+
 def test_due_events_for_service_filters_by_cached_state():
     em = EventManager()
     now = datetime.now()

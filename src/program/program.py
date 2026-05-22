@@ -340,7 +340,7 @@ class Program(threading.Thread):
             # Large backlogs are admitted only via dispatch_due_jobs; next() would pop
             # rows and re-queue without submit_job, adding churn on huge queues.
             if len(self.em._queued_events) > 1000:
-                time.sleep(0.05)
+                time.sleep(0.01)
                 continue
 
             try:
