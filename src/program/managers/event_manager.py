@@ -403,6 +403,17 @@ class EventManager:
             ):
                 return
 
+            service_name = (
+                service.__class__.__name__
+                if not isinstance(service, str)
+                else service
+            )
+
+            # Post-processing is terminal; re-queuing loops via dispatch + StateTransition.
+            if service_name == "PostProcessing":
+                self._record_terminal_outcome_if_applicable(int(item_id), service_name)
+                return
+
             # Propagate overrides to the new event to maintain setting context across service transitions
             event_overrides = (
                 future_with_event.event.overrides if future_with_event.event else None
@@ -415,11 +426,6 @@ class EventManager:
                     run_at=timestamp,
                     overrides=event_overrides,
                 )
-            )
-            service_name = (
-                service.__class__.__name__
-                if not isinstance(service, str)
-                else service
             )
             self._record_terminal_outcome_if_applicable(int(item_id), service_name)
         except RuntimeError as e:
@@ -694,6 +700,13 @@ class EventManager:
             )
 
             if processed.service is None:
+                if (
+                    service_name == "PostProcessing"
+                    and existing_item
+                    and existing_item.last_state == States.Completed
+                    and self._emitted_by_name(entry.emitted_by) == "PostProcessing"
+                ):
+                    self._queue.dequeue(int(event.item_id))
                 continue
 
             if self._service_class_name(processed.service) != service_name:

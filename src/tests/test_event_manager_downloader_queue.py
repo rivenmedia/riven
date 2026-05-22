@@ -1141,12 +1141,13 @@ def test_process_future_postprocessing_records_done(monkeypatch):
 
     em = EventManager()
     item = SimpleNamespace(id=7, last_state=States.Completed)
+    add_event_mock = Mock(return_value=True)
 
     monkeypatch.setattr(
         "program.managers.event_manager.db_functions.get_item_by_id",
         lambda i: item if i == 7 else None,
     )
-    monkeypatch.setattr(em, "add_event", lambda event: True)
+    monkeypatch.setattr(em, "add_event", add_event_mock)
     monkeypatch.setattr(em, "remove_event_from_running", lambda event: None)
     monkeypatch.setattr(em, "clear_pipeline_activity", lambda item_id: None)
     monkeypatch.setattr(em, "_drop_future_from_tracking", lambda fwe: None)
@@ -1165,15 +1166,77 @@ def test_process_future_postprocessing_records_done(monkeypatch):
     em._futures = [fwe]
 
     class PostProcessing:
-        pass
+        __name__ = "PostProcessing"
 
     em._process_future(fwe, PostProcessing())
 
+    add_event_mock.assert_not_called()
+    assert em._queue.get(7) is None
     rows = em.get_recently_finished_rows()
     assert len(rows) == 1
     assert rows[0]["item_id"] == 7
     assert rows[0]["completion_outcome"] == "success"
     assert format_api_datetime(rows[0]["run_at"]).endswith("Z")
+
+
+def test_postprocessing_completion_does_not_redispatch(monkeypatch):
+    """Regression: PP success must not re-queue and loop via StateTransition dispatch."""
+
+    from program.services.post_processing import PostProcessing
+
+    em = EventManager()
+    now = datetime.now()
+    post_processing = Mock(spec=PostProcessing)
+    post_processing.initialized = True
+    post_processing.__class__.__name__ = "PostProcessing"
+
+    item = SimpleNamespace(
+        id=55,
+        last_state=States.Completed,
+        log_string="Episode S01E01",
+    )
+    monkeypatch.setattr(
+        "program.managers.event_manager.db_functions.get_item_by_id",
+        lambda i: item if i == 55 else None,
+    )
+
+    add_event_mock = Mock(return_value=True)
+    monkeypatch.setattr(em, "add_event", add_event_mock)
+    monkeypatch.setattr(em, "remove_event_from_running", lambda event: None)
+    monkeypatch.setattr(em, "clear_pipeline_activity", lambda item_id: None)
+    monkeypatch.setattr(
+        "program.managers.event_manager.sse_manager.publish_event",
+        lambda *args, **kwargs: None,
+    )
+
+    done_future: Future[int] = Future()
+    done_future.set_result(55)
+    fwe = FutureWithEvent(
+        future=done_future,
+        event=Event(emitted_by=post_processing, item_id=55, run_at=now),
+        cancellation_event=threading.Event(),
+    )
+    em._process_future(fwe, post_processing)
+
+    add_event_mock.assert_not_called()
+    assert em._queue.get(55) is None
+
+    program = Mock()
+    program.services = Mock()
+    program.services.post_processing = post_processing
+    for name in ("indexer", "scraping", "downloader", "filesystem", "updater"):
+        svc = Mock()
+        svc.initialized = True
+        setattr(program.services, name, svc)
+    program.services.downloader.pause_until = Mock(return_value=None)
+
+    submitted: list[Event | None] = []
+
+    with patch.object(em, "submit_job", side_effect=lambda *args: submitted.append(args[2])):
+        dispatched = em.dispatch_due_jobs(program)
+
+    assert dispatched == 0
+    assert submitted == []
 
 
 def test_pipeline_snapshot_finish_count_includes_recently_finished():
