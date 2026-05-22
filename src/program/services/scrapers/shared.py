@@ -71,6 +71,25 @@ def get_ranking_overrides(
         return None
 
 
+def torrent_covers_episode(parsed_data: ParsedData, episode: Episode) -> bool:
+    """
+    True when parsed torrent metadata includes this episode (by episode number,
+    absolute number, or parent season number). Mirrors parse_results Episode filters.
+    """
+
+    if parsed_data.episodes:
+        return (
+            episode.number in parsed_data.episodes
+            or episode.absolute_number in parsed_data.episodes
+        )
+
+    if parsed_data.seasons:
+        parent_season = cast(Season, episode.parent)
+        return parent_season.number in parsed_data.seasons
+
+    return False
+
+
 def parse_results(
     item: MediaItem,
     results: dict[str, str],
@@ -194,30 +213,7 @@ def parse_results(
                     continue
 
             if isinstance(item, Episode) and not manual:
-                # Disregard torrents with incorrect episode number logic:
-                skip = False
-
-                # If the torrent has episodes, but the episode number is not present
-                if torrent.data.episodes:
-                    if (
-                        item.number not in torrent.data.episodes
-                        and item.absolute_number not in torrent.data.episodes
-                    ):
-                        skip = True
-
-                # If the torrent does not have episodes, but has seasons, and the parent season is not present
-                elif torrent.data.seasons:
-                    # item is confirmed to be Episode at line 197
-                    # Episode.parent is a Season, and Season has a 'number' attribute
-                    parent_season = cast(Season, item.parent)
-                    if parent_season.number not in torrent.data.seasons:
-                        skip = True
-
-                # If the torrent has neither episodes nor seasons, skip (junk)
-                else:
-                    skip = True
-
-                if skip:
+                if not torrent_covers_episode(torrent.data, item):
                     logger.trace(
                         f"Skipping incorrect episode torrent for {item.log_string}: {raw_title}"
                     )

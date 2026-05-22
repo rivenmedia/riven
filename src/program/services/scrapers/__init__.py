@@ -8,7 +8,7 @@ from queue import Queue, Empty
 from loguru import logger
 
 from program.core.runner import MediaItemGenerator, Runner, RunnerResult
-from program.media.item import MediaItem
+from program.media.item import Episode, MediaItem
 from program.media.state import States
 from program.media.stream import Stream
 from program.services.scrapers.aiostreams import AIOStreams
@@ -69,6 +69,33 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         """Scrape an item."""
 
         from program.managers.pipeline_activity import report_pipeline_activity_for_item
+        from program.services.scrapers.episode_streams import (
+            episode_should_skip_scrape,
+            inherit_parent_streams_for_episode,
+        )
+
+        if isinstance(item, Episode):
+            if episode_should_skip_scrape(item):
+                item.store_state()
+                item.set("scraped_at", datetime.now())
+                yield RunnerResult(media_items=[item])
+                return
+
+            report_pipeline_activity_for_item(
+                item, "Matching streams from show/season packs"
+            )
+            inherited = inherit_parent_streams_for_episode(item)
+            if inherited and item.is_scraped():
+                if item.failed_attempts > 0:
+                    item.failed_attempts = 0
+                logger.log(
+                    "SCRAPER",
+                    f"Inherited {inherited} pack stream(s) for {item.log_string}, skipping scrape APIs",
+                )
+                item.set("scraped_at", datetime.now())
+                item.set("scraped_times", item.scraped_times + 1)
+                yield RunnerResult(media_items=[item])
+                return
 
         report_pipeline_activity_for_item(item, "Searching torrents")
         sorted_streams = self.scrape(item)
