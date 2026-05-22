@@ -211,6 +211,17 @@ class EventManager:
         "IndexerService",
     )
 
+    # Narrow dispatch scans: with tens of thousands of queued rows, linear scan +
+    # per-row DB load prevents symlink/download/index work from ever being reached.
+    _SERVICE_DISPATCH_STATES: dict[str, frozenset[States | None]] = {
+        "PostProcessing": frozenset({States.Completed, States.PartiallyCompleted}),
+        "Updater": frozenset({States.Symlinked}),
+        "FilesystemService": frozenset({States.Downloaded}),
+        "Downloader": frozenset({States.Scraped}),
+        "Scraping": frozenset({States.Indexed}),
+        "IndexerService": frozenset({States.Unknown, States.Requested, None}),
+    }
+
     _RESTORE_STATES: tuple[States, ...] = (
         States.Completed,
         States.Symlinked,
@@ -518,6 +529,25 @@ class EventManager:
             event.run_at = max(event.run_at, datetime.now())
         self.add_event_to_queue(event, log_message=log_message)
 
+    def _due_events_for_service(
+        self, due_events: list[Event], service_name: str
+    ) -> list[Event]:
+        """Filter due rows by cached item_state so dispatch does not scan the full queue."""
+
+        target_states = self._SERVICE_DISPATCH_STATES.get(service_name)
+        if target_states is None:
+            return due_events
+
+        if service_name == "IndexerService":
+            return [
+                event
+                for event in due_events
+                if event.item_state in target_states
+                or (not event.item_id and event.content_item is not None)
+            ]
+
+        return [event for event in due_events if event.item_state in target_states]
+
     @staticmethod
     def _transition_event_priority(event: Event) -> tuple[int, datetime]:
         state_priority = {
@@ -570,9 +600,10 @@ class EventManager:
                 event for event in self._queued_events if event.run_at <= now
             ]
 
-        due_events.sort(key=self._transition_event_priority)
+        candidates = self._due_events_for_service(due_events, service_name)
+        candidates.sort(key=self._transition_event_priority)
 
-        for event in due_events:
+        for event in candidates:
             if event.item_id:
                 existing_item = db_functions.get_item_by_id(event.item_id)
             else:
@@ -653,6 +684,8 @@ class EventManager:
 
         if program.services is None:
             return 0
+
+        self._compact_queued_item_duplicates(datetime.now())
 
         dispatched = 0
         for service_name in self._PIPELINE_DISPATCH_SERVICE_ORDER:

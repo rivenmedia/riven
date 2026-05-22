@@ -400,6 +400,22 @@ def test_submit_job_requeues_when_scraping_at_capacity():
     assert event.item_id == 42
 
 
+def test_due_events_for_service_filters_by_cached_state():
+    em = EventManager()
+    now = datetime.now()
+    due = [
+        Event(emitted_by="StateTransition", item_id=1, item_state=States.Completed, run_at=now),
+        Event(emitted_by="StateTransition", item_id=2, item_state=States.Downloaded, run_at=now),
+        Event(emitted_by="StateTransition", item_id=3, item_state=States.Unknown, run_at=now),
+    ]
+
+    fs_candidates = em._due_events_for_service(due, "FilesystemService")
+    assert [e.item_id for e in fs_candidates] == [2]
+
+    index_candidates = em._due_events_for_service(due, "IndexerService")
+    assert [e.item_id for e in index_candidates] == [3]
+
+
 def test_dispatch_due_jobs_dispatches_unknown_state_to_indexer():
     em = EventManager()
     now = datetime.now()
