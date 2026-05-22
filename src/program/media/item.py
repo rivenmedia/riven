@@ -375,7 +375,10 @@ class MediaItem(MappedAsDataclass, Base, kw_only=True):
         if not self.aired_at:
             return False
 
-        return self.aired_at and self.aired_at <= datetime.now()
+        from program.utils import naive_local_datetime
+
+        aired_at = naive_local_datetime(self.aired_at)
+        return aired_at is not None and aired_at <= datetime.now()
 
     @property
     def state(self) -> States:

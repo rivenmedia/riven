@@ -22,7 +22,7 @@ from program.media.item import MediaItem
 from program.shutdown import request_shutdown, shutting_down
 from program.types import Event, Service
 from program.media.state import States
-from program.utils import format_api_datetime
+from program.utils import format_api_datetime, naive_local_datetime
 
 if TYPE_CHECKING:
     from program.program import Program
@@ -162,14 +162,6 @@ def pipeline_within_column_sort_key(
     return (flight_rank, defer_rank, run_at)
 
 
-def _naive_local_datetime(dt: datetime) -> datetime:
-    """Event queue uses naive local wall time; coerce aware run_at from legacy paths."""
-
-    if dt.tzinfo is None:
-        return dt
-    return dt.astimezone().replace(tzinfo=None)
-
-
 def limit_pipeline_rows_per_column(
     rows: list[dict[str, Any]],
     per_column_limit: int,
@@ -191,7 +183,7 @@ def limit_pipeline_rows_per_column(
         sort_key = lambda r: pipeline_within_column_sort_key(
             in_flight=bool(r.get("in_flight")),
             deferred=bool(r.get("deferred")),
-            run_at=r["run_at"],
+            run_at=naive_local_datetime(r["run_at"]),
         )
         in_flight_rows.sort(key=sort_key)
         queued_rows.sort(key=sort_key)
@@ -544,7 +536,7 @@ class EventManager:
             and program.services.downloader
             and program.services.downloader.initialized
         ):
-            pause_until = program.services.downloader.pause_until()
+            pause_until = naive_local_datetime(program.services.downloader.pause_until())
             if pause_until and pause_until > datetime.now():
                 return False
 
@@ -561,7 +553,7 @@ class EventManager:
         service_name: str,
         log_message: bool = True,
     ) -> None:
-        run_at = _naive_local_datetime(event.run_at)
+        run_at = naive_local_datetime(event.run_at)
         if service_name == "Downloader" and program:
             event.run_at = max(
                 run_at, self._reserve_downloader_dispatch_time(program)
@@ -601,8 +593,16 @@ class EventManager:
         }
         if event.item_state:
             priority = state_priority.get(event.item_state, 999)
-            return (priority, event.run_at, event.queued_at)
-        return (0, event.run_at, event.queued_at)
+            return (
+                priority,
+                naive_local_datetime(event.run_at),
+                naive_local_datetime(event.queued_at),
+            )
+        return (
+            0,
+            naive_local_datetime(event.run_at),
+            naive_local_datetime(event.queued_at),
+        )
 
     def _pipeline_service_by_name(
         self, program: "Program", service_name: str
@@ -640,7 +640,7 @@ class EventManager:
             due_events = [
                 event
                 for event in self._queued_events
-                if _naive_local_datetime(event.run_at) <= now
+                if naive_local_datetime(event.run_at) <= now
             ]
 
         candidates = self._due_events_for_service(due_events, service_name)
@@ -799,7 +799,7 @@ class EventManager:
             return
 
         event.run_at = max(
-            _naive_local_datetime(event.run_at),
+            naive_local_datetime(event.run_at),
             self._reserve_downloader_dispatch_time(program),
         )
 
@@ -812,7 +812,7 @@ class EventManager:
     @staticmethod
     def _queue_event_rank(event: Event, now: datetime) -> tuple[int, datetime]:
         """Lower rank = closer to downloading (due before deferred)."""
-        run_at = _naive_local_datetime(event.run_at)
+        run_at = naive_local_datetime(event.run_at)
         is_deferred = 1 if run_at > now else 0
         return (is_deferred, run_at)
 
@@ -918,16 +918,16 @@ class EventManager:
             now = datetime.now()
             all_peers = self._deduped_queued_item_events_locked(now)
             due_peers = [
-                e for e in all_peers if _naive_local_datetime(e.run_at) <= now
+                e for e in all_peers if naive_local_datetime(e.run_at) <= now
             ]
             if due_peers:
                 new_run_at = (
-                    min(_naive_local_datetime(e.run_at) for e in due_peers) - interval
+                    min(naive_local_datetime(e.run_at) for e in due_peers) - interval
                 )
             else:
                 new_run_at = now
 
-            current_min = min(_naive_local_datetime(e.run_at) for e in targets)
+            current_min = min(naive_local_datetime(e.run_at) for e in targets)
             while new_run_at >= current_min:
                 new_run_at -= interval
 
@@ -951,10 +951,14 @@ class EventManager:
 
             now = datetime.now()
             all_peers = self._deduped_queued_item_events_locked(now)
-            max_run_at = max(e.run_at for e in all_peers) if all_peers else now
+            max_run_at = (
+                max(naive_local_datetime(e.run_at) for e in all_peers)
+                if all_peers
+                else now
+            )
             new_run_at = max_run_at + interval
 
-            current_max = max(e.run_at for e in targets)
+            current_max = max(naive_local_datetime(e.run_at) for e in targets)
             while new_run_at <= current_max:
                 new_run_at += interval
 
@@ -999,7 +1003,7 @@ class EventManager:
         with self.mutex:
             for event in self._queued_events:
                 if event.run_at.tzinfo is not None:
-                    event.run_at = _naive_local_datetime(event.run_at)
+                    event.run_at = naive_local_datetime(event.run_at)
 
     def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
@@ -1009,7 +1013,7 @@ class EventManager:
             event (Event): The event to add to the queue.
         """
 
-        event.run_at = _naive_local_datetime(event.run_at)
+        event.run_at = naive_local_datetime(event.run_at)
 
         with self.mutex:
             if event.item_id:
@@ -1069,7 +1073,10 @@ class EventManager:
             if event.item_id:
                 for existing in self._queued_events:
                     if existing.item_id == event.item_id:
-                        existing.run_at = max(existing.run_at, event.run_at)
+                        existing.run_at = max(
+                            naive_local_datetime(existing.run_at),
+                            naive_local_datetime(event.run_at),
+                        )
                         if item and item.last_state:
                             existing.item_state = item.last_state
                         elif event.item_state:
@@ -1192,9 +1199,11 @@ class EventManager:
                     and program.services.downloader
                 ):
                     downloader = program.services.downloader
-                    pause_until = downloader.pause_until()
+                    pause_until = naive_local_datetime(downloader.pause_until())
                     if pause_until and pause_until > datetime.now():
-                        event.run_at = max(event.run_at, pause_until)
+                        event.run_at = max(
+                            naive_local_datetime(event.run_at), pause_until
+                        )
                         self.add_event_to_queue(event)
                         logger.debug(
                             f"Downloader paused until {pause_until.isoformat()}; "
@@ -1334,7 +1343,7 @@ class EventManager:
                     ready_events = [
                         event
                         for event in self._queued_events
-                        if _naive_local_datetime(event.run_at) <= now
+                        if naive_local_datetime(event.run_at) <= now
                     ]
 
                     if not ready_events:
@@ -1360,10 +1369,18 @@ class EventManager:
                         """
                         if event.item_state:
                             priority = state_priority.get(event.item_state, 999)
-                            return (priority, event.run_at, event.queued_at)
+                            return (
+                                priority,
+                                naive_local_datetime(event.run_at),
+                                naive_local_datetime(event.queued_at),
+                            )
 
                         # Default priority for items without state or content-only events
-                        return (0, event.run_at, event.queued_at)
+                        return (
+                            0,
+                            naive_local_datetime(event.run_at),
+                            naive_local_datetime(event.queued_at),
+                        )
 
                     # Sort by priority (state first, then run_at)
                     ready_events.sort(key=get_event_priority)
@@ -1424,7 +1441,10 @@ class EventManager:
                     existing.item_state = fresh_state
                 elif event.item_state:
                     existing.item_state = event.item_state
-                existing.run_at = min(existing.run_at, event.run_at)
+                existing.run_at = min(
+                    naive_local_datetime(existing.run_at),
+                    naive_local_datetime(event.run_at),
+                )
 
     def add_event(self, event: Event) -> bool:
         """
@@ -1759,7 +1779,7 @@ class EventManager:
 
         def sort_key(event: Event) -> tuple[int, datetime]:
             # Due (ready) before deferred; soonest run_at first within each band.
-            run_at = _naive_local_datetime(event.run_at)
+            run_at = naive_local_datetime(event.run_at)
             is_deferred = 1 if run_at > now else 0
             return (is_deferred, run_at)
 
@@ -1777,7 +1797,7 @@ class EventManager:
 
         for event in matched:
             total_queued += 1
-            run_at = _naive_local_datetime(event.run_at)
+            run_at = naive_local_datetime(event.run_at)
 
             if run_at > now:
                 deferred += 1
@@ -1807,7 +1827,7 @@ class EventManager:
                         event.item_state.name if event.item_state else None
                     ),
                     "emitted_by": self._emitted_by_name(event.emitted_by),
-                    "deferred": _naive_local_datetime(event.run_at) > now,
+                    "deferred": naive_local_datetime(event.run_at) > now,
                 }
             )
 
@@ -2039,7 +2059,7 @@ class EventManager:
         actively_running: bool = False,
     ) -> dict[str, Any]:
         deferred_flag = (
-            _naive_local_datetime(event.run_at) > now if not in_flight else False
+            naive_local_datetime(event.run_at) > now if not in_flight else False
         )
         phase = resolve_pipeline_phase(
             item_state=event.item_state if not in_flight else None,
@@ -2097,7 +2117,7 @@ class EventManager:
             if item_id in in_flight_meta:
                 continue
 
-            run_at = _naive_local_datetime(event.run_at)
+            run_at = naive_local_datetime(event.run_at)
             deferred_flag = run_at > now
             phase = resolve_pipeline_phase(
                 item_state=event.item_state,
@@ -2136,8 +2156,8 @@ class EventManager:
             col_events.sort(
                 key=lambda e: pipeline_within_column_sort_key(
                     in_flight=False,
-                    deferred=_naive_local_datetime(e.run_at) > now,
-                    run_at=_naive_local_datetime(e.run_at),
+                    deferred=naive_local_datetime(e.run_at) > now,
+                    run_at=naive_local_datetime(e.run_at),
                 )
             )
             if len(col_events) > per_limit:
@@ -2164,7 +2184,7 @@ class EventManager:
                     "queued_at": event.queued_at,
                     "item_state": None,
                     "emitted_by": source,
-                    "deferred": _naive_local_datetime(event.run_at) > now,
+                    "deferred": naive_local_datetime(event.run_at) > now,
                     "in_flight": False,
                     "pipeline_phase": phase,
                     "kanban_column": kanban,

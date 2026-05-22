@@ -144,7 +144,10 @@ class NotificationService(Runner[NotificationsModel, None, None]):
 
         assert item.requested_at
 
-        duration = round((datetime.now() - item.requested_at).total_seconds())
+        from program.utils import naive_local_datetime
+
+        requested_at = naive_local_datetime(item.requested_at)
+        duration = round((datetime.now() - requested_at).total_seconds())
 
         logger.success(f"{item.log_string} has been completed in {duration} seconds.")
 

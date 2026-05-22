@@ -28,6 +28,21 @@ def get_version() -> str:
     return version
 
 
+def naive_local_datetime(dt: datetime | None) -> datetime | None:
+    """
+    Coerce aware datetimes to naive local wall time for use with datetime.now().
+
+    Use before comparing or subtracting any DB timestamp, UTC API timestamp, or
+    queue run_at against naive datetimes — mixing aware and naive raises TypeError.
+    """
+
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone().replace(tzinfo=None)
+
+
 def format_api_datetime(dt: datetime | None) -> str | None:
     """
     Serialize a datetime for API/JSON consumers.

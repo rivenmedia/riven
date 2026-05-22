@@ -24,7 +24,7 @@ from program.media.state import States
 from program.program import Program
 from program.services.rate_limit import RateLimitService, get_rate_limit_service
 from program.settings import settings_manager
-from program.utils import format_api_datetime, generate_api_key
+from program.utils import format_api_datetime, generate_api_key, naive_local_datetime
 
 from ..models.shared import MessageResponse
 
@@ -263,7 +263,7 @@ def _item_display_rows(
                     episode_number=episode_number,
                     state=item.last_state.name if item.last_state else None,
                 ),
-                item.scraped_at,
+                naive_local_datetime(item.scraped_at),
             )
 
         return rows
@@ -301,8 +301,8 @@ def _queued_items(
 
     for raw in event_rows:
         item_id = int(raw["item_id"])
-        run_at: datetime = raw["run_at"]
-        queued_at: datetime = raw["queued_at"]
+        run_at = naive_local_datetime(raw["run_at"])
+        queued_at = naive_local_datetime(raw["queued_at"])
         deferred: bool = bool(raw["deferred"])
 
         display_row, scraped_at = display_rows.get(
@@ -321,8 +321,9 @@ def _queued_items(
             wait_seconds = max(0.0, (run_at - now).total_seconds())
         else:
             anchor = queued_at
-            if scraped_at and scraped_at > anchor:
-                anchor = scraped_at
+            scraped_local = naive_local_datetime(scraped_at) if scraped_at else None
+            if scraped_local and scraped_local > anchor:
+                anchor = scraped_local
             wait_seconds = max(0.0, (now - anchor).total_seconds())
 
         result.append(
@@ -657,8 +658,8 @@ def _pipeline_items_from_rows(
         item_id = raw.get("item_id")
         in_flight = bool(raw.get("in_flight"))
         deferred = bool(raw.get("deferred"))
-        run_at: datetime = raw["run_at"]
-        queued_at: datetime = raw["queued_at"]
+        run_at = naive_local_datetime(raw["run_at"])
+        queued_at = naive_local_datetime(raw["queued_at"])
 
         if item_id is not None:
             item_id_int = int(item_id)
@@ -681,8 +682,11 @@ def _pipeline_items_from_rows(
                 wait_seconds = max(0.0, (run_at - now).total_seconds())
             else:
                 anchor = queued_at
-                if scraped_at and scraped_at > anchor:
-                    anchor = scraped_at
+                scraped_local = (
+                    naive_local_datetime(scraped_at) if scraped_at else None
+                )
+                if scraped_local and scraped_local > anchor:
+                    anchor = scraped_local
                 wait_seconds = max(0.0, (now - anchor).total_seconds())
 
             phase = str(raw["pipeline_phase"])
@@ -772,7 +776,7 @@ def _merge_recently_finished_pipeline_rows(
             kanban,
             in_flight=bool(raw.get("in_flight")),
             deferred=bool(raw.get("deferred")),
-            run_at=raw["run_at"],
+            run_at=naive_local_datetime(raw["run_at"]),
         )
 
     merged.sort(key=sort_key)

@@ -281,9 +281,12 @@ class Scraping(Runner[ScraperModel, ScraperService[Observable]]):
         elif item.scraped_times > 10:
             scrape_time = settings.after_10 * 60 * 60
 
+        from program.utils import naive_local_datetime
+
+        scraped_at = naive_local_datetime(item.scraped_at)
         is_scrapeable = (
-            not item.scraped_at
-            or (datetime.now() - item.scraped_at).total_seconds() > scrape_time
+            not scraped_at
+            or (datetime.now() - scraped_at).total_seconds() > scrape_time
         )
 
         if not is_scrapeable:
