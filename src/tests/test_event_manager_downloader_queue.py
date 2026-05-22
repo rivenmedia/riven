@@ -1150,6 +1150,24 @@ def test_process_future_postprocessing_records_done(monkeypatch):
     assert format_api_datetime(rows[0]["run_at"]).endswith("Z")
 
 
+def test_dispatch_due_jobs_handles_utc_aware_run_at():
+    """Post-processing used to enqueue UTC-aware run_at and crash dispatch."""
+
+    em = EventManager()
+    em._queued_events = [
+        Event(
+            emitted_by="StateTransition",
+            item_id=1,
+            item_state=States.Completed,
+            run_at=datetime.now(UTC),
+        )
+    ]
+
+    program = SimpleNamespace(services=None)
+    assert em.dispatch_due_jobs(program) == 0
+    assert em._queued_events[0].run_at.tzinfo is None
+
+
 def test_downloader_success_does_not_record_recently_finished(monkeypatch):
     from collections import deque
 

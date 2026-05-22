@@ -162,6 +162,14 @@ def pipeline_within_column_sort_key(
     return (flight_rank, defer_rank, run_at)
 
 
+def _naive_local_datetime(dt: datetime) -> datetime:
+    """Event queue uses naive local wall time; coerce aware run_at from legacy paths."""
+
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone().replace(tzinfo=None)
+
+
 def limit_pipeline_rows_per_column(
     rows: list[dict[str, Any]],
     per_column_limit: int,
@@ -383,7 +391,7 @@ class EventManager:
             if isinstance(result, tuple):
                 item_id, timestamp = result
             else:
-                item_id, timestamp = result, datetime.now(UTC)
+                item_id, timestamp = result, datetime.now()
 
             event_item_id: int | None = None
             if future_with_event.event and future_with_event.event.item_id:
@@ -553,12 +561,13 @@ class EventManager:
         service_name: str,
         log_message: bool = True,
     ) -> None:
+        run_at = _naive_local_datetime(event.run_at)
         if service_name == "Downloader" and program:
             event.run_at = max(
-                event.run_at, self._reserve_downloader_dispatch_time(program)
+                run_at, self._reserve_downloader_dispatch_time(program)
             )
         else:
-            event.run_at = max(event.run_at, datetime.now())
+            event.run_at = max(run_at, datetime.now())
         self.add_event_to_queue(event, log_message=log_message)
 
     def _due_events_for_service(
@@ -629,7 +638,9 @@ class EventManager:
 
         with self.mutex:
             due_events = [
-                event for event in self._queued_events if event.run_at <= now
+                event
+                for event in self._queued_events
+                if _naive_local_datetime(event.run_at) <= now
             ]
 
         candidates = self._due_events_for_service(due_events, service_name)
@@ -716,10 +727,11 @@ class EventManager:
     def dispatch_due_jobs(self, program: "Program") -> int:
         """Start due pipeline work up to per-service capacity (no executor backlog)."""
 
+        self._compact_queued_item_duplicates(datetime.now())
+        self._normalize_queued_run_at_times()
+
         if program.services is None:
             return 0
-
-        self._compact_queued_item_duplicates(datetime.now())
 
         dispatched = 0
         for service_name in self._PIPELINE_DISPATCH_SERVICE_ORDER:
@@ -786,7 +798,10 @@ class EventManager:
         if not self._has_active_downloader_future() and not has_other_scraped:
             return
 
-        event.run_at = max(event.run_at, self._reserve_downloader_dispatch_time(program))
+        event.run_at = max(
+            _naive_local_datetime(event.run_at),
+            self._reserve_downloader_dispatch_time(program),
+        )
 
     def _is_downloader_relevant_queued_event(self, event: Event) -> bool:
         if not event.item_id:
@@ -797,8 +812,9 @@ class EventManager:
     @staticmethod
     def _queue_event_rank(event: Event, now: datetime) -> tuple[int, datetime]:
         """Lower rank = closer to downloading (due before deferred)."""
-        is_deferred = 1 if event.run_at > now else 0
-        return (is_deferred, event.run_at)
+        run_at = _naive_local_datetime(event.run_at)
+        is_deferred = 1 if run_at > now else 0
+        return (is_deferred, run_at)
 
     def _dedupe_queue_events_by_item_id(
         self, events: list[Event], now: datetime
@@ -901,13 +917,17 @@ class EventManager:
 
             now = datetime.now()
             all_peers = self._deduped_queued_item_events_locked(now)
-            due_peers = [e for e in all_peers if e.run_at <= now]
+            due_peers = [
+                e for e in all_peers if _naive_local_datetime(e.run_at) <= now
+            ]
             if due_peers:
-                new_run_at = min(e.run_at for e in due_peers) - interval
+                new_run_at = (
+                    min(_naive_local_datetime(e.run_at) for e in due_peers) - interval
+                )
             else:
                 new_run_at = now
 
-            current_min = min(e.run_at for e in targets)
+            current_min = min(_naive_local_datetime(e.run_at) for e in targets)
             while new_run_at >= current_min:
                 new_run_at -= interval
 
@@ -973,6 +993,14 @@ class EventManager:
 
         return self.deprioritize_pipeline_queue_item(item_id)
 
+    def _normalize_queued_run_at_times(self) -> None:
+        """Repair aware run_at values so dispatch can compare with naive datetime.now()."""
+
+        with self.mutex:
+            for event in self._queued_events:
+                if event.run_at.tzinfo is not None:
+                    event.run_at = _naive_local_datetime(event.run_at)
+
     def add_event_to_queue(self, event: Event, log_message: bool = True):
         """
         Adds an event to the queue.
@@ -980,6 +1008,8 @@ class EventManager:
         Args:
             event (Event): The event to add to the queue.
         """
+
+        event.run_at = _naive_local_datetime(event.run_at)
 
         with self.mutex:
             if event.item_id:
@@ -1302,7 +1332,9 @@ class EventManager:
 
                     # Filter events that are ready to run (run_at <= now)
                     ready_events = [
-                        event for event in self._queued_events if event.run_at <= now
+                        event
+                        for event in self._queued_events
+                        if _naive_local_datetime(event.run_at) <= now
                     ]
 
                     if not ready_events:
@@ -1727,10 +1759,12 @@ class EventManager:
 
         def sort_key(event: Event) -> tuple[int, datetime]:
             # Due (ready) before deferred; soonest run_at first within each band.
-            is_deferred = 1 if event.run_at > now else 0
-            return (is_deferred, event.run_at)
+            run_at = _naive_local_datetime(event.run_at)
+            is_deferred = 1 if run_at > now else 0
+            return (is_deferred, run_at)
 
         self._compact_queued_item_duplicates(now)
+        self._normalize_queued_run_at_times()
 
         raw_matched: list[Event] = []
 
@@ -1743,18 +1777,19 @@ class EventManager:
 
         for event in matched:
             total_queued += 1
+            run_at = _naive_local_datetime(event.run_at)
 
-            if event.run_at > now:
+            if run_at > now:
                 deferred += 1
-                if next_deferred is None or event.run_at < next_deferred:
-                    next_deferred = event.run_at
+                if next_deferred is None or run_at < next_deferred:
+                    next_deferred = run_at
 
             source = self._emitted_by_name(event.emitted_by)
             queue_by_source[source] = queue_by_source.get(source, 0) + 1
 
             if event.item_state == States.Scraped:
                 scraped_queued += 1
-                if event.run_at <= now:
+                if run_at <= now:
                     scraped_ready += 1
 
         top_events = heapq.nsmallest(
@@ -1772,7 +1807,7 @@ class EventManager:
                         event.item_state.name if event.item_state else None
                     ),
                     "emitted_by": self._emitted_by_name(event.emitted_by),
-                    "deferred": event.run_at > now,
+                    "deferred": _naive_local_datetime(event.run_at) > now,
                 }
             )
 
@@ -2003,7 +2038,9 @@ class EventManager:
         in_flight_service: str | None = None,
         actively_running: bool = False,
     ) -> dict[str, Any]:
-        deferred_flag = event.run_at > now if not in_flight else False
+        deferred_flag = (
+            _naive_local_datetime(event.run_at) > now if not in_flight else False
+        )
         phase = resolve_pipeline_phase(
             item_state=event.item_state if not in_flight else None,
             deferred=deferred_flag,
@@ -2046,6 +2083,7 @@ class EventManager:
         buckets: dict[str, list[Event]] = {col: [] for col in KANBAN_COLUMN_ORDER}
 
         self._compact_queued_item_duplicates(now)
+        self._normalize_queued_run_at_times()
 
         with self.mutex:
             in_flight_meta = self._in_flight_rows_metadata()
@@ -2059,7 +2097,8 @@ class EventManager:
             if item_id in in_flight_meta:
                 continue
 
-            deferred_flag = event.run_at > now
+            run_at = _naive_local_datetime(event.run_at)
+            deferred_flag = run_at > now
             phase = resolve_pipeline_phase(
                 item_state=event.item_state,
                 deferred=deferred_flag,
@@ -2076,8 +2115,8 @@ class EventManager:
 
             if deferred_flag:
                 deferred += 1
-                if next_deferred is None or event.run_at < next_deferred:
-                    next_deferred = event.run_at
+                if next_deferred is None or run_at < next_deferred:
+                    next_deferred = run_at
 
         for event in content_only:
             phase = "queued_index"
@@ -2097,8 +2136,8 @@ class EventManager:
             col_events.sort(
                 key=lambda e: pipeline_within_column_sort_key(
                     in_flight=False,
-                    deferred=e.run_at > now,
-                    run_at=e.run_at,
+                    deferred=_naive_local_datetime(e.run_at) > now,
+                    run_at=_naive_local_datetime(e.run_at),
                 )
             )
             if len(col_events) > per_limit:
@@ -2125,7 +2164,7 @@ class EventManager:
                     "queued_at": event.queued_at,
                     "item_state": None,
                     "emitted_by": source,
-                    "deferred": event.run_at > now,
+                    "deferred": _naive_local_datetime(event.run_at) > now,
                     "in_flight": False,
                     "pipeline_phase": phase,
                     "kanban_column": kanban,
