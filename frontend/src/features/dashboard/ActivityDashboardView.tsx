@@ -213,6 +213,21 @@ function RetryIcon() {
   );
 }
 
+function InfoIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M12 11v5M12 8h.01"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 type QueueCardAction = 'prioritize' | 'deprioritize' | 'dequeue' | 'retry_failed';
 
 function KanbanCardActionOverlay({
@@ -245,9 +260,17 @@ function KanbanCardActionOverlay({
   }
   return (
     <div className="activity-kanban__card-actions" role="group" aria-label="Queue actions">
+      <a
+        className="downloader-queue-reorder-btn downloader-queue-reorder-btn--info"
+        href={`#/item/${itemId}`}
+        title="View item"
+        aria-label="View item"
+      >
+        <InfoIcon />
+      </a>
       <button
         type="button"
-        className="downloader-queue-reorder-btn"
+        className="downloader-queue-reorder-btn downloader-queue-reorder-btn--priority"
         title="Move up in column"
         aria-label="Prioritize"
         disabled={busy}
@@ -257,7 +280,7 @@ function KanbanCardActionOverlay({
       </button>
       <button
         type="button"
-        className="downloader-queue-reorder-btn"
+        className="downloader-queue-reorder-btn downloader-queue-reorder-btn--priority"
         title="Move down in column"
         aria-label="Deprioritize"
         disabled={busy}

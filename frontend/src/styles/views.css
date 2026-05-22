@@ -1347,10 +1347,41 @@
   cursor: not-allowed;
 }
 
-.downloader-queue-reorder-btn--cancel:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.22);
-  border-color: rgba(239, 68, 68, 0.45);
+.downloader-queue-reorder-btn--info {
+  text-decoration: none;
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.downloader-queue-reorder-btn--info:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #bbf7d0;
+}
+
+.downloader-queue-reorder-btn--priority {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: rgba(168, 85, 247, 0.35);
+  color: #d8b4fe;
+}
+
+.downloader-queue-reorder-btn--priority:hover:not(:disabled) {
+  background: rgba(168, 85, 247, 0.25);
+  border-color: rgba(168, 85, 247, 0.5);
+  color: #e9d5ff;
+}
+
+.downloader-queue-reorder-btn--cancel {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
   color: #fca5a5;
+}
+
+.downloader-queue-reorder-btn--cancel:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fecaca;
 }
 
 .downloader-queue-reorder-btn--retry:hover:not(:disabled) {
