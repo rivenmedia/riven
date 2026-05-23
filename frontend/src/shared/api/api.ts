@@ -134,6 +134,14 @@ export async function apiFetch<T = any>(
       error: response.ok ? null : extractError(data, response.status),
     };
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 0,
+        data: null,
+        error: null,
+      };
+    }
     console.error('API fetch error:', error);
     return {
       ok: false,

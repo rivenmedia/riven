@@ -3596,6 +3596,70 @@ button.mount-row:hover {
   margin-top: 0.5rem;
 }
 
+/* Maintenance */
+.view-maintenance .panel-section-title {
+  margin: 0 0 0.5rem;
+  font-size: var(--font-size-2);
+  font-weight: 600;
+}
+
+.view-maintenance .panel-hint {
+  margin: 0 0 1rem;
+  color: var(--text-2);
+  font-size: var(--font-size-1);
+  line-height: 1.5;
+}
+
+.view-maintenance .form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.view-maintenance .maintenance-summary {
+  margin: 0 0 1rem;
+  color: var(--text-2);
+}
+
+.view-maintenance .maintenance-table-wrap {
+  overflow-x: auto;
+  margin-top: 0.5rem;
+}
+
+.view-maintenance .maintenance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-1);
+}
+
+.view-maintenance .maintenance-table th,
+.view-maintenance .maintenance-table td {
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--border-1);
+  text-align: left;
+  vertical-align: top;
+}
+
+.view-maintenance .maintenance-table th {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.view-maintenance .maintenance-title {
+  font-weight: 600;
+}
+
+.view-maintenance .maintenance-details {
+  margin-top: 0.2rem;
+  color: var(--text-2);
+  font-size: 0.9em;
+}
+
+.view-maintenance .maintenance-summary-output {
+  margin-top: 1rem;
+}
+
 @media (max-width: 900px) {
   .calendar-day,
   .calendar-day--empty {

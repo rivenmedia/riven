@@ -18,6 +18,7 @@ export type RouteName =
   | "inspector"
   | "settings"
   | "backup"
+  | "maintenance"
   | "vfs-stats"
   | "item"
   | "calendar"

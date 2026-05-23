@@ -7,6 +7,7 @@ import MountView from '../features/mount/MountView';
 import VfsStatsView from '../features/vfs/VfsStatsView';
 import InspectorView from '../features/inspector/InspectorView';
 import BackupRestoreView from '../features/backup/BackupRestoreView';
+import MaintenanceView from '../features/maintenance/MaintenanceView';
 import LibraryView from '../features/library/LibraryView';
 import ItemDetailView from '../features/item-detail/ItemDetailView';
 import ExploreView from '../features/explore';
@@ -37,6 +38,7 @@ export const ROUTE_VIEWS: Record<
   inspector: InspectorView,
   settings: SettingsView,
   backup: BackupRestoreView,
+  maintenance: MaintenanceView,
   'vfs-stats': VfsStatsView,
   item: ItemDetailView,
   calendar: CalendarView,

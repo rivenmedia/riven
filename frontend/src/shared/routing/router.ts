@@ -20,6 +20,7 @@ export const ROUTES = {
   inspector: 'view-inspector',
   settings: 'view-settings',
   backup: 'view-backup',
+  maintenance: 'view-maintenance',
   'vfs-stats': 'view-vfs-stats',
   calendar: 'view-calendar',
   mount: 'view-mount',

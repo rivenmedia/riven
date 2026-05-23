@@ -158,3 +158,81 @@ def episode_should_skip_scrape(episode: Episode) -> bool:
     if episode.filesystem_entry is not None or episode.available_in_vfs:
         return True
     return False
+
+
+def actionable_episodes(season: Season) -> list[Episode]:
+    """Episodes eligible for scrape health checks (released, indexed, not on disk)."""
+
+    from program.media.state import States
+
+    result: list[Episode] = []
+    for episode in season.episodes:
+        if episode.last_state not in (States.Indexed, States.Unknown):
+            continue
+        if not episode.is_released:
+            continue
+        if episode_should_skip_scrape(episode):
+            continue
+        result.append(episode)
+    return result
+
+
+def pack_pipeline_episodes(season: Season) -> list[Episode]:
+    """Released episodes still in scrape/download pipeline (not on disk / VFS)."""
+
+    from program.media.state import States
+
+    result: list[Episode] = []
+    for episode in season.episodes:
+        if episode.last_state in (States.Paused, States.Failed):
+            continue
+        if not episode.is_released:
+            continue
+        if episode_should_skip_scrape(episode):
+            continue
+        result.append(episode)
+    return result
+
+
+def episode_scrape_attempted(episode: Episode) -> bool:
+    """True when a per-episode scrape has been recorded."""
+
+    from program.utils import naive_local_datetime
+
+    return naive_local_datetime(episode.scraped_at) is not None
+
+
+def individually_scraped_episode_counts(
+    season: Season,
+) -> tuple[int, int, float]:
+    """
+    Return (pipeline_count, individually_scraped_count, ratio) for a season.
+
+    Counts episodes with streams or a scrape attempt, among those still not on disk.
+    """
+
+    pipeline = pack_pipeline_episodes(season)
+    if not pipeline:
+        return 0, 0, 0.0
+    scraped = sum(
+        1
+        for episode in pipeline
+        if episode.is_scraped() or episode_scrape_attempted(episode)
+    )
+    return len(pipeline), scraped, scraped / len(pipeline)
+
+
+def streamless_episode_counts(
+    season: Season,
+) -> tuple[int, int, float]:
+    """
+    Return (actionable_count, streamless_count, streamless_ratio) for a season.
+
+    Streamless means no non-blacklisted streams (same as ``is_scraped()`` false).
+  """
+
+    actionable = actionable_episodes(season)
+    if not actionable:
+        return 0, 0, 0.0
+    streamless = sum(1 for episode in actionable if not episode.is_scraped())
+    return len(actionable), streamless, streamless / len(actionable)
