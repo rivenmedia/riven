@@ -4,7 +4,9 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Body, HTTPException, status
 from kink import di
 from loguru import logger
-from pydantic import BaseModel, Field
+import json
+
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -55,6 +57,18 @@ class TvScrapeApplyPayload(BaseModel):
         default=True,
         description="Re-queue pipeline work after reset via restore_pipeline_from_db",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_json_string_body(cls, data: object) -> object:
+        """Accept a JSON object or a double-encoded JSON string body."""
+
+        if isinstance(data, str):
+            parsed = json.loads(data)
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            return parsed
+        return data
 
 
 class TvScrapeApplyResponse(MessageResponse):

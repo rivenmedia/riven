@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
-import { apiFetch } from '../../shared/api/api';
+import { apiFetch, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import type { AppRoute } from '../../app/routeTypes';
 
@@ -109,10 +109,9 @@ export default function MaintenanceView({ route: _route }: { route: AppRoute }) 
 
     setApplying(true);
     setLastApply(null);
-    const response = await apiFetch<ApplyResponse>('/maintenance/tv-scrape/apply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item_ids: ids, requeue: true }),
+    const response = await apiPost<ApplyResponse>('/maintenance/tv-scrape/apply', {
+      item_ids: ids,
+      requeue: true,
     });
     setApplying(false);
 
