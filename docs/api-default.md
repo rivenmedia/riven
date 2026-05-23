@@ -232,9 +232,28 @@ VFS statistics: active streams and cache metrics. See [vfs.md](vfs.md) for how t
 ```json
 {
   "streams": { "<path:fh>": { ...per-stream stats... } },
-  "cache": { ...chunk-cache metrics... }
+  "cache": { ...chunk-cache metrics... },
+  "library": {
+    "total_bytes": 0,
+    "movies_bytes": 0,
+    "tv_bytes": 0
+  },
+  "throughput": {
+    "network_bytes_ingested": 0,
+    "client_bytes_served_warm": 0,
+    "client_bytes_served_cold": 0,
+    "client_warm_byte_ratio": null
+  },
+  "providers": {
+    "total_files": 0,
+    "slices": [
+      { "provider": "realdebrid", "file_count": 120, "bytes": 1234567890 }
+    ]
+  }
 }
 ```
+
+`providers` groups `MediaEntry` rows with `available_in_vfs` by pinned `provider` (file count and bytes per slice).
 
 **Errors:** Requires filesystem service with `riven_vfs`.
 

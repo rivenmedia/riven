@@ -1842,6 +1842,27 @@ class VFSLibraryStats(BaseModel):
     ]
 
 
+class VfsProviderSlice(BaseModel):
+    """One debrid provider bucket for VFS media entries."""
+
+    provider: Annotated[
+        str,
+        Field(description="Downloader service key (e.g. realdebrid, torbox) or unknown"),
+    ]
+    file_count: Annotated[int, Field(description="Number of video files in VFS for this provider")]
+    bytes: Annotated[int, Field(description="Sum of file_size for files in this bucket")]
+
+
+class VfsProviderDistribution(BaseModel):
+    """File-count distribution of pinned debrid providers for VFS media entries."""
+
+    total_files: Annotated[int, Field(description="Total video files in VFS (sum of slice file_count)")]
+    slices: Annotated[
+        list[VfsProviderSlice],
+        Field(description="Per-provider buckets sorted by file_count descending"),
+    ]
+
+
 class VfsThroughputStats(BaseModel):
     """Cumulative VFS I/O accounting: network ingress vs client reads (warm cache_hit vs cold paths)."""
 
@@ -1883,6 +1904,10 @@ class VFSStatsResponse(BaseModel):
     throughput: Annotated[
         VfsThroughputStats,
         Field(description="VFS-wide origin / usefulness counters since mount"),
+    ]
+    providers: Annotated[
+        VfsProviderDistribution,
+        Field(description="Debrid provider distribution for files available in VFS"),
     ]
 
 
@@ -1944,6 +1969,32 @@ async def get_vfs_stats() -> VFSStatsResponse:
             ).scalar_one()
         )
 
+        provider_col = func.coalesce(MediaEntry.provider, "unknown").label("provider")
+        provider_rows = session.execute(
+            select(
+                provider_col,
+                func.count(MediaEntry.id),
+                func.coalesce(func.sum(MediaEntry.file_size), 0),
+            )
+            .where(*base_media)
+            .group_by(provider_col)
+        ).all()
+
+    provider_slices = [
+        VfsProviderSlice(
+            provider=str(row[0]),
+            file_count=int(row[1]),
+            bytes=int(row[2]),
+        )
+        for row in provider_rows
+    ]
+    provider_slices.sort(key=lambda s: s.file_count, reverse=True)
+    total_provider_files = sum(s.file_count for s in provider_slices)
+    providers = VfsProviderDistribution(
+        total_files=total_provider_files,
+        slices=provider_slices,
+    )
+
     library = VFSLibraryStats(
         total_bytes=total_bytes,
         movies_bytes=movies_bytes,
@@ -1963,6 +2014,7 @@ async def get_vfs_stats() -> VFSStatsResponse:
         cache=cache_snapshot,
         library=library,
         throughput=throughput,
+        providers=providers,
     )
 
 

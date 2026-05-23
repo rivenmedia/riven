@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ViewLayout, ViewHeader, Panel } from '../../shared/ui/PagePrimitives';
+import { PieChart, type PieChartSlice } from '../../shared/ui/PieChart';
 import { apiGet } from '../../shared/api/api';
 import { formatBytes } from '../../shared/utils/utils';
+import { humanizeServiceKey } from '../dashboard/serviceSetupMessages';
 import type { AppRoute } from '../../app/routeTypes';
 
 interface StreamStat {
@@ -34,6 +36,17 @@ interface VfsLibraryStat {
   tv_bytes: number;
 }
 
+interface VfsProviderSlice {
+  provider: string;
+  file_count: number;
+  bytes: number;
+}
+
+interface VfsProviderDistribution {
+  total_files: number;
+  slices: VfsProviderSlice[];
+}
+
 interface ThroughputStat {
   network_bytes_ingested: number;
   client_bytes_served_warm: number;
@@ -53,6 +66,31 @@ interface VfsStatsData {
   cache: CacheStat;
   library: VfsLibraryStat;
   throughput: ThroughputStat;
+  providers: VfsProviderDistribution;
+}
+
+const PROVIDER_CHART_COLORS: Record<string, string> = {
+  realdebrid: 'var(--amber, #e6a23c)',
+  torbox: 'var(--green, #4caf50)',
+  alldebrid: 'var(--accent, #5b8ef0)',
+  debridlink: '#c678dd',
+};
+
+const PROVIDER_CHART_FALLBACK_COLORS = [
+  'var(--accent, #5b8ef0)',
+  'var(--green, #4caf50)',
+  'var(--amber, #e6a23c)',
+  '#c678dd',
+  '#56b6c2',
+];
+
+function providerChartColor(provider: string, index: number): string {
+  return PROVIDER_CHART_COLORS[provider] ?? PROVIDER_CHART_FALLBACK_COLORS[index % PROVIDER_CHART_FALLBACK_COLORS.length];
+}
+
+function providerChartLabel(provider: string): string {
+  if (provider === 'unknown') return 'Unknown';
+  return humanizeServiceKey(provider);
 }
 
 function formatSpeed(bps: number): string {
@@ -84,9 +122,11 @@ function ProgressBar({ pct }: { pct: number }) {
   );
 }
 
+const CHART_WINDOW = 50;
+
 function ThroughputLineChart({ series }: { series: ThroughputSample[] }) {
   const w = 720;
-  const h = 168;
+  const h = 94;
   const padL = 6;
   const padR = 6;
   const padT = 10;
@@ -94,68 +134,77 @@ function ThroughputLineChart({ series }: { series: ThroughputSample[] }) {
   const plotW = w - padL - padR;
   const plotH = h - padT - padB;
 
-  if (series.length === 0) {
-    return (
-      <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-        Chart builds after a few refreshes (3s polling). Current totals are above.
-      </p>
-    );
-  }
+  const windowSeries = series.slice(-CHART_WINDOW);
+  const n = windowSeries.length;
+  const slots = CHART_WINDOW;
 
   let maxV = 1;
-  for (const s of series) {
+  for (const s of windowSeries) {
     maxV = Math.max(maxV, s.networkBps, s.warmBps, s.coldBps);
   }
 
-  const n = series.length;
-  const xAt = (i: number) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const xAt = (i: number) => {
+    const slot = slots - n + i;
+    return padL + (slot / (slots - 1)) * plotW;
+  };
   const yAt = (v: number) => padT + plotH - (v / maxV) * plotH;
 
   const pointsFor = (key: keyof Pick<ThroughputSample, 'networkBps' | 'warmBps' | 'coldBps'>): string =>
-    series.map((s, i) => `${xAt(i)},${yAt(s[key])}`).join(' ');
+    windowSeries.map((s, i) => `${xAt(i)},${yAt(s[key])}`).join(' ');
 
   return (
-    <svg
-      width="100%"
-      height={h}
-      viewBox={`0 0 ${w} ${h}`}
-      preserveAspectRatio="none"
-      aria-label="Throughput over recent polls"
-      style={{ display: 'block', marginTop: '0.75rem' }}
-    >
-      <line
-        x1={padL}
-        y1={padT + plotH}
-        x2={padL + plotW}
-        y2={padT + plotH}
-        stroke="var(--surface-3, #444)"
-        strokeWidth={1}
-      />
-      <polyline
-        fill="none"
-        stroke="var(--amber, #e6a23c)"
-        strokeWidth={2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        points={pointsFor('networkBps')}
-      />
-      <polyline
-        fill="none"
-        stroke="var(--green, #4caf50)"
-        strokeWidth={2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        points={pointsFor('warmBps')}
-      />
-      <polyline
-        fill="none"
-        stroke="var(--accent, #5b8ef0)"
-        strokeWidth={2}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        points={pointsFor('coldBps')}
-      />
-    </svg>
+    <div style={{ marginTop: '0.75rem' }}>
+      <svg
+        width="100%"
+        height={h}
+        viewBox={`0 0 ${w} ${h}`}
+        preserveAspectRatio="none"
+        aria-label="Throughput over recent polls"
+        style={{ display: 'block' }}
+      >
+        <line
+          x1={padL}
+          y1={padT + plotH}
+          x2={padL + plotW}
+          y2={padT + plotH}
+          stroke="var(--surface-3, #444)"
+          strokeWidth={1}
+        />
+        {n > 0 && (
+          <>
+            <polyline
+              fill="none"
+              stroke="var(--amber, #e6a23c)"
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              points={pointsFor('networkBps')}
+            />
+            <polyline
+              fill="none"
+              stroke="var(--green, #4caf50)"
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              points={pointsFor('warmBps')}
+            />
+            <polyline
+              fill="none"
+              stroke="var(--accent, #5b8ef0)"
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              points={pointsFor('coldBps')}
+            />
+          </>
+        )}
+      </svg>
+      {n === 0 && (
+        <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+          Chart builds after a few refreshes (3s polling). Current totals are above.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -216,199 +265,258 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** 0° = top, clockwise positive */
-function polar(cx: number, cy: number, r: number, angleDeg: number) {
-  const rad = ((angleDeg - 90) * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-}
-
-function pieSlicePath(cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  if (endDeg - startDeg <= 0.01) return '';
-  const start = polar(cx, cy, r, endDeg);
-  const end = polar(cx, cy, r, startDeg);
-  const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y} Z`;
-}
-
-function LibraryPanel({ library }: { library: VfsLibraryStat }) {
+function LibraryPanel({
+  library,
+  providers,
+}: {
+  library: VfsLibraryStat;
+  providers: VfsProviderDistribution;
+}) {
   const { total_bytes, movies_bytes, tv_bytes } = library;
-  const videoSplit = movies_bytes + tv_bytes;
-  const moviePctOfSplit = videoSplit > 0 ? (movies_bytes / videoSplit) * 100 : 0;
-  const tvPctOfSplit = videoSplit > 0 ? (tv_bytes / videoSplit) * 100 : 0;
   const otherBytes = Math.max(0, total_bytes - movies_bytes - tv_bytes);
 
-  const cx = 50;
-  const cy = 50;
-  const r = 38;
-  let a0 = -90;
-  const movieEnd = a0 + (360 * moviePctOfSplit) / 100;
-  const moviePath = videoSplit > 0 ? pieSlicePath(cx, cy, r, a0, movieEnd) : '';
-  const tvPath =
-    videoSplit > 0 && tv_bytes > 0 ? pieSlicePath(cx, cy, r, movieEnd, a0 + 360) : '';
+  const typeSlices: PieChartSlice[] = [];
+  if (movies_bytes > 0) {
+    typeSlices.push({
+      id: 'movies',
+      label: 'Movies',
+      value: movies_bytes,
+      color: 'var(--accent, #5b8ef0)',
+      subtext: formatBytes(movies_bytes),
+    });
+  }
+  if (tv_bytes > 0) {
+    typeSlices.push({
+      id: 'tv',
+      label: 'TV (episodes)',
+      value: tv_bytes,
+      color: 'var(--green, #4caf50)',
+      subtext: formatBytes(tv_bytes),
+    });
+  }
+
+  const providerSlices: PieChartSlice[] = providers.slices
+    .filter((s) => s.file_count > 0)
+    .map((s, i) => ({
+      id: s.provider,
+      label: providerChartLabel(s.provider),
+      value: s.file_count,
+      color: providerChartColor(s.provider, i),
+      subtext:
+        s.file_count === 1 ? '1 file' : `${s.file_count.toLocaleString()} files`,
+    }));
+
+  const pieColumnStyle = {
+    flex: '1 1 0',
+    minWidth: 'min(12rem, 100%)',
+    display: 'flex',
+    justifyContent: 'center',
+  } as const;
 
   return (
     <div
       style={{
         display: 'flex',
         flexWrap: 'wrap',
-        gap: '1.5rem 2.5rem',
         alignItems: 'flex-start',
-        justifyContent: 'flex-start',
+        gap: '1rem 1.5rem',
+        width: '100%',
       }}
     >
-      <div style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 'min(28rem, 100%)' }}>
-        <h2 style={{ margin: '0 0 0.75rem', fontSize: '1rem' }}>Library in VFS</h2>
-        <Metric label="Total VFS (video files)" value={formatBytes(total_bytes)} />
-        {otherBytes > 0 && (
-          <p style={{ margin: '0.6rem 0 0', fontSize: '0.78rem', opacity: 0.65 }}>
-            Other / unlinked in DB: {formatBytes(otherBytes)} (
-            {total_bytes > 0 ? ((otherBytes / total_bytes) * 100).toFixed(1) : '0'}% of total)
-          </p>
+      <div
+        style={{
+          flex: '0 1 auto',
+          minWidth: 0,
+          maxWidth: 'min(14rem, 100%)',
+          display: 'flex',
+          justifyContent: 'flex-start',
+        }}
+      >
+        <div style={{ minWidth: 0, maxWidth: '100%' }}>
+          <h2 style={{ margin: '0 0 0.75rem', fontSize: '1rem' }}>Library in VFS</h2>
+          <Metric label="Total VFS (video files)" value={formatBytes(total_bytes)} />
+          {otherBytes > 0 && (
+            <p style={{ margin: '0.6rem 0 0', fontSize: '0.78rem', opacity: 0.65 }}>
+              Other / unlinked in DB: {formatBytes(otherBytes)} (
+              {total_bytes > 0 ? ((otherBytes / total_bytes) * 100).toFixed(1) : '0'}% of total)
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div style={pieColumnStyle}>
+        <PieChart
+          slices={typeSlices}
+          ariaLabel="Movies versus TV by size"
+          footnote="Percentages are by movie + TV bytes only."
+          emptyMessage="No movie or episode files in the VFS yet (sizes are split by linked library type)."
+        />
+      </div>
+
+      <div style={pieColumnStyle}>
+        <PieChart
+          slices={providerSlices}
+          ariaLabel="Debrid provider distribution by file count"
+          footnote="By file count in VFS."
+          emptyMessage="No video files in the VFS yet."
+        />
+      </div>
+    </div>
+  );
+}
+
+function ChunkCacheMetrics({ cache }: { cache: CacheStat }) {
+  const evictions = cache.evictions ?? 0;
+
+  return (
+    <div style={{ minWidth: 0, width: '100%' }}>
+      <h3 style={{ margin: '0 0 0.6rem', fontSize: '0.88rem', fontWeight: 600 }}>Chunk cache (disk)</h3>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: '0.55rem 1rem',
+          fontSize: '0.85rem',
+        }}
+      >
+        <Metric label="Hit rate" value={chunkGetSuccessRate(cache)} />
+        <Metric label="Served from cache" value={formatBytes(cache.bytes_from_cache ?? 0)} />
+        {cache.total_bytes != null && <Metric label="Size on disk" value={formatBytes(cache.total_bytes)} />}
+        {cache.entries != null && (
+          <Metric label="Cached chunks" value={(cache.entries ?? 0).toLocaleString()} />
+        )}
+        {evictions > 0 && <Metric label="Evictions" value={evictions.toLocaleString()} />}
+      </div>
+    </div>
+  );
+}
+
+function ThroughputLegendItem({
+  color,
+  label,
+  title,
+}: {
+  color: string;
+  label: string;
+  title: string;
+}) {
+  return (
+    <span title={title} style={{ cursor: 'help' }}>
+      <span style={{ color, fontWeight: 600 }}>—</span> {label}
+    </span>
+  );
+}
+
+function DataOriginPanel({
+  tp,
+  series,
+  cache,
+}: {
+  tp: ThroughputStat;
+  series: ThroughputSample[];
+  cache: CacheStat | null;
+}) {
+  const warm = tp.client_bytes_served_warm ?? 0;
+  const cold = tp.client_bytes_served_cold ?? 0;
+  const clientTotal = warm + cold;
+
+  const clientSlices: PieChartSlice[] = [];
+  if (warm > 0) {
+    clientSlices.push({
+      id: 'cached',
+      label: 'Cached',
+      value: warm,
+      color: 'var(--green, #4caf50)',
+      subtext: formatBytes(warm),
+      tooltip: 'Read satisfied as cache_hit (already on disk for that request).',
+    });
+  }
+  if (cold > 0) {
+    clientSlices.push({
+      id: 'uncached',
+      label: 'Uncached',
+      value: cold,
+      color: 'var(--accent, #5b8ef0)',
+      subtext: formatBytes(cold),
+      tooltip: 'Playback body path, header/footer scans, and other non-cache_hit paths.',
+    });
+  }
+
+  const columnStyle = {
+    flex: '1 1 0',
+    minWidth: 'min(14rem, 100%)',
+    display: 'flex',
+    justifyContent: 'center',
+  } as const;
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-start',
+          gap: '1rem 1.5rem',
+          width: '100%',
+        }}
+      >
+        <div style={{ ...columnStyle, alignItems: 'center' }}>
+          <PieChart
+            slices={clientSlices}
+            ariaLabel="Cached versus uncached client bytes served"
+            footnote="By cumulative client bytes since mount."
+            emptyMessage="No client reads recorded yet."
+          />
+        </div>
+
+        <div
+          style={{
+            ...columnStyle,
+            flex: '0 1 auto',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            justifyContent: 'flex-start',
+          }}
+        >
+          <h3 style={{ margin: '0 0 0.6rem', fontSize: '0.88rem', fontWeight: 600 }}>Network</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', fontSize: '0.85rem' }}>
+            <Metric label="Ingress (cumulative)" value={formatBytes(tp.network_bytes_ingested)} />
+            <Metric label="Client bytes (total)" value={formatBytes(clientTotal)} />
+          </div>
+        </div>
+
+        {cache != null && (
+          <div style={{ ...columnStyle, justifyContent: 'flex-start' }}>
+            <ChunkCacheMetrics cache={cache} />
+          </div>
         )}
       </div>
 
       <div
         style={{
           display: 'flex',
+          flexWrap: 'wrap',
           gap: '1rem',
-          alignItems: 'center',
-          flexWrap: 'nowrap',
-          flex: '0 1 auto',
+          marginTop: '0.75rem',
+          fontSize: '0.78rem',
+          opacity: 0.85,
         }}
       >
-        {videoSplit > 0 ? (
-          <svg width={140} height={140} viewBox="0 0 100 100" aria-label="Movies versus TV by size">
-            {moviePath && (
-              <path d={moviePath} fill="var(--accent, #5b8ef0)" stroke="var(--surface-1, #1a1a1a)" strokeWidth={0.5} />
-            )}
-            {tvPath && (
-              <path d={tvPath} fill="var(--green, #4caf50)" stroke="var(--surface-1, #1a1a1a)" strokeWidth={0.5} />
-            )}
-          </svg>
-        ) : (
-          <p className="muted" style={{ margin: 0, maxWidth: 220 }}>
-            No movie or episode files in the VFS yet (sizes are split by linked library type).
-          </p>
-        )}
-        {videoSplit > 0 && (
-          <div style={{ fontSize: '0.82rem', lineHeight: 1.6 }}>
-            <div>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 10,
-                  height: 10,
-                  borderRadius: 2,
-                  background: 'var(--accent, #5b8ef0)',
-                  marginRight: 8,
-                  verticalAlign: 'middle',
-                }}
-              />
-              Movies{' '}
-              <span style={{ opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}>
-                {moviePctOfSplit.toFixed(1)}% · {formatBytes(movies_bytes)}
-              </span>
-            </div>
-            <div>
-              <span
-                style={{
-                  display: 'inline-block',
-                  width: 10,
-                  height: 10,
-                  borderRadius: 2,
-                  background: 'var(--green, #4caf50)',
-                  marginRight: 8,
-                  verticalAlign: 'middle',
-                }}
-              />
-              TV (episodes){' '}
-              <span style={{ opacity: 0.85, fontVariantNumeric: 'tabular-nums' }}>
-                {tvPctOfSplit.toFixed(1)}% · {formatBytes(tv_bytes)}
-              </span>
-            </div>
-            <div style={{ marginTop: 6, opacity: 0.55, fontSize: '0.75rem' }}>
-              Percentages are by movie + TV bytes only.
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function cacheReadAmplification(cache: CacheStat): string {
-  const w = cache.bytes_written ?? 0;
-  const r = cache.bytes_from_cache ?? 0;
-  if (w <= 0) return '—';
-  return `${(r / w).toFixed(2)}×`;
-}
-
-function CachePanel({ cache }: { cache: CacheStat }) {
-  return (
-    <div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(6, minmax(0, 1fr))',
-          gap: '0.6rem',
-          fontSize: '0.85rem',
-        }}
-      >
-        <Metric label="Chunk get success" value={chunkGetSuccessRate(cache)} />
-        <Metric label="Chunk get hits" value={(cache.hits ?? 0).toLocaleString()} />
-        <Metric label="Chunk get misses" value={(cache.misses ?? 0).toLocaleString()} />
-        <Metric label="Bytes read (chunk cache)" value={formatBytes(cache.bytes_from_cache ?? 0)} />
-        <Metric label="Bytes written (chunk cache)" value={formatBytes(cache.bytes_written ?? 0)} />
-        <Metric label="Read / write ratio" value={cacheReadAmplification(cache)} />
-        <Metric label="Evictions" value={(cache.evictions ?? 0).toLocaleString()} />
-        {cache.total_bytes != null && <Metric label="Cache size on disk" value={formatBytes(cache.total_bytes)} />}
-        {cache.entries != null && <Metric label="Cache entries" value={String(cache.entries)} />}
-      </div>
-      <p style={{ margin: '0.65rem 0 0', fontSize: '0.75rem', opacity: 0.55, lineHeight: 1.45 }}>
-        Chunk metrics count disk cache <code style={{ fontSize: '0.85em' }}>get</code>/<code style={{ fontSize: '0.85em' }}>put</code>{' '}
-        operations. After a fresh download, <code style={{ fontSize: '0.85em' }}>get</code>s still register as hits—use{' '}
-        <strong>Data origin</strong> above for true warm (disk-only) vs cold (needed network for this read) client bytes.
-      </p>
-    </div>
-  );
-}
-
-function ThroughputPanel({ tp, series }: { tp: ThroughputStat; series: ThroughputSample[] }) {
-  const warmPct =
-    tp.client_warm_byte_ratio != null ? `${(tp.client_warm_byte_ratio * 100).toFixed(1)}%` : '—';
-  const clientTotal = (tp.client_bytes_served_warm ?? 0) + (tp.client_bytes_served_cold ?? 0);
-
-  return (
-    <div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-          gap: '0.6rem',
-          fontSize: '0.85rem',
-        }}
-      >
-        <Metric label="Network ingress (cumulative)" value={formatBytes(tp.network_bytes_ingested)} />
-        <Metric label="Client bytes (warm)" value={formatBytes(tp.client_bytes_served_warm)} />
-        <Metric label="Client bytes (cold)" value={formatBytes(tp.client_bytes_served_cold)} />
-        <Metric label="Warm share of client reads" value={warmPct} />
-        <Metric label="Client bytes (total)" value={formatBytes(clientTotal)} />
-      </div>
-      <p style={{ margin: '0.65rem 0 0', fontSize: '0.75rem', opacity: 0.55, lineHeight: 1.45 }}>
-        <strong>Warm</strong>: read satisfied as <code style={{ fontSize: '0.85em' }}>cache_hit</code> (already on disk for
-        that request). <strong>Cold</strong>: playback body path, header/footer scans, etc. Chart shows average B/s since the
-        last poll (3s window).
-      </p>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '0.35rem', fontSize: '0.78rem', opacity: 0.85 }}>
-        <span>
-          <span style={{ color: 'var(--amber, #e6a23c)', fontWeight: 600 }}>—</span> Network
-        </span>
-        <span>
-          <span style={{ color: 'var(--green, #4caf50)', fontWeight: 600 }}>—</span> Warm to client
-        </span>
-        <span>
-          <span style={{ color: 'var(--accent, #5b8ef0)', fontWeight: 600 }}>—</span> Cold to client
-        </span>
+        <ThroughputLegendItem
+          color="var(--amber, #e6a23c)"
+          label="Network"
+          title="HTTP body bytes ingested from providers. Chart: average B/s per 3s poll."
+        />
+        <ThroughputLegendItem
+          color="var(--green, #4caf50)"
+          label="Cached (warm)"
+          title="Client bytes served warm (cache_hit). Chart: average B/s per 3s poll."
+        />
+        <ThroughputLegendItem
+          color="var(--accent, #5b8ef0)"
+          label="Uncached (cold)"
+          title="Client bytes served via cold paths. Chart: average B/s per 3s poll."
+        />
       </div>
       <ThroughputLineChart series={series} />
     </div>
@@ -416,7 +524,7 @@ function ThroughputPanel({ tp, series }: { tp: ThroughputStat; series: Throughpu
 }
 
 const POLL_INTERVAL_MS = 3000;
-const THROUGHPUT_HISTORY_MAX = 120;
+const THROUGHPUT_HISTORY_MAX = CHART_WINDOW;
 
 export default function VfsStatsView({ route }: { route: AppRoute }) {
   const [data, setData] = useState<VfsStatsData | null>(null);
@@ -482,32 +590,26 @@ export default function VfsStatsView({ route }: { route: AppRoute }) {
   const streams = data ? Object.values(data.streams) : [];
   const cache = data?.cache ?? null;
   const library = data?.library ?? null;
+  const providers = data?.providers ?? null;
   const throughput = data?.throughput ?? null;
 
   return (
     <ViewLayout className="view-vfs-stats" view="vfs-stats">
       <ViewHeader
         title="VFS Statistics"
-        subtitle="Library size, data origin (warm vs cold reads), chunk-cache metrics, live streams. Refreshes every 3 seconds."
+        subtitle="Library size, VFS cache (cached vs uncached reads, chunk cache), live streams. Refreshes every 3 seconds."
       />
 
-      {library && (
+      {library && providers && (
         <Panel>
-          <LibraryPanel library={library} />
+          <LibraryPanel library={library} providers={providers} />
         </Panel>
       )}
 
       {throughput && (
         <Panel>
-          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Data origin (VFS-wide)</h2>
-          <ThroughputPanel tp={throughput} series={throughputSeries} />
-        </Panel>
-      )}
-
-      {cache && (
-        <Panel>
-          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Chunk cache (disk)</h2>
-          <CachePanel cache={cache} />
+          <h2 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>VFS Cache</h2>
+          <DataOriginPanel tp={throughput} series={throughputSeries} cache={cache} />
         </Panel>
       )}
 
