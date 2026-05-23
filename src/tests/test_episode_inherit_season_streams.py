@@ -5,6 +5,7 @@ from program.media.item import Episode, Season, Show
 from program.media.state import States
 from program.services.scrapers import Scraping
 from program.services.scrapers.episode_streams import (
+    _resolve_parents,
     episode_should_skip_scrape,
     inherit_parent_streams_for_episode,
 )
@@ -58,6 +59,25 @@ def test_torrent_covers_episode_junk_without_seasons_or_episodes():
     episode, _, _ = _episode()
     parsed = SimpleNamespace(episodes=[], seasons=[])
     assert torrent_covers_episode(parsed, episode) is False
+
+
+def test_resolve_parents_uses_parent_id_when_parent_not_loaded(monkeypatch):
+    episode, season, show = _episode(number=1, season_number=1)
+    episode.parent = None
+    episode.parent_id = 99
+    season.id = 99
+    show.id = 7
+    season.parent_id = 7
+
+    monkeypatch.setattr(
+        "program.db.db_functions.get_item_by_id",
+        lambda item_id, **_: season if item_id == 99 else show,
+    )
+
+    resolved_season, resolved_show = _resolve_parents(episode)
+
+    assert resolved_season is season
+    assert resolved_show is show
 
 
 def test_inherit_from_show_only_streams():

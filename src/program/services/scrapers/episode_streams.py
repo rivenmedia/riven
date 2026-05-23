@@ -3,11 +3,57 @@
 from __future__ import annotations
 
 from loguru import logger
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.orm.base import NO_VALUE
 
 from program.media.item import Episode, MediaItem, Season, Show
 from program.media.stream import Stream
 from program.services.downloaders.shared import parse_filename
 from program.services.scrapers.shared import torrent_covers_episode
+
+
+def _loaded_relationship(obj: MediaItem, attr_name: str) -> MediaItem | None:
+    """Return a relationship value only if it is already in memory (no lazy load)."""
+
+    state = sa_inspect(obj, raiseerr=False)
+    if state is not None and getattr(state, "mapper", None):
+        attr = state.attrs.get(attr_name)
+        if attr is None or attr.loaded_value is NO_VALUE:
+            return None
+        return attr.loaded_value
+
+    # Non-ORM test doubles: plain attribute access is safe.
+    value = getattr(obj, attr_name, None)
+    return value if value is not None else None
+
+
+def _resolve_parents(
+    episode: Episode,
+    *,
+    season: Season | None = None,
+    show: Show | None = None,
+) -> tuple[Season | None, Show | None]:
+    """Resolve season/show without lazy-loading detached ORM instances."""
+
+    if season is None:
+        season = _loaded_relationship(episode, "parent")
+        if season is None and episode.parent_id:
+            from program.db import db_functions
+
+            loaded = db_functions.get_item_by_id(episode.parent_id)
+            if isinstance(loaded, Season):
+                season = loaded
+
+    if season is not None and show is None:
+        show = _loaded_relationship(season, "parent")
+        if show is None and season.parent_id:
+            from program.db import db_functions
+
+            loaded = db_functions.get_item_by_id(season.parent_id)
+            if isinstance(loaded, Show):
+                show = loaded
+
+    return season, show
 
 
 def _stream_blacklisted_for_episode(
@@ -65,15 +111,19 @@ def _link_matching_streams(
     return linked
 
 
-def inherit_parent_streams_for_episode(episode: Episode) -> int:
+def inherit_parent_streams_for_episode(
+    episode: Episode,
+    *,
+    season: Season | None = None,
+    show: Show | None = None,
+) -> int:
     """
     Link show/season pack streams that cover this episode onto episode.streams.
 
     Show is checked first (complete-series packs). Returns count of newly linked streams.
     """
 
-    season = episode.parent
-    show = episode.top_parent if season is not None else None
+    season, show = _resolve_parents(episode, season=season, show=show)
     seen_infohashes = {
         s.infohash.lower() for s in episode.streams if s.infohash
     }

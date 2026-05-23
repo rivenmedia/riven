@@ -129,19 +129,30 @@ def process_event(
                 items_to_submit = [existing_item]
             else:
                 # After season pack scraping, submit individual episodes
+                from program.db import db_functions
                 from program.services.scrapers.episode_streams import (
+                    _loaded_relationship,
                     episode_should_skip_scrape,
                     inherit_parent_streams_for_episode,
                 )
 
                 items_to_submit = list[MediaItem]()
+                season = existing_item
+                show = _loaded_relationship(season, "parent")
+                if show is None and season.parent_id:
+                    loaded = db_functions.get_item_by_id(season.parent_id)
+                    if isinstance(loaded, Show):
+                        show = loaded
+
                 for e in existing_item.episodes:
                     if e.last_state not in [States.Indexed, States.Unknown]:
                         continue
                     if overrides is None:
                         if episode_should_skip_scrape(e):
                             continue
-                        inherit_parent_streams_for_episode(e)
+                        inherit_parent_streams_for_episode(
+                            e, season=season, show=show
+                        )
                         if e.is_scraped():
                             continue
                     if overrides is not None or services.scraping.should_submit(e):
