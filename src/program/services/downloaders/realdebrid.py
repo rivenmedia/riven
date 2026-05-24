@@ -12,6 +12,7 @@ from enum import IntEnum
 from program.services.downloaders.models import (
     VALID_VIDEO_EXTENSIONS,
     DebridFile,
+    InfringingTorrentException,
     InvalidDebridFileException,
     TorrentContainer,
     TorrentFile,
@@ -283,6 +284,14 @@ class RealDebridDownloader(DownloaderBase):
                     pass
 
             raise
+        except InfringingTorrentException:
+            if torrent_id:
+                try:
+                    self.delete_torrent(torrent_id)
+                except Exception:
+                    pass
+
+            raise
         except RealDebridError as e:
             # add_torrent/select_files/delete_torrent surface HTTP error context via _handle_error
             logger.warning(f"Availability check failed [{infohash}]: {e}")
@@ -445,7 +454,7 @@ class RealDebridDownloader(DownloaderBase):
             "torrents/addMagnet", data={"magnet": magnet.lower()}
         )
         if not response.ok:
-            raise RealDebridError(self._handle_error(response))
+            self._raise_for_response(response, infohash=infohash)
 
         class RealDebridAddMagnetResponse(BaseModel):
             id: str
@@ -475,7 +484,7 @@ class RealDebridDownloader(DownloaderBase):
         )
 
         if not response.ok:
-            raise RealDebridError(self._handle_error(response))
+            self._raise_for_response(response)
 
     def get_torrent_info(self, torrent_id: int | str) -> TorrentInfo:
         """
@@ -564,6 +573,41 @@ class RealDebridDownloader(DownloaderBase):
         response = self.api.session.delete(f"torrents/delete/{torrent_id}")
         if not response.ok:
             raise RealDebridError(self._handle_error(response))
+
+    @staticmethod
+    def _is_infringing_response(response: SmartResponse) -> bool:
+        if response.status_code == 451:
+            return True
+
+        try:
+            payload = response.json()
+            if isinstance(payload, dict):
+                error_code = payload.get("error_code")
+                if error_code == RealDebridErrorCode.INFRINGING_FILE:
+                    return True
+                if error_code == int(RealDebridErrorCode.INFRINGING_FILE):
+                    return True
+        except Exception:
+            pass
+
+        return False
+
+    def _raise_for_response(
+        self,
+        response: SmartResponse,
+        *,
+        infohash: str | None = None,
+    ) -> None:
+        message = self._handle_error(response)
+
+        if self._is_infringing_response(response):
+            raise InfringingTorrentException(
+                message,
+                provider=self.key,
+                infohash=infohash,
+            )
+
+        raise RealDebridError(message)
 
     def _handle_error(self, response: SmartResponse) -> str:
         """

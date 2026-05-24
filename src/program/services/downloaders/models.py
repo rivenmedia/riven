@@ -68,6 +68,21 @@ class BitrateLimitExceededException(InvalidDebridFileException):
     """Exception raised when a file exceeds the allowed bitrate limit"""
 
 
+class InfringingTorrentException(Exception):
+    """Torrent rejected by a debrid provider as infringing/DMCA."""
+
+    def __init__(
+        self,
+        message: str = "Infringing torrent",
+        *,
+        provider: str | None = None,
+        infohash: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.infohash = infohash
+
+
 class DebridFile(BaseModel):
     """Represents a file from a debrid service"""
 

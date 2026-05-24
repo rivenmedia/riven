@@ -23,6 +23,7 @@ from program.media.models import ActiveStream, MediaMetadata
 from program.services.downloaders.models import (
     DebridFile,
     DownloadedTorrent,
+    InfringingTorrentException,
     NoMatchingFilesException,
     NotCachedException,
     TorrentContainer,
@@ -573,6 +574,7 @@ class Downloader(Runner[None, DownloaderBase]):
                     stream_failed_on_all_services = True
                     stream_hit_circuit_breaker = False
                     stream_attempted_api = False
+                    stream_infringing_on: list[str] = []
 
                     for service in available_services:
                         logger.debug(
@@ -645,6 +647,18 @@ class Downloader(Runner[None, DownloaderBase]):
                             # We want to retry this stream after cooldown
                             if len(self.initialized_services) == 1:
                                 stream_failed_on_all_services = False
+                            continue
+
+                        except InfringingTorrentException as e:
+                            stream_infringing_on.append(service.key)
+                            if diag:
+                                diag.note_api_error(
+                                    service.key, stream.infohash, e
+                                )
+                            logger.info(
+                                f"Stream {stream.infohash} rejected as infringing on "
+                                f"{service.key}: {e}"
+                            )
                             continue
 
                         except NoMatchingFilesException as e:
@@ -747,6 +761,12 @@ class Downloader(Runner[None, DownloaderBase]):
                             logger.debug(
                                 f"Stream {stream.infohash} hit circuit breaker on single provider, will retry after cooldown"
                             )
+                        elif len(stream_infringing_on) == len(available_services):
+                            logger.info(
+                                f"Stream {stream.infohash} rejected as infringing on all "
+                                f"{len(available_services)} available service(s), blacklisting"
+                            )
+                            item.blacklist_stream(stream)
                         else:
                             logger.debug(
                                 f"Stream {stream.infohash} failed on all {len(available_services)} available service(s), blacklisting"

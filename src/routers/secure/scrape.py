@@ -310,10 +310,14 @@ async def resolve_torrent_container(
         Tuple of (container, error_message). If container is None, error_message explains why.
     """
     import asyncio
-    from program.services.downloaders.models import InvalidDebridFileException
+    from program.services.downloaders.models import (
+        InvalidDebridFileException,
+        InfringingTorrentException,
+    )
 
     container = None
     last_error = None
+    infringing_on: list[str] = []
 
     overrides = {}
     if min_filesize_override is not None:
@@ -321,69 +325,104 @@ async def resolve_torrent_container(
     if max_filesize_override is not None:
         overrides["max_filesize"] = max_filesize_override
 
+    services = downloader.initialized_services
+    if not services:
+        return None, "No downloader services initialized"
+
     with settings_manager.override(**overrides):
-        # Try instant availability check first
-        try:
-            container = await asyncio.to_thread(
-                downloader.get_instant_availability, infohash, item_type
-            )
-            if container and container.files:
-                return container, None
-                
-        except InvalidDebridFileException as e:
-            last_error = str(e)
-            logger.debug(f"Invalid debrid file: {e}")
-        except Exception as e:
-            last_error = f"Service error: {str(e)}"
-            logger.debug(f"Error checking instant availability: {e}")
-
-        # Fallback: probe torrent by adding temporarily
-        if not container or not container.files:
+        for service in services:
             try:
-                tid = await asyncio.to_thread(downloader.add_torrent, infohash)
-                try:
-                    info = await asyncio.to_thread(downloader.get_torrent_info, tid)
-                    if info and info.files:
-                        valid_files = list[DebridFile]()
-                        for f in info.files.values():
-                            try:
-                                df = DebridFile.create(
-                                    path=f.path,
-                                    filename=f.filename,
-                                    filesize_bytes=f.bytes,
-                                    filetype=item_type,
-                                    file_id=f.id,
-                                )
-                                valid_files.append(df)
-                            except InvalidDebridFileException as e:
-                                logger.debug(f"Skipping file {f.filename}: {e}")
-                                continue
-
-                        if valid_files:
-                            container = TorrentContainer(
-                                infohash=infohash,
-                                files=valid_files,
-                                torrent_id=tid,
-                                torrent_info=info,
-                            )
-                        else:
-                            last_error = "No valid video files found (all files filtered by type or size)"
-                except Exception as e:
-                    logger.error(f"Error getting torrent info: {e}")
-                    last_error = f"Unable to get torrent info: {str(e)}"
-                finally:
-                    # Clean up temporary torrent if we're just probing
-                    if not container or not container.files:
-                        try:
-                            await asyncio.to_thread(downloader.delete_torrent, tid)
-                        except Exception:
-                            pass
+                container = await asyncio.to_thread(
+                    service.get_instant_availability, infohash, item_type
+                )
+                if container and container.files:
+                    return container, None
+            except InfringingTorrentException as e:
+                infringing_on.append(service.key)
+                last_error = str(e)
+                logger.debug(
+                    f"Magnet {infohash} rejected as infringing on {service.key}: {e}"
+                )
+            except InvalidDebridFileException as e:
+                last_error = str(e)
+                logger.debug(f"Invalid debrid file on {service.key}: {e}")
             except Exception as e:
-                logger.error(f"Magnet resolution error: {e}")
-                return None, f"Unable to resolve magnet: {str(e)}"
+                last_error = f"Service error ({service.key}): {str(e)}"
+                logger.debug(f"Error checking instant availability on {service.key}: {e}")
+
+        if not container or not container.files:
+            for service in services:
+                if service.key in infringing_on:
+                    continue
+
+                tid = None
+                try:
+                    tid = await asyncio.to_thread(service.add_torrent, infohash)
+                    try:
+                        info = await asyncio.to_thread(
+                            service.get_torrent_info, tid
+                        )
+                        if info and info.files:
+                            valid_files = list[DebridFile]()
+                            for f in info.files.values():
+                                try:
+                                    df = DebridFile.create(
+                                        path=f.path,
+                                        filename=f.filename,
+                                        filesize_bytes=f.bytes,
+                                        filetype=item_type,
+                                        file_id=f.id,
+                                    )
+                                    valid_files.append(df)
+                                except InvalidDebridFileException as e:
+                                    logger.debug(
+                                        f"Skipping file {f.filename}: {e}"
+                                    )
+                                    continue
+
+                            if valid_files:
+                                container = TorrentContainer(
+                                    infohash=infohash,
+                                    files=valid_files,
+                                    torrent_id=tid,
+                                    torrent_info=info,
+                                )
+                                break
+                            last_error = (
+                                "No valid video files found "
+                                "(all files filtered by type or size)"
+                            )
+                    except Exception as e:
+                        logger.error(
+                            f"Error getting torrent info on {service.key}: {e}"
+                        )
+                        last_error = f"Unable to get torrent info: {str(e)}"
+                    finally:
+                        if not container or not container.files:
+                            if tid is not None:
+                                try:
+                                    await asyncio.to_thread(
+                                        service.delete_torrent, tid
+                                    )
+                                except Exception:
+                                    pass
+                except InfringingTorrentException as e:
+                    infringing_on.append(service.key)
+                    last_error = str(e)
+                    logger.debug(
+                        f"Magnet {infohash} rejected as infringing on "
+                        f"{service.key}: {e}"
+                    )
+                except Exception as e:
+                    logger.error(f"Magnet resolution error on {service.key}: {e}")
+                    last_error = f"Unable to resolve magnet ({service.key}): {str(e)}"
 
     if container and container.files:
         return container, None
+
+    if infringing_on and len(infringing_on) == len(services):
+        providers = ", ".join(infringing_on)
+        return None, f"Infringing torrent on all providers ({providers})"
 
     return None, last_error or "No files found in torrent"
 
