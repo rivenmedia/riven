@@ -1473,6 +1473,61 @@ async def check_item_availability(
         return _check_active_stream_availability(downloader, item)
 
 
+class PipelineStatusResponse(BaseModel):
+    item_id: Annotated[int, Field(description="Media item ID")]
+    last_state: Annotated[Optional[str], Field(default=None, description="Item's last pipeline state")]
+    activity: Annotated[Optional[str], Field(default=None, description="Current pipeline activity detail, if any")]
+    done: Annotated[bool, Field(default=False, description="True when state is Symlinked or Completed")]
+    failed: Annotated[bool, Field(default=False, description="True when state is Failed")]
+
+
+@router.get(
+    "/{item_id}/pipeline_status",
+    summary="Get current pipeline status for a media item",
+    description=(
+        "Lightweight polling endpoint: returns the item's last_state and any live "
+        "pipeline activity string (set by the downloader, filesystem, updater, etc.). "
+        "Poll this after triggering a manual stream activation to track progress."
+    ),
+    operation_id="get_item_pipeline_status",
+    response_model=PipelineStatusResponse,
+)
+async def get_item_pipeline_status(
+    item_id: Annotated[
+        int,
+        Path(description="The ID of the media item", ge=1),
+    ],
+) -> PipelineStatusResponse:
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
+        )
+        if not item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        last_state_name: str | None = item.last_state.name if item.last_state else None
+
+    program = di[Program]
+    activities: dict[int, str] = {}
+    if program.services and program.services.downloader:
+        # Merge downloader in-flight activities with pipeline activities
+        activities = program.em.get_pipeline_activities()
+        activities.update(program.services.downloader.get_active_job_activities())
+
+    activity = activities.get(item_id) or None
+    done = last_state_name in ("Symlinked", "Completed")
+    failed = last_state_name == "Failed"
+
+    return PipelineStatusResponse(
+        item_id=item_id,
+        last_state=last_state_name,
+        activity=activity,
+        done=done,
+        failed=failed,
+    )
+
+
 @router.post(
     "/{item_id}/streams/{stream_id}/blacklist",
     summary="Blacklist Media Item Stream",
@@ -1880,6 +1935,203 @@ async def activate_item_stream(
             detail="Downloader service not available",
         )
     return await run_in_threadpool(_activate_stream_sync, item_id, stream_id, service_key, program)
+
+
+class ActivateByHashPayload(BaseModel):
+    infohash: Annotated[str, Field(description="Torrent infohash (40-hex or 32-base32)")]
+    raw_title: Annotated[
+        Optional[str],
+        Field(default=None, description="Human-readable torrent title; used to build stream metadata"),
+    ] = None
+    service_key: Annotated[
+        Optional[str],
+        Field(
+            default=None,
+            description="Debrid service key (realdebrid, alldebrid, torbox, debridlink). "
+            "Defaults to the primary initialized service.",
+        ),
+    ] = None
+
+
+def _activate_by_hash_sync(
+    item_id: int,
+    payload: ActivateByHashPayload,
+    program: "Program",
+) -> MessageResponse:
+    """
+    Activate a stream by infohash — the candidate path.
+
+    Finds or creates a Stream row from the infohash + optional raw_title, links it to
+    the media item, then runs the same start_manual_download pipeline as the stream_id
+    activate endpoint. Emits a Downloader event afterwards to trigger VFS registration,
+    library update, and post-processing.
+
+    Runs in a thread pool (same as _activate_stream_sync) so blocking debrid I/O
+    does not stall the event loop.
+    """
+    t0 = time.monotonic()
+    infohash = payload.infohash.strip().lower()
+    raw_title = payload.raw_title or infohash
+    service_key = payload.service_key
+
+    logger.info(
+        "activate_by_hash [{}]: start infohash={} service_key={!r}",
+        item_id, infohash[:12], service_key,
+    )
+
+    if not program.services or not program.services.downloader:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Downloader service not available",
+        )
+    downloader = program.services.downloader
+
+    with db_session() as session:
+        item = (
+            session.execute(select(MediaItem).where(MediaItem.id == item_id))
+            .unique()
+            .scalar_one_or_none()
+        )
+        if not item:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+        # Reject if the infohash is already blacklisted on this item
+        if any(s.infohash == infohash for s in item.blacklisted_streams):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot activate a blacklisted stream",
+            )
+
+        # Reuse an existing Stream row if one already exists in the DB for this infohash
+        from program.media.stream import Stream as MediaStream
+
+        existing_stream = (
+            session.execute(select(MediaStream).where(MediaStream.infohash == infohash))
+            .scalar_one_or_none()
+        )
+
+        if existing_stream is not None:
+            stream = existing_stream
+            logger.debug("activate_by_hash [{}]: reusing existing stream id={}", item_id, stream.id)
+        else:
+            # Build a minimal Stream from the infohash + title via RTN
+            try:
+                from RTN import parse as rtn_parse, Torrent as RTNTorrent
+
+                parsed = rtn_parse(raw_title)
+                rtn_torrent = RTNTorrent(
+                    raw_title=raw_title,
+                    infohash=infohash,
+                    data=parsed,
+                    rank=0,
+                    lev_ratio=1.0,
+                )
+                stream = MediaStream(rtn_torrent)
+            except Exception as e:
+                logger.warning("activate_by_hash [{}]: RTN parse failed ({}), using fallback", item_id, e)
+                # Fallback: build a bare-minimum stream without RTN parsing
+                from RTN.models import ParsedData as RTNParsedData  # type: ignore[attr-defined]
+
+                class _FakeRTNTorrent:
+                    raw_title = raw_title
+                    infohash = infohash
+                    rank = 0
+                    lev_ratio = 1.0
+
+                    class data:
+                        parsed_title = raw_title
+                        resolution: str | None = None
+
+                stream = MediaStream(_FakeRTNTorrent())  # type: ignore[arg-type]
+
+            session.add(stream)
+            session.flush()
+            logger.debug("activate_by_hash [{}]: created new stream id={}", item_id, stream.id)
+
+        selected_service = _resolve_downloader_service(downloader, service_key)
+        item_merged = session.merge(item)
+
+        t_dl = time.monotonic()
+        logger.info(
+            "activate_by_hash [{}]: calling start_manual_download via {}",
+            item_id, selected_service.key,
+        )
+        try:
+            success = downloader.start_manual_download(
+                item=item_merged,
+                stream=stream,
+                service=selected_service,
+                file_ids=None,
+            )
+        except CircuitBreakerOpen as e:
+            logger.warning("activate_by_hash [{}]: circuit breaker open ({})", item_id, e.name)
+            retry = (
+                f"try again in {int(e.retry_after)}s" if e.retry_after else "try again shortly"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Debrid service temporarily unavailable ({e.name}); {retry}",
+            ) from e
+        except Exception as e:
+            logger.exception("activate_by_hash [{}]: start_manual_download failed", item_id)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to activate stream: {e}",
+            ) from e
+
+        logger.info(
+            "activate_by_hash [{}]: start_manual_download took {:.2f}s, success={}",
+            item_id, time.monotonic() - t_dl, success,
+        )
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to activate stream (not cached on debrid or no matching files for this item)",
+            )
+
+        session.commit()
+
+    logger.info(
+        "activate_by_hash [{}]: total {:.2f}s, emitting Downloader event",
+        item_id, time.monotonic() - t0,
+    )
+    try:
+        program.em.add_event(Event("Downloader", item_id))
+    except Exception:
+        logger.warning("activate_by_hash [{}]: could not emit Downloader event", item_id)
+
+    return MessageResponse(message=f"Stream activated via {selected_service.key}")
+
+
+@router.post(
+    "/{item_id}/streams/activate_by_hash",
+    summary="Activate a stream by infohash (candidate path)",
+    description=(
+        "Resolve an infohash on debrid, download, update VFS metadata, and enqueue the "
+        "full pipeline (FilesystemService → Updater → PostProcessing). "
+        "Use this for scraped candidates that do not yet have a Stream DB row. "
+        "Runs in a thread pool so debrid I/O does not block the event loop."
+    ),
+    operation_id="activate_item_stream_by_hash",
+    response_model=MessageResponse,
+)
+async def activate_stream_by_hash(
+    item_id: Annotated[
+        int,
+        Path(description="The ID of the media item", ge=1),
+    ],
+    payload: Annotated[
+        ActivateByHashPayload,
+        Body(description="Infohash, optional raw title, and optional service key"),
+    ],
+) -> MessageResponse:
+    program = di[Program]
+    if not program.services or not program.services.downloader:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Downloader service not available",
+        )
+    return await run_in_threadpool(_activate_by_hash_sync, item_id, payload, program)
 
 
 @router.post(

@@ -506,9 +506,13 @@ export interface StreamsProps {
   onRefresh: () => void;
 }
 
+/** Either a stored stream (has DB id) or a scraped candidate (infohash only). */
+type PickerTarget =
+  | { kind: 'stored'; stream: StreamRowData; pin?: { id?: number | string; infohash?: string } | null }
+  | { kind: 'candidate'; candidate: CandidateStream };
+
 type ActivationPicker = {
-  stream: StreamRowData;
-  pin?: { id?: number | string; infohash?: string } | null;
+  target: PickerTarget;
   x: number;
   y: number;
 };
@@ -519,13 +523,24 @@ type ResultModal = {
   tone: 'success' | 'error';
 };
 
+type ProgressPhase = 'starting' | 'polling' | 'done' | 'error';
+
+type ProgressModal = {
+  itemId: string;
+  streamTitle: string;
+  serviceName: string;
+  phase: ProgressPhase;
+  lastState: string | null;
+  activity: string | null;
+  errorMessage: string | null;
+};
+
 export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
   const [activatingStreamId, setActivatingStreamId] = useState<number | null>(null);
   const [scrapeLoading, setScrapeLoading] = useState(false);
   const [candidateStreams, setCandidateStreams] = useState<Record<string, CandidateStream>>({});
   const [sessionData, setSessionData] = useState<ManualSession | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<number[]>([]);
-  const [pickLoading, setPickLoading] = useState(false);
   const [showMagnetInput, setShowMagnetInput] = useState(false);
   const [magnet, setMagnet] = useState('');
   const [sessionLoading, setSessionLoading] = useState(false);
@@ -533,8 +548,10 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
   const [downloaderServices, setDownloaderServices] = useState<DownloaderService[]>([]);
   const [activationPicker, setActivationPicker] = useState<ActivationPicker | null>(null);
   const [resultModal, setResultModal] = useState<ResultModal | null>(null);
+  const [progressModal, setProgressModal] = useState<ProgressModal | null>(null);
   const sessionDialogRef = useRef<HTMLDialogElement>(null);
   const resultDialogRef = useRef<HTMLDialogElement>(null);
+  const progressDialogRef = useRef<HTMLDialogElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -563,6 +580,64 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
       }
     });
   }, []);
+
+  // Progress dialog open/close
+  useEffect(() => {
+    const dialog = progressDialogRef.current;
+    if (!dialog || !progressModal) return;
+    if (!dialog.open) dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [progressModal]);
+
+  // Poll pipeline_status while in 'polling' phase
+  useEffect(() => {
+    if (!progressModal || progressModal.phase !== 'polling') return;
+    let cancelled = false;
+    let delay = 700;
+
+    const tick = async () => {
+      if (cancelled) return;
+      const res = await apiGet<{
+        last_state: string | null;
+        activity: string | null;
+        done: boolean;
+        failed: boolean;
+      }>(`/items/${progressModal.itemId}/pipeline_status`);
+
+      if (cancelled) return;
+
+      if (res.ok && res.data) {
+        const { last_state, activity, done, failed } = res.data;
+        setProgressModal((prev) => {
+          if (!prev || prev.phase !== 'polling') return prev;
+          return {
+            ...prev,
+            lastState: last_state,
+            activity,
+            phase: done ? 'done' : failed ? 'error' : 'polling',
+            errorMessage: failed ? activity || 'Download failed' : null,
+          };
+        });
+        if (!done && !failed) {
+          delay = Math.min(delay * 1.4, 2500);
+          setTimeout(tick, delay);
+        }
+      } else {
+        // Network error — keep polling with backoff
+        delay = Math.min(delay * 2, 5000);
+        setTimeout(tick, delay);
+      }
+    };
+
+    const t = setTimeout(tick, delay);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progressModal?.phase, progressModal?.itemId]);
 
   // Close picker when clicking outside
   useEffect(() => {
@@ -659,10 +734,7 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     onRefresh();
   };
 
-  /**
-   * Perform the actual activate API call with a specific service key.
-   * Shows a result modal instead of a toast.
-   */
+  /** Open progress modal, call activate endpoint, switch to polling on success. */
   const handleActivate = async (
     stream: StreamRowData,
     serviceKey: string,
@@ -671,27 +743,70 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     if (typeof stream.id !== 'number') return;
     if (activatingStreamId !== null) return;
 
+    const title = stream.raw_title || stream.infohash || `Stream ${stream.id}`;
+    setProgressModal({
+      itemId,
+      streamTitle: title,
+      serviceName: serviceLabel(serviceKey),
+      phase: 'starting',
+      lastState: null,
+      activity: null,
+      errorMessage: null,
+    });
+
     setActivatingStreamId(stream.id);
     const qs = `?service_key=${encodeURIComponent(serviceKey)}`;
     const response = await apiPost(`/items/${itemId}/streams/${stream.id}/activate${qs}`);
     setActivatingStreamId(null);
 
-    const message = response.ok
-      ? ((response.data as { message?: string })?.message ?? 'Active stream updated')
-      : (response.error ?? 'Failed to switch stream');
+    if (!response.ok) {
+      setProgressModal((prev) =>
+        prev ? { ...prev, phase: 'error', errorMessage: response.error || 'Activation failed' } : null,
+      );
+      return;
+    }
 
-    setResultModal({
-      title: response.ok ? 'Stream activated' : 'Activation failed',
-      message,
-      tone: response.ok ? 'success' : 'error',
+    setProgressModal((prev) =>
+      prev ? { ...prev, phase: 'polling', activity: 'Waiting for pipeline…' } : null,
+    );
+    onRefresh();
+  };
+
+  /** Activate a scraped candidate (infohash only) via activate_by_hash endpoint. */
+  const handleCandidateActivate = async (candidate: CandidateStream, serviceKey: string) => {
+    const title = candidate.raw_title || candidate.infohash;
+    setProgressModal({
+      itemId,
+      streamTitle: title,
+      serviceName: serviceLabel(serviceKey),
+      phase: 'starting',
+      lastState: null,
+      activity: null,
+      errorMessage: null,
     });
 
-    if (response.ok) onRefresh();
+    const response = await apiPost(`/items/${itemId}/streams/activate_by_hash`, {
+      infohash: candidate.infohash,
+      raw_title: candidate.raw_title || null,
+      service_key: serviceKey,
+    });
+
+    if (!response.ok) {
+      setProgressModal((prev) =>
+        prev ? { ...prev, phase: 'error', errorMessage: response.error || 'Activation failed' } : null,
+      );
+      return;
+    }
+
+    setProgressModal((prev) =>
+      prev ? { ...prev, phase: 'polling', activity: 'Waiting for pipeline…' } : null,
+    );
+    onRefresh();
   };
 
   /**
-   * Clear the episode stream override (activating the season-scope stream).
-   * Does not involve a debrid download — no picker shown.
+   * Clear the episode stream override (season-scope path).
+   * No debrid download — uses result modal (instant).
    */
   const handleClearEpisodeOverride = async (stream: StreamRowData) => {
     if (typeof stream.id !== 'number') return;
@@ -715,9 +830,27 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
   };
 
   /**
-   * Show the downloader picker on stream row click, or activate directly when
-   * only one service is available.
+   * Compute the picker position from a click/keyboard event and open the
+   * downloader picker for a PickerTarget (stored stream or scraped candidate).
    */
+  function openPickerForTarget(
+    target: PickerTarget,
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
+  ) {
+    let x: number;
+    let y: number;
+    if ('clientX' in event) {
+      x = event.clientX;
+      y = event.clientY;
+    } else {
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = rect.bottom;
+    }
+    setActivationPicker({ target, x, y });
+  }
+
+  /** On stored-stream row click: show picker or activate directly. */
   const handleRowClick = (
     stream: StreamRowData,
     event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
@@ -742,18 +875,31 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
       return;
     }
 
-    // Multiple services → show picker near the click position
-    let x: number;
-    let y: number;
-    if ('clientX' in event) {
-      x = event.clientX;
-      y = event.clientY;
-    } else {
-      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      x = rect.left + rect.width / 2;
-      y = rect.bottom;
+    openPickerForTarget({ kind: 'stored', stream, pin }, event);
+  };
+
+  /** On scraped candidate click: show picker or activate directly. */
+  const handleCandidateClick = (
+    candidate: CandidateStream,
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
+  ) => {
+    if (activatingStreamId !== null) return;
+
+    if (downloaderServices.length === 0) {
+      setResultModal({
+        title: 'No downloader configured',
+        message: 'No debrid service is initialized. Configure one in Settings.',
+        tone: 'error',
+      });
+      return;
     }
-    setActivationPicker({ stream, pin, x, y });
+
+    if (downloaderServices.length === 1) {
+      void handleCandidateActivate(candidate, downloaderServices[0].key);
+      return;
+    }
+
+    openPickerForTarget({ kind: 'candidate', candidate }, event);
   };
 
   const renderStreamList = (
@@ -859,15 +1005,6 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     await startSessionWithMagnet(m);
     setShowMagnetInput(false);
     setMagnet('');
-  };
-
-  const handlePickCandidate = async (infohash: string) => {
-    setPickLoading(true);
-    try {
-      await startSessionWithMagnet(`magnet:?xt=urn:btih:${infohash}`);
-    } finally {
-      setPickLoading(false);
-    }
   };
 
   const candidateList = (Object.entries(candidateStreams) as [string, CandidateStream][]).sort(
@@ -997,11 +1134,11 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
               role="button"
               tabIndex={0}
               className="stream-row stream-row--clickable stream-row--candidate"
-              onClick={() => !pickLoading && !sessionLoading && handlePickCandidate(ih)}
+              onClick={(e) => activatingStreamId === null && handleCandidateClick(s, e)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  if (!pickLoading && !sessionLoading) handlePickCandidate(ih);
+                  if (activatingStreamId === null) handleCandidateClick(s, e);
                 }
               }}
             >
@@ -1092,9 +1229,13 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
               title={svc.available ? undefined : 'Service in cooldown'}
               role="menuitem"
               onClick={() => {
-                const { stream, pin } = activationPicker;
+                const { target } = activationPicker;
                 setActivationPicker(null);
-                void handleActivate(stream, svc.key, pin);
+                if (target.kind === 'stored') {
+                  void handleActivate(target.stream, svc.key, target.pin);
+                } else {
+                  void handleCandidateActivate(target.candidate, svc.key);
+                }
               }}
             >
               {serviceLabel(svc.key)}
@@ -1106,7 +1247,7 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
         </div>
       )}
 
-      {/* Result modal — requires OK click to dismiss */}
+      {/* Result modal — for quick non-pipeline operations (clear override, etc.) */}
       {resultModal && (
         <dialog
           ref={resultDialogRef}
@@ -1139,6 +1280,92 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
                 OK
               </button>
             </div>
+          </div>
+        </dialog>
+      )}
+
+      {/* Progress modal — live pipeline tracking after stream activation */}
+      {progressModal && (
+        <dialog
+          ref={progressDialogRef}
+          className="modal modal--progress"
+          onCancel={(e) => {
+            e.preventDefault();
+            setProgressModal(null);
+          }}
+        >
+          <header>
+            <h2>
+              {progressModal.phase === 'done'
+                ? 'Stream Active'
+                : progressModal.phase === 'error'
+                  ? 'Activation Failed'
+                  : `Activating via ${progressModal.serviceName}`}
+            </h2>
+            <button
+              type="button"
+              onClick={() => setProgressModal(null)}
+              data-action="close"
+              aria-label="Dismiss"
+            >
+              &times;
+            </button>
+          </header>
+          <div className="modal-body modal--progress__body">
+            <p className="modal--progress__stream-title" title={progressModal.streamTitle}>
+              {progressModal.streamTitle.length > 80
+                ? `${progressModal.streamTitle.slice(0, 77)}…`
+                : progressModal.streamTitle}
+            </p>
+
+            <div className="modal--progress__status">
+              {progressModal.phase === 'done' ? (
+                <span className="modal--progress__icon modal--progress__icon--done">✓</span>
+              ) : progressModal.phase === 'error' ? (
+                <span className="modal--progress__icon modal--progress__icon--error">✕</span>
+              ) : (
+                <span className="progress-spinner" aria-hidden="true" />
+              )}
+              <span className="modal--progress__activity">
+                {progressModal.phase === 'starting'
+                  ? `Resolving with ${progressModal.serviceName}…`
+                  : progressModal.phase === 'done'
+                    ? 'Available in VFS'
+                    : progressModal.phase === 'error'
+                      ? (progressModal.errorMessage ?? 'An error occurred')
+                      : (progressModal.activity ?? 'Processing…')}
+              </span>
+            </div>
+
+            {progressModal.lastState && progressModal.phase !== 'error' && (
+              <p className="modal--progress__state">
+                State: <strong>{progressModal.lastState}</strong>
+              </p>
+            )}
+
+            {(progressModal.phase === 'done' || progressModal.phase === 'error') && (
+              <div className="modal--result__actions">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() => setProgressModal(null)}
+                  autoFocus
+                >
+                  OK
+                </button>
+              </div>
+            )}
+            {(progressModal.phase === 'starting' || progressModal.phase === 'polling') && (
+              <div className="modal--result__actions">
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => setProgressModal(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
           </div>
         </dialog>
       )}
