@@ -133,7 +133,10 @@ class TorBoxAPI:
             base_url=self.BASE_URL,
             rate_limit_map={
                 "api.torbox.app": ["torbox.api"],
-                "/torrents/createtorrent": ["torbox.createtorrent"],
+                # torbox.createtorrent removed: the separate 60/hour rate limiter caused
+                # TokenBucket.wait() to block the calling thread for 60-200+ seconds when
+                # multiple jobs queued up. The general torbox.api limit (300/min) is
+                # sufficient; if TorBox returns 429, SmartSession's backoff handles it.
             },
             proxies=proxies,
             retries=2,
@@ -163,14 +166,7 @@ class TorBoxDownloader(DownloaderBase):
             rate=5.0,
             capacity=10,
         ),
-        "torbox.createtorrent": ResourceSpec(
-            label="Add torrent (60/hour)",
-            owner="torbox",
-            rate=60 / 3600,
-            capacity=1,
-            priority="scarce",
-            failure_threshold=1,
-        ),
+        # torbox.createtorrent removed: see TorBoxAPI comment above.
     }
 
     _STILL_FETCHING_STATES = frozenset(
@@ -278,195 +274,60 @@ class TorBoxDownloader(DownloaderBase):
         item_type: ProcessedItemType,
     ) -> TorrentContainer | None:
         """
-        Check TorBox instant availability and return a ready-to-use TorrentContainer.
+        Check TorBox instant availability.
 
-        Fast path (typical case):
-          1. checkcached  — confirms torrent is on TorBox servers AND returns file list (~200 ms)
-          2. createtorrent — adds to user account, returns torrent_id (~500 ms)
-          3. Short mylist poll (≤ 5 attempts × 2 s = 10 s) — wait for files to appear
-          4. If mylist is still empty after the short poll, fall back to the file list
-             already returned by checkcached. The torrent_id from step 2 is still valid
-             for requestdl URLs, so download links are correct.
+        Only calls checkcached — does NOT call createtorrent.  The torrent is
+        added to the account in prepare_download(), which is called by the
+        orchestrator only when the stream is actually going to be downloaded.
 
-        Previous behaviour polled mylist up to 45 × 1.5 s (≈ 67 s sleep + HTTP time),
-        which caused ~175 s waits because TorBox's createtorrent queues the account entry
-        asynchronously even for cache-hit torrents. checkcached already has all the data
-        we need, so there is no reason to wait for mylist to catch up.
+        This eliminates the root cause of the 175-223 s blocking: the
+        torbox.createtorrent TokenBucket was set to 1 token/60 s, so multiple
+        parallel jobs queued up and each waited 60, 120, 180 … seconds.  By
+        deferring createtorrent to download time, get_instant_availability is
+        a single fast checkcached call (~200 ms).
         """
         assert self.api
 
-        torrent_id: str | None = None
-
         try:
-            # Step 1: instant availability check — also returns file list with list_files=true
             t0 = time.monotonic()
             cached_rows = self._check_cached_raw(infohash)
 
             if not cached_rows:
-                logger.debug(f"TorBox checkcached: no cache entry for {infohash}")
+                logger.debug("TorBox checkcached: no cache entry for {}", infohash)
                 return None
 
-            logger.debug(
-                f"TorBox checkcached hit for {infohash} ({len(cached_rows)} row(s))"
-                f" in {time.monotonic()-t0:.2f}s"
+            container = self._build_container_from_checkcached(
+                infohash, item_type, cached_rows[0]
             )
-
-            # Step 2: add to account (always fast; returns torrent_id for requestdl URLs)
-            t1 = time.monotonic()
-            torrent_id = self.add_torrent(infohash)
-            logger.debug(
-                f"TorBox createtorrent done for {infohash} "
-                f"torrent_id={torrent_id} in {time.monotonic()-t1:.2f}s"
-            )
-
-            # Step 3: short mylist poll so we use live data when TorBox is quick
-            t2 = time.monotonic()
-            info = self._poll_until_ready(torrent_id, max_attempts=5, sleep_sec=2.0)
-            elapsed_poll = time.monotonic() - t2
-
-            if info:
+            if container:
                 logger.debug(
-                    f"TorBox mylist ready for {infohash} in {elapsed_poll:.2f}s "
-                    f"(state={info.status}, files={len(info.files)})"
+                    "TorBox checkcached hit for {} ({} files) in {:.2f}s",
+                    infohash, len(container.files), time.monotonic() - t0,
                 )
-            else:
-                # Step 4: fall back to the file list we already have from checkcached.
-                # createtorrent succeeded so torrent_id is valid for requestdl.
-                logger.info(
-                    f"TorBox mylist not ready after {elapsed_poll:.2f}s for {infohash}; "
-                    f"using checkcached file data (torrent_id={torrent_id})"
-                )
-                info = self._build_info_from_cached_row(torrent_id, infohash, cached_rows[0])
-
-            if not info or not info.files:
-                logger.debug(f"TorBox: no files for {infohash} after checkcached fallback")
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception:
-                    pass
-                return None
-
-            container, reason = self._build_container_from_info(infohash, item_type, info)
-
-            if not container:
-                logger.debug(f"TorBox availability failed [{infohash}]: {reason}")
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception:
-                    pass
-                return None
-
-            container.torrent_id = torrent_id
-            container.torrent_info = info
-
-            logger.debug(
-                f"TorBox availability ok for {infohash} "
-                f"total={time.monotonic()-t0:.2f}s files={len(container.files)}"
-            )
             return container
 
         except CircuitBreakerOpen:
-            logger.debug(f"Circuit breaker OPEN for TorBox; skipping {infohash}")
-            if torrent_id:
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception:
-                    pass
             raise
         except TorBoxError as e:
-            logger.warning(f"TorBox availability check failed [{infohash}]: {e}")
-            if torrent_id:
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception:
-                    pass
-            return None
-        except InvalidDebridFileException as e:
-            logger.debug(f"TorBox availability check failed [{infohash}]: {e}")
-            if torrent_id:
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception:
-                    pass
+            logger.warning("TorBox availability check failed [{}]: {}", infohash, e)
             return None
         except Exception as e:
-            logger.debug(f"TorBox availability check failed [{infohash}]: {e}")
-            if torrent_id:
-                try:
-                    self.delete_torrent(torrent_id)
-                except Exception:
-                    pass
+            logger.debug("TorBox availability check failed [{}]: {}", infohash, e)
             return None
 
-    def _poll_until_ready(
+    def _build_container_from_checkcached(
         self,
-        torrent_id: str,
-        max_attempts: int = 5,
-        sleep_sec: float = 2.0,
-    ) -> TorrentInfo | None:
-        """
-        Poll mylist until the torrent has files and a non-fetching state.
-
-        Defaults are intentionally short (5 × 2 s = 10 s max) because callers
-        should fall back to checkcached data rather than wait indefinitely.
-        The old default of 45 × 1.5 s caused ~175 s freezes.
-        """
-        assert self.api
-
-        last_state: str | None = None
-        for attempt in range(1, max_attempts + 1):
-            try:
-                info = self.get_torrent_info(torrent_id)
-            except TorBoxError as e:
-                logger.debug(f"TorBox mylist attempt {attempt}/{max_attempts} failed: {e}")
-                if attempt < max_attempts:
-                    time.sleep(sleep_sec)
-                continue
-
-            state = (info.status or "").lower().replace(" ", "")
-            last_state = info.status
-
-            if state in self._BAD_STATES or "magnet_error" in state:
-                logger.debug(
-                    f"TorBox torrent {torrent_id} in bad state after attempt "
-                    f"{attempt}/{max_attempts}: {info.status!r}"
-                )
-                return None
-
-            if info.files and state not in self._STILL_FETCHING_STATES:
-                return info
-
-            logger.debug(
-                f"TorBox torrent {torrent_id} attempt {attempt}/{max_attempts}: "
-                f"state={info.status!r} files={len(info.files)}"
-            )
-
-            if attempt < max_attempts:
-                time.sleep(sleep_sec)
-
-        logger.debug(
-            f"TorBox torrent {torrent_id} short poll exhausted "
-            f"({max_attempts} attempts, last_state={last_state!r})"
-        )
-        return None
-
-    def _build_info_from_cached_row(
-        self,
-        torrent_id: str,
         infohash: str,
+        item_type: ProcessedItemType,
         cached_row: dict[str, Any],
-    ) -> TorrentInfo | None:
+    ) -> TorrentContainer | None:
         """
-        Build a TorrentInfo from a checkcached row (no mylist call needed).
+        Build a TorrentContainer from a checkcached row.
 
-        TorBox's checkcached endpoint with list_files=true returns the same
-        file metadata (id, name, size) that mylist would eventually return.
-        File IDs are torrent-intrinsic and consistent across both endpoints,
-        so requestdl URLs built with these IDs are valid.
+        File download_url is left as None because we don't have a torrent_id yet.
+        It is populated by prepare_download() after add_torrent.
         """
         row = _lower_key_dict(cached_row)
-        name = str(row.get("name") or row.get("title") or infohash)
-
         raw_files = row.get("files") or row.get("file_list") or []
         leafs = _collect_file_dicts(raw_files)
 
@@ -477,7 +338,7 @@ class TorBoxDownloader(DownloaderBase):
                 if isinstance(x, dict) and any(str(k).lower() == "id" for k in x)
             ]
 
-        files: dict[int, TorrentFile] = {}
+        files: list[DebridFile] = []
         for f in leafs:
             f = _lower_key_dict(f)
             try:
@@ -485,41 +346,98 @@ class TorBoxDownloader(DownloaderBase):
             except (KeyError, TypeError, ValueError):
                 continue
 
-            path = str(f.get("name") or f.get("path") or name)
+            path = str(f.get("name") or f.get("path") or infohash)
             try:
                 nbytes = int(f.get("size") or f.get("bytes") or 0)
             except (TypeError, ValueError):
                 nbytes = 0
 
-            files[fid] = TorrentFile(
-                id=fid,
-                path=path,
-                bytes=nbytes,
-                selected=1,
-                download_url="",
-            )
+            try:
+                df = DebridFile.create(
+                    path=path,
+                    filename=path,
+                    filesize_bytes=nbytes,
+                    filetype=item_type,
+                    file_id=fid,
+                )
+            except InvalidDebridFileException as e:
+                logger.debug("{}: {}", infohash, e)
+                continue
+
+            # download_url is intentionally not set here; prepare_download() fills it in
+            files.append(df)
 
         if not files:
             logger.debug(
-                f"TorBox checkcached row for {infohash} has no parseable files "
-                f"(keys={list(row.keys())})"
+                "TorBox checkcached row for {} has no parseable files (keys={})",
+                infohash, list(row.keys()),
             )
             return None
 
-        logger.debug(
-            f"TorBox checkcached fallback built {len(files)} file(s) for {infohash}"
+        return TorrentContainer(infohash=infohash, files=files)
+        # torrent_id = None (deferred to prepare_download)
+
+    def prepare_download(self, container: "TorrentContainer", infohash: str) -> None:
+        """
+        Add the torrent to the TorBox account and finalize the container.
+
+        Called by the orchestrator when container.torrent_id is None, i.e. when
+        get_instant_availability() deferred the createtorrent call to download time.
+
+        After this method returns:
+          - container.torrent_id is set to the new account torrent ID
+          - each DebridFile.download_url is a requestdl permalink
+          - container.torrent_info is set to a minimal TorrentInfo
+
+        The createtorrent call happens here rather than in get_instant_availability
+        so that it is only made when we are certain we will download the stream.
+        """
+        assert self.api
+        t0 = time.monotonic()
+        logger.info(
+            "TorBox prepare_download: add_torrent for {} ({} files)",
+            infohash, len(container.files),
         )
-        return TorrentInfo(
+
+        torrent_id = self.add_torrent(infohash)
+        container.torrent_id = torrent_id
+
+        # Set requestdl download URLs now that torrent_id is known
+        for df in container.files:
+            if df.file_id is not None:
+                df.download_url = _requestdl_permalink(
+                    self.settings.api_key, torrent_id, df.file_id
+                )
+
+        # Build a minimal TorrentInfo — the orchestrator needs info.id for active_stream
+        torrent_files: dict[int, TorrentFile] = {}
+        for df in container.files:
+            if df.file_id is not None:
+                fid = int(df.file_id)
+                torrent_files[fid] = TorrentFile(
+                    id=fid,
+                    path=df.filename or infohash,
+                    bytes=df.filesize or 0,
+                    selected=1,
+                    download_url="",
+                )
+
+        container.torrent_info = TorrentInfo(
             id=torrent_id,
-            name=name,
+            name=infohash,
             status="cached",
             infohash=infohash,
             progress=None,
             bytes=0,
             created_at=None,
             alternative_filename=None,
-            files=files,
+            files=torrent_files,
             links=[],
+        )
+
+        logger.info(
+            "TorBox prepare_download: done in {:.2f}s (torrent_id={})",
+            time.monotonic() - t0, torrent_id,
         )
 
     def _build_container_from_info(
