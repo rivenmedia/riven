@@ -1345,34 +1345,44 @@ class Downloader(Runner[None, DownloaderBase]):
         """
         Manually start a download for a specific stream.
         Uses the same pipeline as the standard automated download flow:
-        1. validate_stream_on_service (validates and gets TorrentContainer)
-        2. download_cached_stream_on_service (adds torrent and gets info)
-        3. update_item_attributes (matches files and sets active_stream)
+        1. validate_stream_on_service  – instant-availability check (debrid HTTP)
+        2. download_cached_stream_on_service – torrent add / select files (debrid HTTP)
+        3. update_item_attributes – match files and set active_stream (DB)
+
+        Each step is timed and logged so slow debrid API calls are visible in logs.
         """
-        
+        t0 = time.monotonic()
+        logger.info(
+            "manual_download: start item={} infohash={} service={}",
+            item.log_string, stream.infohash, service.key,
+        )
+
         # 1. Ensure stream is persisted on item (relationship)
         if stream not in item.streams:
             item.streams.append(stream)
-            # Session commit is expected to be handled by caller
-        
-        # 2. Validate stream and get container (same as standard flow)
-        container = self.validate_stream_on_service(
-            stream,
-            item,
-            service,
+
+        # 2. Validate stream and get container (instant-availability check — debrid HTTP)
+        t_validate = time.monotonic()
+        logger.debug("manual_download: step 1 — validate_stream_on_service")
+        container = self.validate_stream_on_service(stream, item, service)
+        logger.info(
+            "manual_download: validate_stream_on_service took {:.2f}s, cached={}",
+            time.monotonic() - t_validate, container is not None,
         )
 
         if not container:
-            logger.warning(f"START_MANUAL_DOWNLOAD: Stream {stream.infohash} not available on {service.key}")
+            logger.warning(
+                "manual_download: stream {} not cached / unavailable on {}",
+                stream.infohash, service.key,
+            )
             return False
-        
-        if container and file_ids and container.files:
-            # Filter the container.files list to only include selected files
+
+        if file_ids and container.files:
             container.files = [f for f in container.files if f.file_id in file_ids]
 
-        logger.info(f"START_MANUAL_DOWNLOAD: Validated stream {stream.infohash} on {service.key}")
-        
-        # 3. Download using standard method (same as standard flow)
+        # 3. Download using standard method (torrent add / select files — debrid HTTP)
+        t_download = time.monotonic()
+        logger.debug("manual_download: step 2 — download_cached_stream_on_service")
         try:
             result = self.download_cached_stream_on_service(stream, container, service)
         except CircuitBreakerOpen as e:
@@ -1384,20 +1394,35 @@ class Downloader(Runner[None, DownloaderBase]):
             raise
         except Exception as e:
             logger.error(
-                f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service raised: {e}"
+                "manual_download: download_cached_stream_on_service raised after {:.2f}s: {}",
+                time.monotonic() - t_download, e,
             )
             return False
-        
+
+        logger.info(
+            "manual_download: download_cached_stream_on_service took {:.2f}s",
+            time.monotonic() - t_download,
+        )
+
         if not result:
-            logger.warning(f"START_MANUAL_DOWNLOAD: download_cached_stream_on_service returned None")
+            logger.warning("manual_download: download_cached_stream_on_service returned None")
             return False
-        
-        # 4. Update item attributes (same as standard flow)
+
+        # 4. Update item attributes (file matching + active_stream — DB only)
+        t_attr = time.monotonic()
+        logger.debug("manual_download: step 3 — update_item_attributes")
         if self.update_item_attributes(item, result, service, replace_existing=True):
-            # Store state - Manual download completes the 'Downloader' phase, so we are now Downloaded
             item.store_state(States.Downloaded)
-            logger.info(f"START_MANUAL_DOWNLOAD: Successfully downloaded {item.log_string} from '{stream.raw_title}'")
+            logger.info(
+                "manual_download: success for {} (update_attrs {:.2f}s, total {:.2f}s)",
+                item.log_string,
+                time.monotonic() - t_attr,
+                time.monotonic() - t0,
+            )
             return True
         else:
-            logger.warning(f"START_MANUAL_DOWNLOAD: update_item_attributes failed for {item.log_string}")
+            logger.warning(
+                "manual_download: update_item_attributes failed for {} ({:.2f}s elapsed)",
+                item.log_string, time.monotonic() - t0,
+            )
             return False

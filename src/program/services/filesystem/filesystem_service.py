@@ -4,7 +4,8 @@ This service provides a interface for filesystem operations
 using the RivenVFS implementation.
 """
 
-from typing import TYPE_CHECKING
+import time
+from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from program.services.filesystem.fuse_available import is_fuse_available
@@ -20,15 +21,24 @@ if TYPE_CHECKING:
 class FilesystemService(Runner[FilesystemModel]):
     """Filesystem service for VFS-only mode"""
 
+    # Class-level singleton that survives across service reinits triggered by settings changes.
+    #
+    # Every call to Program.initialize_services() (which happens on every settings save)
+    # creates a new FilesystemService instance but never calls close() on the old one,
+    # so the underlying FUSE/mock VFS stays alive and mounted. By restoring the existing
+    # VFS instance here we skip the expensive remount + full-DB sync and instead just
+    # call sync(), which is a no-op when library profiles are unchanged.
+    _shared_vfs: Any = None
+
     def __init__(self, downloader: Downloader):
         super().__init__()
 
         from program.settings import settings_manager
 
-        # Use filesystem settings
         self.settings = settings_manager.settings.filesystem
-        self.riven_vfs = None
-        self.downloader = downloader  # Store for potential reinit
+        # Restore the shared VFS — avoids full remount on each settings-triggered reinit
+        self.riven_vfs = FilesystemService._shared_vfs
+        self.downloader = downloader
         self._initialize_rivenvfs(downloader)
 
     @classmethod
@@ -62,34 +72,70 @@ class FilesystemService(Runner[FilesystemModel]):
         pass
 
     def _initialize_rivenvfs(self, downloader: Downloader):
-        """Initialize or synchronize RivenVFS"""
+        """Initialize or reuse RivenVFS.
+
+        On first call: mounts FUSE and runs a full VFS sync (~seconds to minutes for
+        large libraries).
+
+        On subsequent calls (settings change reinit): if the existing VFS is already
+        mounted (restored from _shared_vfs), we skip the full mount and only run
+        sync(), which is itself a no-op when library profiles are unchanged.
+        """
+        t0 = time.monotonic()
+
         if not is_fuse_available():
+            from .vfs.mock_rivenvfs import MockRivenVFS
+
+            if self.riven_vfs and self.riven_vfs.mounted:
+                logger.info("FilesystemService: reusing existing MockRivenVFS, syncing")
+                t_sync = time.monotonic()
+                self.riven_vfs.sync()
+                logger.info(
+                    "FilesystemService: MockRivenVFS sync took {:.2f}s",
+                    time.monotonic() - t_sync,
+                )
+                FilesystemService._shared_vfs = self.riven_vfs
+                return
+
             logger.info(
                 "pyfuse3 is not installed; VFS (FUSE) is disabled. "
                 "Using in-memory mount inventory only (install the `fuse` extra for FUSE).",
             )
-            from .vfs.mock_rivenvfs import MockRivenVFS
-
             self.riven_vfs = MockRivenVFS(
                 mountpoint=str(self.settings.mount_path),
                 downloader=downloader,
+            )
+            FilesystemService._shared_vfs = self.riven_vfs
+            logger.info(
+                "FilesystemService: MockRivenVFS ready in {:.2f}s", time.monotonic() - t0
             )
             return
 
         try:
             from .vfs import RivenVFS
 
-            # If VFS already exists and is mounted, synchronize it with current settings
             if self.riven_vfs and self.riven_vfs.mounted:
-                logger.info("Synchronizing existing RivenVFS with library profiles")
+                logger.info(
+                    "FilesystemService: reusing mounted RivenVFS (skipping remount), syncing"
+                )
+                t_sync = time.monotonic()
                 self.riven_vfs.sync()
+                logger.info(
+                    "FilesystemService: RivenVFS sync took {:.2f}s (total {:.2f}s)",
+                    time.monotonic() - t_sync, time.monotonic() - t0,
+                )
+                FilesystemService._shared_vfs = self.riven_vfs
                 return
 
-            # Create new VFS instance
-            logger.info("Initializing RivenVFS")
+            logger.info("FilesystemService: mounting new RivenVFS")
             self.riven_vfs = RivenVFS(
                 mountpoint=str(self.settings.mount_path),
                 downloader=downloader,
+            )
+            FilesystemService._shared_vfs = self.riven_vfs
+            logger.info(
+                "FilesystemService: RivenVFS mounted and synced in {:.2f}s",
+                time.monotonic() - t0,
             )
 
         except ImportError as e:
@@ -138,7 +184,8 @@ class FilesystemService(Runner[FilesystemModel]):
         """
         Close the underlying RivenVFS and release associated resources.
 
-        If a RivenVFS instance is present, attempts to close it and always sets self.riven_vfs to None. Exceptions raised while closing are logged and not propagated.
+        Clears the class-level _shared_vfs singleton so the next FilesystemService
+        instance performs a full fresh mount rather than trying to reuse a closed VFS.
         """
         try:
             if self.riven_vfs:
@@ -147,6 +194,7 @@ class FilesystemService(Runner[FilesystemModel]):
             logger.error(f"Error closing RivenVFS: {e}")
         finally:
             self.riven_vfs = None
+            FilesystemService._shared_vfs = None
 
         from program.utils.streaming_http import close_streaming_http_sync
 

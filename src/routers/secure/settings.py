@@ -1,7 +1,10 @@
+import time
 from copy import copy
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Body, HTTPException, Path, Query
+from fastapi.concurrency import run_in_threadpool
+from loguru import logger
 from pydantic import TypeAdapter, ValidationError
 
 from program.settings import settings_manager
@@ -100,8 +103,7 @@ async def get_settings_schema_for_keys(
     response_model=MessageResponse,
 )
 async def load_settings() -> MessageResponse:
-    settings_manager.load()
-
+    await run_in_threadpool(settings_manager.load)
     return MessageResponse(message="Settings loaded!")
 
 
@@ -157,6 +159,37 @@ async def get_settings(
     return data
 
 
+def _apply_all_settings_sync(new_settings: dict[str, Any]) -> None:
+    """
+    Synchronous worker for set_all_settings.
+
+    settings_manager.load() fires notify_observers() which calls initialize_services(),
+    a blocking operation that recreates every service (including VFS mount/sync).
+    Running this in a thread pool keeps the event loop responsive.
+    """
+    t0 = time.monotonic()
+    current_settings = settings_manager.settings.model_dump()
+
+    def update_settings(current_obj: dict[str, Any], new_obj: dict[str, Any]) -> None:
+        for key, value in new_obj.items():
+            if isinstance(value, dict) and key in current_obj:
+                update_settings(current_obj[key], cast(dict[str, Any], value))
+            else:
+                current_obj[key] = value
+
+    update_settings(current_settings, new_settings)
+
+    try:
+        updated_settings = settings_manager.settings.model_validate(current_settings)
+        logger.info("settings/set/all: applying (will trigger service reinit)")
+        settings_manager.load(settings_dict=updated_settings.model_dump())
+        settings_manager.save()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    logger.info("settings/set/all: completed in {:.2f}s", time.monotonic() - t0)
+
+
 @router.post(
     "/set/all",
     operation_id="set_all_settings",
@@ -168,61 +201,25 @@ async def set_all_settings(
         Body(description="New settings to apply"),
     ],
 ) -> MessageResponse:
-    current_settings = settings_manager.settings.model_dump()
-
-    def update_settings(current_obj: dict[str, Any], new_obj: dict[str, Any]):
-        for key, value in new_obj.items():
-            if isinstance(value, dict) and key in current_obj:
-                update_settings(current_obj[key], cast(dict[str, Any], value))
-            else:
-                current_obj[key] = value
-
-    update_settings(current_settings, new_settings)
-
-    # Validate and save the updated settings
-    try:
-        updated_settings = settings_manager.settings.model_validate(current_settings)
-        settings_manager.load(settings_dict=updated_settings.model_dump())
-        settings_manager.save()  # Ensure the changes are persisted
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+    await run_in_threadpool(_apply_all_settings_sync, new_settings)
     return MessageResponse(message="All settings updated successfully!")
 
 
-@router.post(
-    "/set/{paths}",
-    operation_id="set_settings",
-    response_model=MessageResponse,
-)
-async def set_settings(
-    paths: Annotated[
-        str,
-        Path(
-            description="Comma-separated list of settings paths to update",
-            min_length=1,
-        ),
-    ],
-    values: Annotated[
-        dict[str, Any],
-        Body(description="Dictionary mapping paths to their new values"),
-    ],
-) -> MessageResponse:
-    current_settings = settings_manager.settings.model_dump()
-    requested_paths = [p.strip() for p in paths.split(",") if p.strip()]
+def _apply_settings_sync(paths_str: str, values: dict[str, Any]) -> None:
+    """
+    Synchronous worker for set_settings.
 
-    missing_values = [p for p in requested_paths if p not in values]
-    if missing_values:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing values for paths: {', '.join(missing_values)}",
-        )
+    Same blocking concern as _apply_all_settings_sync: moves the full service
+    reinit (triggered by notify_observers) off the event loop.
+    """
+    t0 = time.monotonic()
+    current_settings = settings_manager.settings.model_dump()
+    requested_paths = [p.strip() for p in paths_str.split(",") if p.strip()]
 
     for path in requested_paths:
         keys = path.split(".")
         current_obj: Any = current_settings
 
-        # Navigate to the parent object
         for k in keys[:-1]:
             if not isinstance(current_obj, dict):
                 raise HTTPException(
@@ -250,6 +247,7 @@ async def set_settings(
 
     try:
         updated_settings = settings_manager.settings.__class__(**current_settings)
+        logger.info("settings/set/{}: applying (will trigger service reinit)", paths_str)
         settings_manager.load(settings_dict=updated_settings.model_dump())
         settings_manager.save()
     except ValidationError as e:
@@ -258,4 +256,35 @@ async def set_settings(
             detail=f"Failed to update settings: {str(e)}",
         ) from e
 
+    logger.info("settings/set/{}: completed in {:.2f}s", paths_str, time.monotonic() - t0)
+
+
+@router.post(
+    "/set/{paths}",
+    operation_id="set_settings",
+    response_model=MessageResponse,
+)
+async def set_settings(
+    paths: Annotated[
+        str,
+        Path(
+            description="Comma-separated list of settings paths to update",
+            min_length=1,
+        ),
+    ],
+    values: Annotated[
+        dict[str, Any],
+        Body(description="Dictionary mapping paths to their new values"),
+    ],
+) -> MessageResponse:
+    requested_paths = [p.strip() for p in paths.split(",") if p.strip()]
+
+    missing_values = [p for p in requested_paths if p not in values]
+    if missing_values:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing values for paths: {', '.join(missing_values)}",
+        )
+
+    await run_in_threadpool(_apply_settings_sync, paths, values)
     return MessageResponse(message="Settings updated successfully.")
