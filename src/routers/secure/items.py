@@ -1670,6 +1670,29 @@ async def unblacklist_stream(
         )
 
 
+class ActivateStreamResult(MessageResponse):
+    """Response for stream activation endpoints."""
+
+    queued: Annotated[
+        bool,
+        Field(
+            default=True,
+            description=(
+                "True when the stream was cached and a Downloader job was added to the queue. "
+                "False when createtorrent was called to request caching on the debrid service "
+                "(the stream is NOT yet in the download pipeline)."
+            ),
+        ),
+    ] = True
+    cached: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="Whether the stream was instantly cached on the debrid service.",
+        ),
+    ] = True
+
+
 def _resolve_downloader_service(
     downloader: Downloader,
     service_key: str | None,
@@ -1694,22 +1717,142 @@ def _resolve_downloader_service(
     return downloader.service
 
 
+def _pin_stream_and_queue(
+    program: "Program",
+    session: Session,
+    item: MediaItem,
+    stream: "Stream",
+    selected_service: "DownloaderBase",
+    force: bool,
+) -> ActivateStreamResult:
+    """
+    Check cache availability, pin the stream on the item, and add a top-priority
+    Downloader job — without doing the actual download synchronously.
+
+    If cached: set item.last_state = Scraped, commit, emit Event("Downloader") and
+    prioritize it to the front of the queue.  The background Downloader job handles
+    add_torrent, update_item_attributes, FilesystemService, Updater, PostProcessing.
+
+    If not cached + force=True: call service.add_torrent to request caching on the
+    debrid provider (they will download it to their cache asynchronously).  Does NOT
+    add item to the pipeline queue.
+
+    If not cached + force=False: raises HTTP 422.
+    """
+    t_validate = time.monotonic()
+    container = None
+
+    try:
+        container = program.services.downloader.validate_stream_on_service(
+            stream, item, selected_service
+        )
+    except CircuitBreakerOpen as e:
+        retry = f"try again in {int(e.retry_after)}s" if e.retry_after else "try again shortly"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Debrid service temporarily unavailable ({e.name}); {retry}",
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Cache check failed: {e}",
+        ) from e
+
+    logger.info(
+        "activate/queue: cache check on {} for {} took {:.2f}s cached={}",
+        selected_service.key, stream.infohash[:12], time.monotonic() - t_validate,
+        container is not None,
+    )
+
+    if not container:
+        if not force:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Torrent is not cached on {selected_service.key}. "
+                    "Add force=true to request caching (debrid will download it, "
+                    "then you can activate again once it appears as cached)."
+                ),
+            )
+
+        # force=True: request caching — call add_torrent so debrid starts downloading
+        logger.info(
+            "activate/queue: stream {} not cached on {}, requesting caching (force=True)",
+            stream.infohash[:12], selected_service.key,
+        )
+        try:
+            torrent_id = selected_service.add_torrent(stream.infohash)
+            logger.info(
+                "activate/queue: createtorrent succeeded for {} on {} (torrent_id={})",
+                stream.infohash[:12], selected_service.key, torrent_id,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to request caching on {selected_service.key}: {e}",
+            ) from e
+
+        return ActivateStreamResult(
+            message=(
+                f"Torrent submitted to {selected_service.key} for caching. "
+                "It is not yet available in the VFS — re-activate once it appears as cached."
+            ),
+            queued=False,
+            cached=False,
+        )
+
+    # Stream is cached → pin it and hand off to the background Downloader
+    item_merged = session.merge(item)
+
+    def set_scraped(i: MediaItem, s: Session) -> None:
+        if stream not in i.streams:
+            i.streams.append(stream)
+        # Re-enter Scraped so the Downloader picks it up from the top of the queue
+        i.last_state = States.Scraped
+
+    apply_item_mutation(program, session, item_merged, set_scraped, bubble_parents=True)
+    session.commit()
+
+    try:
+        program.em.add_event(Event("Downloader", item_merged.id))
+        program.em.prioritize_downloader_queue_item(int(item_merged.id))
+    except Exception:
+        logger.warning("activate/queue: could not emit/prioritize Downloader event for {}", item_merged.id)
+
+    logger.info(
+        "activate/queue: stream {} queued at top priority via {}",
+        stream.infohash[:12], selected_service.key,
+    )
+
+    return ActivateStreamResult(
+        message=(
+            f"Stream queued for download at top priority via {selected_service.key}. "
+            "The Downloader will pick it up shortly."
+        ),
+        queued=True,
+        cached=True,
+    )
+
+
 def _activate_stream_sync(
     item_id: int,
     stream_id: int,
     service_key: str | None,
+    force: bool,
     program: "Program",
-) -> MessageResponse:
+) -> ActivateStreamResult:
     """
     Synchronous worker for activate_item_stream.
 
-    Runs in a thread-pool via run_in_threadpool so that the multiple blocking
-    debrid HTTP calls (validate + download) do not stall the asyncio event loop
-    and freeze other in-flight requests.
+    Fast path: checks cache (~200 ms), pins stream, queues Downloader job at top
+    priority, returns immediately.  All heavy work (add_torrent, update_item_attributes,
+    VFS registration, library update, post-processing) runs in the background
+    Downloader pipeline — no blocking in the API thread.
     """
     t0 = time.monotonic()
     logger.debug(
-        "activate_stream [{}/{}]: start (service_key={!r})", item_id, stream_id, service_key
+        "activate_stream [{}/{}]: start service_key={!r} force={}",
+        item_id, stream_id, service_key, force,
     )
 
     if not program.services or not program.services.downloader:
@@ -1719,9 +1862,6 @@ def _activate_stream_sync(
         )
     downloader = program.services.downloader
 
-    activate_message = f"Activated stream {stream_id} for item {item_id}"
-    emit_downloader = True
-
     with db_session() as session:
         item = (
             session.execute(select(MediaItem).where(MediaItem.id == item_id))
@@ -1730,10 +1870,7 @@ def _activate_stream_sync(
         )
 
         if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Item not found",
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
         if isinstance(item, Episode):
             stream, scope, season = _find_stream_in_episode_union(session, item, stream_id)
@@ -1744,79 +1881,27 @@ def _activate_stream_sync(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Cannot activate a blacklisted stream",
                     )
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Stream not found",
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
 
             if scope == "season":
+                # Clear episode override — no download involved
                 episode_merged = session.merge(item)
 
-                def clear_episode_override(i: MediaItem, s: Session):
+                def clear_episode_override(i: MediaItem, s: Session) -> None:
                     i.streams.clear()
                     i.active_stream = None
 
-                apply_item_mutation(
-                    program,
-                    session,
-                    episode_merged,
-                    clear_episode_override,
-                    bubble_parents=True,
-                )
+                apply_item_mutation(program, session, episode_merged, clear_episode_override, bubble_parents=True)
                 session.commit()
-                activate_message = "Cleared episode stream override; using season streams."
-                emit_downloader = False
-            else:
-                selected_service = _resolve_downloader_service(downloader, service_key)
-                item_merged = session.merge(item)
-                t_dl = time.monotonic()
-                logger.info(
-                    "activate_stream [{}/{}]: calling start_manual_download via {}",
-                    item_id, stream_id, selected_service.key,
+                logger.debug("activate_stream [{}/{}]: total {:.2f}s", item_id, stream_id, time.monotonic() - t0)
+                return ActivateStreamResult(
+                    message="Cleared episode stream override; using season streams.",
+                    queued=False,
+                    cached=True,
                 )
-                try:
-                    success = downloader.start_manual_download(
-                        item=item_merged,
-                        stream=stream,
-                        service=selected_service,
-                        file_ids=None,
-                    )
-                except CircuitBreakerOpen as e:
-                    logger.warning(
-                        "activate_stream [{}/{}]: circuit breaker open ({})",
-                        item_id, stream_id, e.name,
-                    )
-                    retry = (
-                        f"try again in {int(e.retry_after)}s"
-                        if e.retry_after
-                        else "try again shortly"
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail=(
-                            f"Debrid service temporarily unavailable ({e.name}); {retry}"
-                        ),
-                    ) from e
-                except Exception as e:
-                    logger.exception("activate_stream [{}/{}]: start_manual_download failed", item_id, stream_id)
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=f"Failed to activate stream: {e}",
-                    ) from e
 
-                logger.info(
-                    "activate_stream [{}/{}]: start_manual_download took {:.2f}s, success={}",
-                    item_id, stream_id, time.monotonic() - t_dl, success,
-                )
-                if not success:
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=(
-                            "Failed to activate stream (not cached on debrid or no matching "
-                            "files for this item)"
-                        ),
-                    )
-                session.commit()
+            selected_service = _resolve_downloader_service(downloader, service_key)
+            result = _pin_stream_and_queue(program, session, item, stream, selected_service, force)
         else:
             _owner, streams, blacklisted = _streams_source_for_item(session, item)
             stream = next((s for s in streams if s.id == stream_id), None)
@@ -1826,115 +1911,53 @@ def _activate_stream_sync(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Cannot activate a blacklisted stream",
                     )
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Stream not found",
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
 
             selected_service = _resolve_downloader_service(downloader, service_key)
-            item_merged = session.merge(item)
-            t_dl = time.monotonic()
-            logger.info(
-                "activate_stream [{}/{}]: calling start_manual_download via {}",
-                item_id, stream_id, selected_service.key,
-            )
-            try:
-                success = downloader.start_manual_download(
-                    item=item_merged,
-                    stream=stream,
-                    service=selected_service,
-                    file_ids=None,
-                )
-            except CircuitBreakerOpen as e:
-                logger.warning(
-                    "activate_stream [{}/{}]: circuit breaker open ({})",
-                    item_id, stream_id, e.name,
-                )
-                retry = (
-                    f"try again in {int(e.retry_after)}s"
-                    if e.retry_after
-                    else "try again shortly"
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=(
-                        f"Debrid service temporarily unavailable ({e.name}); {retry}"
-                    ),
-                ) from e
-            except Exception as e:
-                logger.exception("activate_stream [{}/{}]: start_manual_download failed", item_id, stream_id)
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Failed to activate stream: {e}",
-                ) from e
+            result = _pin_stream_and_queue(program, session, item, stream, selected_service, force)
 
-            logger.info(
-                "activate_stream [{}/{}]: start_manual_download took {:.2f}s, success={}",
-                item_id, stream_id, time.monotonic() - t_dl, success,
-            )
-            if not success:
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=(
-                        "Failed to activate stream (not cached on debrid or no matching files "
-                        "for this item)"
-                    ),
-                )
-            session.commit()
-
-    logger.debug(
-        "activate_stream [{}/{}]: total {:.2f}s", item_id, stream_id, time.monotonic() - t0
-    )
-
-    if emit_downloader:
-        try:
-            program.em.add_event(Event("Downloader", item_id))
-        except Exception:
-            logger.warning(
-                "activate_stream: could not emit Downloader event for {}", item_id
-            )
-
-    return MessageResponse(message=activate_message)
+    logger.debug("activate_stream [{}/{}]: total {:.2f}s", item_id, stream_id, time.monotonic() - t0)
+    return result
 
 
 @router.post(
     "/{item_id}/streams/{stream_id}/activate",
     summary="Activate stream for media item",
     description=(
-        "Switch the item to this scraped stream: validate on debrid, fetch links, "
-        "update filesystem metadata and active_stream, then enqueue downloader follow-up. "
-        "Pass service_key to choose which initialized debrid service to use. "
-        "Runs in a thread pool so debrid I/O does not block the event loop."
+        "Check cache availability on the selected debrid service, pin the stream on the item, "
+        "and add a top-priority Downloader job.  Returns in <1 s regardless of torrent size. "
+        "The background Downloader pipeline handles add_torrent, VFS registration, library "
+        "update, and post-processing. "
+        "Pass force=true to request caching when the torrent is not yet cached on the service."
     ),
     operation_id="activate_item_stream",
-    response_model=MessageResponse,
+    response_model=ActivateStreamResult,
 )
 async def activate_item_stream(
-    item_id: Annotated[
-        int,
-        Path(description="The ID of the media item", ge=1),
-    ],
-    stream_id: Annotated[
-        int,
-        Path(description="The ID of the Stream row to activate", ge=1),
-    ],
+    item_id: Annotated[int, Path(description="The ID of the media item", ge=1)],
+    stream_id: Annotated[int, Path(description="The ID of the Stream row to activate", ge=1)],
     service_key: Annotated[
         Optional[str],
+        Query(description="Debrid service key (realdebrid, alldebrid, torbox, debridlink). Defaults to primary."),
+    ] = None,
+    force: Annotated[
+        bool,
         Query(
             description=(
-                "Debrid service key to use (e.g. realdebrid, alldebrid, torbox, "
-                "debridlink). Defaults to the primary initialized service."
+                "If true and the torrent is not cached, call createtorrent on the service to "
+                "request caching.  The item is NOT added to the pipeline queue — re-activate "
+                "once the torrent appears as cached."
             )
         ),
-    ] = None,
-) -> MessageResponse:
+    ] = False,
+) -> ActivateStreamResult:
     program = di[Program]
     if not program.services or not program.services.downloader:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Downloader service not available",
         )
-    return await run_in_threadpool(_activate_stream_sync, item_id, stream_id, service_key, program)
+    return await run_in_threadpool(_activate_stream_sync, item_id, stream_id, service_key, force, program)
 
 
 class ActivateByHashPayload(BaseModel):
@@ -1951,23 +1974,29 @@ class ActivateByHashPayload(BaseModel):
             "Defaults to the primary initialized service.",
         ),
     ] = None
+    force: Annotated[
+        bool,
+        Field(
+            default=False,
+            description=(
+                "If true and the torrent is not cached, call createtorrent/add_magnet on the "
+                "service to request caching.  The item is NOT queued for immediate download."
+            ),
+        ),
+    ] = False
 
 
 def _activate_by_hash_sync(
     item_id: int,
     payload: ActivateByHashPayload,
     program: "Program",
-) -> MessageResponse:
+) -> ActivateStreamResult:
     """
-    Activate a stream by infohash — the candidate path.
+    Activate a stream by infohash — the candidate path (scraped candidates).
 
-    Finds or creates a Stream row from the infohash + optional raw_title, links it to
-    the media item, then runs the same start_manual_download pipeline as the stream_id
-    activate endpoint. Emits a Downloader event afterwards to trigger VFS registration,
-    library update, and post-processing.
-
-    Runs in a thread pool (same as _activate_stream_sync) so blocking debrid I/O
-    does not stall the event loop.
+    Finds or creates a Stream row, checks cache availability on the selected service,
+    pins the stream on the item, and queues a top-priority Downloader job.
+    Same fast semantics as _activate_stream_sync — returns in <1 s.
     """
     t0 = time.monotonic()
     infohash = payload.infohash.strip().lower()
@@ -2052,82 +2081,35 @@ def _activate_by_hash_sync(
             logger.debug("activate_by_hash [{}]: created new stream id={}", item_id, stream.id)
 
         selected_service = _resolve_downloader_service(downloader, service_key)
-        item_merged = session.merge(item)
-
-        t_dl = time.monotonic()
-        logger.info(
-            "activate_by_hash [{}]: calling start_manual_download via {}",
-            item_id, selected_service.key,
+        result = _pin_stream_and_queue(
+            program, session, item, stream, selected_service, payload.force
         )
-        try:
-            success = downloader.start_manual_download(
-                item=item_merged,
-                stream=stream,
-                service=selected_service,
-                file_ids=None,
-            )
-        except CircuitBreakerOpen as e:
-            logger.warning("activate_by_hash [{}]: circuit breaker open ({})", item_id, e.name)
-            retry = (
-                f"try again in {int(e.retry_after)}s" if e.retry_after else "try again shortly"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Debrid service temporarily unavailable ({e.name}); {retry}",
-            ) from e
-        except Exception as e:
-            logger.exception("activate_by_hash [{}]: start_manual_download failed", item_id)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to activate stream: {e}",
-            ) from e
-
-        logger.info(
-            "activate_by_hash [{}]: start_manual_download took {:.2f}s, success={}",
-            item_id, time.monotonic() - t_dl, success,
-        )
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to activate stream (not cached on debrid or no matching files for this item)",
-            )
-
-        session.commit()
 
     logger.info(
-        "activate_by_hash [{}]: total {:.2f}s, emitting Downloader event",
-        item_id, time.monotonic() - t0,
+        "activate_by_hash [{}]: total {:.2f}s queued={}",
+        item_id, time.monotonic() - t0, result.queued,
     )
-    try:
-        program.em.add_event(Event("Downloader", item_id))
-    except Exception:
-        logger.warning("activate_by_hash [{}]: could not emit Downloader event", item_id)
-
-    return MessageResponse(message=f"Stream activated via {selected_service.key}")
+    return result
 
 
 @router.post(
     "/{item_id}/streams/activate_by_hash",
     summary="Activate a stream by infohash (candidate path)",
     description=(
-        "Resolve an infohash on debrid, download, update VFS metadata, and enqueue the "
-        "full pipeline (FilesystemService → Updater → PostProcessing). "
-        "Use this for scraped candidates that do not yet have a Stream DB row. "
-        "Runs in a thread pool so debrid I/O does not block the event loop."
+        "Check cache, pin stream, and queue a top-priority Downloader job for a scraped "
+        "candidate that does not yet have a Stream DB row.  Returns in <1 s. "
+        "Set force=true in the payload to request caching when not immediately cached."
     ),
     operation_id="activate_item_stream_by_hash",
-    response_model=MessageResponse,
+    response_model=ActivateStreamResult,
 )
 async def activate_stream_by_hash(
-    item_id: Annotated[
-        int,
-        Path(description="The ID of the media item", ge=1),
-    ],
+    item_id: Annotated[int, Path(description="The ID of the media item", ge=1)],
     payload: Annotated[
         ActivateByHashPayload,
-        Body(description="Infohash, optional raw title, and optional service key"),
+        Body(description="Infohash, optional raw title, optional service key, optional force"),
     ],
-) -> MessageResponse:
+) -> ActivateStreamResult:
     program = di[Program]
     if not program.services or not program.services.downloader:
         raise HTTPException(
