@@ -151,6 +151,22 @@ class DownloaderBase(ABC):
 
         raise NotImplementedError()
 
+    def prepare_download(self, container: "TorrentContainer", infohash: str) -> None:
+        """
+        Called by the orchestrator before download_cached_stream_on_service when
+        get_instant_availability() returned a container with torrent_id=None.
+
+        Services that defer the add_torrent / createtorrent call to actual download
+        time should override this to:
+          - add the torrent to the service account → set container.torrent_id
+          - generate per-file download URLs → set DebridFile.download_url on each file
+          - optionally build a TorrentInfo and set container.torrent_info
+
+        Default: no-op.  Services that already set container.torrent_id inside
+        get_instant_availability() (Real-Debrid, AllDebrid, DebridLink) do not need
+        to override this.
+        """
+
 
 def parse_filename(filename: str) -> ParsedData:
     """Parse a filename using RTN and return ParsedData directly"""

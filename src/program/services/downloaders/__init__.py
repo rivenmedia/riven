@@ -1154,30 +1154,40 @@ class Downloader(Runner[None, DownloaderBase]):
         """
         Prepare and return a DownloadedTorrent for a stream using the given service.
 
-        Uses values already present on `container` when available (e.g., `torrent_id`, `torrent_info`); otherwise adds the torrent and/or fetches its info from the service.
+        Uses values already present on `container` when available (e.g., `torrent_id`,
+        `torrent_info`); otherwise calls service.prepare_download() to add the torrent
+        and populate the container (used by TorBox, which defers createtorrent to here).
 
         Returns:
-            DownloadedTorrent: An object containing the torrent id, torrent info, the stream's infohash, and the (possibly updated) container.
+            DownloadedTorrent: An object containing the torrent id, torrent info, the
+            stream's infohash, and the (possibly updated) container.
         """
 
-        torrent_id = None
-
-        # Check if we already have a torrent_id from validation (Real-Debrid optimization)
         if container.torrent_id:
             torrent_id = container.torrent_id
-
             logger.debug(
-                f"Reusing torrent_id {torrent_id} from validation for {stream.infohash}"
+                "Reusing torrent_id {} from validation for {}", torrent_id, stream.infohash
             )
+        else:
+            # Service deferred add_torrent to download time (e.g. TorBox).
+            # prepare_download() must set container.torrent_id, fill file download_urls,
+            # and optionally set container.torrent_info.
+            logger.debug(
+                "download_cached_stream_on_service: calling prepare_download for {} on {}",
+                stream.infohash, service.key,
+            )
+            service.prepare_download(container, stream.infohash)
+            torrent_id = container.torrent_id
+            if not torrent_id:
+                from program.services.downloaders.models import NotCachedException
+                raise NotCachedException(
+                    f"prepare_download did not set torrent_id for {stream.infohash}"
+                )
 
-        assert torrent_id
-
-        # Check if we already have torrent_info from validation (Real-Debrid optimization)
         if container.torrent_info:
             info = container.torrent_info
-            logger.debug(f"Reusing cached torrent_info for {stream.infohash}")
+            logger.debug("Reusing cached torrent_info for {}", stream.infohash)
         else:
-            # Fallback: fetch info if not cached
             info = service.get_torrent_info(torrent_id)
 
         if container.file_ids:
