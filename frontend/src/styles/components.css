@@ -614,6 +614,76 @@ details[open].collapsible-panel .collapsible-panel__chevron {
   max-width: min(520px, 92vw);
 }
 
+/* Progress modal */
+.modal--progress {
+  min-width: min(400px, 92vw);
+  max-width: min(560px, 92vw);
+}
+
+.modal--progress__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.modal--progress__stream-title {
+  font-size: var(--font-size-1);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal--progress__status {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 1.8rem;
+}
+
+.modal--progress__activity {
+  color: var(--text-1);
+  font-size: var(--font-size-1);
+  line-height: 1.4;
+}
+
+.modal--progress__icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  width: 1.2rem;
+  text-align: center;
+}
+
+.modal--progress__icon--done {
+  color: #a8e6a0;
+}
+
+.modal--progress__icon--error {
+  color: #ff8a8a;
+}
+
+.modal--progress__state {
+  font-size: var(--font-size-0);
+  color: var(--text-2);
+  margin: 0;
+}
+
+/* Spinner used inside progress modal */
+@keyframes _riven-spin {
+  to { transform: rotate(360deg); }
+}
+
+.progress-spinner {
+  display: inline-block;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--text-1);
+  border-radius: 50%;
+  animation: _riven-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
 .modal--result__title--success {
   color: #a8e6a0;
 }
