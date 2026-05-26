@@ -2002,12 +2002,15 @@ def _activate_by_hash_sync(
                 detail="Cannot activate a blacklisted stream",
             )
 
-        # Reuse an existing Stream row if one already exists in the DB for this infohash
+        # Reuse an existing Stream row if one already exists in the DB for this infohash.
+        # Stream.infohash has no unique constraint — the same torrent can be linked to
+        # multiple MediaItems — so use .scalars().first() to safely handle duplicates.
         from program.media.stream import Stream as MediaStream
 
         existing_stream = (
             session.execute(select(MediaStream).where(MediaStream.infohash == infohash))
-            .scalar_one_or_none()
+            .scalars()
+            .first()
         )
 
         if existing_stream is not None:
