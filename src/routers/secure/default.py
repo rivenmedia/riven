@@ -601,6 +601,53 @@ def _download_user_info_sync(*, refresh: bool = False) -> DownloaderUserInfoResp
     return result
 
 
+class DownloaderServiceInfo(BaseModel):
+    """Key and availability for a single initialized debrid service."""
+
+    key: str = Field(description="Service identifier, e.g. realdebrid, alldebrid, torbox, debridlink")
+    available: bool = Field(description="False when the service is in a circuit-breaker cooldown")
+
+
+class DownloaderServicesResponse(BaseModel):
+    services: list[DownloaderServiceInfo] = Field(
+        description="All currently initialized debrid services"
+    )
+
+
+@router.get(
+    "/downloader_services",
+    summary="List initialized downloader services",
+    description="Returns the key and availability of every initialized debrid service.",
+    operation_id="get_downloader_services",
+    response_model=DownloaderServicesResponse,
+)
+async def get_downloader_services() -> DownloaderServicesResponse:
+    try:
+        program = di[Program]
+        services = program.services
+        if services is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Program services are not ready yet; try again in a few seconds.",
+            )
+        downloader = services.downloader
+        if not downloader or not downloader.initialized:
+            return DownloaderServicesResponse(services=[])
+
+        operational = downloader.get_operational_status()
+        return DownloaderServicesResponse(
+            services=[
+                DownloaderServiceInfo(key=row["key"], available=bool(row["available"]))
+                for row in operational["services"]
+            ]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error getting downloader services")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e!r}") from e
+
+
 @router.get(
     "/downloader_user_info",
     operation_id="download_user_info",
