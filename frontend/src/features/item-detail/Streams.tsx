@@ -734,11 +734,12 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     onRefresh();
   };
 
-  /** Open progress modal, call activate endpoint, switch to polling on success. */
+  /** Open progress modal, call activate endpoint, switch to polling (or info) on success. */
   const handleActivate = async (
     stream: StreamRowData,
     serviceKey: string,
     pin?: { id?: number | string; infohash?: string } | null,
+    force?: boolean,
   ) => {
     if (typeof stream.id !== 'number') return;
     if (activatingStreamId !== null) return;
@@ -755,25 +756,55 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     });
 
     setActivatingStreamId(stream.id);
-    const qs = `?service_key=${encodeURIComponent(serviceKey)}`;
-    const response = await apiPost(`/items/${itemId}/streams/${stream.id}/activate${qs}`);
+    let qs = `?service_key=${encodeURIComponent(serviceKey)}`;
+    if (force) qs += '&force=true';
+    const response = await apiPost<{ message: string; queued?: boolean; cached?: boolean }>(
+      `/items/${itemId}/streams/${stream.id}/activate${qs}`,
+    );
     setActivatingStreamId(null);
 
     if (!response.ok) {
+      const err = response.error || 'Activation failed';
+      const canForce = response.status === 422 && !force;
       setProgressModal((prev) =>
-        prev ? { ...prev, phase: 'error', errorMessage: response.error || 'Activation failed' } : null,
+        prev
+          ? {
+              ...prev,
+              phase: 'error',
+              errorMessage: canForce
+                ? `${err}\n\nTip: click "Queue for caching" to ask ${serviceLabel(serviceKey)} to download this torrent.`
+                : err,
+              _canForce: canForce,
+              _forceStream: stream,
+              _forceServiceKey: serviceKey,
+            } as ProgressModal & { _canForce?: boolean; _forceStream?: StreamRowData; _forceServiceKey?: string }
+          : null,
       );
       return;
     }
 
-    setProgressModal((prev) =>
-      prev ? { ...prev, phase: 'polling', activity: 'Waiting for pipeline…' } : null,
-    );
+    const data = response.data;
+    if (data?.queued === false) {
+      // Not in pipeline — just show the message (e.g. "requested for caching")
+      setProgressModal((prev) =>
+        prev
+          ? { ...prev, phase: 'done', activity: data.message || 'Request sent', lastState: null }
+          : null,
+      );
+    } else {
+      setProgressModal((prev) =>
+        prev ? { ...prev, phase: 'polling', activity: 'Queued for download — waiting for Downloader…' } : null,
+      );
+    }
     onRefresh();
   };
 
   /** Activate a scraped candidate (infohash only) via activate_by_hash endpoint. */
-  const handleCandidateActivate = async (candidate: CandidateStream, serviceKey: string) => {
+  const handleCandidateActivate = async (
+    candidate: CandidateStream,
+    serviceKey: string,
+    force?: boolean,
+  ) => {
     const title = candidate.raw_title || candidate.infohash;
     setProgressModal({
       itemId,
@@ -785,22 +816,48 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
       errorMessage: null,
     });
 
-    const response = await apiPost(`/items/${itemId}/streams/activate_by_hash`, {
-      infohash: candidate.infohash,
-      raw_title: candidate.raw_title || null,
-      service_key: serviceKey,
-    });
+    const response = await apiPost<{ message: string; queued?: boolean; cached?: boolean }>(
+      `/items/${itemId}/streams/activate_by_hash`,
+      {
+        infohash: candidate.infohash,
+        raw_title: candidate.raw_title || null,
+        service_key: serviceKey,
+        force: force ?? false,
+      },
+    );
 
     if (!response.ok) {
+      const err = response.error || 'Activation failed';
+      const canForce = response.status === 422 && !force;
       setProgressModal((prev) =>
-        prev ? { ...prev, phase: 'error', errorMessage: response.error || 'Activation failed' } : null,
+        prev
+          ? {
+              ...prev,
+              phase: 'error',
+              errorMessage: canForce
+                ? `${err}\n\nTip: click "Queue for caching" to ask ${serviceLabel(serviceKey)} to download this torrent.`
+                : err,
+              _canForce: canForce,
+              _forceCandidate: candidate,
+              _forceServiceKey: serviceKey,
+            } as ProgressModal & { _canForce?: boolean; _forceCandidate?: CandidateStream; _forceServiceKey?: string }
+          : null,
       );
       return;
     }
 
-    setProgressModal((prev) =>
-      prev ? { ...prev, phase: 'polling', activity: 'Waiting for pipeline…' } : null,
-    );
+    const data = response.data;
+    if (data?.queued === false) {
+      setProgressModal((prev) =>
+        prev
+          ? { ...prev, phase: 'done', activity: data.message || 'Request sent', lastState: null }
+          : null,
+      );
+    } else {
+      setProgressModal((prev) =>
+        prev ? { ...prev, phase: 'polling', activity: 'Queued for download — waiting for Downloader…' } : null,
+      );
+    }
     onRefresh();
   };
 
@@ -1285,90 +1342,116 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
       )}
 
       {/* Progress modal — live pipeline tracking after stream activation */}
-      {progressModal && (
-        <dialog
-          ref={progressDialogRef}
-          className="modal modal--progress"
-          onCancel={(e) => {
-            e.preventDefault();
-            setProgressModal(null);
-          }}
-        >
-          <header>
-            <h2>
-              {progressModal.phase === 'done'
-                ? 'Stream Active'
-                : progressModal.phase === 'error'
-                  ? 'Activation Failed'
-                  : `Activating via ${progressModal.serviceName}`}
-            </h2>
-            <button
-              type="button"
-              onClick={() => setProgressModal(null)}
-              data-action="close"
-              aria-label="Dismiss"
-            >
-              &times;
-            </button>
-          </header>
-          <div className="modal-body modal--progress__body">
-            <p className="modal--progress__stream-title" title={progressModal.streamTitle}>
-              {progressModal.streamTitle.length > 80
-                ? `${progressModal.streamTitle.slice(0, 77)}…`
-                : progressModal.streamTitle}
-            </p>
-
-            <div className="modal--progress__status">
-              {progressModal.phase === 'done' ? (
-                <span className="modal--progress__icon modal--progress__icon--done">✓</span>
-              ) : progressModal.phase === 'error' ? (
-                <span className="modal--progress__icon modal--progress__icon--error">✕</span>
-              ) : (
-                <span className="progress-spinner" aria-hidden="true" />
-              )}
-              <span className="modal--progress__activity">
-                {progressModal.phase === 'starting'
-                  ? `Resolving with ${progressModal.serviceName}…`
-                  : progressModal.phase === 'done'
-                    ? 'Available in VFS'
-                    : progressModal.phase === 'error'
-                      ? (progressModal.errorMessage ?? 'An error occurred')
-                      : (progressModal.activity ?? 'Processing…')}
-              </span>
-            </div>
-
-            {progressModal.lastState && progressModal.phase !== 'error' && (
-              <p className="modal--progress__state">
-                State: <strong>{progressModal.lastState}</strong>
+      {progressModal && (() => {
+        const pm = progressModal as ProgressModal & {
+          _canForce?: boolean;
+          _forceStream?: StreamRowData;
+          _forceCandidate?: CandidateStream;
+          _forceServiceKey?: string;
+        };
+        const isTerminal = pm.phase === 'done' || pm.phase === 'error';
+        const isInProgress = pm.phase === 'starting' || pm.phase === 'polling';
+        return (
+          <dialog
+            ref={progressDialogRef}
+            className="modal modal--progress"
+            onCancel={(e) => {
+              e.preventDefault();
+              setProgressModal(null);
+            }}
+          >
+            <header>
+              <h2>
+                {pm.phase === 'done'
+                  ? pm.activity && !pm.lastState
+                    ? 'Request Sent'
+                    : 'Stream Active'
+                  : pm.phase === 'error'
+                    ? 'Activation Failed'
+                    : `Activating via ${pm.serviceName}`}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setProgressModal(null)}
+                data-action="close"
+                aria-label="Dismiss"
+              >
+                &times;
+              </button>
+            </header>
+            <div className="modal-body modal--progress__body">
+              <p className="modal--progress__stream-title" title={pm.streamTitle}>
+                {pm.streamTitle.length > 80 ? `${pm.streamTitle.slice(0, 77)}…` : pm.streamTitle}
               </p>
-            )}
 
-            {(progressModal.phase === 'done' || progressModal.phase === 'error') && (
-              <div className="modal--result__actions">
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  onClick={() => setProgressModal(null)}
-                  autoFocus
-                >
-                  OK
-                </button>
+              <div className="modal--progress__status">
+                {pm.phase === 'done' ? (
+                  <span className="modal--progress__icon modal--progress__icon--done">✓</span>
+                ) : pm.phase === 'error' ? (
+                  <span className="modal--progress__icon modal--progress__icon--error">✕</span>
+                ) : (
+                  <span className="progress-spinner" aria-hidden="true" />
+                )}
+                <span className="modal--progress__activity" style={{ whiteSpace: 'pre-line' }}>
+                  {pm.phase === 'starting'
+                    ? `Checking cache on ${pm.serviceName}…`
+                    : pm.phase === 'done'
+                      ? (pm.activity || 'Available in VFS')
+                      : pm.phase === 'error'
+                        ? (pm.errorMessage ?? 'An error occurred')
+                        : (pm.activity ?? 'Processing…')}
+                </span>
               </div>
-            )}
-            {(progressModal.phase === 'starting' || progressModal.phase === 'polling') && (
-              <div className="modal--result__actions">
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => setProgressModal(null)}
-                >
-                  Dismiss
-                </button>
-              </div>
-            )}
-          </div>
-        </dialog>
-      )}
+
+              {pm.lastState && pm.phase !== 'error' && (
+                <p className="modal--progress__state">
+                  State: <strong>{pm.lastState}</strong>
+                </p>
+              )}
+
+              {isTerminal && (
+                <div className="modal--result__actions" style={{ gap: '0.5rem' }}>
+                  {pm._canForce && pm._forceServiceKey && (
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => {
+                        setProgressModal(null);
+                        if (pm._forceStream) {
+                          void handleActivate(pm._forceStream, pm._forceServiceKey!, undefined, true);
+                        } else if (pm._forceCandidate) {
+                          void handleCandidateActivate(pm._forceCandidate, pm._forceServiceKey!, true);
+                        }
+                      }}
+                    >
+                      Queue for caching on {serviceLabel(pm._forceServiceKey)}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    onClick={() => setProgressModal(null)}
+                    autoFocus
+                  >
+                    OK
+                  </button>
+                </div>
+              )}
+              {isInProgress && (
+                <div className="modal--result__actions">
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => setProgressModal(null)}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+            </div>
+          </dialog>
+        );
+      })()}
     </div>
   );
 }
