@@ -121,24 +121,32 @@ class Program(threading.Thread):
 
     def initialize_services(self):
         """Initialize all services."""
+        t0 = time.monotonic()
+        logger.info("initialize_services: start (triggered by settings change)")
 
-        # Instantiate services fresh on each settings change; settings_manager observers handle reinit
-        _downloader = Downloader()
+        def _timed(name: str, fn):
+            t = time.monotonic()
+            result = fn()
+            logger.debug("initialize_services: {} ready in {:.2f}s", name, time.monotonic() - t)
+            return result
+
+        _downloader = _timed("Downloader", Downloader)
 
         self.services = Services(
-            overseerr=Overseerr(),
-            plex_watchlist=PlexWatchlist(),
-            listrr=Listrr(),
-            mdblist=Mdblist(),
-            trakt=TraktContent(),
-            indexer=IndexerService(),
-            scraping=Scraping(),
-            updater=Updater(),
+            overseerr=_timed("Overseerr", Overseerr),
+            plex_watchlist=_timed("PlexWatchlist", PlexWatchlist),
+            listrr=_timed("Listrr", Listrr),
+            mdblist=_timed("Mdblist", Mdblist),
+            trakt=_timed("TraktContent", TraktContent),
+            indexer=_timed("IndexerService", IndexerService),
+            scraping=_timed("Scraping", Scraping),
+            updater=_timed("Updater", Updater),
             downloader=_downloader,
-            filesystem=FilesystemService(_downloader),
-            post_processing=PostProcessing(),
-            notifications=NotificationService(),
+            filesystem=_timed("FilesystemService", lambda: FilesystemService(_downloader)),
+            post_processing=_timed("PostProcessing", PostProcessing),
+            notifications=_timed("NotificationService", NotificationService),
         )
+        logger.info("initialize_services: all services ready in {:.2f}s", time.monotonic() - t0)
 
         if (
             len(

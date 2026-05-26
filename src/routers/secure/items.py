@@ -1,4 +1,5 @@
 import os
+import time
 
 from collections.abc import Callable, Sequence
 from types import SimpleNamespace
@@ -6,6 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Annotated, Any, Literal, Optional, Self
 from fastapi import APIRouter, Body, HTTPException, Path, status, Query
+from fastapi.concurrency import run_in_threadpool
 from kink import di
 from kink.errors.service_error import ServiceError
 from loguru import logger
@@ -1637,43 +1639,33 @@ def _resolve_downloader_service(
     return downloader.service
 
 
-@router.post(
-    "/{item_id}/streams/{stream_id}/activate",
-    summary="Activate stream for media item",
-    description=(
-        "Switch the item to this scraped stream: validate on debrid, fetch links, "
-        "update filesystem metadata and active_stream, then enqueue downloader follow-up. "
-        "Pass service_key to choose which initialized debrid service to use."
-    ),
-    operation_id="activate_item_stream",
-    response_model=MessageResponse,
-)
-async def activate_item_stream(
-    item_id: Annotated[
-        int,
-        Path(description="The ID of the media item", ge=1),
-    ],
-    stream_id: Annotated[
-        int,
-        Path(description="The ID of the Stream row to activate", ge=1),
-    ],
-    service_key: Annotated[
-        Optional[str],
-        Query(
-            description=(
-                "Debrid service key to use (e.g. realdebrid, alldebrid, torbox, "
-                "debridlink). Defaults to the primary initialized service."
-            )
-        ),
-    ] = None,
+def _activate_stream_sync(
+    item_id: int,
+    stream_id: int,
+    service_key: str | None,
+    program: "Program",
 ) -> MessageResponse:
-    program = di[Program]
+    """
+    Synchronous worker for activate_item_stream.
+
+    Runs in a thread-pool via run_in_threadpool so that the multiple blocking
+    debrid HTTP calls (validate + download) do not stall the asyncio event loop
+    and freeze other in-flight requests.
+    """
+    t0 = time.monotonic()
+    logger.debug(
+        "activate_stream [{}/{}]: start (service_key={!r})", item_id, stream_id, service_key
+    )
+
     if not program.services or not program.services.downloader:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Downloader service not available",
         )
     downloader = program.services.downloader
+
+    activate_message = f"Activated stream {stream_id} for item {item_id}"
+    emit_downloader = True
 
     with db_session() as session:
         item = (
@@ -1687,9 +1679,6 @@ async def activate_item_stream(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Item not found",
             )
-
-        activate_message = f"Activated stream {stream_id} for item {item_id}"
-        emit_downloader = True
 
         if isinstance(item, Episode):
             stream, scope, season = _find_stream_in_episode_union(session, item, stream_id)
@@ -1720,13 +1709,16 @@ async def activate_item_stream(
                     bubble_parents=True,
                 )
                 session.commit()
-                activate_message = (
-                    "Cleared episode stream override; using season streams."
-                )
+                activate_message = "Cleared episode stream override; using season streams."
                 emit_downloader = False
             else:
                 selected_service = _resolve_downloader_service(downloader, service_key)
                 item_merged = session.merge(item)
+                t_dl = time.monotonic()
+                logger.info(
+                    "activate_stream [{}/{}]: calling start_manual_download via {}",
+                    item_id, stream_id, selected_service.key,
+                )
                 try:
                     success = downloader.start_manual_download(
                         item=item_merged,
@@ -1736,8 +1728,8 @@ async def activate_item_stream(
                     )
                 except CircuitBreakerOpen as e:
                     logger.warning(
-                        "activate_item_stream: debrid API temporarily unavailable ({})",
-                        e.name,
+                        "activate_stream [{}/{}]: circuit breaker open ({})",
+                        item_id, stream_id, e.name,
                     )
                     retry = (
                         f"try again in {int(e.retry_after)}s"
@@ -1747,19 +1739,20 @@ async def activate_item_stream(
                     raise HTTPException(
                         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                         detail=(
-                            f"Debrid service temporarily unavailable ({e.name}); "
-                            f"{retry}"
+                            f"Debrid service temporarily unavailable ({e.name}); {retry}"
                         ),
                     ) from e
                 except Exception as e:
-                    logger.exception(
-                        "activate_item_stream: start_manual_download failed"
-                    )
+                    logger.exception("activate_stream [{}/{}]: start_manual_download failed", item_id, stream_id)
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
                         detail=f"Failed to activate stream: {e}",
                     ) from e
 
+                logger.info(
+                    "activate_stream [{}/{}]: start_manual_download took {:.2f}s, success={}",
+                    item_id, stream_id, time.monotonic() - t_dl, success,
+                )
                 if not success:
                     raise HTTPException(
                         status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1785,7 +1778,11 @@ async def activate_item_stream(
 
             selected_service = _resolve_downloader_service(downloader, service_key)
             item_merged = session.merge(item)
-
+            t_dl = time.monotonic()
+            logger.info(
+                "activate_stream [{}/{}]: calling start_manual_download via {}",
+                item_id, stream_id, selected_service.key,
+            )
             try:
                 success = downloader.start_manual_download(
                     item=item_merged,
@@ -1795,8 +1792,8 @@ async def activate_item_stream(
                 )
             except CircuitBreakerOpen as e:
                 logger.warning(
-                    "activate_item_stream: debrid API temporarily unavailable ({})",
-                    e.name,
+                    "activate_stream [{}/{}]: circuit breaker open ({})",
+                    item_id, stream_id, e.name,
                 )
                 retry = (
                     f"try again in {int(e.retry_after)}s"
@@ -1806,19 +1803,20 @@ async def activate_item_stream(
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=(
-                        f"Debrid service temporarily unavailable ({e.name}); "
-                        f"{retry}"
+                        f"Debrid service temporarily unavailable ({e.name}); {retry}"
                     ),
                 ) from e
             except Exception as e:
-                logger.exception(
-                    "activate_item_stream: start_manual_download failed"
-                )
+                logger.exception("activate_stream [{}/{}]: start_manual_download failed", item_id, stream_id)
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"Failed to activate stream: {e}",
                 ) from e
 
+            logger.info(
+                "activate_stream [{}/{}]: start_manual_download took {:.2f}s, success={}",
+                item_id, stream_id, time.monotonic() - t_dl, success,
+            )
             if not success:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1827,18 +1825,61 @@ async def activate_item_stream(
                         "for this item)"
                     ),
                 )
-
             session.commit()
+
+    logger.debug(
+        "activate_stream [{}/{}]: total {:.2f}s", item_id, stream_id, time.monotonic() - t0
+    )
 
     if emit_downloader:
         try:
             program.em.add_event(Event("Downloader", item_id))
         except Exception:
             logger.warning(
-                "activate_item_stream: could not emit Downloader event for {}", item_id
+                "activate_stream: could not emit Downloader event for {}", item_id
             )
 
     return MessageResponse(message=activate_message)
+
+
+@router.post(
+    "/{item_id}/streams/{stream_id}/activate",
+    summary="Activate stream for media item",
+    description=(
+        "Switch the item to this scraped stream: validate on debrid, fetch links, "
+        "update filesystem metadata and active_stream, then enqueue downloader follow-up. "
+        "Pass service_key to choose which initialized debrid service to use. "
+        "Runs in a thread pool so debrid I/O does not block the event loop."
+    ),
+    operation_id="activate_item_stream",
+    response_model=MessageResponse,
+)
+async def activate_item_stream(
+    item_id: Annotated[
+        int,
+        Path(description="The ID of the media item", ge=1),
+    ],
+    stream_id: Annotated[
+        int,
+        Path(description="The ID of the Stream row to activate", ge=1),
+    ],
+    service_key: Annotated[
+        Optional[str],
+        Query(
+            description=(
+                "Debrid service key to use (e.g. realdebrid, alldebrid, torbox, "
+                "debridlink). Defaults to the primary initialized service."
+            )
+        ),
+    ] = None,
+) -> MessageResponse:
+    program = di[Program]
+    if not program.services or not program.services.downloader:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Downloader service not available",
+        )
+    return await run_in_threadpool(_activate_stream_sync, item_id, stream_id, service_key, program)
 
 
 @router.post(
