@@ -24,6 +24,7 @@ from program.program import Program
 from program.media.models import MediaMetadata
 from program.services.downloaders import Downloader
 from program.services.downloaders.models import InvalidDebridFileException
+from program.services.downloaders.shared import DownloaderBase
 from program.services.rate_limit import CircuitBreakerOpen
 
 from ..models.shared import IdListPayload, MessageResponse
@@ -1612,12 +1613,37 @@ async def unblacklist_stream(
         )
 
 
+def _resolve_downloader_service(
+    downloader: Downloader,
+    service_key: str | None,
+) -> "DownloaderBase":
+    """Look up a specific service by key, or fall back to the primary service."""
+    if service_key:
+        svc = next(
+            (s for s in downloader.initialized_services if s.key == service_key),
+            None,
+        )
+        if not svc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Downloader service '{service_key}' is not initialized",
+            )
+        return svc
+    if not downloader.service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No downloader service configured",
+        )
+    return downloader.service
+
+
 @router.post(
     "/{item_id}/streams/{stream_id}/activate",
     summary="Activate stream for media item",
     description=(
         "Switch the item to this scraped stream: validate on debrid, fetch links, "
-        "update filesystem metadata and active_stream, then enqueue downloader follow-up."
+        "update filesystem metadata and active_stream, then enqueue downloader follow-up. "
+        "Pass service_key to choose which initialized debrid service to use."
     ),
     operation_id="activate_item_stream",
     response_model=MessageResponse,
@@ -1631,6 +1657,15 @@ async def activate_item_stream(
         int,
         Path(description="The ID of the Stream row to activate", ge=1),
     ],
+    service_key: Annotated[
+        Optional[str],
+        Query(
+            description=(
+                "Debrid service key to use (e.g. realdebrid, alldebrid, torbox, "
+                "debridlink). Defaults to the primary initialized service."
+            )
+        ),
+    ] = None,
 ) -> MessageResponse:
     program = di[Program]
     if not program.services or not program.services.downloader:
@@ -1639,11 +1674,6 @@ async def activate_item_stream(
             detail="Downloader service not available",
         )
     downloader = program.services.downloader
-    if not downloader.service:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="No downloader service configured",
-        )
 
     with db_session() as session:
         item = (
@@ -1695,12 +1725,13 @@ async def activate_item_stream(
                 )
                 emit_downloader = False
             else:
+                selected_service = _resolve_downloader_service(downloader, service_key)
                 item_merged = session.merge(item)
                 try:
                     success = downloader.start_manual_download(
                         item=item_merged,
                         stream=stream,
-                        service=downloader.service,
+                        service=selected_service,
                         file_ids=None,
                     )
                 except CircuitBreakerOpen as e:
@@ -1752,13 +1783,14 @@ async def activate_item_stream(
                     detail="Stream not found",
                 )
 
+            selected_service = _resolve_downloader_service(downloader, service_key)
             item_merged = session.merge(item)
 
             try:
                 success = downloader.start_manual_download(
                     item=item_merged,
                     stream=stream,
-                    service=downloader.service,
+                    service=selected_service,
                     file_ids=None,
                 )
             except CircuitBreakerOpen as e:

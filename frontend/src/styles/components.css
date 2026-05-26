@@ -558,6 +558,87 @@ details[open].collapsible-panel .collapsible-panel__chevron {
   overflow-y: auto;
 }
 
+/* Downloader picker */
+.stream-downloader-picker {
+  position: fixed;
+  z-index: 300;
+  background: rgba(9, 14, 28, 0.98);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+  padding: 0.25rem 0;
+  min-width: 170px;
+}
+
+.stream-downloader-picker__label {
+  font-size: var(--font-size-0);
+  color: var(--text-2);
+  padding: 0.35rem 0.85rem 0.4rem;
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: 0.15rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.stream-downloader-picker__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.85rem;
+  background: none;
+  border: none;
+  color: var(--text-1);
+  font-size: var(--font-size-1);
+  cursor: pointer;
+  transition: background 0.1s;
+  line-height: 1.3;
+}
+
+.stream-downloader-picker__item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.stream-downloader-picker__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.stream-downloader-picker__cooldown {
+  font-size: var(--font-size-0);
+  color: var(--text-2);
+}
+
+/* Result modal */
+.modal--result {
+  min-width: min(380px, 92vw);
+  max-width: min(520px, 92vw);
+}
+
+.modal--result__title--success {
+  color: #a8e6a0;
+}
+
+.modal--result__title--error {
+  color: #ff8a8a;
+}
+
+.modal--result__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.modal--result__message {
+  line-height: 1.55;
+  color: var(--text-1);
+  word-break: break-word;
+}
+
+.modal--result__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .modal header {
   padding: 0.8rem 0.95rem;
   border-bottom: 1px solid var(--panel-border);

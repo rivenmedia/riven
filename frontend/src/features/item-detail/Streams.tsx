@@ -1,6 +1,7 @@
 /**
  * Streams panel: list streams with blacklist/unblacklist, reset, search scrapers, paste magnet.
- * Highlights the pinned (active) stream. Click a non-blacklisted row to switch.
+ * Highlights the pinned (active) stream. Click a non-blacklisted row to open the downloader
+ * picker; selecting a service triggers download via that specific debrid provider.
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -8,6 +9,19 @@ import { apiFetch, apiGet, apiPost } from '../../shared/api/api';
 import { notify } from '../../shared/notifications/notify';
 import { buildHash } from '../../shared/routing/router';
 import { formatBytes } from '../../shared/utils/utils';
+
+type DownloaderService = { key: string; available: boolean };
+
+const SERVICE_LABELS: Record<string, string> = {
+  realdebrid: 'Real-Debrid',
+  alldebrid: 'AllDebrid',
+  torbox: 'TorBox',
+  debridlink: 'DebridLink',
+};
+
+function serviceLabel(key: string): string {
+  return SERVICE_LABELS[key] ?? key;
+}
 
 export type StreamRowData = {
   id?: number;
@@ -368,7 +382,10 @@ type StreamRowProps = {
   maxRank: number;
   showScopeChip?: boolean;
   extraActions?: ReactNode;
-  onActivate: (stream: StreamRowData) => void;
+  onActivate: (
+    stream: StreamRowData,
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
+  ) => void;
   onBlacklist: (stream: StreamRowData) => void;
 };
 
@@ -406,12 +423,12 @@ function StreamRow({
         isBlacklisted ? 'stream-row--blacklisted' : rowClickable ? 'stream-row--clickable' : ''
       } ${isActivating ? 'stream-row--activating' : ''}`}
       style={bg ? { background: bg } : undefined}
-      onClick={() => rowClickable && onActivate(stream)}
+      onClick={(e) => rowClickable && onActivate(stream, e)}
       onKeyDown={(e) => {
         if (!rowClickable) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onActivate(stream);
+          onActivate(stream, e);
         }
       }}
     >
@@ -489,6 +506,19 @@ export interface StreamsProps {
   onRefresh: () => void;
 }
 
+type ActivationPicker = {
+  stream: StreamRowData;
+  pin?: { id?: number | string; infohash?: string } | null;
+  x: number;
+  y: number;
+};
+
+type ResultModal = {
+  title: string;
+  message: string;
+  tone: 'success' | 'error';
+};
+
 export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
   const [activatingStreamId, setActivatingStreamId] = useState<number | null>(null);
   const [scrapeLoading, setScrapeLoading] = useState(false);
@@ -500,7 +530,12 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
   const [magnet, setMagnet] = useState('');
   const [sessionLoading, setSessionLoading] = useState(false);
   const [clearingBlacklist, setClearingBlacklist] = useState(false);
+  const [downloaderServices, setDownloaderServices] = useState<DownloaderService[]>([]);
+  const [activationPicker, setActivationPicker] = useState<ActivationPicker | null>(null);
+  const [resultModal, setResultModal] = useState<ResultModal | null>(null);
   const sessionDialogRef = useRef<HTMLDialogElement>(null);
+  const resultDialogRef = useRef<HTMLDialogElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const dialog = sessionDialogRef.current;
@@ -510,6 +545,36 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
       if (dialog.open) dialog.close();
     };
   }, [sessionData]);
+
+  useEffect(() => {
+    const dialog = resultDialogRef.current;
+    if (!dialog || !resultModal) return;
+    if (!dialog.open) dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [resultModal]);
+
+  // Fetch initialized downloader services once on mount
+  useEffect(() => {
+    apiGet<{ services: DownloaderService[] }>('/downloader_services').then((res) => {
+      if (res.ok && res.data?.services) {
+        setDownloaderServices(res.data.services);
+      }
+    });
+  }, []);
+
+  // Close picker when clicking outside
+  useEffect(() => {
+    if (!activationPicker) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setActivationPicker(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [activationPicker]);
 
   const mediaType = item?.type === 'movie' ? 'movie' : 'tv';
   const isMovie = mediaType === 'movie';
@@ -594,8 +659,68 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     onRefresh();
   };
 
+  /**
+   * Perform the actual activate API call with a specific service key.
+   * Shows a result modal instead of a toast.
+   */
   const handleActivate = async (
     stream: StreamRowData,
+    serviceKey: string,
+    pin?: { id?: number | string; infohash?: string } | null,
+  ) => {
+    if (typeof stream.id !== 'number') return;
+    if (activatingStreamId !== null) return;
+
+    setActivatingStreamId(stream.id);
+    const qs = `?service_key=${encodeURIComponent(serviceKey)}`;
+    const response = await apiPost(`/items/${itemId}/streams/${stream.id}/activate${qs}`);
+    setActivatingStreamId(null);
+
+    const message = response.ok
+      ? ((response.data as { message?: string })?.message ?? 'Active stream updated')
+      : (response.error ?? 'Failed to switch stream');
+
+    setResultModal({
+      title: response.ok ? 'Stream activated' : 'Activation failed',
+      message,
+      tone: response.ok ? 'success' : 'error',
+    });
+
+    if (response.ok) onRefresh();
+  };
+
+  /**
+   * Clear the episode stream override (activating the season-scope stream).
+   * Does not involve a debrid download — no picker shown.
+   */
+  const handleClearEpisodeOverride = async (stream: StreamRowData) => {
+    if (typeof stream.id !== 'number') return;
+    if (activatingStreamId !== null) return;
+
+    setActivatingStreamId(stream.id);
+    const response = await apiPost(`/items/${itemId}/streams/${stream.id}/activate`);
+    setActivatingStreamId(null);
+
+    const message = response.ok
+      ? ((response.data as { message?: string })?.message ?? 'Using season stream')
+      : (response.error ?? 'Failed to clear override');
+
+    setResultModal({
+      title: response.ok ? 'Done' : 'Failed',
+      message,
+      tone: response.ok ? 'success' : 'error',
+    });
+
+    if (response.ok) onRefresh();
+  };
+
+  /**
+   * Show the downloader picker on stream row click, or activate directly when
+   * only one service is available.
+   */
+  const handleRowClick = (
+    stream: StreamRowData,
+    event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>,
     pin?: { id?: number | string; infohash?: string } | null,
   ) => {
     if (stream.blacklisted || typeof stream.id !== 'number') return;
@@ -603,17 +728,32 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
     if (isStreamPinned(stream, pinRef)) return;
     if (activatingStreamId !== null) return;
 
-    setActivatingStreamId(stream.id);
-    const response = await apiPost(`/items/${itemId}/streams/${stream.id}/activate`);
-    setActivatingStreamId(null);
-    if (!response.ok) {
-      notify(response.error || 'Failed to switch stream', 'error');
+    if (downloaderServices.length === 0) {
+      setResultModal({
+        title: 'No downloader configured',
+        message: 'No debrid service is initialized. Configure one in Settings.',
+        tone: 'error',
+      });
       return;
     }
-    const message =
-      (response.data as { message?: string })?.message || 'Active stream updated';
-    notify(message, 'success');
-    onRefresh();
+
+    if (downloaderServices.length === 1) {
+      void handleActivate(stream, downloaderServices[0].key, pin);
+      return;
+    }
+
+    // Multiple services → show picker near the click position
+    let x: number;
+    let y: number;
+    if ('clientX' in event) {
+      x = event.clientX;
+      y = event.clientY;
+    } else {
+      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = rect.bottom;
+    }
+    setActivationPicker({ stream, pin, x, y });
   };
 
   const renderStreamList = (
@@ -635,7 +775,7 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
         maxRank={maxRank}
         showScopeChip={options.showScopeChip}
         extraActions={options.rowExtraActions?.(stream)}
-        onActivate={(s) => handleActivate(s, options.pin)}
+        onActivate={(s, e) => handleRowClick(s, e, options.pin)}
         onBlacklist={handleBlacklist}
       />
     ));
@@ -803,7 +943,7 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
                     <button
                       type="button"
                       className="btn btn--small btn--secondary"
-                      onClick={() => handleActivate(seasonStream, null)}
+                      onClick={() => handleClearEpisodeOverride(seasonStream)}
                     >
                       Use season stream
                     </button>
@@ -926,6 +1066,79 @@ export function Streams({ data, itemId, item, onRefresh }: StreamsProps) {
                 setSelectedFileIds([]);
               }}
             />
+          </div>
+        </dialog>
+      )}
+
+      {/* Downloader picker — floats near the click position */}
+      {activationPicker && (
+        <div
+          ref={pickerRef}
+          className="stream-downloader-picker"
+          style={{
+            left: Math.min(activationPicker.x, window.innerWidth - 200),
+            top: activationPicker.y + 6,
+          }}
+          role="menu"
+          aria-label="Select downloader"
+        >
+          <div className="stream-downloader-picker__label">Download via</div>
+          {downloaderServices.map((svc) => (
+            <button
+              key={svc.key}
+              type="button"
+              className="stream-downloader-picker__item"
+              disabled={!svc.available || activatingStreamId !== null}
+              title={svc.available ? undefined : 'Service in cooldown'}
+              role="menuitem"
+              onClick={() => {
+                const { stream, pin } = activationPicker;
+                setActivationPicker(null);
+                void handleActivate(stream, svc.key, pin);
+              }}
+            >
+              {serviceLabel(svc.key)}
+              {!svc.available && (
+                <span className="stream-downloader-picker__cooldown"> (cooldown)</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Result modal — requires OK click to dismiss */}
+      {resultModal && (
+        <dialog
+          ref={resultDialogRef}
+          className="modal modal--result"
+          onCancel={(e) => {
+            e.preventDefault();
+            setResultModal(null);
+          }}
+        >
+          <header>
+            <h2
+              className={
+                resultModal.tone === 'success'
+                  ? 'modal--result__title--success'
+                  : 'modal--result__title--error'
+              }
+            >
+              {resultModal.title}
+            </h2>
+          </header>
+          <div className="modal-body modal--result__body">
+            <p className="modal--result__message">{resultModal.message}</p>
+            <div className="modal--result__actions">
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => setResultModal(null)}
+                autoFocus
+              >
+                OK
+              </button>
+            </div>
           </div>
         </dialog>
       )}
