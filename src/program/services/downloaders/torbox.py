@@ -163,8 +163,11 @@ class TorBoxDownloader(DownloaderBase):
         "torbox.api": ResourceSpec(
             label="General API (300/min)",
             owner="torbox",
-            rate=5.0,
-            capacity=10,
+            rate=5.0,   # 300/min = 5 tokens/s sustained
+            # capacity=8: ~1.6 s burst at full rate before throttling.
+            # TorBox's get_instant_availability is now a single checkcached call,
+            # so 8 tokens supports 8 concurrent availability checks before pacing.
+            capacity=8,
         ),
         # torbox.createtorrent removed: see TorBoxAPI comment above.
     }

@@ -185,8 +185,10 @@ class AllDebridDownloader(DownloaderBase):
         "alldebrid.api": ResourceSpec(
             label="API (600/min)",
             owner="alldebrid",
-            rate=10.0,
-            capacity=600,
+            rate=10.0,   # 600/min = 10 tokens/s sustained
+            # capacity was 600 — same burst-exhaustion problem as RealDebrid.
+            # Reduced to 20: ~2 s burst before pacing to sustained rate.
+            capacity=20,
         ),
     }
 
