@@ -167,8 +167,13 @@ class RealDebridDownloader(DownloaderBase):
         "realdebrid.api": ResourceSpec(
             label="API (250/min)",
             owner="realdebrid",
-            rate=250 / 60,
-            capacity=250,
+            rate=250 / 60,  # ~4.17 tokens/s sustained
+            # capacity was 250 (the entire per-minute quota) — that let parallel
+            # Downloader jobs burst 250 calls instantly, immediately triggering
+            # RealDebrid's server-side rate limit and tripping the circuit breaker.
+            # RealDebrid's get_instant_availability makes 2-4 calls per stream, so
+            # 12 tokens ≈ 3 parallel streams before throttling to the sustained rate.
+            capacity=12,
         ),
     }
 
