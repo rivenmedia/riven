@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0%"   stop-color="#7C3AED"/>
+      <stop offset="50%"  stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <!-- Mountain M-peak silhouette traced from the original riven icon -->
+  <path d="M24 220 L90 62 L130 114 L170 48 L232 220 Z"
+        fill="url(#g)"
+        stroke="none"
+        stroke-linejoin="round"
+        stroke-linecap="round"/>
+</svg>

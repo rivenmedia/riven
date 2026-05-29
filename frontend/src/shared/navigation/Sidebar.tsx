@@ -140,7 +140,7 @@ export default function Sidebar({
     >
       <div className="sidebar-brand">
         <a className="sidebar-logo" href="#/dashboard" onClick={onNavigate}>
-          Riven
+          rivenXL
         </a>
         <p className="sidebar-subtitle">Media Control Center</p>
       </div>

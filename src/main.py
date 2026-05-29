@@ -118,7 +118,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Riven",
+    title="rivenXL",
     summary="A media management system.",
     version=get_version(),
     redoc_url=None,
