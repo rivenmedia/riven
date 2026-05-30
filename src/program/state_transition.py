@@ -41,6 +41,12 @@ def process_event(
     if existing_item and existing_item.last_state in [States.Paused, States.Failed]:
         return no_further_processing
 
+    # Unreleased items have no actionable pipeline step — they're waiting for an air date.
+    # The scheduler handles them via reindex_show tasks; re-queuing here would cause a
+    # tight infinite loop ("no transition; re-queued" spam).
+    if existing_item and existing_item.last_state == States.Unreleased:
+        return no_further_processing
+
     if content_item or (
         existing_item
         and existing_item.last_state in (States.Requested, States.Unknown)
@@ -86,8 +92,12 @@ def process_event(
                 if processed_event.related_media_items:
                     items_to_submit += processed_event.related_media_items
         elif isinstance(existing_item, Season):
+            # Exclude Unreleased episodes: they have no actionable pipeline step and
+            # including them causes the fan-out to return an empty items_to_submit list,
+            # which triggers the "no transition; re-queued" loop in program.run.
             incomplete_episodes = [
-                e for e in existing_item.episodes if e.last_state != States.Completed
+                e for e in existing_item.episodes
+                if e.last_state not in [States.Completed, States.Unreleased]
             ]
 
             for episode in incomplete_episodes:

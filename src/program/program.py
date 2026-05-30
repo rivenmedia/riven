@@ -389,20 +389,28 @@ class Program(threading.Thread):
             items_to_submit = processed_event.related_media_items
 
             if not next_service and not items_to_submit:
-                self.em.add_event_to_queue(event)
-                state_name = (
-                    existing_item.last_state.name
+                item_state = (
+                    existing_item.last_state
                     if existing_item and existing_item.last_state
-                    else (
-                        event.item_state.name
-                        if event.item_state
-                        else "none"
+                    else event.item_state
+                )
+                state_name = item_state.name if item_state else "none"
+
+                # Ongoing/Unreleased items have no actionable pipeline step right now.
+                # The scheduler manages them via reindex_show tasks keyed to air dates.
+                # Re-queuing them immediately causes a tight infinite loop that floods
+                # the log with "no transition; re-queued" entries.
+                if item_state in (States.Ongoing, States.Unreleased):
+                    logger.debug(
+                        f"Pipeline: no transition for {state_name} item "
+                        f"{event.log_message}; dropping event (scheduler handles this)"
                     )
-                )
-                logger.info(
-                    f"Pipeline event had no transition; re-queued "
-                    f"{event.log_message} (state={state_name})"
-                )
+                else:
+                    self.em.add_event_to_queue(event)
+                    logger.info(
+                        f"Pipeline event had no transition; re-queued "
+                        f"{event.log_message} (state={state_name})"
+                    )
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:
