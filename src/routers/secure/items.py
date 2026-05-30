@@ -831,8 +831,17 @@ async def retry_items(
                 if item:
 
                     def mutation(i: MediaItem, s: Session):
+                        # Clear Failed state first.  _determine_state() short-circuits
+                        # on last_state==Failed, so store_state() (called by
+                        # apply_item_mutation after this mutation) would immediately
+                        # snap the item back to Failed without this line — and the
+                        # dispatched event would be dropped by the event_manager's
+                        # "item is Failed" guard.
+                        if i.last_state == States.Failed:
+                            i.last_state = States.Unknown
+                        i.updated = False
                         i.scraped_at = None
-                        i.scraped_times = 1
+                        i.scraped_times = 0
 
                     apply_item_mutation(
                         program=di[Program],
@@ -2498,6 +2507,15 @@ async def reindex_item(
             indexer_service = services.indexer
 
             def mutation(i: MediaItem, s: Session):
+                # Clear Failed state before running the indexer so that
+                # store_state() (called by apply_item_mutation after this mutation)
+                # can recompute the correct state.  Without this, _determine_state()
+                # short-circuits on last_state==Failed and the reindex event is
+                # subsequently dropped by the event_manager's "item is Failed" guard.
+                if i.last_state == States.Failed:
+                    i.last_state = States.Unknown
+                    i.updated = False
+
                 # Reset indexed_at to trigger reindexing
                 i.indexed_at = None
 

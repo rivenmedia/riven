@@ -738,6 +738,8 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
   const [stateTotal, setStateTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
+  const [retryingIds, setRetryingIds] = useState<Set<string | number>>(new Set());
+  const [retryingAll, setRetryingAll] = useState(false);
 
   useEffect(() => {
     apiGet('/stats').then((res) => {
@@ -769,6 +771,36 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
     },
     [handleCategoryClick],
   );
+
+  const retryItem = useCallback(async (id: string | number) => {
+    setRetryingIds((prev) => new Set(prev).add(id));
+    const res = await apiPost('/items/retry', { ids: [Number(id)] });
+    setRetryingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (!res.ok) {
+      notify(res.error || 'Retry failed', 'error');
+    } else {
+      notify('Item queued for retry', 'success');
+    }
+  }, []);
+
+  const retryAllFailed = useCallback(async () => {
+    if (!stateItems.length) return;
+    setRetryingAll(true);
+    const ids = stateItems.map((i) => Number(i.id));
+    const res = await apiPost('/items/retry', { ids });
+    setRetryingAll(false);
+    if (!res.ok) {
+      notify(res.error || 'Retry all failed', 'error');
+    } else {
+      notify(`${ids.length} item(s) queued for retry`, 'success');
+    }
+  }, [stateItems]);
+
+  const isFailed = selectedState === 'Failed';
 
   const moviesCounts = countsFromStatsDict(stats.states_movies as Record<string, unknown> | undefined);
   const episodesCounts = countsFromStatsDict(
@@ -820,6 +852,16 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
               ? `${scopeLabel} — ${selectedState}`
               : 'Items by category'}
           </h3>
+          {isFailed && stateItems.length > 0 && (
+            <button
+              type="button"
+              className="btn btn--primary btn--small"
+              onClick={retryAllFailed}
+              disabled={retryingAll}
+            >
+              {retryingAll ? 'Retrying…' : `Retry all ${stateItems.length} shown`}
+            </button>
+          )}
         </div>
         <div className="state-items-list">
           {!selectedState || !selectedScope ? (
@@ -842,6 +884,7 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
                     <th>Title</th>
                     <th>Type</th>
                     <th>Year</th>
+                    {isFailed && <th></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -858,6 +901,18 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
                         </span>
                       </td>
                       <td>{item.year != null ? item.year : '—'}</td>
+                      {isFailed && (
+                        <td>
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--small"
+                            disabled={retryingIds.has(item.id)}
+                            onClick={() => void retryItem(item.id)}
+                          >
+                            {retryingIds.has(item.id) ? '…' : 'Retry'}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
