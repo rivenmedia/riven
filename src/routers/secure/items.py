@@ -1801,13 +1801,23 @@ def _pin_stream_and_queue(
             cached=False,
         )
 
-    # Stream is cached → pin it and hand off to the background Downloader
+    # Stream is cached → reset previous download state and queue the Downloader
     item_merged = session.merge(item)
 
     def set_scraped(i: MediaItem, s: Session) -> None:
-        if stream not in i.streams:
-            i.streams.append(stream)
-        # Re-enter Scraped so the Downloader picks it up from the top of the queue
+        # Clear previous download artefacts so _determine_state() can reach
+        # States.Scraped. Without this, store_state() (called by apply_item_mutation
+        # after this mutation) recomputes to Completed/Symlinked/Downloaded because
+        # filesystem_entry, available_in_vfs, and updated still hold their previous
+        # values — the Downloader event then routes to PostProcessing, not the
+        # Downloader, and the old active_stream pin is never replaced.
+        i.filesystem_entries.clear()   # clears filesystem_entry + available_in_vfs
+        i.active_stream = None         # clears old pin
+        i.updated = False              # clears Updater's "done" flag
+        # Use only the selected stream so the Downloader downloads exactly this
+        # one rather than re-picking the previous (possibly higher-ranked) stream
+        i.streams.clear()
+        i.streams.append(stream)
         i.last_state = States.Scraped
 
     apply_item_mutation(program, session, item_merged, set_scraped, bubble_parents=True)
