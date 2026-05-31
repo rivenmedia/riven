@@ -774,7 +774,7 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
 
   const retryItem = useCallback(async (id: string | number) => {
     setRetryingIds((prev) => new Set(prev).add(id));
-    const res = await apiPost('/items/retry', { ids: [Number(id)] });
+    const res = await apiPost('/items/retry', { ids: [String(id)] });
     setRetryingIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
@@ -790,7 +790,7 @@ function DashboardStates({ route: _route }: { route: AppRoute }) {
   const retryAllFailed = useCallback(async () => {
     if (!stateItems.length) return;
     setRetryingAll(true);
-    const ids = stateItems.map((i) => Number(i.id));
+    const ids = stateItems.map((i) => String(i.id));
     const res = await apiPost('/items/retry', { ids });
     setRetryingAll(false);
     if (!res.ok) {
