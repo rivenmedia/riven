@@ -11,7 +11,6 @@ from program.apis import bootstrap_apis
 from program.services.rate_limit import bootstrap_rate_limit_service
 from program.managers.event_manager import EventManager
 from program.media.item import Episode, MediaItem, Movie, Season, Show
-from program.media.state import States
 from program.media.filesystem_entry import FilesystemEntry
 from program.services.content import (
     Listrr,
@@ -396,21 +395,21 @@ class Program(threading.Thread):
                 )
                 state_name = item_state.name if item_state else "none"
 
-                # Ongoing/Unreleased items have no actionable pipeline step right now.
-                # The scheduler manages them via reindex_show tasks keyed to air dates.
-                # Re-queuing them immediately causes a tight infinite loop that floods
-                # the log with "no transition; re-queued" entries.
-                if item_state in (States.Ongoing, States.Unreleased):
-                    logger.debug(
-                        f"Pipeline: no transition for {state_name} item "
-                        f"{event.log_message}; dropping event (scheduler handles this)"
-                    )
-                else:
-                    self.em.add_event_to_queue(event)
-                    logger.info(
-                        f"Pipeline event had no transition; re-queued "
-                        f"{event.log_message} (state={state_name})"
-                    )
+                # process_event returned nothing actionable for this item. Re-queuing
+                # immediately (run_at=now) just re-pops the same event on the next loop
+                # iteration, producing a tight infinite loop that floods the log with
+                # "no transition; re-queued" entries. This happens for any item whose
+                # state has no actionable pipeline step right now: Ongoing/Unreleased
+                # shows, but also PartiallyCompleted shows/seasons whose only incomplete
+                # children are Failed/Paused (the fan-out returns an empty list).
+                #
+                # Dropping the event is safe: real work is re-introduced by service
+                # completion events and by the scheduler's reindex_show tasks (keyed to
+                # air dates). Nothing relies on this busy re-queue to make progress.
+                logger.debug(
+                    f"Pipeline: no transition for {state_name} item "
+                    f"{event.log_message}; dropping event"
+                )
 
             if items_to_submit:
                 for item_to_submit in items_to_submit:

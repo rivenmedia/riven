@@ -206,3 +206,40 @@ def test_process_event_transition_shows(state, emitted_by, next_service, show):
         result = process_event(emitted_by, show, None, None)
 
     _assert_next_service(result, program, next_service)
+
+
+def test_partially_completed_season_with_only_failed_child_yields_no_transition(
+    season, episode
+):
+    """Regression for the 'no transition; re-queued' infinite loop.
+
+    A PartiallyCompleted season whose only incomplete episode is Failed produces
+    an empty fan-out (Failed children return no_further_processing). process_event
+    must return no service and no items so program.run drops the event instead of
+    re-queuing it in a tight loop.
+    """
+    season.last_state = States.PartiallyCompleted
+    episode.last_state = States.Failed
+    program = _mock_program()
+
+    with patch("program.state_transition.di") as mock_di:
+        mock_di.__getitem__.return_value = program
+        result = process_event("StateTransition", season, None, None)
+
+    assert result.service is None
+    assert result.related_media_items == []
+
+
+def test_partially_completed_show_with_only_failed_child_yields_no_transition(show):
+    """Same regression at the Show level: the empty fan-out must not produce work."""
+    show.last_state = States.PartiallyCompleted
+    show.seasons[0].last_state = States.PartiallyCompleted
+    show.seasons[0].episodes[0].last_state = States.Failed
+    program = _mock_program()
+
+    with patch("program.state_transition.di") as mock_di:
+        mock_di.__getitem__.return_value = program
+        result = process_event("StateTransition", show, None, None)
+
+    assert result.service is None
+    assert result.related_media_items == []
