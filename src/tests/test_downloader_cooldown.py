@@ -40,7 +40,7 @@ def downloader():
 @pytest.fixture
 def mock_item():
     item = Mock(spec=Movie)
-    item.id = "test_item_1"
+    item.id = 1
     item.log_string = "Test Movie (2023)"
     item.active_stream = None
     item.last_state = None

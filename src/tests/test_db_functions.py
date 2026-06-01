@@ -1,94 +1,15 @@
 # tests/test_db_functions.py
 from __future__ import annotations
 
-import os
-
 import pytest
 from RTN import ParsedData, Torrent
-from sqlalchemy import create_engine, text
-from testcontainers.postgres import PostgresContainer
 
-from program.db.db import db, run_migrations
 from program.db.db_functions import (
     get_item_by_external_id,
     item_exists_by_any_id,
 )
 from program.media.item import Episode, MediaItem, Movie, Season, Show
 from program.media.stream import Stream, StreamBlacklistRelation, StreamRelation
-
-
-@pytest.fixture(scope="session")
-def test_container():
-    # One container for the whole test session
-    with PostgresContainer(
-        "postgres:16.4-alpine3.20",
-        username="postgres",
-        password="postgres",
-        dbname="riven",
-    ) as pg:
-        yield pg
-
-
-@pytest.fixture(scope="session")
-def db_engine(test_container):
-    """
-    One engine + one migrated schema for the whole test session.
-    We also relax durability for speed (safe in tests).
-    """
-    url = test_container.get_connection_url()
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
-
-    # Make Alembic target this DB
-    os.environ["DATABASE_URL"] = url
-
-    # Run migrations ONCE (big win)
-    run_migrations(database_url=url)
-
-    # Build an engine for tests
-    engine = create_engine(url, future=True, pool_pre_ping=True)
-
-    # Speed knobs (commit is much cheaper now)
-    with engine.connect() as conn:
-        conn = conn.execution_options(isolation_level="AUTOCOMMIT")
-        conn.execute(text("SET synchronous_commit = OFF"))
-        # Optional extras:
-        # conn.execute(text("SET client_min_messages = WARNING"))
-        # conn.execute(text("SET log_statement = 'none'"))
-
-    # Rebind global db.* so app code uses this engine
-    db.engine = engine
-    db.Session.configure(bind=engine)
-
-    yield engine
-
-    engine.dispose()
-
-
-@pytest.fixture(scope="function")
-def test_scoped_db_session(db_engine):
-    """
-    Hand out a Session for each test. After each test, TRUNCATE all tables
-    instead of dropping the schema / rerunning migrations. Very fast.
-    """
-    session = db.Session()
-    try:
-        yield session
-    finally:
-        session.close()
-        # Fast cleanup: TRUNCATE everything, reset sequences
-        with db_engine.connect() as conn:
-            tables = (
-                conn.execute(
-                    text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-                )
-                .scalars()
-                .all()
-            )
-            if tables:
-                quoted = ", ".join(f'"public"."{t}"' for t in tables)
-                conn.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
-                conn.commit()
 
 
 def _torrent(rt: str, ih: str, pt: str, rank=100, lev=0.9) -> Torrent:
@@ -125,9 +46,6 @@ def _show_tree(
     return show, all_s, all_e
 
 
-# ------------------------------ Tests -------------------------------------- #
-
-
 def test_item_exists_by_any_id_paths(test_scoped_db_session):
     mov = _movie("30002", "tt30002", title="Exists Check")
     test_scoped_db_session.add(mov)
@@ -158,9 +76,24 @@ def test_item_exists_by_any_id_paths(test_scoped_db_session):
 
 def test_item_exists_by_any_id_negative(test_scoped_db_session):
     assert not item_exists_by_any_id(
-        item_id="non_existent",
+        item_id=999999,
         tvdb_id=None,
         tmdb_id=None,
         imdb_id=None,
         session=test_scoped_db_session,
     )
+
+
+def test_get_item_by_external_id_movie(test_scoped_db_session):
+    mov = _movie("42", "tt0000042", title="Lookup Movie")
+    test_scoped_db_session.add(mov)
+    test_scoped_db_session.commit()
+
+    found = get_item_by_external_id(imdb_id="tt0000042", session=test_scoped_db_session)
+    assert found is not None
+    assert found.title == "Lookup Movie"
+
+
+def test_get_item_by_external_id_requires_id():
+    with pytest.raises(ValueError, match="At least one"):
+        get_item_by_external_id()

@@ -2,6 +2,9 @@ name: Verify
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
 
 jobs:
   lint:
@@ -26,8 +29,31 @@ jobs:
           sudo apt install libfuse3-dev
 
       - name: Install the project
-        run: uv sync --locked --all-extras --dev
+        run: uv sync --locked --dev
 
       - uses: jakebailey/pyright-action@v1
         with:
           pylance-version: latest-release
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: pyproject.toml
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          activate-environment: true
+
+      - name: Install the project
+        run: uv sync --locked --dev
+
+      - name: Run backend unit tests
+        working-directory: src
+        run: uv run pytest

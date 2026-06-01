@@ -16,6 +16,8 @@ def _make_downloader() -> Downloader:
     dl._recent_jobs = __import__("collections").deque(maxlen=5)
     dl.initialized_services = []
     dl._service_cooldowns = {}
+    dl._active_jobs_lock = threading.Lock()
+    dl._active_jobs = {}
     return dl
 
 
@@ -169,6 +171,8 @@ def test_run_all_cooldown_records_deferred(_interval, _validate):
     dl.max_streams_per_job = 3
     dl.subtitles_enabled = False
     dl._recent_jobs = __import__("collections").deque(maxlen=5)
+    dl._active_jobs_lock = threading.Lock()
+    dl._active_jobs = {}
 
     dl._acquire_job_slot = MagicMock()
     dl._available_services = MagicMock(return_value=[])
@@ -201,6 +205,8 @@ def test_run_empty_streams_records_failed_detail(_interval, _validate):
     dl.max_streams_per_job = 3
     dl.subtitles_enabled = False
     dl._recent_jobs = __import__("collections").deque(maxlen=5)
+    dl._active_jobs_lock = threading.Lock()
+    dl._active_jobs = {}
 
     dl._acquire_job_slot = MagicMock()
     dl._available_services = MagicMock(return_value=[svc])

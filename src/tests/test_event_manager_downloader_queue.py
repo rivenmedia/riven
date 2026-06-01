@@ -4,7 +4,13 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+
 from program.managers.event_manager import EventManager, FutureWithEvent
+
+pytestmark = [
+    pytest.mark.usefixtures("use_test_database", "seed_common_queue_items"),
+]
 from program.media.state import States
 from program.services.downloaders import Downloader
 from program.types import Event

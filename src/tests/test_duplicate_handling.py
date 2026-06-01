@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Test script to verify duplicate handling works correctly.
-This script tests the new duplicate handling functionality.
-"""
+"""Duplicate handling and MediaItem identity helpers."""
 
 from unittest.mock import MagicMock, patch
 
@@ -14,124 +11,97 @@ from program.media.item import Movie, Show
 
 
 class TestDuplicateHandling:
-    """Test class for duplicate handling functionality."""
+    """Duplicate handling functionality."""
 
-    def test_item_exists_by_id_non_existent(self):
-        """Test item_exists_by_id with non-existent item."""
-        test_id = "test_item_12345"
-        exists = item_exists_by_any_id(test_id)
-        assert not exists, "Non-existent item should return False"
+    def test_item_exists_by_id_non_existent(self, test_scoped_db_session):
+        assert not item_exists_by_any_id(
+            item_id=999999, session=test_scoped_db_session
+        )
 
-    def test_item_exists_by_id_existent(self):
-        """Test item_exists_by_id with existing item."""
-        with patch("program.db.db_functions._maybe_session") as mock_maybe_session:
-            mock_session_instance = MagicMock()
-            mock_session_instance.execute.return_value.scalar_one.return_value = 1
-            mock_maybe_session.return_value.__enter__.return_value = (
-                mock_session_instance,
-                False,
-            )
+    def test_item_exists_by_id_existent(self, test_scoped_db_session):
+        from tests.conftest import seed_movie
 
-            exists = item_exists_by_any_id("existing_id")
-            assert exists, "Existing item should return True"
+        seed_movie(test_scoped_db_session, 1001)
+        assert item_exists_by_any_id(item_id=1001, session=test_scoped_db_session)
 
-    def test_get_item_by_external_id_non_existent(self):
-        """Test get_item_by_external_id with non-existent external ID."""
-        test_imdb = "tt9999999"  # Non-existent IMDB ID
-        item = item_exists_by_any_id(imdb_id=test_imdb)
-        assert item is False, "Non-existent external ID should return False"
+    def test_item_exists_by_external_id_non_existent(self, test_scoped_db_session):
+        assert not item_exists_by_any_id(
+            imdb_id="tt9999999", session=test_scoped_db_session
+        )
 
-    def test_get_item_by_external_id_existent(self):
-        """Test get_item_by_external_id with existing external ID."""
-        with patch("program.db.db_functions._maybe_session") as mock_maybe_session:
-            mock_session_instance = MagicMock()
-            mock_session_instance.execute.return_value.scalar_one.return_value = 1
-            mock_maybe_session.return_value.__enter__.return_value = (
-                mock_session_instance,
-                False,
-            )
+    def test_item_exists_by_external_id_existent(self, test_scoped_db_session):
+        from tests.conftest import seed_movie
 
-            item = item_exists_by_any_id(imdb_id="tt1234567")
-            assert item is True, "Existing external ID should return True"
+        seed_movie(test_scoped_db_session, 1002, imdb_id="tt1234567")
+        assert item_exists_by_any_id(
+            imdb_id="tt1234567", session=test_scoped_db_session
+        )
 
-    def test_get_item_by_external_id_no_ids_provided(self):
-        """Test get_item_by_external_id with no external IDs provided."""
+    def test_item_exists_by_any_id_no_ids_provided(self):
         with pytest.raises(ValueError, match="At least one ID must be provided"):
             item_exists_by_any_id()
 
     def test_media_item_creation_movie(self):
-        """Test Movie creation."""
         movie_data = {"imdb_id": "tt1234567", "title": "Test Movie", "year": 2023}
-
         movie = Movie(movie_data)
-        assert movie.id is None  # ID is None until tmdb_id is provided
+        assert movie.id is None
         assert movie.imdb_id == "tt1234567"
         assert movie.title == "Test Movie"
         assert movie.type == "movie"
 
     def test_media_item_creation_show(self):
-        """Test Show creation."""
         show_data = {
             "tvdb_id": "123456",
             "title": "Test Show",
             "year": 2023,
-            "type": "show",  # Include type for ID generation
+            "type": "show",
         }
-
         show = Show(show_data)
-        assert show.id == "tvdb_show_123456"
+        assert show.id is None
         assert show.tvdb_id == "123456"
         assert show.title == "Test Show"
         assert show.type == "show"
 
     def test_media_item_creation_tmdb_movie(self):
-        """Test Movie creation with TMDB ID."""
         movie_data = {
             "tmdb_id": "51876",
             "title": "Test TMDB Movie",
             "year": 2023,
-            "type": "movie",  # Include type for ID generation
+            "type": "movie",
         }
-
         movie = Movie(movie_data)
-        assert movie.id == "tmdb_movie_51876"
+        assert movie.id is None
         assert movie.tmdb_id == "51876"
         assert movie.title == "Test TMDB Movie"
         assert movie.type == "movie"
 
     def test_duplicate_key_error_handling(self):
-        """Test that IntegrityError for duplicate keys is handled properly."""
-        # Mock the IntegrityError
         mock_error = IntegrityError(
             "duplicate key value violates unique constraint", None, None
         )
-
-        # Test that our error message detection works
         error_message = str(mock_error)
         assert "duplicate key value violates unique constraint" in error_message
 
-        # Test the specific error from the original issue
-        original_error = '(psycopg2.errors.UniqueViolation) duplicate key value violates unique constraint "MediaItem_pkey"\nDETAIL:  Key (id)=(tvdb_show_76894) already exists.'
+        original_error = (
+            '(psycopg2.errors.UniqueViolation) duplicate key value violates unique '
+            'constraint "MediaItem_pkey"\nDETAIL:  Key (id)=(1) already exists.'
+        )
         assert "duplicate key value violates unique constraint" in original_error
 
     def test_media_item_id_generation_edge_cases(self):
-        """Test MediaItem ID generation with edge cases."""
-        # Test with None values - should return None for ID
-        movie_data = {"imdb_id": None, "tmdb_id": None, "title": "Test Movie"}
-
-        movie = Movie(movie_data)
-        # Should return None when no external IDs are provided
+        movie = Movie({"imdb_id": None, "tmdb_id": None, "title": "Test Movie"})
         assert movie.id is None
 
     def test_media_item_log_string(self):
-        """Test MediaItem log_string property."""
-        movie_data = {"imdb_id": "tt1234567", "title": "Test Movie", "year": 2023}
+        movie = Movie({"imdb_id": "tt1234567", "title": "Test Movie", "year": 2023})
+        assert "Test Movie" in movie.log_string
 
-        movie = Movie(movie_data)
-        log_string = movie.log_string
-        # log_string should contain the IMDB ID when title is not available
-        assert "tt1234567" in log_string
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    def test_item_exists_mocked_session(self):
+        with patch("program.db.db_functions._maybe_session") as mock_maybe_session:
+            mock_session_instance = MagicMock()
+            mock_session_instance.execute.return_value.scalar_one.return_value = 1
+            mock_maybe_session.return_value.__enter__.return_value = (
+                mock_session_instance,
+                False,
+            )
+            assert item_exists_by_any_id(item_id=1)

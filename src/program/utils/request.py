@@ -103,7 +103,9 @@ class SmartResponse(requests.Response):
                 else:
                     result[tag] = child_obj
 
+            attrs = dict(element.attrib)
             return SimpleNamespace(
+                **attrs,
                 **result,
                 text=element.text,
             )
