@@ -341,7 +341,7 @@ class AllDebridDownloader(DownloaderBase):
 
             raise
         except AllDebridError as e:
-            logger.warning(f"Availability check failed [{infohash}]: {e}")
+            logger.debug(f"Availability check failed [{infohash}]: {e}")
 
             if torrent_id:
                 try:
