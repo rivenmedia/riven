@@ -1,176 +1,292 @@
-# import json
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
 
-# import pytest
+import pytest
 
-# from program.services.downloaders import alldebrid
-# from program.services.downloaders.alldebrid import (
-#     AllDebridDownloader,
-#     add_torrent,
-#     get_instant_availability,
-#     get_status,
-#     get_torrents,
-# )
-# from program.settings.manager import settings_manager as settings
+from program.services.downloaders.alldebrid import (
+    AllDebridAPI,
+    AllDebridDirectory,
+    AllDebridDownloader,
+    AllDebridFile,
+    AllDebridMagnetLinkEntry,
+    AllDebridMagnetStatusResponse,
+    AllDebridResponse,
+)
 
-
-# @pytest.fixture
-# def downloader(instant, upload, status, status_all, delete):
-#     """Instance of AllDebridDownloader with API calls mocked"""
-#     # mock API calls
-#     _get = alldebrid.get
-#     def get(url, **params):
-#         match url:
-#             case "user":
-#                 return {"data": { "user": { "isPremium": True, "premiumUntil": 1735514599, } } }
-#             case "magnet/instant":
-#                 return instant(url, **params)
-#             case "magnet/upload":
-#                 return upload(url, **params)
-#             case "magnet/delete":
-#                 return delete(url, **params)
-#             case "magnet/status":
-#                 if params.get("id", False):
-#                     return status(url, **params)
-#                 else:
-#                     return status_all(url, **params)
-#             case _:
-#                 raise Exception("unmatched api call")
-#     alldebrid.get = get
-
-#     alldebrid_settings = settings.settings.downloaders.all_debrid
-#     alldebrid_settings.enabled = True
-#     alldebrid_settings.api_key = "key"
-
-#     downloader = AllDebridDownloader()
-#     assert downloader.initialized
-#     yield downloader
-
-#     # tear down mock
-#     alldebrid.get = get
+TEST_DATA = Path(__file__).parent / "test_data"
 
 
-# ## Downloader tests
-# def test_process_hashes(downloader):
-#     hashes = downloader.process_hashes(["abc"], None, [False, True])
-#     assert len(hashes) == 1
+def load_fixture(name: str) -> dict:
+    with open(TEST_DATA / name) as f:
+        return json.load(f)
 
 
-# def test_download_cached(downloader):
-#     torrent_id = downloader.download_cached({"infohash": "abc"})
-#     assert torrent_id == MAGNET_ID
+def make_mock_response(json_body: dict, status_code: int = 200) -> MagicMock:
+    resp = MagicMock()
+    resp.ok = status_code < 400
+    resp.status_code = status_code
+    resp.json.return_value = json_body
+    return resp
 
 
-# def test_get_torrent_names(downloader):
-#     names = downloader.get_torrent_names(123)
-#     assert names == ("Ubuntu 24.04", None)
+def make_downloader() -> AllDebridDownloader:
+    """Construct an AllDebridDownloader without triggering __init__ settings validation."""
+    downloader = object.__new__(AllDebridDownloader)
+    downloader.key = "alldebrid"
+    downloader.api = MagicMock(spec=AllDebridAPI)
+    return downloader
 
 
-# ## API parsing tests
-# def test_get_instant_availability(instant):
-#     alldebrid.get = instant
-#     infohashes = [UBUNTU]
-#     availability = get_instant_availability(infohashes)
-#     assert len(availability[0].get("files", [])) == 2
+# --- Model parsing ---
 
 
-# def test_get_instant_availability_unavailable(instant_unavailable):
-#     alldebrid.get = instant_unavailable
-#     infohashes = [UBUNTU]
-#     availability = get_instant_availability(infohashes)
-#     assert availability[0]["hash"] == UBUNTU
+def test_status_response_parses_links_not_files():
+    """MagnetInfo.links is populated from the API 'links' field, not a nonexistent 'files' field."""
+    body = load_fixture("alldebrid_magnet_status_one_ready.json")
+    parsed = AllDebridResponse[AllDebridMagnetStatusResponse].model_validate(
+        {"data": body}
+    )
+    magnets = parsed.data.data.magnets
+    assert len(magnets) == 1
+    magnet = magnets[0]
+    assert isinstance(magnet, AllDebridMagnetStatusResponse.MagnetInfo)
+    assert magnet.links is not None
+    assert len(magnet.links) == 2
+    assert magnet.links[0].link == "https://alldebrid.com/f/REDACTED"
+    assert magnet.links[0].filename == "ubuntu-24.04-desktop-amd64.iso"
 
 
-# def test_add_torrent(upload):
-#     alldebrid.get = upload
-#     torrent_id = add_torrent(UBUNTU)
-#     assert torrent_id == 251993753
+def test_status_response_normalizes_single_magnet_dict_to_list():
+    """normalize_magnets wraps a bare dict (single magnet) into a list."""
+    body = load_fixture("alldebrid_magnet_status_one_ready.json")
+    parsed = AllDebridResponse[AllDebridMagnetStatusResponse].model_validate(
+        {"data": body}
+    )
+    assert len(parsed.data.data.magnets) == 1
 
 
-# def test_add_torrent_cached(upload_ready):
-#     alldebrid.get = upload_ready
-#     torrent_id = add_torrent(UBUNTU)
-#     assert torrent_id == 251993753
+def test_status_response_downloading_has_empty_links():
+    body = load_fixture("alldebrid_magnet_status_one_downloading.json")
+    parsed = AllDebridResponse[AllDebridMagnetStatusResponse].model_validate(
+        {"data": body}
+    )
+    magnet = parsed.data.data.magnets[0]
+    assert isinstance(magnet, AllDebridMagnetStatusResponse.MagnetInfo)
+    assert magnet.status == "Downloading"
+    assert magnet.links == []
 
 
-# def test_get_status(status):
-#     alldebrid.get = status
-#     torrent_status = get_status(251993753)
-#     assert torrent_status["filename"] == "Ubuntu 24.04"
+def test_link_entry_files_without_l_defaults_to_empty_string():
+    """Files inside links[].files have no 'l' field; AllDebridFile.l should default to ''."""
+    entry = AllDebridMagnetLinkEntry.model_validate(
+        {
+            "link": "https://alldebrid.com/f/ABC",
+            "filename": "movie.mkv",
+            "size": 2_000_000_000,
+            "files": [{"n": "movie.mkv", "s": 2_000_000_000}],
+        }
+    )
+    assert isinstance(entry.files[0], AllDebridFile)
+    assert entry.files[0].l == ""
 
 
-# def test_get_status_unfinished(status_downloading):
-#     alldebrid.get = status_downloading
-#     torrent_status = get_status(251993753)
-#     assert torrent_status["status"] == "Downloading"
+def test_link_entry_directory_parsed_correctly():
+    """A directory entry inside links[].files is parsed as AllDebridDirectory."""
+    entry = AllDebridMagnetLinkEntry.model_validate(
+        {
+            "link": "https://alldebrid.com/f/XYZ",
+            "filename": "Show.S01E01.mkv",
+            "size": 1_500_000_000,
+            "files": [
+                {
+                    "n": "Show Season 1",
+                    "e": [
+                        {"n": "Show.S01E01.mkv", "s": 800_000_000},
+                        {"n": "Show.S01E02.mkv", "s": 700_000_000},
+                    ],
+                }
+            ],
+        }
+    )
+    assert isinstance(entry.files[0], AllDebridDirectory)
+    assert len(entry.files[0].e) == 2
 
 
-# def test_get_torrents(status_all):
-#     alldebrid.get = status_all
-#     torrents = get_torrents()
-#     assert torrents[0]["status"] == "Ready"
+# --- _get_magnet_files ---
 
 
-# def test_delete(delete):
-#     alldebrid.get = delete
-#     delete(123)
+def test_get_magnet_files_extracts_multi_link_ready_magnet():
+    downloader = make_downloader()
+    body = load_fixture("alldebrid_magnet_status_one_ready.json")
+    downloader.api.session.post.return_value = make_mock_response(body)
+
+    result = downloader._get_magnet_files(251993753)
+
+    assert result is not None
+    assert len(result) == 2
+    assert result[0].n == "ubuntu-24.04-desktop-amd64.iso"
+    assert result[0].s == 6114656256
+    assert result[0].l == "https://alldebrid.com/f/REDACTED"
 
 
-# # Example requests - taken from real API calls
-# UBUNTU = "3648baf850d5930510c1f172b534200ebb5496e6"
-# MAGNET_ID = "251993753"
-# @pytest.fixture
-# def instant():
-#     """GET /magnet/instant?magnets[0]=infohash (torrent available)"""
-#     with open("src/tests/test_data/alldebrid_magnet_instant.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: body
+def test_get_magnet_files_injects_link_url_when_file_has_no_l():
+    """Files with no 'l' in links[].files should inherit the link entry's URL."""
+    downloader = make_downloader()
+    body = {
+        "status": "success",
+        "data": {
+            "magnets": {
+                "id": 1,
+                "filename": "movie.mkv",
+                "size": 2_000_000_000,
+                "status": "Ready",
+                "statusCode": 4,
+                "uploadDate": 1727454272,
+                "completionDate": 1727454803,
+                "links": [
+                    {
+                        "link": "https://alldebrid.com/f/MOVIE",
+                        "filename": "movie.mkv",
+                        "size": 2_000_000_000,
+                        "files": [{"n": "movie.mkv", "s": 2_000_000_000}],
+                    }
+                ],
+            }
+        },
+    }
+    downloader.api.session.post.return_value = make_mock_response(body)
 
-# @pytest.fixture
-# def instant_unavailable():
-#     """GET /magnet/instant?magnets[0]=infohash (torrent unavailable)"""
-#     with open("src/tests/test_data/alldebrid_magnet_instant_unavailable.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: body
+    result = downloader._get_magnet_files(1)
 
-# @pytest.fixture
-# def upload():
-#     """GET /magnet/upload?magnets[]=infohash (torrent not ready yet)"""
-#     with open("src/tests/test_data/alldebrid_magnet_upload_not_ready.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: body
+    assert result is not None
+    assert len(result) == 1
+    assert result[0].l == "https://alldebrid.com/f/MOVIE"
 
-# @pytest.fixture
-# def upload_ready():
-#     """GET /magnet/upload?magnets[]=infohash (torrent ready)"""
-#     with open("src/tests/test_data/alldebrid_magnet_upload_ready.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: body
 
-# @pytest.fixture
-# def status():
-#     """GET /magnet/status?id=123 (debrid links ready)"""
-#     with open("src/tests/test_data/alldebrid_magnet_status_one_ready.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: body
+def test_get_magnet_files_falls_back_to_link_entry_when_files_absent():
+    """When links[].files is None, the link entry itself is used as the file."""
+    downloader = make_downloader()
+    body = {
+        "status": "success",
+        "data": {
+            "magnets": {
+                "id": 2,
+                "filename": "movie.mkv",
+                "size": 2_000_000_000,
+                "status": "Ready",
+                "statusCode": 4,
+                "uploadDate": 1727454272,
+                "completionDate": 1727454803,
+                "links": [
+                    {
+                        "link": "https://alldebrid.com/f/MOVIE",
+                        "filename": "movie.mkv",
+                        "size": 2_000_000_000,
+                        "files": None,
+                    }
+                ],
+            }
+        },
+    }
+    downloader.api.session.post.return_value = make_mock_response(body)
 
-# @pytest.fixture
-# def status_downloading():
-#     """GET /magnet/status?id=123 (debrid links not ready yet)"""
-#     with open("src/tests/test_data/alldebrid_magnet_status_one_downloading.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: body
+    result = downloader._get_magnet_files(2)
 
-# @pytest.fixture
-# def status_all():
-#     """GET /magnet/status (gets a list of all links instead of a single object)"""
-#     # The body is the same as a single item, but with all your magnets in a list.
-#     with open("src/tests/test_data/alldebrid_magnet_status_one_ready.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: {"status": "success", "data": {"magnets": [body["data"]["magnets"]]}}
+    assert result is not None
+    assert len(result) == 1
+    assert result[0].n == "movie.mkv"
+    assert result[0].s == 2_000_000_000
+    assert result[0].l == "https://alldebrid.com/f/MOVIE"
 
-# @pytest.fixture
-# def delete():
-#     """GET /delete"""
-#     with open("src/tests/test_data/alldebrid_magnet_delete.json") as f:
-#         body = json.load(f)
-#     return lambda url, **params: body
+
+def test_get_magnet_files_extracts_nested_directory():
+    """Files inside a directory in links[].files are extracted recursively."""
+    downloader = make_downloader()
+    body = {
+        "status": "success",
+        "data": {
+            "magnets": {
+                "id": 3,
+                "filename": "Show.S01",
+                "size": 3_000_000_000,
+                "status": "Ready",
+                "statusCode": 4,
+                "uploadDate": 1727454272,
+                "completionDate": 1727454803,
+                "links": [
+                    {
+                        "link": "https://alldebrid.com/f/SEASON",
+                        "filename": "Show.S01E01.mkv",
+                        "size": 3_000_000_000,
+                        "files": [
+                            {
+                                "n": "Show Season 1",
+                                "e": [
+                                    {"n": "Show.S01E01.mkv", "s": 1_500_000_000},
+                                    {"n": "Show.S01E02.mkv", "s": 1_500_000_000},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        },
+    }
+    downloader.api.session.post.return_value = make_mock_response(body)
+
+    result = downloader._get_magnet_files(3)
+
+    assert result is not None
+    assert len(result) == 2
+    assert result[0].n == "Show.S01E01.mkv"
+    assert result[0].l == "https://alldebrid.com/f/SEASON"
+    assert result[1].n == "Show.S01E02.mkv"
+    assert result[1].l == "https://alldebrid.com/f/SEASON"
+
+
+def test_get_magnet_files_returns_none_when_not_ready():
+    """Returns None when the magnet has empty links (still downloading)."""
+    downloader = make_downloader()
+    body = load_fixture("alldebrid_magnet_status_one_downloading.json")
+    downloader.api.session.post.return_value = make_mock_response(body)
+
+    result = downloader._get_magnet_files(251993753)
+
+    assert result is None
+
+
+def test_get_magnet_files_returns_none_on_http_error():
+    downloader = make_downloader()
+    downloader.api.session.post.return_value = make_mock_response({}, status_code=500)
+
+    result = downloader._get_magnet_files(999)
+
+    assert result is None
+
+
+# --- get_torrent_info ---
+
+
+def test_get_torrent_info_ready():
+    downloader = make_downloader()
+    body = load_fixture("alldebrid_magnet_status_one_ready.json")
+    downloader.api.session.post.return_value = make_mock_response(body)
+
+    info = downloader.get_torrent_info(251993753)
+
+    assert info.name == "Ubuntu 24.04"
+    assert info.status == "Ready"
+    assert info.bytes == 8869638144
+    assert info.progress == 100.0
+
+
+def test_get_torrent_info_downloading():
+    downloader = make_downloader()
+    body = load_fixture("alldebrid_magnet_status_one_downloading.json")
+    downloader.api.session.post.return_value = make_mock_response(body)
+
+    info = downloader.get_torrent_info(251993753)
+
+    assert info.status == "Downloading"
+    assert info.progress == 0.0
