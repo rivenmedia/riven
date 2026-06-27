@@ -26,7 +26,7 @@ class AllDebridFile(BaseModel):
 
     n: str  # Name
     s: int  # Size in bytes
-    l: str = ""  # Download link
+    l: str = ""  # noqa: E741  # Download link
 
 
 class AllDebridDirectory(BaseModel):
@@ -618,7 +618,17 @@ class AllDebridDownloader(DownloaderBase):
                     for link_entry in links:
                         download_link = link_entry.link
 
-                        for file_or_directory in link_entry.files or []:
+                        if not link_entry.files:
+                            all_files.append(
+                                AllDebridFile(
+                                    n=link_entry.filename,
+                                    s=link_entry.size,
+                                    l=download_link,
+                                )
+                            )
+                            continue
+
+                        for file_or_directory in link_entry.files:
                             if isinstance(file_or_directory, AllDebridFile):
                                 all_files.append(
                                     AllDebridFile(
