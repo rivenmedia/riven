@@ -36,13 +36,6 @@ class AllDebridDirectory(BaseModel):
     e: list[AllDebridFile | AllDebridDirectory]  # Entries (files and subdirectories)
 
 
-class AllDebridMagnetLinkEntry(BaseModel):
-    link: str
-    filename: str
-    size: int
-    files: list[AllDebridFile | AllDebridDirectory] | None = None
-
-
 class AllDebridErrorDetail(BaseModel):
     code: str
     message: str
@@ -84,7 +77,11 @@ class AllDebridMagnet(BaseModel):
         size: int
         ready: bool
 
-    magnets: list[MagnetInfo]
+    class MagnetErrorInfo(BaseModel):
+        magnet: str
+        error: str | AllDebridErrorDetail
+
+    magnets: list[MagnetInfo | MagnetErrorInfo]
 
 
 class AllDebridUserResponse(BaseModel):
@@ -119,7 +116,7 @@ class AllDebridMagnetStatusResponse(BaseModel):
         status_code: int = Field(alias="statusCode")
         upload_date: int = Field(alias="uploadDate")
         completion_date: int = Field(alias="completionDate")
-        links: list[AllDebridMagnetLinkEntry] | None = None
+        files: list[AllDebridFile | AllDebridDirectory] | None = None
 
     class MagnetErrorInfo(BaseModel):
         id: str
@@ -130,8 +127,6 @@ class AllDebridMagnetStatusResponse(BaseModel):
     @field_validator("magnets", mode="before")
     @classmethod
     def normalize_magnets(cls, v: Any):
-        logger.debug(f"Normalizing magnets field: {v}")
-
         if isinstance(v, dict):
             return cast(list[dict[Any, Any]], [v])
 
@@ -547,6 +542,14 @@ class AllDebridDownloader(DownloaderBase):
 
         [magnet_info] = magnets
 
+        if isinstance(magnet_info, AllDebridMagnet.MagnetErrorInfo):
+            err = (
+                magnet_info.error
+                if isinstance(magnet_info.error, str)
+                else magnet_info.error.message
+            )
+            raise AllDebridError(f"Magnet rejected by AllDebrid: {err}")
+
         magnet_id = magnet_info.id
 
         if not magnet_id:
@@ -610,37 +613,11 @@ class AllDebridDownloader(DownloaderBase):
                 if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
                     continue
 
-                links = magnet.links
+                files = magnet.files
 
-                if links:
-                    all_files = list[AllDebridFile]()
-
-                    for link_entry in links:
-                        download_link = link_entry.link
-
-                        if not link_entry.files:
-                            all_files.append(
-                                AllDebridFile(
-                                    n=link_entry.filename,
-                                    s=link_entry.size,
-                                    l=download_link,
-                                )
-                            )
-                            continue
-
-                        for file_or_directory in link_entry.files:
-                            if isinstance(file_or_directory, AllDebridFile):
-                                all_files.append(
-                                    AllDebridFile(
-                                        n=file_or_directory.n,
-                                        s=file_or_directory.s,
-                                        l=file_or_directory.l or download_link,
-                                    )
-                                )
-                            else:
-                                self._add_link_to_files_recursive(
-                                    file_or_directory.e, download_link, all_files
-                                )
+                if files:
+                    all_files: list[AllDebridFile] = []
+                    self._add_link_to_files_recursive(files, "", all_files)
 
                     if all_files:
                         return all_files
