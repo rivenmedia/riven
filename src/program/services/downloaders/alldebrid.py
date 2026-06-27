@@ -6,17 +6,17 @@ from typing import Any, Generic, Literal, TypeVar, cast
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from program.media.item import ProcessedItemType
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
     TorrentContainer,
     TorrentInfo,
-    UserInfo,
     UnrestrictedLink,
+    UserInfo,
 )
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
-from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -26,7 +26,7 @@ class AllDebridFile(BaseModel):
 
     n: str  # Name
     s: int  # Size in bytes
-    l: str  # Download link
+    l: str = ""  # Download link
 
 
 class AllDebridDirectory(BaseModel):
@@ -34,6 +34,13 @@ class AllDebridDirectory(BaseModel):
 
     n: str  # Name
     e: list[AllDebridFile | AllDebridDirectory]  # Entries (files and subdirectories)
+
+
+class AllDebridMagnetLinkEntry(BaseModel):
+    link: str
+    filename: str
+    size: int
+    files: list[AllDebridFile | AllDebridDirectory] | None = None
 
 
 class AllDebridErrorDetail(BaseModel):
@@ -112,7 +119,7 @@ class AllDebridMagnetStatusResponse(BaseModel):
         status_code: int = Field(alias="statusCode")
         upload_date: int = Field(alias="uploadDate")
         completion_date: int = Field(alias="completionDate")
-        files: list[AllDebridFile | AllDebridDirectory] | None
+        links: list[AllDebridMagnetLinkEntry] | None = None
 
     class MagnetErrorInfo(BaseModel):
         id: str
@@ -445,8 +452,7 @@ class AllDebridDownloader(DownloaderBase):
                         s=file_obj.s,
                         l=(
                             # Use the file's own link if present, otherwise inherit from parent
-                            file_obj.l
-                            or download_link
+                            file_obj.l or download_link
                         ),
                     )
                 )
@@ -601,28 +607,30 @@ class AllDebridDownloader(DownloaderBase):
                 return None
 
             for magnet in magnets:
-                # Extract files from links in the status response
-                # Structure: links[].link = download URL, links[].files = file/folder objects
-                # For season packs: links[].files[0].e = array of episode files
-
                 if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
-                    continue  # Skip errored magnets
+                    continue
 
-                files = magnet.files
+                links = magnet.links
 
-                if files:
+                if links:
                     all_files = list[AllDebridFile]()
 
-                    for file_or_directory in files:
-                        download_link = ""
+                    for link_entry in links:
+                        download_link = link_entry.link
 
-                        if isinstance(file_or_directory, AllDebridFile):
-                            download_link = file_or_directory.l
-                        else:
-                            # Recursively process files/folders and add download link
-                            self._add_link_to_files_recursive(
-                                file_or_directory.e, download_link, all_files
-                            )
+                        for file_or_directory in link_entry.files or []:
+                            if isinstance(file_or_directory, AllDebridFile):
+                                all_files.append(
+                                    AllDebridFile(
+                                        n=file_or_directory.n,
+                                        s=file_or_directory.s,
+                                        l=file_or_directory.l or download_link,
+                                    )
+                                )
+                            else:
+                                self._add_link_to_files_recursive(
+                                    file_or_directory.e, download_link, all_files
+                                )
 
                     if all_files:
                         return all_files
