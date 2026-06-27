@@ -16,9 +16,21 @@
             "uploadSpeed": 0,
             "uploadDate": 1727454272,
             "completionDate": 1727454803,
-            "files": [
-                {"n": "ubuntu-24.04-desktop-amd64.iso", "s": 6114656256, "l": "https://alldebrid.com/f/REDACTED"},
-                {"n": "ubuntu-24.04-live-server-amd64.iso", "s": 2754981888, "l": "https://alldebrid.com/f/REDACTED2"}
+            "links": [
+                {
+                    "filename": "ubuntu-24.04-desktop-amd64.iso",
+                    "size": 6114656256,
+                    "files": [{"n": "ubuntu-24.04-desktop-amd64.iso", "s": 6114656256}],
+                    "link": "https://alldebrid.com/f/REDACTED"
+                },
+                {
+                    "filename": "ubuntu-24.04-live-server-amd64.iso",
+                    "size": 2754981888,
+                    "files": [
+                        {"n": "ubuntu-24.04-live-server-amd64.iso", "s": 2754981888}
+                    ],
+                    "link": "https://alldebrid.com/f/REDACTED"
+                }
             ],
             "type": "m",
             "notified": false,

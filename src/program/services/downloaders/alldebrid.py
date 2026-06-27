@@ -6,17 +6,17 @@ from typing import Any, Generic, Literal, TypeVar, cast
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from program.media.item import ProcessedItemType
 from program.services.downloaders.models import (
     DebridFile,
     InvalidDebridFileException,
     TorrentContainer,
     TorrentInfo,
-    UnrestrictedLink,
     UserInfo,
+    UnrestrictedLink,
 )
 from program.settings import settings_manager
 from program.utils.request import CircuitBreakerOpen, SmartResponse, SmartSession
+from program.media.item import ProcessedItemType
 
 from .shared import DownloaderBase, premium_days_left
 
@@ -26,7 +26,7 @@ class AllDebridFile(BaseModel):
 
     n: str  # Name
     s: int  # Size in bytes
-    l: str = ""  # noqa: E741  # Download link
+    l: str  # Download link
 
 
 class AllDebridDirectory(BaseModel):
@@ -77,11 +77,7 @@ class AllDebridMagnet(BaseModel):
         size: int
         ready: bool
 
-    class MagnetErrorInfo(BaseModel):
-        magnet: str
-        error: str | AllDebridErrorDetail
-
-    magnets: list[MagnetInfo | MagnetErrorInfo]
+    magnets: list[MagnetInfo]
 
 
 class AllDebridUserResponse(BaseModel):
@@ -116,7 +112,7 @@ class AllDebridMagnetStatusResponse(BaseModel):
         status_code: int = Field(alias="statusCode")
         upload_date: int = Field(alias="uploadDate")
         completion_date: int = Field(alias="completionDate")
-        files: list[AllDebridFile | AllDebridDirectory] | None = None
+        files: list[AllDebridFile | AllDebridDirectory] | None
 
     class MagnetErrorInfo(BaseModel):
         id: str
@@ -127,6 +123,8 @@ class AllDebridMagnetStatusResponse(BaseModel):
     @field_validator("magnets", mode="before")
     @classmethod
     def normalize_magnets(cls, v: Any):
+        logger.debug(f"Normalizing magnets field: {v}")
+
         if isinstance(v, dict):
             return cast(list[dict[Any, Any]], [v])
 
@@ -341,7 +339,7 @@ class AllDebridDownloader(DownloaderBase):
 
             raise
         except AllDebridError as e:
-            logger.debug(f"Availability check failed [{infohash}]: {e}")
+            logger.warning(f"Availability check failed [{infohash}]: {e}")
 
             if torrent_id:
                 try:
@@ -447,7 +445,8 @@ class AllDebridDownloader(DownloaderBase):
                         s=file_obj.s,
                         l=(
                             # Use the file's own link if present, otherwise inherit from parent
-                            file_obj.l or download_link
+                            file_obj.l
+                            or download_link
                         ),
                     )
                 )
@@ -542,14 +541,6 @@ class AllDebridDownloader(DownloaderBase):
 
         [magnet_info] = magnets
 
-        if isinstance(magnet_info, AllDebridMagnet.MagnetErrorInfo):
-            err = (
-                magnet_info.error
-                if isinstance(magnet_info.error, str)
-                else magnet_info.error.message
-            )
-            raise AllDebridError(f"Magnet rejected by AllDebrid: {err}")
-
         magnet_id = magnet_info.id
 
         if not magnet_id:
@@ -610,14 +601,28 @@ class AllDebridDownloader(DownloaderBase):
                 return None
 
             for magnet in magnets:
+                # Extract files from links in the status response
+                # Structure: links[].link = download URL, links[].files = file/folder objects
+                # For season packs: links[].files[0].e = array of episode files
+
                 if isinstance(magnet, AllDebridMagnetStatusResponse.MagnetErrorInfo):
-                    continue
+                    continue  # Skip errored magnets
 
                 files = magnet.files
 
                 if files:
-                    all_files: list[AllDebridFile] = []
-                    self._add_link_to_files_recursive(files, "", all_files)
+                    all_files = list[AllDebridFile]()
+
+                    for file_or_directory in files:
+                        download_link = ""
+
+                        if isinstance(file_or_directory, AllDebridFile):
+                            download_link = file_or_directory.l
+                        else:
+                            # Recursively process files/folders and add download link
+                            self._add_link_to_files_recursive(
+                                file_or_directory.e, download_link, all_files
+                            )
 
                     if all_files:
                         return all_files
