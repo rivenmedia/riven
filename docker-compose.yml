@@ -1,23 +1,34 @@
-services:
-    # riven-frontend:
-    #     image: spoked/riven-frontend:latest
-    #     container_name: riven-frontend
-    #     restart: unless-stopped
-    #     tty: true
-    #     environment:
-    #         - TZ=Etc/UTC
-    #     ports:
-    #         - 3000:3000
-    #     volumes:
-    #         - /path/to/riven/frontend:/riven/config # You need to mount a config directory here (different from riven)
-    #     depends_on:
-    #         riven:
-    #             condition: service_started
+# ------------------------------------------------------------
+# Docker Compose Profiles
+#
+# This compose file uses "profiles" to control which optional
+# services are started.
+#
+# Services without a profile always start when running `docker compose up`
+#
+# Services with a profile only start when that profile is explicitly enabled
+#
+# Examples:
+#   docker compose up
+#       - Starts the core services only
+#
+#   docker compose --profile updaters up
+#       - Starts core services + Jellyfin
+#
+#   docker compose --profile updaters --profile content up
+#       - Starts multiple optional service groups
+#
+# You can also enable profiles via environment variable:
+#   COMPOSE_PROFILES=updaters,content docker compose up
+#
+# ------------------------------------------------------------
 
+services:
     riven:
-        image: spoked/riven:latest
+        image: spoked/riven:dev
         container_name: riven
         restart: unless-stopped
+        env_file: .env
         ports:
             - "8080:8080"
         tty: true
@@ -29,46 +40,115 @@ services:
         devices:
             - /dev/fuse
         environment:
-            - PUID=1000
-            - PGID=1000
-            - TZ=America/New_York
-            - RIVEN_FORCE_ENV=true
-            - RIVEN_DATABASE_HOST=postgresql+psycopg2://postgres:postgres@riven-db/riven
+            PUID: ${PUID:-1000}
+            PGID: ${PGID:-1000}
+            TZ: ${TZ:-America/New_York}
+            RIVEN_DATABASE_HOST: >-
+                postgresql+psycopg2://${RIVEN_BACKEND_DB_USER:?set in .env}:${RIVEN_BACKEND_DB_PASSWORD:?set in .env}@${RIVEN_BACKEND_DB_HOST:?set in .env}:${RIVEN_BACKEND_DB_PORT:?set in .env}/${RIVEN_BACKEND_DB_NAME:?set in .env}
         healthcheck:
             test: curl -s http://localhost:8080 >/dev/null || exit 1
             interval: 30s
             timeout: 10s
             retries: 10
-        volumes:
-            - /path/to/riven/data:/riven/data
-            - /path/to/riven/mount:/mount:rshared,z
+        volumes: 
+            # NOTE: Make sure RIVEN_APP_DATA and RIVEN_HOST_MOUNT_PATH are created and owned by PUID:PGID
+            # sudo chown -R 1000:1000 <dir>
+            - ${RIVEN_APP_DATA:-./data}:/riven/data # default to ./data if not set in .env
+            - ${RIVEN_HOST_MOUNT_PATH:?set in .env}:/mount:rshared,z
         depends_on:
-            riven_postgres:
+            riven-db:
                 condition: service_healthy
 
-    riven_postgres:
+    riven-db:
         image: postgres:17-alpine
-        container_name: riven-db
+        container_name: riven-postgres
         environment:
             - PGDATA=/var/lib/postgresql/data/pgdata
-            - POSTGRES_USER=postgres
-            - POSTGRES_PASSWORD=postgres
-            - POSTGRES_DB=riven
+            - POSTGRES_USER=${RIVEN_BACKEND_DB_USER:?set in .env}
+            - POSTGRES_PASSWORD=${RIVEN_BACKEND_DB_PASSWORD:?set in .env}
+            - POSTGRES_DB=${RIVEN_BACKEND_DB_NAME:?set in .env}
         volumes:
-            - /path/to/riven/db:/var/lib/postgresql/data/pgdata
+            # NOTE: Make sure RIVEN_DB_DATA is created and owned by PUID:PGID
+            # mkdir -p ./db && sudo chown -R 1000:1000 ./db
+            - ${RIVEN_DB_DATA:-./db}:/var/lib/postgresql/data/pgdata
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U postgres"]
+            test: ["CMD-SHELL", "pg_isready"]
             interval: 10s
             timeout: 5s
             retries: 5
 
+    # riven-frontend: (see https://github.com/rivenmedia/riven-frontend/blob/main/docker-compose.yml)
+
+    # Updaters
     jellyfin:
         image: jellyfin/jellyfin
         container_name: jellyfin
-        user: 1000:1000
+        user: ${PUID:-1000}:${PGID:-1000}
         restart: unless-stopped
         ports:
-        - "8096:8096"
+            - "8096:8096"
         volumes:
-        - /path/to/jellyfin/config:/config
-        - /path/to/riven/mount:/mount:rslave,z
+            - ./jellyfin/config:/config 
+            - ${RIVEN_HOST_MOUNT_PATH:?set in .env}:/mount:rslave,z
+        profiles:
+            - updaters
+
+    # Content
+    overseerr:
+        image: sctx/overseerr:latest
+        container_name: overseerr
+        environment:
+            PUID: ${PUID:-1000}
+            PGID: ${PGID:-1000}
+            TZ: ${TZ:-America/New_York}
+            LOG_LEVEL: debug
+        volumes:
+            - ./overseerr/config:/app/config 
+        ports:
+            - 5055:5055
+        restart: unless-stopped 
+        profiles:
+            - content
+
+    # Scrapers
+    zilean:
+        image: ipromknight/zilean:latest
+        restart: unless-stopped
+        container_name: zilean
+        tty: true
+        environment:
+            POSTGRES_PASSWORD: ${ZILEAN_POSTGRES_PASSWORD:?set in .env}
+        ports:
+            - "8181:8181"
+        volumes:
+            - ./zilean/data:/app/data
+            - ./zilean/tmp:/tmp
+        healthcheck:
+            test: curl --connect-timeout 10 --silent --show-error --fail http://localhost:8181/healthchecks/ping
+            timeout: 60s
+            interval: 30s
+            retries: 10
+        depends_on:
+            zilean-postgres:
+                condition: service_healthy  
+        profiles:
+            - scrapers
+    zilean-postgres:
+        image: postgres:17.2-alpine
+        container_name: zilean-postgres
+        restart: unless-stopped
+        shm_size: 2G
+        environment:
+            PGDATA: /var/lib/postgresql/data/pgdata
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: ${ZILEAN_POSTGRES_PASSWORD:?set in .env}
+            POSTGRES_DB: zilean
+        volumes:
+            - ./zilean/db:/var/lib/postgresql/data/pgdata
+        healthcheck:
+            test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        profiles:
+            - scrapers
