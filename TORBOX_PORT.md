@@ -25,6 +25,19 @@ RIVEN_DOWNLOADERS_TORBOX_API_KEY=your_api_key
 The equivalent `settings.json` keys are `downloaders.torbox.enabled` and
 `downloaders.torbox.api_key`.
 
+## Proxmox VE installer
+
+`scripts/install-proxmox.sh` can be run from a Proxmox VE host shell. It creates
+a privileged Debian 12 LXC with the nesting and FUSE access required by Riven,
+installs Docker, builds this branch, and starts Riven, PostgreSQL, and the Riven
+frontend. Jellyfin can optionally be installed in the same LXC so it can consume
+Riven's namespace-local FUSE mount.
+
+The installer is interactive and refuses to overwrite an existing container ID.
+It stores the TorBox key in a mode-0600 environment file inside the new LXC.
+Review the script before running it: privileged nested containers have a larger
+security surface than an unprivileged application LXC.
+
 ## Design notes and limitations
 
 - Riven only accepts cached TorBox torrents. `add_only_if_cached=true` prevents
