@@ -1,3 +1,5 @@
+FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
+
 # -----------------
 # Builder Stage
 # -----------------
@@ -6,12 +8,9 @@ FROM python:3.13-alpine AS builder
 # Install only the necessary build dependencies
 RUN apk add --no-cache gcc musl-dev libffi-dev python3-dev build-base curl curl-dev openssl-dev fuse3-dev pkgconf fuse3
 
-# Install uv in a system path. The installer's default user-local path is not
-# reliably preserved by BuildKit when this image is built inside nested Docker.
-ENV UV_INSTALL_DIR=/usr/local/bin
-RUN set -o pipefail; \
-    curl -LsSf https://astral.sh/uv/install.sh | sh; \
-    uv --version
+# Copy uv from its official distroless image. This avoids a network-dependent
+# curl installer step and keeps builds reproducible in nested Docker setups.
+COPY --from=uv /uv /uvx /bin/
 
 WORKDIR /app
 
