@@ -62,7 +62,7 @@ unset TORBOX_API_KEY POSTGRES_PASSWORD
 cat > "$APP_DIR/compose.yml" <<'EOF'
 services:
   riven-frontend:
-    image: spoked/riven-frontend:latest
+    image: spoked/riven-frontend:v1.0.0-beta.1
     container_name: riven-frontend
     restart: unless-stopped
     ports:
