@@ -35,6 +35,7 @@ from program.core.runner import MediaItemGenerator, Runner, RunnerResult
 from .realdebrid import RealDebridDownloader
 from .debridlink import DebridLinkDownloader
 from .alldebrid import AllDebridDownloader
+from .torbox import TorBoxDownloader
 
 
 class Downloader(Runner[None, DownloaderBase]):
@@ -46,6 +47,7 @@ class Downloader(Runner[None, DownloaderBase]):
             RealDebridDownloader: RealDebridDownloader(),
             DebridLinkDownloader: DebridLinkDownloader(),
             AllDebridDownloader: AllDebridDownloader(),
+            TorBoxDownloader: TorBoxDownloader(),
         }
 
         # Get all initialized services instead of just the first one

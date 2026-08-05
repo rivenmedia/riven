@@ -42,7 +42,7 @@ async def health() -> MessageResponse:
 class DownloaderUserInfo(BaseModel):
     """Normalized downloader user information response"""
 
-    service: Literal["realdebrid", "alldebrid", "debridlink"]
+    service: Literal["realdebrid", "alldebrid", "debridlink", "torbox"]
     username: str | None = None
     email: str | None = None
     user_id: int | str
