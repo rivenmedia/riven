@@ -9,7 +9,9 @@ RUN apk add --no-cache gcc musl-dev libffi-dev python3-dev build-base curl curl-
 # Install uv in a system path. The installer's default user-local path is not
 # reliably preserved by BuildKit when this image is built inside nested Docker.
 ENV UV_INSTALL_DIR=/usr/local/bin
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN set -o pipefail; \
+    curl -LsSf https://astral.sh/uv/install.sh | sh; \
+    uv --version
 
 WORKDIR /app
 
