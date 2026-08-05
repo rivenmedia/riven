@@ -6,9 +6,10 @@ FROM python:3.13-alpine AS builder
 # Install only the necessary build dependencies
 RUN apk add --no-cache gcc musl-dev libffi-dev python3-dev build-base curl curl-dev openssl-dev fuse3-dev pkgconf fuse3
 
-# Install uv (fast package manager)
+# Install uv in a system path. The installer's default user-local path is not
+# reliably preserved by BuildKit when this image is built inside nested Docker.
+ENV UV_INSTALL_DIR=/usr/local/bin
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /app
 
