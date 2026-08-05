@@ -194,6 +194,8 @@ services:
       TZ: ${TZ:-Etc/UTC}
       RIVEN_FORCE_ENV: "true"
       RIVEN_DATABASE_HOST: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@riven-db/riven
+      RIVEN_FILESYSTEM_MOUNT_PATH: /mount
+      RIVEN_UPDATERS_LIBRARY_PATH: /mount
       RIVEN_DOWNLOADERS_TORBOX_ENABLED: "true"
       RIVEN_DOWNLOADERS_TORBOX_API_KEY: ${TORBOX_API_KEY}
     volumes:
